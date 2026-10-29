@@ -651,6 +651,9 @@ listen.mode = 0660
 pm = ondemand
 pm.max_children = $php_max_children
 pm.status_path = /stepanel-fpm-status
+; Count requests taking at least five seconds, but never persist tenant stack traces.
+request_slowlog_timeout = 5s
+slowlog = /dev/null
 pm.process_idle_timeout = 10s
 pm.max_requests = 500
 chdir = /

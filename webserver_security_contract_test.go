@@ -263,6 +263,9 @@ func TestPHPFPMStatusIsPrivateAndEnabledForManagedPools(t *testing.T) {
 	if !strings.Contains(pool, "pm.status_path = /stepanel-fpm-status") {
 		t.Fatal("managed PHP-FPM pools must configure their private status path")
 	}
+	if !strings.Contains(pool, "request_slowlog_timeout = 5s") || !strings.Contains(pool, "slowlog = /dev/null") {
+		t.Fatal("managed PHP-FPM pools must count five-second slow requests without persisting tenant stack traces")
+	}
 	caddyDeny := strings.Index(caddy, "@stepanel_fpm_status path /stepanel-fpm-status")
 	caddyFastCGI := strings.Index(caddy, "php_fastcgi unix/%s")
 	if caddyDeny < 0 || caddyFastCGI < 0 || caddyDeny > caddyFastCGI || !strings.Contains(caddy, "respond @stepanel_fpm_status 404") {

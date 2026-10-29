@@ -62,6 +62,10 @@ slow-request counters, and instantaneous worker memory measurements where the
 root broker can attribute workers to the site's pool. The usage endpoint reports
 bounded site-tree bytes and an account-quota remaining-space upper bound; it
 does not claim that the tree scan is the kernel's account-wide quota counter.
+Managed pools count requests crossing a five-second FPM slow-request threshold;
+the generated backtrace is sent to `/dev/null`, so StePanel measures the count
+without retaining tenant script paths or stack contents. The counter resets
+when FPM restarts and is historical, not a current slow-request queue.
 Administrators can call `POST /api/reconcile/resources` to re-apply pending or
 inactive desired profiles after a helper failure or host restart; each repair
 is audited.

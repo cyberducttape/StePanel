@@ -33,6 +33,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   view now puts the quota estimate beside live usage and renders PHP-FPM
   recommendation evidence and next steps beside the measured pool counters.
 
+- Managed PHP-FPM pools now count requests exceeding a five-second slow-request
+  threshold. PHP-FPM status and the site resource view expose that threshold
+  with the counter; generated backtraces are discarded to avoid persisting
+  tenant request paths or stack details. Installation smoke verifies the
+  configured threshold through the root-broker status response.
+
 - PHP-FPM worker sizing previews now show two measured projections at the
   proposed worker count: the per-worker P95 estimate and an observed upper
   estimate based on the largest worker in the sample. This makes the likely

@@ -21,13 +21,19 @@ listen = /run/php/stepanel-demo-8.3.sock
 pm = ondemand
 pm.max_children = 12
 pm.status_path = /stepanel-fpm-status
+request_slowlog_timeout = 5s
 `)
 	got, err := parseManagedFPMPool(valid, "demo", "/run/php", "8.3")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.version != "8.3" || got.max != 12 || got.socket != "/run/php/stepanel-demo-8.3.sock" {
+	if got.version != "8.3" || got.max != 12 || got.socket != "/run/php/stepanel-demo-8.3.sock" || got.slowThreshold != "5s" {
 		t.Fatalf("pool = %#v", got)
+	}
+	withoutThreshold := strings.ReplaceAll(string(valid), "request_slowlog_timeout = 5s\n", "")
+	legacy, err := parseManagedFPMPool([]byte(withoutThreshold), "demo", "/run/php", "8.3")
+	if err != nil || legacy.slowThreshold != "off" {
+		t.Fatalf("legacy pool slow-request threshold = %#v, %v; want off", legacy, err)
 	}
 
 	for name, input := range map[string][]byte{
@@ -38,6 +44,7 @@ pm.status_path = /stepanel-fpm-status
 		"socket for wrong version": []byte(strings.ReplaceAll(string(valid), "stepanel-demo-8.3.sock", "stepanel-demo-8.2.sock")),
 		"invalid max children":     []byte(strings.ReplaceAll(string(valid), "pm.max_children = 12", "pm.max_children = 0")),
 		"duplicate listen":         []byte(string(valid) + "listen = /run/php/stepanel-demo.sock\n"),
+		"duplicate slow threshold": []byte(string(valid) + "request_slowlog_timeout = 10s\n"),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := parseManagedFPMPool(input, "demo", "/run/php", "8.3"); err == nil {
@@ -98,8 +105,8 @@ func TestParseFPMStatusNumericFormsAndSaturationSemantics(t *testing.T) {
 }
 
 func TestFPMGuidanceIsEvidenceBoundAndNeverAppliesChanges(t *testing.T) {
-	quiet := fpmPoolGuidance("8.3", FPMStatusPool{ActiveProcesses: 1, IdleProcesses: 3, MaxChildren: 4})
-	if quiet.State != "no-change" || !quiet.OperatorApprovalNeeded || !strings.Contains(quiet.Evidence, "One sample") || !strings.Contains(quiet.Recommendation, "sustained samples") {
+	quiet := fpmPoolGuidance("8.3", FPMStatusPool{ActiveProcesses: 1, IdleProcesses: 3, MaxChildren: 4, SlowRequestThreshold: "5s"})
+	if quiet.State != "no-change" || !quiet.OperatorApprovalNeeded || !strings.Contains(quiet.Evidence, "One sample") || !strings.Contains(quiet.Evidence, "threshold: 5s") || !strings.Contains(quiet.Recommendation, "sustained samples") {
 		t.Fatalf("quiet-pool guidance = %#v", quiet)
 	}
 	pressured := fpmPoolGuidance("8.3", FPMStatusPool{ActiveProcesses: 4, MaxChildren: 4, ListenQueue: 2, Saturated: true, MaxChildrenReached: 3})

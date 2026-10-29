@@ -420,6 +420,8 @@ if not response.get("ok"):
 status = response.get("details", {}).get("fpm_status", {})
 if not status.get("available") or not status.get("pools"):
     raise SystemExit("installed managed PHP-FPM pool did not return live status: " + json.dumps(status))
+if any(pool.get("slow_request_threshold") != "5s" for pool in status["pools"] if pool.get("state") == "available"):
+    raise SystemExit("installed PHP-FPM status does not expose the configured five-second slow-request threshold: " + json.dumps(status))
 print("Installed PHP-FPM status probe passed: " + ", ".join(pool.get("php_version", "default") for pool in status["pools"] if pool.get("state") == "available"))
 PY
 public_status=000

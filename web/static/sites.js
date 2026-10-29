@@ -1709,7 +1709,8 @@
           const details = memory
             ? `${memory.sampled_workers} worker(s) sampled · current summed RSS ${formatBytes(memory.total_rss_bytes)} · mean ${formatBytes(memory.mean_rss_bytes)} · P95 ${formatBytes(memory.p95_rss_bytes)} · projected ${formatBytes(memory.projected_rss_at_max_children_bytes)} at P95 or ${formatBytes(maxObservedProjection)} using the largest observed worker, at max_children ${pool.max_children}`
             : 'Worker RSS unavailable; FPM queue and slow-request counters remain available.';
-          return el('article', { className: 'resource-list-item' }, [el('div', { className: 'item-meta' }, [el('strong', {}, `PHP ${pool.php_version || 'default'} · ${pool.active_processes} active / ${pool.idle_processes} idle / ${pool.max_children} max`), el('small', {}, details)]), el('small', {}, `Request queue now ${pool.listen_queue} (historical peak ${pool.max_listen_queue || 0}); slow requests since FPM start ${pool.slow_requests}; max-children events ${pool.max_children_reached}. A nonzero historical counter is evidence to investigate, not proof of current pressure.`)]);
+          const slowThreshold = pool.slow_request_threshold || 'not configured';
+          return el('article', { className: 'resource-list-item' }, [el('div', { className: 'item-meta' }, [el('strong', {}, `PHP ${pool.php_version || 'default'} · ${pool.active_processes} active / ${pool.idle_processes} idle / ${pool.max_children} max`), el('small', {}, details)]), el('small', {}, `Request queue now ${pool.listen_queue} (historical peak ${pool.max_listen_queue || 0}); slow requests since FPM start ${pool.slow_requests} (threshold ${slowThreshold}); max-children events ${pool.max_children_reached}. A nonzero historical counter is evidence to investigate, not proof of current pressure.`)]);
         })));
       }
       const guidance = Array.isArray(fpm.performance_guidance) ? fpm.performance_guidance : [];

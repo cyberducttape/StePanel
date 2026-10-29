@@ -54,19 +54,20 @@ type FPMGuidance struct {
 }
 
 type FPMStatusPool struct {
-	PHPVersion         string           `json:"php_version,omitempty"`
-	State              string           `json:"state"`
-	ActiveProcesses    uint64           `json:"active_processes"`
-	IdleProcesses      uint64           `json:"idle_processes"`
-	TotalProcesses     uint64           `json:"total_processes"`
-	MaxChildren        uint64           `json:"max_children"`
-	ListenQueue        uint64           `json:"listen_queue"`
-	MaxListenQueue     uint64           `json:"max_listen_queue"`
-	MaxChildrenReached uint64           `json:"max_children_reached"`
-	SlowRequests       uint64           `json:"slow_requests"`
-	WorkerMemory       *FPMWorkerMemory `json:"worker_memory,omitempty"`
-	AtCapacity         bool             `json:"at_capacity"`
-	Saturated          bool             `json:"saturated"`
+	PHPVersion           string           `json:"php_version,omitempty"`
+	State                string           `json:"state"`
+	ActiveProcesses      uint64           `json:"active_processes"`
+	IdleProcesses        uint64           `json:"idle_processes"`
+	TotalProcesses       uint64           `json:"total_processes"`
+	MaxChildren          uint64           `json:"max_children"`
+	ListenQueue          uint64           `json:"listen_queue"`
+	MaxListenQueue       uint64           `json:"max_listen_queue"`
+	MaxChildrenReached   uint64           `json:"max_children_reached"`
+	SlowRequests         uint64           `json:"slow_requests"`
+	SlowRequestThreshold string           `json:"slow_request_threshold"`
+	WorkerMemory         *FPMWorkerMemory `json:"worker_memory,omitempty"`
+	AtCapacity           bool             `json:"at_capacity"`
+	Saturated            bool             `json:"saturated"`
 }
 
 // FPMWorkerMemory is an instantaneous /proc RSS sample of the site's
@@ -86,9 +87,10 @@ type FPMWorkerMemory struct {
 }
 
 type fpmPoolConfig struct {
-	version string
-	socket  string
-	max     uint64
+	version       string
+	socket        string
+	max           uint64
+	slowThreshold string
 }
 
 // collectFPMStatus discovers only root-owned StePanel pool files and only
@@ -124,7 +126,7 @@ func collectFPMStatusFrom(ctx context.Context, site, siteUser, identityConfig st
 		return result, nil
 	}
 	for _, pool := range pools {
-		item := FPMStatusPool{PHPVersion: pool.version, MaxChildren: pool.max, State: "unavailable"}
+		item := FPMStatusPool{PHPVersion: pool.version, MaxChildren: pool.max, SlowRequestThreshold: pool.slowThreshold, State: "unavailable"}
 		// Warnings reach the site's customers, so they never carry socket
 		// paths or raw system errors.
 		if err := verifyFPMSocket(pool.socket, socketRoot, uid); err != nil {
@@ -296,8 +298,12 @@ func fpmPoolIndicators(active, queue, maxChildren uint64) (atCapacity, saturated
 }
 
 func fpmPoolGuidance(version string, pool FPMStatusPool) FPMGuidance {
-	evidence := fmt.Sprintf("One sample: %d active, %d idle, %d queued, max_children %d; %d historical max_children events and %d slow requests since pool start.",
-		pool.ActiveProcesses, pool.IdleProcesses, pool.ListenQueue, pool.MaxChildren, pool.MaxChildrenReached, pool.SlowRequests)
+	threshold := pool.SlowRequestThreshold
+	if threshold == "" {
+		threshold = "not configured"
+	}
+	evidence := fmt.Sprintf("One sample: %d active, %d idle, %d queued, max_children %d; %d historical max_children events and %d slow requests since pool start (slow-request threshold: %s).",
+		pool.ActiveProcesses, pool.IdleProcesses, pool.ListenQueue, pool.MaxChildren, pool.MaxChildrenReached, pool.SlowRequests, threshold)
 	guidance := FPMGuidance{
 		State:                  "no-change",
 		PHPVersion:             version,
@@ -464,7 +470,7 @@ func parseManagedFPMPool(data []byte, site, socketRoot, version string) (fpmPool
 		}
 		key, value = strings.TrimSpace(key), strings.TrimSpace(value)
 		switch key {
-		case "listen", "pm.status_path", "pm.max_children":
+		case "listen", "pm.status_path", "pm.max_children", "request_slowlog_timeout":
 			if _, exists := values[key]; exists {
 				return fpmPoolConfig{}, fmt.Errorf("duplicate %s setting", key)
 			}
@@ -495,7 +501,11 @@ func parseManagedFPMPool(data []byte, site, socketRoot, version string) (fpmPool
 	if err != nil || max < 1 || max > 512 {
 		return fpmPoolConfig{}, errors.New("pool max_children is invalid")
 	}
-	return fpmPoolConfig{version: version, socket: listen, max: max}, nil
+	threshold := strings.TrimSpace(values["request_slowlog_timeout"])
+	if threshold == "" || threshold == "0" || threshold == "0s" {
+		threshold = "off"
+	}
+	return fpmPoolConfig{version: version, socket: listen, max: max, slowThreshold: threshold}, nil
 }
 
 func verifyFPMSocket(path, root string, uid uint32) error {
