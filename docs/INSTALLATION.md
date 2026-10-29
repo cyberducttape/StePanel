@@ -149,9 +149,21 @@ Before changing anything, the installer prints a host preflight:
   content, vhost directories, database services, and login accounts.
 - **PROPOSED CHANGES**: the packages it will install, the services it will
   start, and any web server it would stop and disable.
+- **DATABASE CHANGE PLAN**: the detected server package/version and the
+  requested package-manager default or exact version. For a server package or
+  major-version change, take and verify an engine-native customer database
+  backup first. Installer rollback covers the StePanel control-plane
+  transaction; it does not restore MariaDB/MySQL/PostgreSQL data directories.
+- **CONTROL-PLANE RECOVERY**: on an existing installation, the installer
+  snapshots the SQLite control-plane database before schema migration. See
+  [state recovery](STATE.md#pre-migration-snapshots) for restore and rollback.
 
 Add `--dry-run` with the same environment to validate the configuration and
 print the preflight without making any change.
+Package candidates shown by dry-run come from the host's current package
+metadata; refresh package indexes and rerun the preview immediately before an
+upgrade. The preview is a point-in-time plan, not a reservation of package
+repository state.
 
 If a different web server (Apache, httpd, Caddy, or OpenLiteSpeed) is already
 active or enabled, the installer refuses to continue. Rerun with

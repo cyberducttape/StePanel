@@ -8,6 +8,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- High-risk PHP runtime, domain route, certificate, and Caddy `.htaccess`
+  changes now require a short-lived preview token bound to the observed prior
+  state and proposed change. The preview shows service effects and recovery
+  steps; stale previews are rejected. Prior vhost files are retained as
+  permission-restricted recovery snapshots before replacement or removal.
+  Installer dry-run output now identifies the database package/version plan
+  and distinguishes customer database recovery from the control-plane schema
+  snapshot.
+
 - cPanel migration now previews component-level transfer dispositions and
   compatibility checks before import, then records imported, transformed,
   skipped, unsupported, and failed outcomes in a downloadable report. When the

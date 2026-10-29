@@ -66,6 +66,17 @@ keys may be preserved after access review or deliberately regenerated and
 reinstalled at providers. Privileged helpers and systemd units should be
 recreated from the verified release package and installer.
 
+Before a managed domain route is replaced or removed, StePanel stores the prior
+vhost file as a mode-0600 snapshot under
+`STEPANEL_RECOVERY_ROOT/webserver-config/` and returns its relative path. The
+same applies to Caddy `.htaccess` imports. To roll back, stop or hold further
+route changes, copy the recorded snapshot back to the vhost filename shown in
+the audit event, run the selected server's configuration validation command,
+then reload that server and verify the domain response. Snapshots are never
+automatically pruned; mutations fail closed at 256 files or 256 MiB until an
+operator archives or removes old copies. Include this directory in encrypted
+host recovery backups.
+
 Production jobs, customer accounts, site ownership, and revocable sessions are
 stored in `STEPANEL_CONTROL_PLANE_DB`; the legacy JSON paths are imported only
 when the corresponding database tables are empty. With the control-plane DB

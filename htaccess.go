@@ -3,10 +3,12 @@ package stepanel
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -26,13 +28,19 @@ type htaccessRequest struct {
 	Content      string `json:"content"`
 	Action       string `json:"action"`
 	AllowPartial bool   `json:"allow_partial"`
+	PreviewToken string `json:"preview_token,omitempty"`
 }
 
 type htaccessConversion struct {
-	CaddyDirectives string   `json:"caddy_directives"`
-	Warnings        []string `json:"warnings"`
-	Supported       int      `json:"supported_directives"`
-	Applied         bool     `json:"applied"`
+	CaddyDirectives  string   `json:"caddy_directives"`
+	Warnings         []string `json:"warnings"`
+	Supported        int      `json:"supported_directives"`
+	Applied          bool     `json:"applied"`
+	PreviewToken     string   `json:"preview_token,omitempty"`
+	ExpiresAt        string   `json:"expires_at,omitempty"`
+	Effects          []string `json:"effects,omitempty"`
+	RecoveryPlan     []string `json:"recovery_plan,omitempty"`
+	RecoverySnapshot string   `json:"recovery_snapshot,omitempty"`
 }
 
 func translateHTAccess(content string) (htaccessConversion, error) {
@@ -185,10 +193,6 @@ func (a *App) htaccessMigration(w http.ResponseWriter, r *http.Request) {
 		writePublicError(w, r, http.StatusUnprocessableEntity, publicError("invalid_htaccess", "the .htaccess content could not be converted", err))
 		return
 	}
-	if input.Action == "preview" {
-		writeJSON(w, http.StatusOK, conversion)
-		return
-	}
 	if a.Config.WebServer != "caddy" {
 		http.Error(w, ".htaccess migration can only be applied when Caddy is selected", http.StatusConflict)
 		return
@@ -197,7 +201,7 @@ func (a *App) htaccessMigration(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "a valid site and domain are required", http.StatusUnprocessableEntity)
 		return
 	}
-	if len(conversion.Warnings) > 0 && !input.AllowPartial {
+	if input.Action == "apply" && len(conversion.Warnings) > 0 && !input.AllowPartial {
 		writeJSON(w, http.StatusUnprocessableEntity, conversion)
 		return
 	}
@@ -224,13 +228,66 @@ func (a *App) htaccessMigration(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "configuration migration cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	ctx, cancel := context.WithTimeout(operationCtx, time.Minute)
-	defer cancel()
+	vhostName := siteVHostConfigName(a.Config.WebServer, input.Site, input.Domain)
+	currentVhost, err := a.snapshotVhost(vhostName)
+	if err != nil {
+		http.Error(w, "could not safely inspect current web-server configuration", http.StatusServiceUnavailable)
+		return
+	}
+	if currentVhost.Exists {
+		if _, managed := a.routeStateFor(vhostName); !managed {
+			http.Error(w, "a vhost file already exists without managed route state; refusing to overwrite it", http.StatusConflict)
+			return
+		}
+	}
+	before := struct {
+		Vhost   vhostSnapshot `json:"vhost"`
+		Content string        `json:"source_sha256"`
+	}{Vhost: currentVhost, Content: fmt.Sprintf("%x", sha256.Sum256([]byte(input.Content)))}
+	proposed := struct {
+		Site         string `json:"site"`
+		Domain       string `json:"domain"`
+		VHostPath    string `json:"vhost_path"`
+		Directives   string `json:"directives"`
+		AllowPartial bool   `json:"allow_partial"`
+	}{input.Site, input.Domain, filepath.Join(a.Config.VHostRoot, vhostName), conversion.CaddyDirectives, input.AllowPartial}
+	if input.Action == "preview" {
+		recoveryPlan := []string{"If Caddy rejects the new configuration, StePanel leaves the active configuration unchanged; inspect the Caddy error and retry."}
+		if currentVhost.Exists {
+			recoveryPlan = append(recoveryPlan, "A mode-0600 copy of the prior vhost will be saved under STEPANEL_RECOVERY_ROOT/webserver-config before mutation; restore that file, validate Caddy, and reload it to roll back.")
+		} else {
+			recoveryPlan = append(recoveryPlan, "No prior vhost exists; restore the base site configuration with the managed route reconciler to roll back.")
+		}
+		preview, err := a.makeChangePreview("webserver.htaccess.import:"+vhostName, before, proposed,
+			[]string{"Translate and apply the supported Apache directives to the Caddy site configuration.", "Validate and reload Caddy; unsupported lines are skipped only when partial application is explicitly allowed."},
+			recoveryPlan)
+		if err != nil {
+			http.Error(w, "could not create web-server change preview", http.StatusInternalServerError)
+			return
+		}
+		conversion.PreviewToken, conversion.ExpiresAt = preview.PreviewToken, preview.ExpiresAt
+		conversion.Effects, conversion.RecoveryPlan = preview.Effects, preview.RecoveryPlan
+		writeJSON(w, http.StatusOK, conversion)
+		return
+	}
+	if !a.verifyChangePreview(input.PreviewToken, "webserver.htaccess.import:"+vhostName, before, proposed) {
+		http.Error(w, "web-server configuration or source changed after preview; preview again before applying", http.StatusConflict)
+		return
+	}
 	intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.htaccess-migrated", input.Site, fmt.Sprintf("domain=%s supported=%d warnings=%d", input.Domain, conversion.Supported, len(conversion.Warnings)))
 	if err != nil {
 		refuseWithoutSecurityAudit(w)
 		return
 	}
+	recoverySnapshot, err := a.preserveVhostForRecovery(vhostName, currentVhost)
+	if err != nil {
+		intent.Failed("prior vhost recovery snapshot could not be created")
+		http.Error(w, "could not preserve the prior vhost for recovery; configuration was not changed", http.StatusServiceUnavailable)
+		return
+	}
+	conversion.RecoverySnapshot = recoverySnapshot
+	ctx, cancel := context.WithTimeout(operationCtx, time.Minute)
+	defer cancel()
 	var applyErr error
 	if a.Config.Production {
 		applyErr = runTypedVhostOperationInput(ctx, a.Config, rootbroker.VhostRequest{
@@ -248,7 +305,7 @@ func (a *App) htaccessMigration(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Caddy rejected the translated configuration", http.StatusServiceUnavailable)
 		return
 	}
-	intent.Completed("configuration applied")
+	intent.Completed("configuration applied config=" + vhostName + " recovery_snapshot=" + recoverySnapshot)
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "configuration migration cancelled because the mutation lock was lost", http.StatusConflict)
 		return

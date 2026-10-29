@@ -26,7 +26,7 @@
   const postJSON = (path, body) => api.post(path, body ?? {});
   const putJSON = (path, body) => api.put(path, body ?? {});
   const patchJSON = (path, body) => api.patch(path, body ?? {});
-  const deleteJSON = (path) => api.delete(path);
+  const deleteJSON = (path, body) => api.delete(path, body === undefined ? {} : { json: body });
   // Builds, deployments, dependency installs, and staging restores answer
   // with a durable job. Follow it to the end and return the operation's
   // result, or throw its error, so callers read like a synchronous request.
@@ -521,20 +521,48 @@
     const routes = overview.routes || [];
     const output = ctx.statusOutput();
 
+    const previewAndConnect = async (domain) => {
+      const preview = await ctx.postJSON('/api/sites/deploy', { site, domain });
+      const confirmed = await ctx.confirmDangerous({
+        title: `Review domain change for ${domain}`,
+        message: 'This writes a virtual-host configuration and reloads the web server. DNS is not changed by StePanel.',
+        facts: [
+          ['Site', site],
+          ['Domain', domain],
+          ['Vhost file', preview.proposed.vhost_path],
+          ['Effects', preview.effects.join(' ')],
+          ['Recovery', preview.recovery_plan.join(' ')],
+          ['Preview expires', new Date(preview.expires_at).toLocaleString()],
+        ],
+        confirmText: domain,
+        actionLabel: 'Apply domain change',
+      });
+      if (!confirmed) return false;
+      return await ctx.postJSON('/api/sites/deploy', { site, domain, preview_token: preview.preview_token });
+    };
+
     const list = el('ul', { className: 'resource-list' }, routes.length ? routes.map((route) => el('li', { className: 'resource-list-item' }, [
       el('div', { className: 'item-meta' }, [el('strong', {}, route.domain), el('small', {}, 'Active route')]),
       ctx.can('site:deploy') ? el('div', { className: 'item-actions' }, [ctx.button('Remove', async () => {
-        const confirmed = await ctx.confirmDangerous({
-          title: `Remove ${route.domain}?`,
-          message: 'The route stops serving this domain immediately. DNS still points here until you update it elsewhere.',
-          facts: [['Domain', route.domain], ['Site', site]],
-          confirmText: route.domain,
-          actionLabel: 'Remove domain',
-        });
-        if (!confirmed) return;
         try {
-          await ctx.deleteJSON(`/api/sites/${encodeURIComponent(vhostConfigName(site, route.domain))}`);
-          output.textContent = `${route.domain} removed.`;
+          const name = vhostConfigName(site, route.domain);
+          const preview = await ctx.postJSON('/api/sites/route-delete-preview', { name });
+          const confirmed = await ctx.confirmDangerous({
+            title: `Review removal of ${route.domain}`,
+            message: 'The route will stop serving this domain and the web server will reload. DNS, site files, databases, and mail are not changed.',
+            facts: [
+              ['Domain', route.domain], ['Site', site],
+              ['Vhost file', preview.proposed.vhost_path],
+              ['Effects', preview.effects.join(' ')],
+              ['Recovery', preview.recovery_plan.join(' ')],
+              ['Preview expires', new Date(preview.expires_at).toLocaleString()],
+            ],
+            confirmText: route.domain,
+            actionLabel: 'Remove domain route',
+          });
+          if (!confirmed) return;
+          const result = await ctx.deleteJSON(`/api/sites/${encodeURIComponent(name)}`, { preview_token: preview.preview_token });
+          output.textContent = `${route.domain} removed.${result.recovery_snapshot ? ` Recovery snapshot: ${result.recovery_snapshot}` : ''}`;
           renderDomainsTab(site, panel, ctx);
         } catch (error) { output.textContent = error.message; }
       }, { className: 'danger' })]) : null,
@@ -553,8 +581,9 @@
           const domain = domainInput.querySelector('input').value.trim();
           output.textContent = 'Adding domain route…';
           try {
-            await ctx.postJSON('/api/sites/deploy', { site, domain });
-            output.textContent = 'Route added.';
+            const result = await previewAndConnect(domain);
+            if (!result) { output.textContent = 'Domain change cancelled.'; return; }
+            output.textContent = `Route added.${result.recovery_snapshot ? ` Recovery snapshot: ${result.recovery_snapshot}` : ''}`;
             renderDomainsTab(site, panel, ctx);
           } catch (error) { output.textContent = error.message; }
         },
@@ -590,8 +619,9 @@
                 output.textContent = 'Checking DNS…';
                 try {
                   await ctx.postJSON('/api/sites/domains/verify', { site, domain: claim.domain });
-                  await ctx.postJSON('/api/sites/deploy', { site, domain: claim.domain });
-                  output.textContent = 'Domain verified and route added.';
+                  const result = await previewAndConnect(claim.domain);
+                  if (!result) { output.textContent = 'Domain route change cancelled.'; return; }
+                  output.textContent = `Domain verified and route added.${result.recovery_snapshot ? ` Recovery snapshot: ${result.recovery_snapshot}` : ''}`;
                   renderDomainsTab(site, panel, ctx);
                 } catch (error) { output.textContent = error.message; }
               },
@@ -627,9 +657,9 @@
       const form = el('form', {
         className: 'import-form', onSubmit: async (event) => {
           event.preventDefault();
-          phpOutput.textContent = 'Applying PHP runtime…';
+          phpOutput.textContent = 'Preparing PHP change preview…';
           try {
-            await ctx.putJSON(`/api/sites/php/${encodeURIComponent(site)}`, {
+            const change = {
               version: versionField.querySelector('select').value,
               memory_limit: memoryField.querySelector('input').value,
               max_execution_time: Number(timeoutField.querySelector('input').value),
@@ -639,7 +669,24 @@
               opcache: opcacheField.querySelector('input').checked,
               display_errors: current.display_errors,
               error_reporting: current.error_reporting,
+            };
+            const preview = await ctx.postJSON(`/api/sites/php/${encodeURIComponent(site)}`, change);
+            const confirmed = await ctx.confirmDangerous({
+              title: 'Review PHP runtime change',
+              message: 'StePanel will update the PHP-FPM pool and reload its service. Requests may briefly fail during activation.',
+              facts: [
+                ['Current PHP', preview.before.configured ? `PHP ${preview.before.profile.version}` : 'No saved profile'],
+                ['Proposed PHP', `PHP ${preview.proposed.version}`],
+              ['Profile changes', `memory ${preview.proposed.memory_limit}; execution ${preview.proposed.max_execution_time}s; upload ${preview.proposed.upload_max_filesize}; post ${preview.proposed.post_max_size}; input vars ${preview.proposed.max_input_vars}; OPcache ${preview.proposed.opcache ? 'on' : 'off'}; display errors ${preview.proposed.display_errors ? 'on' : 'off'}; reporting ${preview.proposed.error_reporting}`],
+              ['Host changes', preview.effects.join(' ')],
+                ['Recovery', preview.recovery_plan.join(' ')],
+                ['Preview expires', new Date(preview.expires_at).toLocaleString()],
+              ],
+              confirmText: site,
+              actionLabel: 'Apply PHP change',
             });
+            if (!confirmed) { phpOutput.textContent = 'PHP change cancelled.'; return; }
+            await ctx.putJSON(`/api/sites/php/${encodeURIComponent(site)}`, { ...change, preview_token: preview.preview_token });
             phpOutput.textContent = 'PHP runtime applied.';
           } catch (error) { phpOutput.textContent = error.message; }
         },

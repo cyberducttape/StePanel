@@ -2,6 +2,7 @@ package stepanel
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -35,6 +36,9 @@ func TestSiteDeployUsesValidatedVHostHelper(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(webRoot, "sites", "account", "public"), 0750); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(root, "vhosts"), 0750); err != nil {
+		t.Fatal(err)
+	}
 	argsPath := filepath.Join(root, "args")
 	helper := filepath.Join(root, "vhostctl")
 	if err := os.WriteFile(helper, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$TEST_VHOST_ARGS\"\n"), 0755); err != nil {
@@ -42,11 +46,20 @@ func TestSiteDeployUsesValidatedVHostHelper(t *testing.T) {
 	}
 	t.Setenv("TEST_VHOST_ARGS", argsPath)
 	app := &App{Config: Config{WebRoot: webRoot, VHostRoot: filepath.Join(root, "vhosts"), VHostCtl: helper}}
-	req := httptest.NewRequest(http.MethodPost, "/api/sites/deploy", bytes.NewBufferString(`{"site":"account","domain":"WWW.Example.com"}`))
-	response := httptest.NewRecorder()
-	app.siteDeploy(response, req)
-	if response.Code != http.StatusAccepted {
-		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	requestBody := `{"site":"account","domain":"WWW.Example.com"}`
+	previewResponse := httptest.NewRecorder()
+	app.siteDeploy(previewResponse, httptest.NewRequest(http.MethodPost, "/api/sites/deploy", bytes.NewBufferString(requestBody)))
+	if previewResponse.Code != http.StatusOK {
+		t.Fatalf("preview status = %d, body = %s", previewResponse.Code, previewResponse.Body.String())
+	}
+	var preview ChangePreview
+	if err := json.Unmarshal(previewResponse.Body.Bytes(), &preview); err != nil || preview.PreviewToken == "" {
+		t.Fatalf("invalid route preview %#v: %v", preview, err)
+	}
+	applyResponse := httptest.NewRecorder()
+	app.siteDeploy(applyResponse, httptest.NewRequest(http.MethodPost, "/api/sites/deploy", bytes.NewBufferString(`{"site":"account","domain":"www.example.com","preview_token":"`+preview.PreviewToken+`"}`)))
+	if applyResponse.Code != http.StatusAccepted {
+		t.Fatalf("apply status = %d, body = %s", applyResponse.Code, applyResponse.Body.String())
 	}
 	assertTestFile(t, argsPath, "apply account www.example.com\n")
 }

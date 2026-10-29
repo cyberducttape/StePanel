@@ -472,19 +472,26 @@ paths:
         '200': {description: Scan results}
   /api/certificates/issue:
     post:
-      summary: Queue a Let’s Encrypt certificate request
+      summary: Queue a Let’s Encrypt certificate request after preview confirmation
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [domain, email]
+              required: [domain, email, preview_token]
               properties:
                 domain: {type: string, format: hostname}
                 email: {type: string, format: email}
+                preview_token: {type: string}
       responses:
         '202': {description: Certificate job queued}
+        '409': {description: Preview expired or certificate lineage changed}
+  /api/certificates/preview:
+    post:
+      summary: Preview certificate issuance effects and recovery steps
+      responses:
+        '200': {description: Current lineage, proposed operation, expiry, and recovery plan}
   /api/sites:
     get:
       summary: List managed PHP site routes or the authenticated tenant's assigned sites
@@ -541,7 +548,7 @@ paths:
         '503': {description: Recovery history is unavailable}
   /api/sites/deploy:
     post:
-      summary: Deploy a PHP site through its isolated PHP-FPM pool
+      summary: Preview a domain route change or apply it with its preview token
       requestBody:
         required: true
         content:
@@ -552,10 +559,19 @@ paths:
               properties:
                 site: {type: string, pattern: '^[a-z0-9_-]{1,32}$'}
                 domain: {type: string, format: hostname}
+                preview_token: {type: string, description: Required to apply a prior preview}
       responses:
-        '202': {description: Vhost validated, activated, and Apache reloaded}
+        '200': {description: Change preview with observed state, effects, recovery plan, and expiring token}
+        '202': {description: Vhost validated, activated, and web server reloaded}
+        '409': {description: Preview expired or the route state changed}
         '422': {description: Invalid route or missing site document root}
-        '503': {description: Host validation or Apache reload failed}
+        '503': {description: Host validation or web server reload failed}
+  /api/sites/route-delete-preview:
+    post:
+      summary: Preview removal of a managed domain route
+      responses:
+        '200': {description: Current vhost state, effects, recovery plan, and expiring token}
+        '409': {description: Route has no durable ownership record}
   /api/sites/environment/:
     get:
       summary: Read site environment metadata with secrets masked
@@ -575,8 +591,13 @@ paths:
       summary: Inspect a site PHP runtime profile and installed versions
       responses: {'200': {description: Runtime profile and capability inventory}}
     put:
-      summary: Apply a validated per-site PHP-FPM runtime profile
-      responses: {'202': {description: FPM profile validated and applied}}
+      summary: Apply a validated per-site PHP-FPM profile with a preview token
+      responses:
+        '202': {description: FPM profile validated and applied}
+        '409': {description: Preview missing, expired, or stale}
+    post:
+      summary: Preview a per-site PHP-FPM profile change and recovery plan
+      responses: {'200': {description: Current and proposed profiles with expiring token}}
   /api/sites/redis/:
     get:
       summary: List Redis allocations
@@ -838,9 +859,18 @@ paths:
         '409': {description: No valid previous release is available}
   /api/sites/:
     delete:
-      summary: Remove a managed PHP site route owned by the customer or administrator
+      summary: Remove a managed PHP site route using its current preview token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [preview_token]
+              properties:
+                preview_token: {type: string}
       responses:
-        '200': {description: Vhost removed and the configured webserver reloaded}
+        '200': {description: Vhost removed, web server reloaded, and prior config snapshot retained}
         '404': {description: Managed route not found}
   /api/sites/domains/claim:
     post:

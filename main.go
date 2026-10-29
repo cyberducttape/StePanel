@@ -1086,9 +1086,10 @@ type durableBackupRequest struct {
 }
 
 type durableCertificateRequest struct {
-	Domain string `json:"domain"`
-	Email  string `json:"email"`
-	Actor  string `json:"actor"`
+	Domain string                     `json:"domain"`
+	Email  string                     `json:"email"`
+	Actor  string                     `json:"actor"`
+	Before certificateLineageSnapshot `json:"before"`
 }
 
 type durableWPressRequest struct {
@@ -1314,6 +1315,10 @@ func (a *App) handleCertificateJob(ctx context.Context, item Job) ([]byte, error
 	}
 	if !domainname.Valid(request.Domain) || request.Email == "" || request.Actor == "" {
 		return nil, errors.New("invalid durable certificate job payload")
+	}
+	lineage, err := certificateLineageState(request.Domain)
+	if err != nil || lineage != request.Before {
+		return nil, errors.New("certificate lineage changed after preview and before execution")
 	}
 	certificateCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()

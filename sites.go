@@ -2,6 +2,7 @@ package stepanel
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -22,8 +23,124 @@ import (
 var siteVHostNamePattern = regexp.MustCompile(`^site-[a-z0-9_-]{1,32}-[a-z0-9_-]+\.(conf|caddy)$`)
 
 type siteRoute struct {
-	Site   string `json:"site"`
-	Domain string `json:"domain"`
+	Site         string `json:"site"`
+	Domain       string `json:"domain"`
+	PreviewToken string `json:"preview_token,omitempty"`
+}
+
+type vhostSnapshot struct {
+	Exists bool   `json:"exists"`
+	SHA256 string `json:"sha256,omitempty"`
+	Bytes  int64  `json:"bytes,omitempty"`
+}
+
+const (
+	maxVhostRecoverySnapshots = 256
+	maxVhostRecoveryBytes     = int64(256 << 20)
+)
+
+func (a *App) snapshotVhost(name string) (vhostSnapshot, error) {
+	path, err := safePath(a.Config.VHostRoot, name)
+	if err != nil {
+		return vhostSnapshot{}, err
+	}
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return vhostSnapshot{}, nil
+	}
+	if err != nil {
+		return vhostSnapshot{}, err
+	}
+	if !info.Mode().IsRegular() || info.Size() > 2<<20 {
+		return vhostSnapshot{}, errors.New("managed vhost is not a bounded regular file")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return vhostSnapshot{}, err
+	}
+	digest := sha256.Sum256(data)
+	return vhostSnapshot{Exists: true, SHA256: fmt.Sprintf("%x", digest), Bytes: info.Size()}, nil
+}
+
+func (a *App) preserveVhostForRecovery(name string, expected vhostSnapshot) (string, error) {
+	if !expected.Exists {
+		return "", nil
+	}
+	path, err := safePath(a.Config.VHostRoot, name)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 2<<20 {
+		return "", errors.New("current vhost is unavailable for recovery snapshot")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(data)
+	if fmt.Sprintf("%x", digest) != expected.SHA256 {
+		return "", errors.New("current vhost changed after preview")
+	}
+	root := a.Config.RecoveryRoot
+	if root == "" {
+		return "", errors.New("recovery root is not configured")
+	}
+	if err := os.MkdirAll(root, 0700); err != nil {
+		return "", err
+	}
+	rootInfo, err := os.Lstat(root)
+	if err != nil || !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 {
+		return "", errors.New("recovery root is not a real directory")
+	}
+	dir := filepath.Join(root, "webserver-config")
+	if err := os.Mkdir(dir, 0700); err != nil && !errors.Is(err, os.ErrExist) {
+		return "", err
+	}
+	dirInfo, err := os.Lstat(dir)
+	if err != nil || !dirInfo.IsDir() || dirInfo.Mode()&os.ModeSymlink != 0 {
+		return "", errors.New("web-server recovery directory is not a real directory")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", err
+	}
+	var retainedBytes int64
+	retainedCount := 0
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".snapshot") {
+			continue
+		}
+		info, err := os.Lstat(filepath.Join(dir, entry.Name()))
+		if err != nil || !info.Mode().IsRegular() {
+			return "", errors.New("web-server recovery directory contains an invalid snapshot entry")
+		}
+		retainedCount++
+		retainedBytes += info.Size()
+	}
+	if retainedCount >= maxVhostRecoverySnapshots || retainedBytes+int64(len(data)) > maxVhostRecoveryBytes {
+		return "", errors.New("web-server recovery snapshot capacity is full; archive or remove old snapshots before changing configuration")
+	}
+	random, err := randomSecret()
+	if err != nil {
+		return "", err
+	}
+	filename := fmt.Sprintf("%d-%s-%x-%s.snapshot", time.Now().UTC().UnixNano(), random[:12], digest[:6], name)
+	if err := writeAtomic(filepath.Join(dir, filename), data, 0600); err != nil {
+		return "", err
+	}
+	return filepath.Join("webserver-config", filename), nil
+}
+
+func (a *App) routeStateFor(name string) (RouteDesired, bool) {
+	if a.Routes != nil {
+		for _, route := range a.Routes.list() {
+			if route.Name == name {
+				return route, true
+			}
+		}
+	}
+	return RouteDesired{}, false
 }
 
 // siteOverview is the read-only, site-centric view consumed by the dashboard
@@ -517,6 +634,49 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "route publication cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
+	beforeFile, err := a.snapshotVhost(name)
+	if err != nil {
+		http.Error(w, "could not safely inspect current web-server configuration", http.StatusServiceUnavailable)
+		return
+	}
+	previousRoute, hasPreviousRoute := a.routeStateFor(name)
+	if beforeFile.Exists && !hasPreviousRoute {
+		http.Error(w, "a vhost file already exists without managed route state; refusing to overwrite it", http.StatusConflict)
+		return
+	}
+	before := struct {
+		File  vhostSnapshot `json:"vhost"`
+		Route *RouteDesired `json:"route,omitempty"`
+	}{File: beforeFile}
+	if hasPreviousRoute {
+		before.Route = &previousRoute
+	}
+	proposedChange := struct {
+		Site      string `json:"site"`
+		Domain    string `json:"domain"`
+		WebServer string `json:"web_server"`
+		VHostPath string `json:"vhost_path"`
+	}{input.Site, input.Domain, a.Config.WebServer, filepath.Join(a.Config.VHostRoot, name)}
+	if r.Method == http.MethodPost && input.PreviewToken == "" {
+		recovery := []string{"If activation fails, inspect the route's pending state and web-server error log before retrying."}
+		if hasPreviousRoute {
+			recovery = append(recovery, "A mode-0600 copy of the prior vhost will be saved under STEPANEL_RECOVERY_ROOT/webserver-config before mutation; restore that file, validate the web server, and reload it to roll back.")
+		} else {
+			recovery = append(recovery, "Roll back by deleting this route; DNS and the site files remain unchanged.")
+		}
+		preview, err := a.makeChangePreview("domain.route.apply:"+name, before, proposedChange,
+			[]string{"Write the managed virtual-host file for this site and domain.", "Validate and reload the selected web server; the domain may begin serving this site.", "DNS records are not changed by this operation."}, recovery)
+		if err != nil {
+			http.Error(w, "could not create domain change preview", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, preview)
+		return
+	}
+	if err := changePreviewRequired(input.PreviewToken); err != nil || !a.verifyChangePreview(input.PreviewToken, "domain.route.apply:"+name, before, proposedChange) {
+		http.Error(w, "route configuration changed or its preview expired; generate a new preview", http.StatusConflict)
+		return
+	}
 	intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.deployed", input.Site, input.Domain)
 	if err != nil {
 		refuseWithoutSecurityAudit(w)
@@ -524,6 +684,12 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 	}
 	var outcome string
 	defer intent.Finish(&outcome, "route was not published")
+	recoverySnapshot, err := a.preserveVhostForRecovery(name, beforeFile)
+	if err != nil {
+		intent.Failed("prior vhost recovery snapshot could not be created")
+		http.Error(w, "could not preserve the prior vhost for recovery; route was not changed", http.StatusServiceUnavailable)
+		return
+	}
 	if a.Routes != nil {
 		route := routeState(name, input.Site, input.Domain, "pending")
 		if err := a.Routes.save(route); err != nil {
@@ -542,7 +708,10 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "site helper rejected the route or webserver reload failed", http.StatusServiceUnavailable)
 		return
 	}
-	outcome = input.Domain
+	outcome = input.Domain + " config=" + name
+	if recoverySnapshot != "" {
+		outcome += " recovery_snapshot=" + recoverySnapshot
+	}
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "route publication cancelled because the mutation lock was lost", http.StatusConflict)
 		return
@@ -554,7 +723,7 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeJSON(w, http.StatusAccepted, map[string]string{"site": input.Site, "domain": input.Domain, "config": filepath.Join(a.Config.VHostRoot, name)})
+	writeJSON(w, http.StatusAccepted, map[string]string{"site": input.Site, "domain": input.Domain, "config": filepath.Join(a.Config.VHostRoot, name), "recovery_snapshot": recoverySnapshot})
 }
 
 func siteVHostConfigName(webserver, site, domain string) string {
@@ -584,15 +753,21 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "site route not found", http.StatusNotFound)
 		return
 	}
-	var desired RouteDesired
-	hasDesired := false
-	if a.Routes != nil {
-		for _, route := range a.Routes.list() {
-			if route.Name == name {
-				desired, hasDesired = route, true
-				break
-			}
+	desired, hasDesired := a.routeStateFor(name)
+	if hasDesired {
+		if _, ok := a.requireSiteAccess(w, r, desired.Site, "site route is not assigned to this account", http.StatusForbidden); !ok {
+			return
 		}
+	} else if !a.Auth.IsAdministrator(r) {
+		http.Error(w, "site route is not assigned to this account", http.StatusForbidden)
+		return
+	}
+	var input struct {
+		PreviewToken string `json:"preview_token"`
+	}
+	if err := decodeJSON(w, r, 4096, &input); err != nil {
+		http.Error(w, "a current route deletion preview is required", http.StatusConflict)
+		return
 	}
 	lockKeys := []string{"vhost:" + name}
 	if hasDesired {
@@ -606,6 +781,33 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 	defer releaseUnlock()
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "route deletion cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
+	if !hasDesired {
+		http.Error(w, "route has no durable ownership record; deletion preview is unavailable", http.StatusConflict)
+		return
+	}
+	currentFile, snapshotErr := a.snapshotVhost(name)
+	if snapshotErr != nil {
+		http.Error(w, "could not safely inspect current web-server configuration", http.StatusServiceUnavailable)
+		return
+	}
+	currentRoute, routeExists := a.routeStateFor(name)
+	before := struct {
+		File  vhostSnapshot `json:"vhost"`
+		Route *RouteDesired `json:"route,omitempty"`
+	}{File: currentFile}
+	if routeExists {
+		before.Route = &currentRoute
+	}
+	proposed := struct {
+		Action    string `json:"action"`
+		Name      string `json:"name"`
+		WebServer string `json:"web_server"`
+		VHostPath string `json:"vhost_path"`
+	}{"delete", name, a.Config.WebServer, filepath.Join(a.Config.VHostRoot, name)}
+	if !routeExists || !a.verifyChangePreview(input.PreviewToken, "domain.route.delete:"+name, before, proposed) {
+		http.Error(w, "route changed or its preview expired; generate a new preview", http.StatusConflict)
 		return
 	}
 	// Route removal is Class A. The intent is recorded immediately before
@@ -628,6 +830,19 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 			intent.Finish(&outcome, "route was not removed")
 		}
 	}()
+	if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+		http.Error(w, "insufficient token scope for site deployment", http.StatusForbidden)
+		return
+	}
+	if !beginDeletion() {
+		return
+	}
+	recoverySnapshot, err := a.preserveVhostForRecovery(name, currentFile)
+	if err != nil {
+		intent.Failed("prior vhost recovery snapshot could not be created")
+		http.Error(w, "could not preserve the prior vhost for recovery; route was not removed", http.StatusServiceUnavailable)
+		return
+	}
 	if a.Routes != nil {
 		if hasDesired {
 			if _, ok := a.requireSiteAccess(w, r, desired.Site, "site route is not assigned to this account", http.StatusForbidden); !ok {
@@ -635,9 +850,6 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 			}
 			if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
 				http.Error(w, "insufficient token scope for site deployment", http.StatusForbidden)
-				return
-			}
-			if !beginDeletion() {
 				return
 			}
 			desired.State, desired.LastError, desired.UpdatedAt = "delete-pending", "", time.Now().UTC()
@@ -654,9 +866,6 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.requireSiteAccess(w, r, desired.Site, "site route is not assigned to this account", http.StatusForbidden); !ok {
 		return
 	}
-	if !beginDeletion() {
-		return
-	}
 	if err := runVhostMutation(operationCtx, a.Config, "delete", name); err != nil {
 		if hasDesired {
 			desired.LastError = err.Error()
@@ -668,7 +877,7 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "site route was not removed because validation or webserver reload failed", http.StatusServiceUnavailable)
 		return
 	}
-	outcome = "managed PHP vhost removed"
+	outcome = "managed PHP vhost removed recovery_snapshot=" + recoverySnapshot
 	if err := operationCtx.Err(); err != nil {
 		if hasDesired {
 			desired.LastError = err.Error()
@@ -690,5 +899,73 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "route deletion cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"deleted": name})
+	writeJSON(w, http.StatusOK, map[string]string{"deleted": name, "recovery_snapshot": recoverySnapshot})
+}
+
+func (a *App) siteRouteDeletePreview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost || !a.Auth.CSRF(r) {
+		http.Error(w, "invalid request", http.StatusForbidden)
+		return
+	}
+	var input struct {
+		Name string `json:"name"`
+	}
+	if err := decodeJSON(w, r, 4096, &input); err != nil || !siteVHostNamePattern.MatchString(input.Name) {
+		http.Error(w, "invalid site route", http.StatusUnprocessableEntity)
+		return
+	}
+	route, ok := a.routeStateFor(input.Name)
+	if !ok {
+		http.Error(w, "route has no durable ownership record", http.StatusConflict)
+		return
+	}
+	if _, ok := a.requireSiteAccess(w, r, route.Site, "site route is not assigned to this account", http.StatusForbidden); !ok {
+		return
+	}
+	if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+		http.Error(w, "insufficient token scope for site deployment", http.StatusForbidden)
+		return
+	}
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLocksContext(r.Context(), route.Site, "vhost:"+input.Name)
+	if lockErr != nil {
+		http.Error(w, "route is busy", http.StatusConflict)
+		return
+	}
+	defer releaseUnlock()
+	file, err := a.snapshotVhost(input.Name)
+	if err != nil {
+		http.Error(w, "could not safely inspect current web-server configuration", http.StatusServiceUnavailable)
+		return
+	}
+	if !file.Exists {
+		http.Error(w, "route configuration is missing", http.StatusConflict)
+		return
+	}
+	current, ok := a.routeStateFor(input.Name)
+	if !ok {
+		http.Error(w, "route changed during preview", http.StatusConflict)
+		return
+	}
+	before := struct {
+		File  vhostSnapshot `json:"vhost"`
+		Route RouteDesired  `json:"route"`
+	}{file, current}
+	proposed := struct {
+		Action    string `json:"action"`
+		Name      string `json:"name"`
+		WebServer string `json:"web_server"`
+		VHostPath string `json:"vhost_path"`
+	}{"delete", input.Name, a.Config.WebServer, filepath.Join(a.Config.VHostRoot, input.Name)}
+	preview, err := a.makeChangePreview("domain.route.delete:"+input.Name, before, proposed,
+		[]string{"Remove the managed virtual-host configuration and reload the web server.", "DNS, site files, databases, and the domain registration are unchanged."},
+		[]string{"A mode-0600 copy of the prior vhost is saved under STEPANEL_RECOVERY_ROOT/webserver-config before removal; restore it, validate the web server, and reload it to roll back.", "The route desired-state record is removed only after the web-server change succeeds."})
+	if err != nil {
+		http.Error(w, "could not create route deletion preview", http.StatusInternalServerError)
+		return
+	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "route preview cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
+	writeJSON(w, http.StatusOK, preview)
 }
