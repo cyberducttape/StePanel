@@ -65,10 +65,12 @@ type Broker struct {
 	// filectl overrides the installed stepanel-filectl path in tests.
 	filectl    string
 	gitKeyRoot string
-	validator  *Validator
-	logger     *log.Logger
-	host       hostOps
-	fencingDB  *sql.DB
+	// certificateStore overrides the Certbot store root in tests.
+	certificateStore string
+	validator        *Validator
+	logger           *log.Logger
+	host             hostOps
+	fencingDB        *sql.DB
 	// leaseWatchInterval and leaseWatchMargin drive the fencing watchdog
 	// for mutating requests; see watchFencing.
 	leaseWatchInterval  time.Duration
@@ -400,8 +402,9 @@ func requestRequiresFencing(req *Request) bool {
 		return false
 	case "site":
 		// PHP-FPM status derives its paths from root-owned configuration and
-		// only reads bounded counters. It has no host mutation to fence.
-		return req.Site != nil && req.Site.Action != "fpm-status"
+		// only reads bounded counters; certificate status reads only public
+		// certificate metadata. Neither has a host mutation to fence.
+		return req.Site != nil && req.Site.Action != "fpm-status" && req.Site.Action != "certificate-status"
 	case "db":
 		return req.DB != nil && !dbReadOnlyActions[req.DB.Action]
 	case "git":
@@ -653,6 +656,8 @@ func (b *Broker) handleSiteRequest(ctx context.Context, req *SiteRequest) (*Resp
 		return b.siteRuntime(ctx, req)
 	case "fpm-status":
 		return b.siteFPMStatus(ctx, req)
+	case "certificate-status":
+		return b.siteCertificateStatus(req)
 	default:
 		return &Response{OK: false, Error: fmt.Sprintf("unknown site action: %s", req.Action)}, nil
 	}
@@ -1142,6 +1147,29 @@ func (b *Broker) siteFPMStatus(ctx context.Context, req *SiteRequest) (*Response
 		return nil, err
 	}
 	return &Response{OK: true, Details: details}, nil
+}
+
+// siteCertificateStatus reports public metadata for one route's local
+// certificate. Routes are panel state, so the broker cannot prove the domain
+// belongs to the site; it confirms the site is managed and returns only what
+// a TLS handshake would disclose. Private keys are never opened.
+func (b *Broker) siteCertificateStatus(req *SiteRequest) (*Response, error) {
+	if _, err := b.resolveSiteUser(req, false); err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	status := InspectCertificate(b.certificateStoreRoot(), req.Domain, time.Now())
+	details, err := json.Marshal(SiteResponse{Certificate: &status})
+	if err != nil {
+		return nil, err
+	}
+	return &Response{OK: true, Details: details}, nil
+}
+
+func (b *Broker) certificateStoreRoot() string {
+	if b.certificateStore != "" {
+		return b.certificateStore
+	}
+	return CertbotStoreRoot
 }
 
 // resolveSiteUser is the broker-side identity authority. Production brokers

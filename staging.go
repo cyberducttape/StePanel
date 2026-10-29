@@ -392,7 +392,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 	}()
 	if input.Files {
 		if err := copyTreeContext(operationCtx, source, managerStage); err != nil {
-			http.Error(w, "copy staging files: "+err.Error(), 502)
+			writeOperationFailure(w, http.StatusBadGateway, "staging clone", input.Site, "could not copy staging files", err)
 			return
 		}
 	}
@@ -427,13 +427,13 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		_, err = cloneManagedDatabaseToStagingContext(operationCtx, a.Config, input.SourceDatabase, input.TargetDatabase, input.TargetUser, input.TargetPassword, targetAccess, a.capacityLedger())
 		if err != nil {
-			http.Error(w, "could not clone staging database: "+err.Error(), 502)
+			writeOperationFailure(w, http.StatusBadGateway, "staging clone", input.Site, "could not clone staging database", err)
 			return
 		}
 	}
 	if wordpressClone {
 		if err := configureStagingWordPress(operationCtx, a.Config, input); err != nil {
-			http.Error(w, "could not isolate the staging WordPress database and URLs: "+err.Error(), http.StatusBadGateway)
+			writeOperationFailure(w, http.StatusBadGateway, "staging clone", input.Site, "could not isolate the staging WordPress database and URLs", err)
 			return
 		}
 	}

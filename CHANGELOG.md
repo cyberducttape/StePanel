@@ -34,6 +34,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   non-TLS, non-loopback URL.
 - PHP-FPM worker memory sampling counts only the site's own pool and PHP
   version, and site usage reports quota headroom only for a disk-space limit.
+- Site diagnostics read local certificate status through a new read-only
+  `certificate-status` root broker action, because the Certbot store is
+  root-only and the unprivileged panel always reported it as unreadable. Only
+  public certificate metadata is returned; private keys are never opened.
+- WordPress promotion and staging clone failures no longer return raw helper
+  or filesystem errors to customers; the cause is written to the panel log.
 - The MySQL credential-file test now accepts MariaDB's redacted
   `my_print_defaults` output while continuing to verify the exact private
   option-file contents and filesystem permissions.

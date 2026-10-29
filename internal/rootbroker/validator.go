@@ -592,6 +592,9 @@ func (v *Validator) validateSiteRequest(req *SiteRequest) error {
 			return err
 		}
 	}
+	if req.Domain != "" && req.Action != "certificate-status" {
+		return errors.New("domain is accepted only for certificate status")
+	}
 	switch req.Action {
 	case "access":
 		if req.SFTPEnabled == nil || req.ShellEnabled == nil || len(req.SSHKeys) > 1<<20 || strings.ContainsAny(req.SSHKeys, "\x00\r") {
@@ -621,6 +624,17 @@ func (v *Validator) validateSiteRequest(req *SiteRequest) error {
 			req.MemoryMB != 0 || req.ExecTimeout != 0 || req.UploadSize != 0 || req.PostSize != 0 || req.InputTimeout != 0 ||
 			req.OpcacheSize != 0 || req.DisplayErrors || req.ErrorLogging {
 			return errors.New("PHP-FPM status request contains unsupported fields")
+		}
+	case "certificate-status":
+		// Only the site and one route domain; the broker derives the store
+		// path itself and never accepts a file path from the caller.
+		if !domainname.Valid(req.Domain) || req.SiteUser != "" || req.SnapshotSource != "" || req.SnapshotDestination != "" || req.SSHKeys != "" ||
+			req.SFTPEnabled != nil || req.ShellEnabled != nil || req.FTPEnabled != nil || req.FTPPassword != "" ||
+			req.PHPWorkers != 0 || req.DiskMB != 0 || req.Inodes != 0 || req.PHPVersion != "" || req.MemoryLimit != "" ||
+			req.UploadMaxFilesize != "" || req.PostMaxSize != "" || req.MaxInputVars != 0 || req.OPcache || req.ErrorReporting != "" ||
+			req.MemoryMB != 0 || req.ExecTimeout != 0 || req.UploadSize != 0 || req.PostSize != 0 || req.InputTimeout != 0 ||
+			req.OpcacheSize != 0 || req.DisplayErrors || req.ErrorLogging {
+			return errors.New("certificate status request is invalid or contains unsupported fields")
 		}
 	case "runtime":
 		if !phpVersionPattern.MatchString(req.PHPVersion) || !phpSizePattern.MatchString(req.MemoryLimit) ||

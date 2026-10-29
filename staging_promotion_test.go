@@ -1,7 +1,10 @@
 package stepanel
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -68,5 +71,19 @@ func TestWriteWordPressMaintenanceMarkerReplacesExisting(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(root, ".maintenance"))
 	if err != nil || !strings.Contains(string(data), "$upgrading") {
 		t.Fatalf("marker = %q, %v", data, err)
+	}
+}
+
+func TestWriteOperationFailureKeepsHostDetailInLog(t *testing.T) {
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	defer log.SetOutput(os.Stderr)
+	w := httptest.NewRecorder()
+	writeOperationFailure(w, http.StatusBadGateway, "WordPress promotion", "shop", "could not copy staging files", errors.New("open /var/www/sites/shop/public/wp-config.php: permission denied"))
+	if w.Code != http.StatusBadGateway || strings.Contains(w.Body.String(), "/var/www") || !strings.Contains(w.Body.String(), "could not copy staging files") {
+		t.Fatalf("response = %d %q", w.Code, w.Body.String())
+	}
+	if !strings.Contains(logged.String(), "/var/www/sites/shop/public/wp-config.php") {
+		t.Fatalf("log = %q, want the underlying cause", logged.String())
 	}
 }

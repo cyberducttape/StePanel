@@ -196,13 +196,22 @@ Typed requests the broker executes today (verified against
 
 | Request type | Supported actions | Not implemented (use the helper path) |
 |--------------|-------------------|---------------------------------------|
-| `site` | `create`, `delete`, `seal`, `prepare`, `snapshot`, `snapshot-restore`, `access`, `ftp`, `resources`, `quota`, `quota-clear`, `runtime`, `fpm-status` | none |
+| `site` | `create`, `delete`, `seal`, `prepare`, `snapshot`, `snapshot-restore`, `access`, `ftp`, `resources`, `quota`, `quota-clear`, `runtime`, `fpm-status`, `certificate-status` | none |
 | `app` | `apply`, `delete`, `start`, `stop`, `restart` | `rollback` (orchestrated by the panel as a re-apply) |
 | `db` | `inventory`, `dump`, `provision`, `restore-dump`, `restore`, `restore-wordpress`, `drop`, `drop-managed`, `cleanup-wordpress`, `rotate` | none |
 | `task` | `apply`, `delete`, `kill`, `history` | none |
 | `certificate` | `issue` | none |
 | `git` | `generate`, `public`, `delete` (deploy keys) | `clone`, `verify-key` (`clone` via the `gitctl` helper) |
 | `vhost` | none | `apply`, `apply-auth`, `delete` (via `vhostctl` helper requests) |
+
+`fpm-status` and `certificate-status` are read-only and need no fencing
+token. `certificate-status` takes the site and one validated route domain,
+reads `live/<domain>/fullchain.pem` from the root-only Certbot store through a
+rooted handle (links that leave the store are refused), and returns only
+public metadata: expiry and hostname coverage. It never opens private keys.
+Routes are panel state, so the broker confirms the site is managed but cannot
+prove the domain is the site's; the panel's site diagnostics only ask for the
+site's own routes.
 | `proxy` | none | `apply`, `reload` (via `proxyctl` helper requests) |
 | `helper` | the allow-listed actions in `helper_schema.go` | anything not declared there |
 | `health` | always (bypasses the scheduler) | none |

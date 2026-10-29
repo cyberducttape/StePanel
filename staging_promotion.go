@@ -116,7 +116,8 @@ func (a *App) stagingPromotionState(source, site string) (promotionBefore, promo
 	}
 	markerPath, err := sitePrivatePath(a.Config, source, stagingOriginMarker)
 	if err != nil {
-		return before, promotionPlan{}, fmt.Errorf("resolve staging origin metadata: %w", err)
+		log.Printf("WordPress promotion for %s: resolve staging origin metadata of %s: %v", site, source, err)
+		return before, promotionPlan{}, errors.New("staging clone metadata is unavailable")
 	}
 	data, err := readStateFile(markerPath, 16<<10)
 	if err != nil {
@@ -128,11 +129,13 @@ func (a *App) stagingPromotionState(source, site string) (promotionBefore, promo
 	}
 	productionRoot, err := siteDocRoot(a.Config, site)
 	if err != nil {
-		return before, promotionPlan{}, fmt.Errorf("resolve production document root: %w", err)
+		log.Printf("WordPress promotion for %s: resolve production document root: %v", site, err)
+		return before, promotionPlan{}, errors.New("production document root is unavailable")
 	}
 	stagingRoot, err := siteDocRoot(a.Config, source)
 	if err != nil {
-		return before, promotionPlan{}, fmt.Errorf("resolve staging document root: %w", err)
+		log.Printf("WordPress promotion for %s: resolve staging document root of %s: %v", site, source, err)
+		return before, promotionPlan{}, errors.New("staging document root is unavailable")
 	}
 	productionFiles, err := promotionPathStateAt(productionRoot)
 	if err != nil || !productionFiles.Exists {
@@ -270,7 +273,7 @@ func (a *App) stagingPromote(w http.ResponseWriter, r *http.Request) {
 	defer intent.Finish(&outcome, "promotion did not complete")
 	safety, err := CreateSiteBackupContext(operationCtx, a.Config, access, true)
 	if err != nil {
-		http.Error(w, "promotion refused because the production safety backup failed: "+err.Error(), http.StatusServiceUnavailable)
+		writeOperationFailure(w, http.StatusServiceUnavailable, "WordPress promotion", input.Site, "promotion refused because the production safety backup failed", err)
 		return
 	}
 	productionRoot, err := siteDocRoot(a.Config, input.Site)
@@ -353,7 +356,7 @@ func (a *App) stagingPromote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := copyTreeContext(operationCtx, stagingRoot, stage); err != nil {
-		http.Error(w, "could not copy staging files: "+err.Error(), http.StatusBadGateway)
+		writeOperationFailure(w, http.StatusBadGateway, "WordPress promotion", input.Site, "could not copy staging files", err)
 		return
 	}
 	if err := writeWordPressMaintenanceMarker(stage); err != nil {
@@ -376,7 +379,7 @@ func (a *App) stagingPromote(w http.ResponseWriter, r *http.Request) {
 	sourceDB := before.StagingDatabase
 	_, err = cloneManagedDatabaseToStagingContext(operationCtx, a.Config, sourceDB, candidateDB, candidateUser, password, access, a.capacityLedger())
 	if err != nil {
-		http.Error(w, "could not create and validate promoted database: "+err.Error(), http.StatusBadGateway)
+		writeOperationFailure(w, http.StatusBadGateway, "WordPress promotion", input.Site, "could not create and validate promoted database", err)
 		return
 	}
 	if err := a.activateStagedSite(operationCtx, input.Site, stage); err != nil {
@@ -394,18 +397,18 @@ func (a *App) stagingPromote(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, setting := range []struct{ name, value string }{{"DB_NAME", candidateDB}, {"DB_USER", candidateUser}, {"DB_HOST", dbHost}} {
 		if _, err := runWordPress(operationCtx, a.Config, rootbroker.WordPressRequest{Action: "config-set", Site: input.Site, Name: setting.name, Value: setting.value}); err != nil {
-			http.Error(w, "could not connect promoted files to their isolated database: "+err.Error(), http.StatusBadGateway)
+			writeOperationFailure(w, http.StatusBadGateway, "WordPress promotion", input.Site, "could not connect promoted files to their isolated database", err)
 			return
 		}
 	}
 	if _, err := runWordPress(operationCtx, a.Config, rootbroker.WordPressRequest{Action: "config-set-password", Site: input.Site, Secret: password}); err != nil {
-		http.Error(w, "could not configure promoted database credentials: "+err.Error(), http.StatusBadGateway)
+		writeOperationFailure(w, http.StatusBadGateway, "WordPress promotion", input.Site, "could not configure promoted database credentials", err)
 		return
 	}
 	stagingURL := "https://" + before.StagingRoute
 	productionURL := "https://" + before.ProductionRoute
 	if _, err := runWordPress(operationCtx, a.Config, rootbroker.WordPressRequest{Action: "search-replace", Site: input.Site, Search: stagingURL, Replace: productionURL}); err != nil {
-		http.Error(w, "could not rewrite staged WordPress URLs for production: "+err.Error(), http.StatusBadGateway)
+		writeOperationFailure(w, http.StatusBadGateway, "WordPress promotion", input.Site, "could not rewrite staged WordPress URLs for production", err)
 		return
 	}
 	for _, option := range []string{"home", "siteurl"} {
@@ -460,6 +463,13 @@ func (a *App) stagingPromote(w http.ResponseWriter, r *http.Request) {
 	outcome = "staging=" + input.Source + " previous_database=" + before.ActiveDatabase + " promoted_database=" + candidateDB + " safety_backup=" + filepath.Base(safety.Path)
 	result := map[string]any{"site": input.Site, "source": input.Source, "domain": before.ProductionRoute, "database": candidateDB, "previous_database_retained": before.ActiveDatabase, "safety_backup": filepath.Base(safety.Path), "database_verified": true, "application_verification": "WP-CLI database bootstrap passed; public HTTP response still requires operator validation."}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// writeOperationFailure answers with public text only. Helper and filesystem
+// errors name host paths and tool output, so the cause goes to the log.
+func writeOperationFailure(w http.ResponseWriter, status int, operation, site, public string, err error) {
+	log.Printf("%s for %s: %s: %v", operation, site, public, err)
+	http.Error(w, public+"; an administrator can find the cause in the panel log", status)
 }
 
 func newPromotionDatabaseIdentity(site string) (string, string, error) {

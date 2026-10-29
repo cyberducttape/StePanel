@@ -1,18 +1,16 @@
 package stepanel
 
 import (
-	"crypto/x509"
-	"encoding/pem"
+	"context"
 	"fmt"
-	"io"
+	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/cyberducttape/StePanel/internal/domainname"
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
 type siteTLSDiagnostic struct {
@@ -86,7 +84,7 @@ func (a *App) siteDiagnostics(w http.ResponseWriter, r *http.Request) {
 			if a.Config.WebServer != "apache" {
 				check.Detail = "Caddy manages certificates automatically; this snapshot does not perform a live TLS handshake."
 			} else {
-				check = inspectSiteCertificate(route.Domain, route.State)
+				check = a.inspectSiteCertificate(r.Context(), site, route.Domain, route.State)
 			}
 			tlsChecks = append(tlsChecks, check)
 		}
@@ -95,67 +93,24 @@ func (a *App) siteDiagnostics(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-func inspectSiteCertificate(domain, routeState string) siteTLSDiagnostic {
-	check := siteTLSDiagnostic{Domain: domain, RouteState: routeState, Status: "unknown"}
-	if !domainname.Valid(domain) {
-		check.Detail = "The stored route domain is invalid; certificate inspection was skipped."
-		return check
-	}
-	root, err := os.OpenRoot("/etc/letsencrypt")
-	if err != nil {
-		check.Detail = "The local certificate store is unavailable."
-		return check
-	}
-	defer root.Close()
-	file, err := root.Open(filepath.Join("live", domain, "fullchain.pem"))
-	if err != nil {
-		if os.IsNotExist(err) {
-			check.Status = "missing"
-			check.Detail = "No local Certbot certificate was found for this route."
-		} else {
-			check.Detail = "The local certificate could not be read safely."
+// inspectSiteCertificate reads route certificate metadata. The Certbot store
+// is root-only, so production hosts ask the broker; the direct read serves
+// development hosts. Broker errors name host paths and go to the log only.
+func (a *App) inspectSiteCertificate(ctx context.Context, site, domain, routeState string) siteTLSDiagnostic {
+	var status rootbroker.CertificateStatus
+	if a.Config.Production || labDirectRootBrokerEnabled() {
+		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", a.Config.WebRoot)
+		if err == nil {
+			status, err = client.SiteCertificateStatus(ctx, site, domain)
 		}
-		return check
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() > 4<<20 {
-		check.Status = "failed"
-		check.Detail = "The certificate file is not a bounded regular file."
-		return check
-	}
-	data, err := io.ReadAll(io.LimitReader(file, (4<<20)+1))
-	if err != nil || len(data) > 4<<20 {
-		check.Status = "failed"
-		check.Detail = "The certificate file could not be read within its size limit."
-		return check
-	}
-	block, _ := pem.Decode(data)
-	if block == nil || block.Type != "CERTIFICATE" {
-		check.Status = "failed"
-		check.Detail = "The certificate file does not contain a parseable PEM certificate."
-		return check
-	}
-	cert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		check.Status = "failed"
-		check.Detail = "The certificate is malformed."
-		return check
-	}
-	check.NotAfter = cert.NotAfter.UTC()
-	check.DaysLeft = int(time.Until(cert.NotAfter).Hours() / 24)
-	if err := cert.VerifyHostname(domain); err != nil {
-		check.Status = "hostname_mismatch"
-		check.Detail = "The local certificate does not cover this route's hostname."
-	} else if time.Now().After(cert.NotAfter) {
-		check.Status = "expired"
-		check.Detail = "The local certificate has expired."
-	} else if check.DaysLeft <= 14 {
-		check.Status = "expiring"
-		check.Detail = "The local certificate expires within 14 days."
+		if err != nil {
+			log.Printf("certificate status for site %s route %s: %v", site, domain, err)
+			return siteTLSDiagnostic{Domain: domain, RouteState: routeState, Status: "unknown", Detail: "The local certificate could not be inspected; an administrator can find the cause in the panel log."}
+		}
 	} else {
-		check.Status = "valid"
-		check.Detail = "The local certificate covers this hostname and is not near expiry; the live listener was not probed."
+		status = rootbroker.InspectCertificate(rootbroker.CertbotStoreRoot, domain, time.Now())
 	}
-	return check
+	return siteTLSDiagnostic{Domain: domain, RouteState: routeState, Status: status.Status, NotAfter: status.NotAfter, DaysLeft: status.DaysLeft, Detail: status.Detail}
 }

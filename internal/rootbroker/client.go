@@ -91,6 +91,26 @@ func (c *Client) SiteFPMStatus(ctx context.Context, site string) (FPMStatus, err
 	return *details.FPMStatus, nil
 }
 
+// SiteCertificateStatus reads public metadata of a route's local certificate
+// through the broker, which can read the root-only Certbot store.
+func (c *Client) SiteCertificateStatus(ctx context.Context, site, domain string) (CertificateStatus, error) {
+	resp, err := c.Execute(ctx, &Request{RequestType: "site", Site: &SiteRequest{Action: "certificate-status", Site: site, Domain: domain}})
+	if err != nil {
+		return CertificateStatus{}, err
+	}
+	if !resp.OK {
+		return CertificateStatus{}, fmt.Errorf("root broker rejected certificate status request: %s", resp.Error)
+	}
+	var details SiteResponse
+	if err := json.Unmarshal(resp.Details, &details); err != nil {
+		return CertificateStatus{}, fmt.Errorf("decode certificate status response: %w", err)
+	}
+	if details.Certificate == nil {
+		return CertificateStatus{}, errors.New("root broker returned no certificate status")
+	}
+	return *details.Certificate, nil
+}
+
 func (c *Client) execute(ctx context.Context, req *Request, direct bool) (*Response, error) {
 	if req != nil && len(req.Fencing) == 0 {
 		if tokens := operations.FencingTokens(ctx); len(tokens) > 0 {

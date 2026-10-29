@@ -17,7 +17,7 @@ type Request struct {
 	// immediately before dispatching the host mutation.
 	Fencing []operations.FencingToken `json:"fencing,omitempty"`
 
-	// Site operations: create, delete, seal, prepare, access, resources, quota, quota-clear, runtime, fpm-status
+	// Site operations: create, delete, seal, prepare, access, resources, quota, quota-clear, runtime, fpm-status, certificate-status
 	Site *SiteRequest `json:"site,omitempty"`
 
 	// App operations: apply, start, stop, restart, rollback
@@ -164,7 +164,7 @@ type Response struct {
 // --- Site Operations ---
 
 type SiteRequest struct {
-	Action              string `json:"action"`              // create, delete, seal, prepare, snapshot, access, ftp, resources, quota, quota-clear, runtime
+	Action              string `json:"action"`              // create, delete, seal, prepare, snapshot, access, ftp, resources, quota, quota-clear, runtime, fpm-status, certificate-status
 	Site                string `json:"site"`                // Validated: [a-z0-9_-]{1,32}
 	SiteUser            string `json:"site_user,omitempty"` // immutable account from the control-plane identity map
 	SnapshotSource      string `json:"snapshot_source,omitempty"`
@@ -192,14 +192,16 @@ type SiteRequest struct {
 	OpcacheSize         int    `json:"opcache_size,omitempty"`
 	DisplayErrors       bool   `json:"display_errors,omitempty"`
 	ErrorLogging        bool   `json:"error_logging,omitempty"`
+	Domain              string `json:"domain,omitempty"` // certificate-status only
 }
 
 type SiteResponse struct {
-	Username  string     `json:"username,omitempty"` // site_user for new sites
-	Created   bool       `json:"created,omitempty"`
-	Sealed    bool       `json:"sealed,omitempty"`
-	Deleted   bool       `json:"deleted,omitempty"`
-	FPMStatus *FPMStatus `json:"fpm_status,omitempty"`
+	Username    string             `json:"username,omitempty"` // site_user for new sites
+	Created     bool               `json:"created,omitempty"`
+	Sealed      bool               `json:"sealed,omitempty"`
+	Deleted     bool               `json:"deleted,omitempty"`
+	FPMStatus   *FPMStatus         `json:"fpm_status,omitempty"`
+	Certificate *CertificateStatus `json:"certificate,omitempty"`
 }
 
 // --- App Operations ---
