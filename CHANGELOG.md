@@ -90,6 +90,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   minutes generating a 1 GiB compressed payload under race instrumentation.
   The regression confirms rejection occurs before the missing entry body is
   read.
+- The asset-model validator now checks all three embedded production views and
+  the static asset tree, matching the current self-contained dashboard and
+  customer panel binary.
 
 - Push-triggered installed-host smokes now cancel superseded push runs instead
   of serially blocking current-source CI behind stale disposable-host work.

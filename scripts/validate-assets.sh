@@ -7,13 +7,13 @@ set -Eeuo pipefail
 echo "🔍 Validating StePanel asset model..."
 echo ""
 
-# Check that assets.go has the correct embed pattern
+# Check that assets.go embeds every production view and the complete static tree.
 echo "1️⃣  Checking assets.go embed directive..."
-if grep -q '//go:embed web/index.html web/static/\*' assets.go; then
+if grep -Eq '^//go:embed web/index\.html web/panel\.html web/partials\.html web/static/\*$' assets.go; then
     echo "   ✅ Embed pattern correct"
 else
     echo "   ❌ Embed pattern incorrect or missing"
-    echo "   Expected: //go:embed web/index.html web/static/*"
+    echo "   Expected: //go:embed web/index.html web/panel.html web/partials.html web/static/*"
     exit 1
 fi
 
@@ -21,6 +21,8 @@ fi
 echo "2️⃣  Verifying embedded files exist..."
 required_files=(
     "web/index.html"
+    "web/panel.html"
+    "web/partials.html"
     "web/static/app.css"
     "web/static/import.css"
     "web/static/workspace.css"
