@@ -317,7 +317,7 @@ login_headers="$work/login.headers"
 # correctly marks both cookies Secure, so curl will not save them to an HTTP
 # cookie jar. Capture the values from the successful login response instead;
 # Secure is a browser transport policy, not a server-side cookie validation.
-curl --fail --silent --show-error --max-time 10 -D "$login_headers" -o /dev/null \
+curl -q --fail --silent --show-error --max-time 10 -D "$login_headers" -o /dev/null \
   --data-urlencode "username=$STEPANEL_ADMIN_USERNAME" \
   --data-urlencode "password=$STEPANEL_ADMIN_PASSWORD" \
   --data-urlencode "totp=$totp" "$PANEL/login" >/dev/null
@@ -338,7 +338,11 @@ PY
 )
 session=${issued_cookies[0]:-}
 csrf=${issued_cookies[1]:-}
-[[ -n $session && -n $csrf ]] || { echo 'installed panel login did not issue session and CSRF cookies' >&2; exit 1; }
+if [[ -z $session || -z $csrf ]]; then
+  cookie_names=$(sed -nE 's/^[Ss]et-[Cc]ookie:[[:space:]]*([^=;]+)=.*/\1/p' "$login_headers" | paste -sd, -)
+  echo "installed panel login did not issue session and CSRF cookies (received: ${cookie_names:-none})" >&2
+  exit 1
+fi
 cookie_header="stepanel_session=$session; stepanel_csrf=$csrf"
 
 response=$(curl --fail --silent --show-error --max-time 30 \
