@@ -76,6 +76,20 @@ func TestPHPProfileSaveRestoresMemoryOnPersistenceFailure(t *testing.T) {
 	}
 }
 
+func TestPHPProfilePreviewEstimatesWorkerMemoryCeiling(t *testing.T) {
+	app := &App{Resources: &ResourceStore{values: map[string]ResourceProfile{
+		"demo": {Site: "demo", PHPWorkers: 6},
+	}}}
+	effects := app.phpProfileResourceImpact("demo", testPHPProfile("demo", "applied"), func() PHPProfile {
+		p := testPHPProfile("demo", "")
+		p.MemoryLimit = "192M"
+		return p
+	}())
+	if len(effects) != 1 || !strings.Contains(effects[0], "6 workers × 192 MiB = 1152 MiB") || !strings.Contains(effects[0], "Previous ceiling was 768 MiB") {
+		t.Fatalf("preview effect does not explain aggregate memory ceiling: %#v", effects)
+	}
+}
+
 func TestReconcilePHPProfilesRetainsPendingStateWhenHelperFails(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "profiles.json")

@@ -1,12 +1,70 @@
 package stepanel
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
+
+func TestResourceProfileApplyRequiresFreshPreview(t *testing.T) {
+	profile := ResourceProfile{Site: "demo", CPUPercent: 100, CPUWeight: 100, MemoryHighMB: 460, MemoryMB: 512, IOWeight: 100, TasksMax: 128, PHPWorkers: 8, DiskMB: 10240, Inodes: 200000, State: "applied", FilesystemQuotaState: "enforced"}
+	store := &ResourceStore{values: map[string]ResourceProfile{"demo": profile}}
+	app := &App{Auth: Auth{Username: "admin", Secret: "resource-preview-secret-at-least-32-bytes"}, Resources: store}
+	request := func(method string, token string) *httptest.ResponseRecorder {
+		t.Helper()
+		body, err := json.Marshal(map[string]any{"cpu_percent": 100, "memory_mb": 512, "tasks_max": 128, "php_workers": 10, "disk_mb": 10240, "inodes": 200000, "preview_token": token})
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(method, "/api/sites/resources/demo", bytes.NewReader(body))
+		req = req.WithContext(context.WithValue(req.Context(), apiTokenUsernameKey{}, "admin"))
+		response := httptest.NewRecorder()
+		app.siteResources(response, req)
+		return response
+	}
+	if response := request(http.MethodPut, ""); response.Code != http.StatusConflict {
+		t.Fatalf("unpreviewed resource update status=%d body=%s", response.Code, response.Body.String())
+	}
+	previewResponse := request(http.MethodPost, "")
+	if previewResponse.Code != http.StatusOK {
+		t.Fatalf("resource preview status=%d body=%s", previewResponse.Code, previewResponse.Body.String())
+	}
+	var preview ChangePreview
+	if err := json.Unmarshal(previewResponse.Body.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if preview.PreviewToken == "" || len(preview.Effects) < 4 || !strings.Contains(strings.Join(preview.Effects, " "), "8 → 10") {
+		t.Fatalf("preview lacks token or resource impact: %#v", preview)
+	}
+	changed := profile
+	changed.PHPWorkers = 7
+	store.values["demo"] = changed
+	if response := request(http.MethodPut, preview.PreviewToken); response.Code != http.StatusConflict {
+		t.Fatalf("stale resource preview status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestResourceProfilePreviewQuantifiesMeasuredWorkerMemoryDelta(t *testing.T) {
+	before := ResourceProfile{PHPWorkers: 8, MemoryMB: 512, CPUPercent: 100, TasksMax: 128}
+	proposed := before
+	proposed.PHPWorkers = 10
+	status := rootbroker.FPMStatus{Available: true, Pools: []rootbroker.FPMStatusPool{{
+		PHPVersion: "8.3", State: "available", MaxChildren: 8,
+		WorkerMemory: &rootbroker.FPMWorkerMemory{SampledWorkers: 4, P95RSSBytes: 40 << 20},
+	}}}
+	effects := strings.Join(resourceProfileEffects(before, proposed, status), " ")
+	if !strings.Contains(effects, "estimated pool RSS changes from 320.0 MiB at 8 workers to 400.0 MiB at 10 workers (change +80 MiB)") {
+		t.Fatalf("resource preview omitted measured worker-memory delta: %s", effects)
+	}
+}
 
 func TestOpenResourceStoreNormalizesLegacyProfile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "resources.json")

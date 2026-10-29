@@ -1,6 +1,7 @@
 package stepanel
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -173,11 +174,23 @@ func TestCrossProcessLock_SuspensionAndResourceUpdateSerialize(t *testing.T) {
 		Config: Config{AppCtl: appctl, SiteCtl: sitectl, WebRoot: filepath.Join(root, "www"), AuditLog: filepath.Join(root, "audit.jsonl")},
 	}
 	resourceUpdate := func(ctx context.Context) int {
-		request := httptest.NewRequest(http.MethodPut, "/api/sites/resources/demo", strings.NewReader(`{"cpu_percent":50,"memory_mb":256,"tasks_max":64,"php_workers":4}`))
-		request = request.WithContext(context.WithValue(ctx, apiTokenUsernameKey{}, "admin"))
-		response := httptest.NewRecorder()
-		app.siteResources(response, request)
-		return response.Code
+		request := func(method, token string) *httptest.ResponseRecorder {
+			body, _ := json.Marshal(map[string]any{"cpu_percent": 50, "memory_mb": 256, "tasks_max": 64, "php_workers": 4, "preview_token": token})
+			req := httptest.NewRequest(method, "/api/sites/resources/demo", bytes.NewReader(body))
+			req = req.WithContext(context.WithValue(ctx, apiTokenUsernameKey{}, "admin"))
+			response := httptest.NewRecorder()
+			app.siteResources(response, req)
+			return response
+		}
+		previewResponse := request(http.MethodPost, "")
+		if previewResponse.Code != http.StatusOK {
+			return previewResponse.Code
+		}
+		var preview ChangePreview
+		if json.Unmarshal(previewResponse.Body.Bytes(), &preview) != nil {
+			return http.StatusInternalServerError
+		}
+		return request(http.MethodPut, preview.PreviewToken).Code
 	}
 	helperCalls := func() string {
 		data, err := os.ReadFile(calls)

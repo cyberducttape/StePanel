@@ -640,15 +640,19 @@ func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"configured": ok, "profile": p, "observed": observed, "fpm_status": fpmStatus, "enforcement": "systemd slice for managed apps/workers/scheduled tasks; isolated PHP-FPM max_children"})
 		return
 	}
-	if r.Method != http.MethodPut || !a.Auth.CSRF(r) || !a.Auth.IsAdministrator(r) {
+	if (r.Method != http.MethodPut && r.Method != http.MethodPost) || !a.Auth.CSRF(r) || !a.Auth.IsAdministrator(r) {
 		http.Error(w, "administrator CSRF request required", 403)
 		return
 	}
-	var p ResourceProfile
-	if e := decodeJSON(w, r, 4096, &p); e != nil {
+	var input struct {
+		ResourceProfile
+		PreviewToken string `json:"preview_token,omitempty"`
+	}
+	if e := decodeJSON(w, r, 4096, &input); e != nil {
 		http.Error(w, "invalid JSON", 400)
 		return
 	}
+	p := input.ResourceProfile
 	p.Site = site
 	a.Resources.mu.RLock()
 	previous, hadPrevious := a.Resources.values[site]
@@ -705,6 +709,28 @@ func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "resource mutation cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
+	if r.Method == http.MethodPost {
+		before := struct {
+			Configured bool            `json:"configured"`
+			Profile    ResourceProfile `json:"profile"`
+		}{hadPrevious, previous}
+		effects := a.resourceProfilePreviewEffects(r.Context(), previous, p)
+		preview, err := a.makeChangePreview("site.resources:"+site, before, p, effects,
+			[]string{"Restore the previous resource profile and reapply it through this same preview workflow.", "If host activation fails, desired state remains pending reconciliation; inspect systemd slice and filesystem quota state before retrying."})
+		if err != nil {
+			http.Error(w, "could not create resource profile preview", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, preview)
+		return
+	}
+	if !a.verifyChangePreview(input.PreviewToken, "site.resources:"+site, struct {
+		Configured bool            `json:"configured"`
+		Profile    ResourceProfile `json:"profile"`
+	}{hadPrevious, previous}, p) {
+		http.Error(w, "resource profile changed or its preview expired; generate a new preview", http.StatusConflict)
+		return
+	}
 	a.Resources.mu.Lock()
 	e := a.Resources.saveProfileLocked(p)
 	a.Resources.mu.Unlock()
@@ -737,6 +763,36 @@ func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 	}
 	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.resources.applied", site, "cgroup/FPM profile")
 	writeJSON(w, 202, p)
+}
+
+func (a *App) resourceProfilePreviewEffects(ctx context.Context, before, proposed ResourceProfile) []string {
+	return resourceProfileEffects(before, proposed, a.siteFPMStatusSnapshot(ctx, proposed.Site))
+}
+
+func resourceProfileEffects(before, proposed ResourceProfile, status rootbroker.FPMStatus) []string {
+	effects := []string{
+		fmt.Sprintf("PHP-FPM max_children: %d → %d.", before.PHPWorkers, proposed.PHPWorkers),
+		fmt.Sprintf("Site systemd memory.max: %d MiB → %d MiB; CPU quota: %d%% → %d%%; task limit: %d → %d.", before.MemoryMB, proposed.MemoryMB, before.CPUPercent, proposed.CPUPercent, before.TasksMax, proposed.TasksMax),
+		fmt.Sprintf("Filesystem quota allowance: %d MiB → %d MiB and %d → %d inodes; quota is account-scoped where sites share an account.", before.DiskMB, proposed.DiskMB, before.Inodes, proposed.Inodes),
+	}
+	memoryObserved := false
+	for _, pool := range status.Pools {
+		if pool.State != "available" || pool.WorkerMemory == nil {
+			continue
+		}
+		memoryObserved = true
+		perWorker := pool.WorkerMemory.P95RSSBytes
+		oldProjection := perWorker * uint64(before.PHPWorkers)
+		newProjection := perWorker * uint64(proposed.PHPWorkers)
+		effects = append(effects, fmt.Sprintf("PHP %s measured worker RSS P95 is %s across %d sampled process(es): estimated pool RSS changes from %s at %d workers to %s at %d workers (change %+d MiB). This instantaneous estimate includes shared pages and is not a reservation.",
+			pool.PHPVersion, formatPHPBytes(perWorker), pool.WorkerMemory.SampledWorkers,
+			formatPHPBytes(oldProjection), before.PHPWorkers, formatPHPBytes(newProjection), proposed.PHPWorkers,
+			(int64(newProjection)-int64(oldProjection))/(1024*1024)))
+	}
+	if !memoryObserved {
+		effects = append(effects, "PHP-FPM worker memory could not be measured; no memory-based worker sizing estimate is available. Collect representative measurements before increasing max_children.")
+	}
+	return effects
 }
 
 func (a *App) siteFPMStatusSnapshot(parent context.Context, site string) rootbroker.FPMStatus {

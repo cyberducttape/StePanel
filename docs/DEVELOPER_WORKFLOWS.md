@@ -22,7 +22,7 @@ retried during startup reconciliation.
 
 ## Resource profiles (Preview/Beta)
 
-Administrators can `GET`/`PUT /api/sites/resources/{site}` to apply an
+Administrators can `GET`/`POST`/`PUT /api/sites/resources/{site}` to apply an
 enforceable profile for managed Node/Python application and worker processes:
 CPU quota/weight, `MemoryHigh`/`MemoryMax`, I/O weight, task/PID maximum, and
 isolated PHP-FPM `pm.max_children`. Plan-assigned sites also inherit a root-owned
@@ -33,6 +33,16 @@ as `pending` before host application and becomes `applied` only after both the
 systemd slice and FPM pool validate successfully.
 Scheduled-task units are also assigned to this slice, so CPU, memory, I/O, and
 task ceilings apply consistently to cron-like work when a site profile exists.
+POST returns an expiring review token and a change preview. When measured PHP
+worker RSS is available, the preview estimates the pool's current and proposed
+RSS at the observed P95 and shows the marginal effect of the worker-count
+change. PUT requires that token; missing, stale, or expired previews are
+rejected. Measurements are snapshots (RSS includes shared pages) and are not
+reservations, so compare repeated peak-period samples with host headroom before
+raising worker counts. PHP runtime change previews also show the configured
+per-request PHP memory ceiling multiplied by the site's worker count, alongside
+measured RSS when available.
+
 If no site profile is configured, each task uses a conservative local fallback
 ceiling of 100% CPU, 1 GiB memory, and 256 processes. When a site profile is
 configured, those CPU, memory, and process values are propagated into each task
@@ -46,7 +56,12 @@ unavailable because they depend on host filesystem configuration.
 Removing both values queues an explicit quota-clear operation and retries it
 through reconciliation if the host mutation is interrupted.
 
-`GET /api/sites/resources/{site}` also reports observed systemd-slice state.
+`GET /api/sites/resources/{site}` also reports observed systemd-slice state,
+current managed-service memory/task use, cumulative CPU time, PHP-FPM queue and
+slow-request counters, and instantaneous worker memory measurements where the
+root broker can attribute workers to the site's pool. The usage endpoint reports
+bounded site-tree bytes and an account-quota remaining-space upper bound; it
+does not claim that the tree scan is the kernel's account-wide quota counter.
 Administrators can call `POST /api/reconcile/resources` to re-apply pending or
 inactive desired profiles after a helper failure or host restart; each repair
 is audited.

@@ -34,11 +34,13 @@ func TestSampleFPMWorkerMemoryMatchesOnlyTheSitePool(t *testing.T) {
 	writeFakeProc(t, proc, 200, 20, 1001, 99999, "php-fpm: pool stepanel-demo")      // other PHP version
 	writeFakeProc(t, proc, 300, 10, 1001, 88888, "php-fpm: pool stepanel-demo-shop") // prefix site
 	writeFakeProc(t, proc, 400, 10, 1002, 77777, "php-fpm: pool stepanel-demo")      // other account
+	writeFakeProc(t, proc, 11, 1, 1001, 30000, "php-fpm: master process (/etc/php/8.3/fpm/php-fpm.conf)")
+	writeFakeProc(t, proc, 500, 11, 1001, 66666, "php-fpm: pool stepanel-demo") // site process spoofing a worker title
 	if err := os.WriteFile(filepath.Join(proc, "uptime"), []byte("1 1"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := sampleFPMWorkerMemory(proc, 1001, "demo", "8.3", true)
+	got, err := sampleFPMWorkerMemory(proc, 1001, "demo", "8.3")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,15 +48,7 @@ func TestSampleFPMWorkerMemoryMatchesOnlyTheSitePool(t *testing.T) {
 		t.Fatalf("sample = %#v", got)
 	}
 
-	all, err := sampleFPMWorkerMemory(proc, 1001, "demo", "8.3", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if all.SampledWorkers != 4 {
-		t.Fatalf("single-pool sample = %d workers, want 4 (prefix site and other uid excluded)", all.SampledWorkers)
-	}
-
-	if _, err := sampleFPMWorkerMemory(proc, 1001, "missing", "8.3", false); err == nil {
+	if _, err := sampleFPMWorkerMemory(proc, 1001, "missing", "8.3"); err == nil {
 		t.Fatal("expected error when no worker matches")
 	}
 }

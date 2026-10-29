@@ -356,10 +356,21 @@ func TestWorkflowInterruption_ResourceUpdateThenSuspension(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	request := httptest.NewRequest(http.MethodPut, "/api/sites/resources/demo", strings.NewReader(`{"cpu_percent":50,"memory_mb":256,"tasks_max":64,"php_workers":4}`))
-	request = request.WithContext(context.WithValue(request.Context(), apiTokenUsernameKey{}, "admin"))
+	previewRequest := httptest.NewRequest(http.MethodPost, "/api/sites/resources/demo", strings.NewReader(`{"cpu_percent":50,"memory_mb":256,"tasks_max":64,"php_workers":4}`))
+	previewRequest = previewRequest.WithContext(context.WithValue(previewRequest.Context(), apiTokenUsernameKey{}, "admin"))
+	previewResponse := httptest.NewRecorder()
+	app.siteResources(previewResponse, previewRequest)
+	if previewResponse.Code != http.StatusOK {
+		t.Fatalf("resource preview status=%d: %s", previewResponse.Code, previewResponse.Body.String())
+	}
+	var preview ChangePreview
+	if err := json.Unmarshal(previewResponse.Body.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	applyRequest := httptest.NewRequest(http.MethodPut, "/api/sites/resources/demo", strings.NewReader(`{"cpu_percent":50,"memory_mb":256,"tasks_max":64,"php_workers":4,"preview_token":"`+preview.PreviewToken+`"}`))
+	applyRequest = applyRequest.WithContext(context.WithValue(applyRequest.Context(), apiTokenUsernameKey{}, "admin"))
 	response := httptest.NewRecorder()
-	app.siteResources(response, request)
+	app.siteResources(response, applyRequest)
 	if response.Code == http.StatusOK {
 		t.Fatalf("interrupted resource update reported success: %s", response.Body.String())
 	}

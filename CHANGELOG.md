@@ -8,6 +8,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Site resource views now show live systemd-slice memory, task count, cumulative
+  CPU time, PHP-FPM active/idle/queued workers, slow-request counters, and
+  site-scoped worker RSS mean/P95/maximum. PHP runtime previews estimate the
+  aggregate configured PHP memory ceiling and show measured worker RSS plus
+  the estimated marginal memory of one additional worker when available.
+  Resource-profile changes now also require a preview token and quantify the
+  projected PHP-FPM RSS at the proposed worker count before applying.
+  Filesystem usage reports bounded site-tree bytes and an account-quota
+  remaining-space upper bound, clearly marked as an estimate because other
+  account content may share the enforced quota. Recommendations remain
+  review-only; no worker limit is changed automatically.
+
 - A stable `/api/v1` automation namespace now backs the supported Go and
   TypeScript client packages and generated Bash, Zsh, and Fish completions.
   `stepanelctl` uses the same API workflows as the dashboard for site creation,

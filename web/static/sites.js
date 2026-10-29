@@ -433,6 +433,12 @@
         if (usageData.bytes >= limit * 0.9) add('warning', 'Site is near its configured disk allowance', `${formatBytes(usageData.bytes)} of ${formatBytes(limit)} in regular-file content (${Math.min(100, Math.round(usageData.bytes / limit * 100))}%).`, 'Review old releases, uploads, and backup policy before the site reaches its configured limit. Do not raise the limit until host free space and inode headroom are checked.');
         if (profile.filesystem_quota_state !== 'enforced') add('unknown', 'Disk quota enforcement is not confirmed', `Configured allowance is ${formatBytes(limit)}, but quota state is ${profile.filesystem_quota_state || 'unknown'}.`, 'Ask an administrator to verify the filesystem quota from the host; measured tree size alone does not prove enforcement.');
       }
+      if (usageAvailable && usageData && usageData.quota) {
+        const quota = usageData.quota;
+        if (Number.isFinite(Number(quota.estimated_remaining_bytes))) {
+          add('guidance', 'Measured filesystem usage and quota estimate', `${formatBytes(Number(quota.tree_bytes || 0))} in this site tree; estimated remaining account allowance up to ${formatBytes(Number(quota.estimated_remaining_bytes))}. ${quota.enforced ? 'Kernel quota is marked enforced.' : 'Kernel enforcement is not confirmed.'} ${quota.scope_note || ''}`, 'Treat this as an upper bound because other content owned by the hosting account can consume the same quota. Verify kernel quota usage before capacity changes.');
+        }
+      }
       const fpm = resourceData.fpm_status || {};
       const pools = Array.isArray(fpm.pools) ? fpm.pools : [];
       const livePools = pools.filter((pool) => pool.state === 'available');
@@ -458,6 +464,12 @@
           add('guidance', guidance.title,
             `${guidance.php_version ? `PHP ${guidance.php_version} · ` : ''}${guidance.evidence} ${guidance.recommendation}`,
             guidance.operator_approval_needed ? 'Review the evidence and approve any PHP worker change separately. StePanel has not changed the pool.' : 'No configuration change was applied.');
+        });
+        livePools.filter((pool) => pool.worker_memory).forEach((pool) => {
+          const memory = pool.worker_memory;
+          add('guidance', `Measured PHP-FPM memory · PHP ${pool.php_version || 'default'}`,
+            `${memory.sampled_workers} workers sampled: mean ${formatBytes(memory.mean_rss_bytes)}, P95 ${formatBytes(memory.p95_rss_bytes)}, maximum ${formatBytes(memory.max_rss_bytes)}. At max_children ${pool.max_children}, the sample projects approximately ${formatBytes(memory.projected_rss_at_max_children_bytes)} RSS; one more worker would add about ${formatBytes(memory.one_additional_worker_bytes)} at sampled P95. ${memory.estimate || ''}`,
+            'Compare multiple peak-period samples with host available memory before adjusting PHP workers. RSS includes shared pages and is not an enforced per-site memory limit.');
         });
       }
     } else if (!resourceAvailable) {
@@ -1652,6 +1664,74 @@
           el('article', { className: 'overview-stat' }, [el('span', { className: 'stat-label' }, 'PHP workers'), el('strong', {}, value('php_workers'))]),
         ]),
       );
+      const observedValue = (key) => resources.observed?.[key] || 'unknown';
+      const memoryCurrent = Number(observedValue('MemoryCurrent'));
+      const memoryMax = Number(observedValue('MemoryMax'));
+      const cpuNS = Number(observedValue('CPUUsageNSec'));
+      const tasksCurrent = observedValue('TasksCurrent');
+      const fpm = resources.fpm_status || {};
+      const memoryCards = [];
+      if (Number.isFinite(memoryCurrent) && memoryCurrent >= 0) {
+        memoryCards.push(el('article', { className: 'overview-stat' }, [el('span', { className: 'stat-label' }, 'Managed service memory now'), el('strong', {}, formatBytes(memoryCurrent)), el('small', {}, Number.isFinite(memoryMax) && memoryMax > 0 ? `of ${formatBytes(memoryMax)} cgroup limit` : 'cgroup limit unavailable')]));
+      }
+      if (tasksCurrent !== 'unknown') memoryCards.push(el('article', { className: 'overview-stat' }, [el('span', { className: 'stat-label' }, 'Tasks now'), el('strong', {}, `${tasksCurrent} / ${observedValue('TasksMax')}`)]));
+      if (Number.isFinite(cpuNS) && cpuNS >= 0) memoryCards.push(el('article', { className: 'overview-stat' }, [el('span', { className: 'stat-label' }, 'Managed service CPU time'), el('strong', {}, `${(cpuNS / 1e9).toFixed(1)} s`), el('small', {}, 'cumulative since slice start; not a utilization percentage')]));
+      if (memoryCards.length) panel.append(el('h5', {}, 'Observed site resource use'), el('div', { className: 'overview-grid' }, memoryCards));
+      const pools = (fpm.pools || []).filter((pool) => pool.state === 'available');
+      if (pools.length) {
+        panel.append(el('h5', {}, 'PHP-FPM measurements'), el('div', { className: 'resource-list' }, pools.map((pool) => {
+          const memory = pool.worker_memory;
+          const details = memory
+            ? `${memory.sampled_workers} worker(s) sampled · mean ${formatBytes(memory.mean_rss_bytes)} · P95 ${formatBytes(memory.p95_rss_bytes)} · projected ${formatBytes(memory.projected_rss_at_max_children_bytes)} at max_children ${pool.max_children}`
+            : 'Worker RSS unavailable; FPM queue and slow-request counters remain available.';
+          return el('article', { className: 'resource-list-item' }, [el('div', { className: 'item-meta' }, [el('strong', {}, `PHP ${pool.php_version || 'default'} · ${pool.active_processes} active / ${pool.idle_processes} idle / ${pool.max_children} max`), el('small', {}, details)]), el('small', {}, `Queue ${pool.listen_queue}; slow requests since FPM start ${pool.slow_requests}; max-children events ${pool.max_children_reached}.`)]);
+        })));
+      }
+      if (!fpm.available) panel.append(el('p', { className: 'import-note' }, fpm.detail || 'Live PHP-FPM measurements are unavailable.'));
+      if (ctx.isAdministrator && configured) {
+        const workers = field({ label: 'PHP-FPM max children', name: 'php-workers', type: 'number', min: 1, max: 512, value: profile.php_workers, hint: 'Preview includes measured worker RSS where available.' });
+        const workerOutput = ctx.statusOutput();
+        const workerForm = el('form', {
+          className: 'import-form',
+          onSubmit: async (event) => {
+            event.preventDefault();
+            const desiredWorkers = Number(workers.querySelector('input').value);
+            if (!Number.isInteger(desiredWorkers) || desiredWorkers < 1 || desiredWorkers > 512) {
+              workerOutput.textContent = 'Enter a whole number from 1 to 512.';
+              return;
+            }
+            const change = {
+              cpu_percent: Number(profile.cpu_percent), cpu_weight: Number(profile.cpu_weight),
+              memory_high_mb: Number(profile.memory_high_mb), memory_mb: Number(profile.memory_mb),
+              io_weight: Number(profile.io_weight), tasks_max: Number(profile.tasks_max),
+              php_workers: desiredWorkers, disk_mb: Number(profile.disk_mb || 0), inodes: Number(profile.inodes || 0),
+            };
+            workerOutput.textContent = 'Measuring current PHP-FPM workers and preparing a preview…';
+            try {
+              const preview = await ctx.postJSON(`/api/sites/resources/${encodeURIComponent(site)}`, change);
+              const confirmed = await ctx.confirmDangerous({
+                title: 'Review PHP-FPM worker change',
+                message: 'The change updates this site’s PHP-FPM max_children and reapplies its resource profile. The RSS projection is an estimate, not reserved memory.',
+                facts: [
+                  ['Current PHP workers', String(profile.php_workers)],
+                  ['Proposed PHP workers', String(desiredWorkers)],
+                  ...((preview.effects || []).map((effect, index) => [`Effect ${index + 1}`, effect])),
+                  ...((preview.recovery_plan || []).map((step, index) => [`Recovery ${index + 1}`, step])),
+                  ['Preview expires', new Date(preview.expires_at).toLocaleString()],
+                ],
+                confirmText: site,
+                actionLabel: 'Apply worker change',
+              });
+              if (!confirmed) { workerOutput.textContent = 'PHP-FPM worker change cancelled.'; return; }
+              workerOutput.textContent = 'Applying the reviewed PHP-FPM worker change…';
+              await ctx.putJSON(`/api/sites/resources/${encodeURIComponent(site)}`, { ...change, preview_token: preview.preview_token });
+              workerOutput.textContent = 'PHP-FPM worker limit applied.';
+              renderSettingsTab(site, panel, ctx);
+            } catch (error) { workerOutput.textContent = error.message; }
+          },
+        }, [el('h5', {}, 'Tune PHP-FPM workers'), workers, el('button', { type: 'submit', className: 'primary-action' }, 'Preview worker change'), workerOutput]);
+        panel.append(workerForm);
+      }
     }
 
     // Danger zone

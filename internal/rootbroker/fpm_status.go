@@ -145,9 +145,10 @@ func collectFPMStatusFrom(ctx context.Context, site, siteUser, identityConfig st
 		item.MaxListenQueue = stats.MaxQueue
 		item.MaxChildrenReached = stats.MaxChildrenReached
 		item.SlowRequests = stats.SlowRequests
-		// Pools of different PHP versions share the pool name, so with more
-		// than one pool each worker is attributed through its master process.
-		memory, memoryErr := sampleFPMWorkerMemory("/proc", uid, site, pool.version, len(pools) > 1)
+		// Attribute each worker through its root-owned FPM master, even when
+		// only one version is installed; otherwise a site process could spoof
+		// the worker title and contaminate the memory estimate.
+		memory, memoryErr := sampleFPMWorkerMemory("/proc", uid, site, pool.version)
 		if memoryErr == nil {
 			memory.ProjectedRSSAtMaxChildrenBytes = memory.P95RSSBytes * pool.max
 			memory.OneAdditionalWorkerBytes = memory.P95RSSBytes
@@ -169,7 +170,7 @@ func collectFPMStatusFrom(ctx context.Context, site, siteUser, identityConfig st
 	return result, nil
 }
 
-func sampleFPMWorkerMemory(procRoot string, uid uint32, site, version string, matchVersion bool) (*FPMWorkerMemory, error) {
+func sampleFPMWorkerMemory(procRoot string, uid uint32, site, version string) (*FPMWorkerMemory, error) {
 	entries, err := os.ReadDir(procRoot)
 	if err != nil {
 		return nil, err
@@ -196,7 +197,7 @@ func sampleFPMWorkerMemory(procRoot string, uid uint32, site, version string, ma
 		if err != nil || len(cmdline) > 16<<10 || procTitle(cmdline) != needle {
 			continue
 		}
-		if matchVersion && !fpmWorkerMasterMatchesVersion(procRoot, status, version) {
+		if !fpmWorkerMasterMatchesVersion(procRoot, status, version) {
 			continue
 		}
 		rss, ok := procRSSBytes(status)
@@ -239,7 +240,12 @@ func fpmWorkerMasterMatchesVersion(procRoot string, status []byte, version strin
 	if _, err := strconv.ParseUint(ppid, 10, 32); err != nil {
 		return false
 	}
-	cmdline, err := os.ReadFile(filepath.Join(procRoot, ppid, "cmdline"))
+	master := filepath.Join(procRoot, ppid)
+	masterStatus, err := os.ReadFile(filepath.Join(master, "status"))
+	if err != nil || len(masterStatus) > 64<<10 || !procStatusHasUID(masterStatus, 0) {
+		return false
+	}
+	cmdline, err := os.ReadFile(filepath.Join(master, "cmdline"))
 	if err != nil || len(cmdline) > 16<<10 {
 		return false
 	}

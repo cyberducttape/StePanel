@@ -632,9 +632,17 @@ paths:
     get:
       summary: Inspect a per-site resource profile and its enforcement scope
       responses: {'200': {description: Desired/applied resource profile}}
+    post:
+      summary: Preview a per-site resource-profile change, including measured PHP worker memory impact where available
+      responses:
+        '200': {description: Current and proposed profile, estimated effects, recovery plan and expiring token}
+        '409': {description: Site resource mutation is currently locked}
     put:
-      summary: Apply CPU, memory, I/O, task and PHP-FPM worker ceilings for a site
-      responses: {'202': {description: Systemd slice and FPM profile applied}}
+      summary: Apply a resource profile using its current preview token
+      description: The preview token binds the desired profile to the prior persisted profile. Memory estimates are observational and are not resource reservations.
+      responses:
+        '202': {description: Systemd slice and FPM profile applied}
+        '409': {description: Preview missing, expired or stale}
   /api/v1/reconcile/resources:
     post:
       summary: Reconcile pending/inactive desired resource profiles with systemd and PHP-FPM

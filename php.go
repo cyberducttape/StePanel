@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -171,8 +172,9 @@ func (a *App) phpRuntime(w http.ResponseWriter, r *http.Request) {
 	proposed := p
 	proposed.PreviewToken = ""
 	if r.Method == http.MethodPost {
+		impact := a.phpProfileResourceImpact(site, current, proposed)
 		preview, err := a.makeChangePreview("php.runtime:"+site, before, proposed,
-			[]string{"Update the site's PHP-FPM pool configuration.", "Restart or reload the site's PHP-FPM service; requests may briefly fail during activation."},
+			append([]string{"Update the site's PHP-FPM pool configuration.", "Restart or reload the site's PHP-FPM service; requests may briefly fail during activation."}, impact...),
 			[]string{"Restore the previous PHP runtime profile shown in this preview and reapply it.", "If activation fails, StePanel retains the desired profile as pending reconciliation; inspect the PHP-FPM pool and service before retrying."})
 		if err != nil {
 			http.Error(w, "could not create PHP change preview", http.StatusInternalServerError)
@@ -216,6 +218,52 @@ func (a *App) phpRuntime(w http.ResponseWriter, r *http.Request) {
 	}
 	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.php.updated", site, p.Version)
 	writeJSON(w, 202, p)
+}
+
+// phpProfileResourceImpact turns the per-request PHP memory limit into an
+// explicit upper-bound estimate for the site's configured worker count. It
+// supplements (and never substitutes for) measured PHP-FPM worker RSS.
+func (a *App) phpProfileResourceImpact(site string, before, proposed PHPProfile) []string {
+	workers := 1
+	if a.Resources != nil {
+		a.Resources.mu.RLock()
+		if profile, ok := a.Resources.values[site]; ok && profile.PHPWorkers > 0 {
+			workers = profile.PHPWorkers
+		}
+		a.Resources.mu.RUnlock()
+	}
+	oldMB, oldOK := parsePHPSizeMB(before.MemoryLimit)
+	newMB, newOK := parsePHPSizeMB(proposed.MemoryLimit)
+	if !newOK {
+		return []string{"PHP memory impact is unavailable because the proposed memory limit could not be parsed."}
+	}
+	effect := fmt.Sprintf("PHP request memory ceiling: %d workers × %d MiB = %d MiB theoretical per-site PHP allocation; this is a configuration ceiling, not reserved or measured RSS.", workers, newMB, workers*newMB)
+	if oldOK {
+		effect += fmt.Sprintf(" Previous ceiling was %d MiB total; proposed change is %+d MiB at the same worker count.", workers*oldMB, workers*(newMB-oldMB))
+	}
+	status := a.siteFPMStatusSnapshot(context.Background(), site)
+	for _, pool := range status.Pools {
+		if pool.State != "available" || pool.WorkerMemory == nil {
+			continue
+		}
+		effect += fmt.Sprintf(" PHP %s instantaneous worker RSS sample: %d worker(s), P95 %s; configured max_children %d projects to about %s RSS at that sample's P95.",
+			pool.PHPVersion, pool.WorkerMemory.SampledWorkers, formatPHPBytes(pool.WorkerMemory.P95RSSBytes), pool.MaxChildren,
+			formatPHPBytes(pool.WorkerMemory.ProjectedRSSAtMaxChildrenBytes))
+	}
+	effect += " RSS includes shared mappings and one snapshot is not a sustained-load forecast; compare repeated peak-period samples with host headroom before increasing worker limits."
+	return []string{effect}
+}
+
+func parsePHPSizeMB(value string) (int, bool) {
+	if !phpSizePattern.MatchString(value) {
+		return 0, false
+	}
+	parsed, err := strconv.Atoi(strings.TrimSuffix(value, "M"))
+	return parsed, err == nil
+}
+
+func formatPHPBytes(value uint64) string {
+	return fmt.Sprintf("%.1f MiB", float64(value)/(1024*1024))
 }
 
 func (a *App) applyPHPProfile(ctx context.Context, p PHPProfile) error {

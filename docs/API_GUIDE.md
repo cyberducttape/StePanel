@@ -232,11 +232,11 @@ Common site resources:
 | --- | --- | --- |
 | `GET` | `/api/sites` | Administrator route inventory or tenant-assigned sites |
 | `POST` | `/api/sites` | Create a site from a template (administrator or tenant owner; durable job) |
-| `GET` | `/api/sites/usage/{site}` | Bounded regular-file usage |
 | `GET` | `/api/sites/logs/{site}` | Allowlisted, bounded site logs |
 | `GET`/`PUT`/`DELETE` | `/api/sites/environment/{site}` | Encrypted site environment metadata |
-| `GET`/`PUT` | `/api/sites/php/{site}` | PHP-FPM runtime profile |
-| `GET`/`PUT` | `/api/sites/resources/{site}` | CPU, memory, I/O, task, and PHP-worker limits |
+| `GET`/`POST`/`PUT` | `/api/sites/php/{site}` | PHP-FPM runtime profile; POST previews include the theoretical aggregate PHP memory ceiling and any available measured worker RSS evidence before applying |
+| `GET`/`POST`/`PUT` | `/api/sites/resources/{site}` | CPU, memory, I/O, task, and PHP-worker limits plus observed cgroup usage and private PHP-FPM counters; POST previews changes and PUT requires its current preview token |
+| `GET` | `/api/sites/usage/{site}` | Bounded site-tree bytes/files/directories and an explicitly estimated account-quota upper bound when a quota is configured |
 | `GET`/`PUT`/`DELETE` | `/api/sites/access/{site}` | SSH/SFTP policy and public keys |
 | `GET`/`PUT`/`DELETE` | `/api/sites/redis/{site}` | Logical Redis/Valkey allocation |
 | `GET`/`PUT`/`DELETE` | `/api/tasks/{site}/{name}` | Systemd task with bounded interval, single-run concurrency, timeout/resources, missed-run policy, webhook, failure auto-disable, and 20-run history |
