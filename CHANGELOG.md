@@ -40,6 +40,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- The customer website overview now exposes its labelled container as a region,
+  satisfying ARIA naming rules and preserving a clear landmark for screen-reader
+  navigation.
 - Installed-host cPanel import and WordPress recovery smokes now read Secure
   cookie values from login response headers when exercising the panel over
   loopback HTTP, while ignoring ambient curl configuration. This preserves
