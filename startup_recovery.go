@@ -32,14 +32,6 @@ func recoverUncleanShutdownWithRoutes(cfg Config, siteManager siteauthority.Mana
 	return recoverInterruptedStateWithRoutes(cfg, siteManager, lockSite, "", routes, resources...)
 }
 
-// recoverInterruptedState is recoverUncleanShutdown limited to one site when
-// site is not empty. A worker runs the site-scoped pass, holding the site's
-// lease, when it finds a site operation that a crash interrupted, so the site
-// is repaired without waiting for the panel to restart.
-func recoverInterruptedState(cfg Config, siteManager siteauthority.Manager, lockSite siteLocker, site string, resources ...*ResourceStore) []error {
-	return recoverInterruptedStateWithRoutes(cfg, siteManager, lockSite, site, nil, resources...)
-}
-
 func recoverInterruptedStateWithRoutes(cfg Config, siteManager siteauthority.Manager, lockSite siteLocker, site string, routes *RouteStore, resources ...*ResourceStore) []error {
 	var failures []error
 	databaseRecoveries, err := recoverTransactionDatabases(cfg, cfg.RecoveryRoot, lockSite, site)

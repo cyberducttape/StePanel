@@ -222,6 +222,12 @@ func (a *App) stagingPromote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.Source, input.Site = safeUser(input.Source), safeUser(input.Site)
+	// Validate before any lock is taken: an empty or identical pair must never
+	// reach the mutation locks or the promotion state checks.
+	if input.Source == "" || input.Site == "" || input.Source == input.Site {
+		http.Error(w, "invalid staging or production site", http.StatusUnprocessableEntity)
+		return
+	}
 	if _, ok := a.requireSiteAccess(w, r, input.Site, "production site is not assigned to this account", http.StatusForbidden); !ok {
 		return
 	}

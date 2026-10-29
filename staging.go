@@ -64,18 +64,6 @@ func stagingBasicAuthSupported(webserver string) bool {
 	return webserver == "caddy" || webserver == "apache"
 }
 
-func managedSitePrimaryDomain(routes *RouteStore, site string) (string, error) {
-	if routes == nil {
-		return "", errors.New("managed route state is unavailable")
-	}
-	for _, route := range routes.list() {
-		if route.Site == site && route.State == "applied" && domainname.Valid(route.Domain) {
-			return route.Domain, nil
-		}
-	}
-	return "", errors.New("site has no applied managed domain")
-}
-
 func managedSiteRouteExists(routes *RouteStore, site, domain string) bool {
 	if routes == nil {
 		return false

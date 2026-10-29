@@ -28,6 +28,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- WordPress staging promotion now rejects empty or identical staging and
+  production sites before taking mutation locks, matching the preview.
+- The Go client refuses redirects that would carry the bearer token to a
+  non-TLS, non-loopback URL.
+- PHP-FPM worker memory sampling counts only the site's own pool and PHP
+  version, and site usage reports quota headroom only for a disk-space limit.
 - The MySQL credential-file test now accepts MariaDB's redacted
   `my_print_defaults` output while continuing to verify the exact private
   option-file contents and filesystem permissions.

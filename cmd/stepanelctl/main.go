@@ -480,9 +480,6 @@ func getOperation(c *stepanel.Client, ctx context.Context, operationID string, o
 	}
 	return emit(r, out)
 }
-func jsonCall(c *stepanel.Client, ctx context.Context, m, p string, v any, h map[string]string) (*stepanel.Response, error) {
-	return c.JSON(ctx, m, p, v, h)
-}
 func emit(r *stepanel.Response, out io.Writer) error {
 	defer r.Body.Close()
 	if r.Status < 200 || r.Status >= 300 {

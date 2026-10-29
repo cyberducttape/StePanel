@@ -120,9 +120,15 @@ func (c *Client) do(ctx context.Context, method, apiPath string, body io.Reader,
 	if client == nil {
 		client = http.DefaultClient
 	}
-	if strings.HasPrefix(strings.ToLower(contentType), "multipart/form-data") && c.UploadTimeout > 0 {
+	upload := strings.HasPrefix(strings.ToLower(contentType), "multipart/form-data") && c.UploadTimeout > 0
+	if upload || client.CheckRedirect == nil {
 		copy := *client
-		copy.Timeout = c.UploadTimeout
+		if upload {
+			copy.Timeout = c.UploadTimeout
+		}
+		if copy.CheckRedirect == nil {
+			copy.CheckRedirect = refuseInsecureRedirect
+		}
 		client = &copy
 	}
 	resp, err := client.Do(req)
@@ -130,6 +136,18 @@ func (c *Client) do(ctx context.Context, method, apiPath string, body io.Reader,
 		return nil, err
 	}
 	return &Response{Status: resp.StatusCode, RequestID: resp.Header.Get("X-Request-ID"), Body: resp.Body}, nil
+}
+
+// refuseInsecureRedirect keeps the bearer token on TLS: Go forwards the
+// Authorization header on same-host redirects, including https to http.
+func refuseInsecureRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return fmt.Errorf("stopped after 10 redirects")
+	}
+	if req.URL.Scheme != "https" && !isLoopbackHost(req.URL.Hostname()) {
+		return fmt.Errorf("refusing redirect to non-TLS URL %s", req.URL.Redacted())
+	}
+	return nil
 }
 
 func isLoopbackHost(host string) bool {
