@@ -368,7 +368,7 @@ func (a Auth) sessionCSRFToken(r *http.Request) (string, int64) {
 }
 
 func (a Auth) setCSRFCookie(w http.ResponseWriter, token string, expiry int64) {
-	http.SetCookie(w, &http.Cookie{Name: "stepanel_csrf", Value: token, Path: "/", Expires: time.Unix(expiry, 0), Secure: a.SecureCookies, SameSite: http.SameSiteStrictMode})
+	http.SetCookie(w, &http.Cookie{Name: "stepanel_csrf", Value: token, Path: "/", Expires: time.Unix(expiry, 0), Secure: true, SameSite: http.SameSiteStrictMode})
 }
 
 // refreshCSRFCookie reissues the session-bound token when the browser holds
@@ -408,8 +408,8 @@ func (a Auth) Logout(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	TelemetryAudit(a.AuditLog, actor, "auth.logout", a.ClientIP(r), "session ended")
-	http.SetCookie(w, &http.Cookie{Name: "stepanel_session", MaxAge: -1, Path: "/", HttpOnly: true, Secure: a.SecureCookies, SameSite: http.SameSiteStrictMode})
-	http.SetCookie(w, &http.Cookie{Name: "stepanel_csrf", MaxAge: -1, Path: "/", Secure: a.SecureCookies, SameSite: http.SameSiteStrictMode})
+	http.SetCookie(w, &http.Cookie{Name: "stepanel_session", MaxAge: -1, Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
+	http.SetCookie(w, &http.Cookie{Name: "stepanel_csrf", MaxAge: -1, Path: "/", Secure: true, SameSite: http.SameSiteStrictMode})
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 func (a Auth) Require(next http.Handler) http.Handler {
