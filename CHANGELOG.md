@@ -22,6 +22,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   view now puts the quota estimate beside live usage and renders PHP-FPM
   recommendation evidence and next steps beside the measured pool counters.
 
+- PHP-FPM resource details now show the summed RSS of the sampled site workers,
+  distinguish it from the separately measured systemd-slice memory, and include
+  the sample time, current and peak request queue, slow-request count, and
+  max-children events. The view labels RSS as instantaneous and
+  shared-page-inclusive so operators can compare measured demand and previewed
+  worker-count effects without mistaking estimates for enforced memory limits.
+
 - A stable `/api/v1` automation namespace now backs the supported Go and
   TypeScript client packages and generated Bash, Zsh, and Fish completions.
   `stepanelctl` uses the same API workflows as the dashboard for site creation,

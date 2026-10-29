@@ -1675,7 +1675,7 @@
       const fpm = resources.fpm_status || {};
       const memoryCards = [];
       if (Number.isFinite(memoryCurrent) && memoryCurrent >= 0) {
-        memoryCards.push(el('article', { className: 'overview-stat' }, [el('span', { className: 'stat-label' }, 'Managed service memory now'), el('strong', {}, formatBytes(memoryCurrent)), el('small', {}, Number.isFinite(memoryMax) && memoryMax > 0 ? `of ${formatBytes(memoryMax)} cgroup limit` : 'cgroup limit unavailable')]));
+        memoryCards.push(el('article', { className: 'overview-stat' }, [el('span', { className: 'stat-label' }, 'Managed service memory now'), el('strong', {}, formatBytes(memoryCurrent)), el('small', {}, Number.isFinite(memoryMax) && memoryMax > 0 ? `of ${formatBytes(memoryMax)} cgroup limit; PHP-FPM is reported separately below` : 'cgroup limit unavailable; PHP-FPM is reported separately below')]));
       }
       if (tasksCurrent !== 'unknown') memoryCards.push(el('article', { className: 'overview-stat' }, [el('span', { className: 'stat-label' }, 'Tasks now'), el('strong', {}, `${tasksCurrent} / ${observedValue('TasksMax')}`)]));
       if (Number.isFinite(cpuNS) && cpuNS >= 0) memoryCards.push(el('article', { className: 'overview-stat' }, [el('span', { className: 'stat-label' }, 'Managed service CPU time'), el('strong', {}, `${(cpuNS / 1e9).toFixed(1)} s`), el('small', {}, 'cumulative since slice start; not a utilization percentage')]));
@@ -1697,12 +1697,15 @@
       }
       const pools = (fpm.pools || []).filter((pool) => pool.state === 'available');
       if (pools.length) {
-        panel.append(el('h5', {}, 'PHP-FPM measurements'), el('div', { className: 'resource-list' }, pools.map((pool) => {
+        const sampledAt = fpm.collected_at && Number.isFinite(Date.parse(fpm.collected_at))
+          ? new Date(fpm.collected_at).toLocaleString()
+          : 'time unavailable';
+        panel.append(el('h5', {}, 'PHP-FPM measurements'), el('p', { className: 'import-note' }, `Live pool counters and process RSS sampled ${sampledAt}. Worker RSS includes shared mappings and is an instantaneous estimate, not private-memory accounting or a sustained-load forecast.`), el('div', { className: 'resource-list' }, pools.map((pool) => {
           const memory = pool.worker_memory;
           const details = memory
-            ? `${memory.sampled_workers} worker(s) sampled · mean ${formatBytes(memory.mean_rss_bytes)} · P95 ${formatBytes(memory.p95_rss_bytes)} · projected ${formatBytes(memory.projected_rss_at_max_children_bytes)} at max_children ${pool.max_children}`
+            ? `${memory.sampled_workers} worker(s) sampled · current summed RSS ${formatBytes(memory.total_rss_bytes)} · mean ${formatBytes(memory.mean_rss_bytes)} · P95 ${formatBytes(memory.p95_rss_bytes)} · projected ${formatBytes(memory.projected_rss_at_max_children_bytes)} at max_children ${pool.max_children}`
             : 'Worker RSS unavailable; FPM queue and slow-request counters remain available.';
-          return el('article', { className: 'resource-list-item' }, [el('div', { className: 'item-meta' }, [el('strong', {}, `PHP ${pool.php_version || 'default'} · ${pool.active_processes} active / ${pool.idle_processes} idle / ${pool.max_children} max`), el('small', {}, details)]), el('small', {}, `Queue ${pool.listen_queue}; slow requests since FPM start ${pool.slow_requests}; max-children events ${pool.max_children_reached}.`)]);
+          return el('article', { className: 'resource-list-item' }, [el('div', { className: 'item-meta' }, [el('strong', {}, `PHP ${pool.php_version || 'default'} · ${pool.active_processes} active / ${pool.idle_processes} idle / ${pool.max_children} max`), el('small', {}, details)]), el('small', {}, `Request queue now ${pool.listen_queue} (historical peak ${pool.max_listen_queue || 0}); slow requests since FPM start ${pool.slow_requests}; max-children events ${pool.max_children_reached}. A nonzero historical counter is evidence to investigate, not proof of current pressure.`)]);
         })));
       }
       const guidance = Array.isArray(fpm.performance_guidance) ? fpm.performance_guidance : [];
