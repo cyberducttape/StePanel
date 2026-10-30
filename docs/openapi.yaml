@@ -3,9 +3,10 @@ info:
   title: StePanel API
   version: 0.7.0
   description: |
-    Stable v1 automation API for server operations, site lifecycle, backups,
-    migrations, diagnostics, and durable jobs. Browser paths without /v1 remain
-    compatibility aliases and are not the SDK target.
+    Versioned v1 automation API for server operations, site lifecycle, backups,
+    migrations, diagnostics, and durable jobs. StePanel remains an operator
+    beta before 1.0; see docs/API_COMPATIBILITY.md for compatibility guarantees.
+    Browser paths without /v1 remain compatibility aliases and are not the SDK target.
     Authenticate with a session cookie or scoped bearer API token. Mutating
     browser-session requests require the matching `stepanel_csrf` value in
     `X-CSRF-Token`; bearer tokens are scope checked by the server.

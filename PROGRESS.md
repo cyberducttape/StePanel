@@ -62,7 +62,15 @@
   criteria for all open production gates.
 - `docs/lab-results/2026-10-30-repository-production-gate-24f8bee.md`: exact
   source and measurements for the repository production gate.
+- `docs/API_COMPATIBILITY.md`: published the beta versus post-1.0 API
+  compatibility contract and linked it from API, upgrade, and release guides.
 - `PROGRESS.md`: this evidence and next-step record.
+
+API contract validation passed: `make api-check`, `make release-check`, the
+targeted OpenAPI contract tests, documentation reference/link checks, and
+`git diff --check`. The M5 API-policy publication item is done;
+release-candidate SDK compatibility testing and the independent security
+review remain open.
 
 The E2E fix is committed locally as `2d2e2cd`; the plan/progress documents are
 also committed on the local branch. This file records the latest audit

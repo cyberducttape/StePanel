@@ -106,6 +106,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   the live database, retains the prior production database, and checks the
   promoted WordPress database before reporting success.
 
+### Documentation
+
+- Published an API compatibility and deprecation policy that distinguishes
+  pre-1.0 beta behavior from post-1.0 guarantees, requires new API majors for
+  breaking changes, and sets a documented deprecation window. Linked it from
+  the API, compatibility, and release guides and clarified the OpenAPI beta
+  status.
+
 ### Security
 
 - Customer resource responses now suppress host-memory estimates in both

@@ -3,7 +3,9 @@
 This guide documents the API as an operator uses it. It focuses on request
 flows, authentication, permissions, and safe mutation patterns. The
 [OpenAPI contract](openapi.yaml) remains the machine-readable reference for
-schemas and complete response definitions.
+schemas and complete response definitions. See the
+[API compatibility policy](API_COMPATIBILITY.md) for beta guarantees,
+post-1.0 compatibility rules, and deprecation timing.
 
 Set the panel address before running the examples:
 

@@ -121,6 +121,11 @@ load.
 **Status:** Partial; existing N-1 evidence covers selected prior versions and
 environments.
 
+The API lifecycle policy is now published in
+[`docs/API_COMPATIBILITY.md`](docs/API_COMPATIBILITY.md). Candidate validation
+against generated SDKs and a supported previous API major remains part of the
+acceptance criteria below.
+
 Test clean install, supported N-1 upgrade, interruption at schema and service
 activation boundaries, installer rollback, snapshot-based downgrade, and
 populated installations on every supported platform. Complete independent

@@ -2,6 +2,8 @@
 
 Release tags must match the version recorded in `version.go`. This document
 describes the release procedure, applicable to any version.
+API changes must also follow the
+[API compatibility and deprecation policy](API_COMPATIBILITY.md).
 
 ## Release Candidates
 
@@ -39,6 +41,8 @@ Freeze a candidate before collecting release evidence:
    synchronized with `version.go`:
    - `CHANGELOG.md` (add entry for this version)
    - Any migration notes or upgrade guides
+   - The API compatibility policy when an API deprecation or major-version
+     change is introduced
    - Helm, Kubernetes, Terraform chart versions
    - OpenAPI document version
 2. Run `make audit` to execute formatting, vet, unit tests, race tests,

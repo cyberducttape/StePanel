@@ -1,5 +1,8 @@
 # Version compatibility and rollback policy
 
+The automation API version and deprecation contract is documented in the
+[API compatibility policy](API_COMPATIBILITY.md).
+
 This page states which StePanel versions can be upgraded to the current
 source, what each version stores, and how an upgrade is rolled back. It only
 claims paths that have recorded evidence; everything else is untested.
