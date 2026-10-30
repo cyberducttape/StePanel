@@ -71,3 +71,20 @@ func TestCPUQuotaUtilizationUsesCounterDeltaAndRejectsInvalidSamples(t *testing.
 		})
 	}
 }
+
+func TestParseSystemdTimespanUSecReadsSystemctlShowFormat(t *testing.T) {
+	for value, want := range map[string]uint64{
+		"2s": 2_000_000, "500ms": 500_000, "1s 500ms": 1_500_000,
+		"10ms": 10_000, "1min 30s": 90_000_000, "1000000": 1_000_000,
+	} {
+		got, ok := parseSystemdTimespanUSec(value)
+		if !ok || got != want {
+			t.Errorf("parseSystemdTimespanUSec(%q) = (%d, %v), want (%d, true)", value, got, ok, want)
+		}
+	}
+	for _, value := range []string{"", "infinity", "[not set]", "2x", "ms", "-1s"} {
+		if got, ok := parseSystemdTimespanUSec(value); ok {
+			t.Errorf("parseSystemdTimespanUSec(%q) = %d, want rejection", value, got)
+		}
+	}
+}

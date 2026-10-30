@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -120,7 +121,7 @@ func (a *App) refreshSiteRuntimeMetrics(parent context.Context) {
 				sample.tasksCurrent, _ = strconv.ParseUint(observed["TasksCurrent"], 10, 64)
 				sample.tasksMax, _ = strconv.ParseUint(observed["TasksMax"], 10, 64)
 				sample.cpuUsageNSec, _ = strconv.ParseUint(observed["CPUUsageNSec"], 10, 64)
-				sample.cpuQuotaPerSecUSec, _ = strconv.ParseUint(observed["CPUQuotaPerSecUSec"], 10, 64)
+				sample.cpuQuotaPerSecUSec, _ = parseSystemdTimespanUSec(observed["CPUQuotaPerSecUSec"])
 				samples[site] = sample
 				samplesMu.Unlock()
 			}
@@ -177,6 +178,45 @@ func cpuQuotaUtilization(previous, current siteRuntimeMetricSample) (float64, bo
 		return 0, false
 	}
 	return float64(current.cpuUsageNSec-previous.cpuUsageNSec) / allowedCPU * 100, true
+}
+
+// systemdTimespanUnits maps the unit suffixes systemctl show prints for
+// timespan properties to microseconds.
+var systemdTimespanUnits = map[string]uint64{
+	"us": 1, "usec": 1, "ms": 1_000, "msec": 1_000,
+	"s": 1_000_000, "sec": 1_000_000, "min": 60_000_000,
+	"h": 3_600_000_000, "hr": 3_600_000_000,
+}
+
+// parseSystemdTimespanUSec parses a systemctl show timespan such as
+// CPUQuotaPerSecUSec=2s, =500ms, or =1s 500ms into microseconds. systemctl
+// prints *USec properties in this human format, not as integers; a bare
+// integer is accepted as microseconds. "infinity" and anything unparseable
+// report false so callers treat the quota as unknown.
+func parseSystemdTimespanUSec(value string) (uint64, bool) {
+	fields := strings.Fields(value)
+	if len(fields) == 0 || len(fields) > 8 {
+		return 0, false
+	}
+	if len(fields) == 1 {
+		if plain, err := strconv.ParseUint(fields[0], 10, 64); err == nil {
+			return plain, true
+		}
+	}
+	var total uint64
+	for _, field := range fields {
+		split := strings.IndexFunc(field, func(r rune) bool { return r < '0' || r > '9' })
+		if split <= 0 {
+			return 0, false
+		}
+		amount, err := strconv.ParseUint(field[:split], 10, 32)
+		unit, known := systemdTimespanUnits[field[split:]]
+		if err != nil || !known {
+			return 0, false
+		}
+		total += amount * unit
+	}
+	return total, true
 }
 
 func (a *App) siteRuntimeInventory() ([]string, map[string]ResourceProfile, bool) {
