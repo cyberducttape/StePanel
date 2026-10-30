@@ -14,6 +14,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   overdue evidence. `make check`, `promtool check rules`, and `promtool test
   rules` passed locally.
 
+### Documentation
+
+- Recorded completed exact-source AlmaLinux 9/Caddy/MariaDB installed smoke
+  `41033987854` on `c155752`, including the single recovery-matrix pass and
+  7.440-second WordPress HTTP/database restore proof. The 20–50 repeat,
+  physical power-loss, broad ENOSPC, and capacity gates remain open.
+
 ### Added
 
 - Site incident findings now identify whether filesystem pressure is caused by

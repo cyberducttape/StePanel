@@ -1,5 +1,20 @@
 # Production-readiness progress
 
+## Installed-host smoke completed — 2026-10-30
+
+- GitHub Actions installed-host run
+  [41033987854](https://github.com/cyberducttape/StePanel/actions/runs/41033987854)
+  completed successfully on exact source `c155752c64979ec1e4fb960a9c04e318047efd73`
+  in AlmaLinux 9/Caddy/MariaDB. Downloaded and reviewed its diagnostic
+  artifact. The one-iteration matrix passed its import, backup, file restore,
+  database restore, termination, and suspension interruption cases; DB and
+  broker outage behavior recovered.
+- The installed WordPress HTTP/database recovery proof passed in 7,440 ms.
+  Report: [`2026-10-30-almalinux9-install-41033987854.md`](docs/lab-results/2026-10-30-almalinux9-install-41033987854.md).
+- This is one exact-source disposable-host run, not a repeated cohort or
+  physical power-loss/ENOSPC certification. It does not certify later
+  `b6af067` as exact-source host evidence.
+
 ## Evidence-backed Prometheus alert descriptions — 2026-10-30
 
 - Updated existing Prometheus alerts to include observed metric values and
