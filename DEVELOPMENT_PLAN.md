@@ -213,6 +213,21 @@ site-operation routes still replay HTTP handlers.
 - Focused Go tests and `make check` pass for each extraction; host-level
   certification remains a separate gate.
 
+### M0f — Preserve session-store failure semantics (P1)
+
+**Status:** Implemented locally; hosted CI pending. The durable session
+registry now returns storage errors distinctly from absent/revoked sessions,
+and authenticated HTTP requests surface store failures as 503.
+
+**Acceptance criteria**
+
+- A missing, expired, or revoked session remains an authentication failure;
+  a database read failure is reported as service unavailable.
+- Existing boolean session checks retain their compatibility behavior for
+  non-HTTP callers, while request authentication uses the error-aware API.
+- Registry and HTTP regression tests pass, including a closed-database case;
+  `make check` and exact-source CI pass.
+
 ### M1 — Complete installed-host failure recovery (P0)
 
 **Status:** Open. Exact-source hosted AlmaLinux 9/Caddy/MariaDB run

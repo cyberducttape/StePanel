@@ -148,18 +148,30 @@ func (r *Registry) Add(id, username string, expiry int64) error {
 }
 
 func (r *Registry) Valid(id, username string, expiry int64) bool {
+	valid, _ := r.CheckValid(id, username, expiry)
+	return valid
+}
+
+// CheckValid distinguishes a revoked or expired session from a failure to read
+// the authoritative session store. Callers serving authenticated requests can
+// report storage outages as unavailable instead of misclassifying them as an
+// invalid credential.
+func (r *Registry) CheckValid(id, username string, expiry int64) (bool, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if r.db != nil {
 		var storedUsername string
 		var storedExpiry int64
 		if err := r.db.QueryRow(`SELECT username, expiry FROM sessions WHERE id = ?`, id).Scan(&storedUsername, &storedExpiry); err != nil {
-			return false
+			if errors.Is(err, sql.ErrNoRows) {
+				return false, nil
+			}
+			return false, err
 		}
-		return storedExpiry == expiry && storedUsername == username && storedExpiry > time.Now().Unix()
+		return storedExpiry == expiry && storedUsername == username && storedExpiry > time.Now().Unix(), nil
 	}
 	entry, ok := r.Entries[id]
-	return ok && entry.Expiry == expiry && entry.Username == username && expiry > time.Now().Unix()
+	return ok && entry.Expiry == expiry && entry.Username == username && expiry > time.Now().Unix(), nil
 }
 
 func (r *Registry) RevokeUser(username string) error {

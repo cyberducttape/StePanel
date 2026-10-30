@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Session validation now distinguishes an invalid or revoked session from a
+  durable session-store error. Authenticated requests receive HTTP 503 with a
+  diagnostic log entry when SQLite cannot verify a session, instead of a
+  misleading HTTP 401; invalid credentials still receive HTTP 401.
 - Backup freshness findings now include the schedule's next-run evidence and
   do not call a newly enabled, not-yet-due schedule stale. A schedule with no
   successful backup is flagged only after its first attempt or due window has

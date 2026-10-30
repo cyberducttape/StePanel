@@ -1,5 +1,17 @@
 # Production-readiness progress
 
+## Session-store outages are no longer reported as bad credentials — 2026-10-30
+
+- Added `Registry.CheckValid` to distinguish an absent/revoked session from a
+  SQLite query failure. The HTTP authentication middleware returns 503 and
+  logs a concise diagnostic when it cannot verify a session; malformed,
+  expired, missing, or revoked sessions retain the 401 behavior. The legacy
+  boolean API remains available for long-poll/session rechecks.
+- Added registry tests for missing rows versus a closed database and an HTTP
+  regression verifying a previously valid signed session receives 503 during
+  a store outage. `go test ./internal/session -count=1`, focused root auth
+  tests, and full `make check` passed. Exact-source hosted CI remains pending.
+
 ## Backup freshness alert timing — 2026-10-30
 
 - Corrected a false positive where an enabled schedule with no prior run was

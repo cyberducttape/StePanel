@@ -115,6 +115,25 @@ func TestRegistryDBValidationSeesOtherProcessMutations(t *testing.T) {
 	}
 }
 
+func TestCheckValidDistinguishesMissingSessionFromDatabaseFailure(t *testing.T) {
+	db := openTestSessionDB(t)
+	registry, err := OpenDB(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	valid, err := registry.CheckValid("missing", "alice", time.Now().Add(time.Hour).Unix())
+	if err != nil || valid {
+		t.Fatalf("missing session = (%t, %v), want (false, nil)", valid, err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	valid, err = registry.CheckValid("alice-session", "alice", time.Now().Add(time.Hour).Unix())
+	if err == nil || valid {
+		t.Fatalf("closed session store = (%t, %v), want database error", valid, err)
+	}
+}
+
 // TestRevokeUserExceptKeepsOnlyTheGivenSession backs the "log out of all
 // other devices" self-service action: it must revoke every other session
 // for the user, leave the caller's own current session valid, and never

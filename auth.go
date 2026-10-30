@@ -188,6 +188,10 @@ func (s *sessionRegistry) valid(id, username string, expiry int64) bool {
 	return s.inner.Valid(id, username, expiry)
 }
 
+func (s *sessionRegistry) checkValid(id, username string, expiry int64) (bool, error) {
+	return s.inner.CheckValid(id, username, expiry)
+}
+
 func (s *sessionRegistry) revokeUser(username string) error {
 	return s.inner.RevokeUser(username)
 }
@@ -439,7 +443,13 @@ func (a Auth) Require(next http.Handler) http.Handler {
 			http.Error(w, "invalid API token", http.StatusUnauthorized)
 			return
 		}
-		if a.validSession(r) {
+		sessionValid, sessionErr := a.checkValidSession(r)
+		if sessionErr != nil {
+			log.Printf("session validation unavailable: %v", sessionErr)
+			http.Error(w, "session validation is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if sessionValid {
 			a.refreshCSRFCookie(w, r)
 			if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
 				if err := SecurityAuditRequired(a.AuditLog, a.AuditActor(r), "http.request", r.URL.Path, a.ClientIP(r)); err != nil {
@@ -489,41 +499,50 @@ func (a Auth) CSRF(r *http.Request) bool {
 	return subtle.ConstantTimeCompare([]byte(expected), []byte(value)) == 1
 }
 func (a Auth) validSession(r *http.Request) bool {
+	valid, _ := a.checkValidSession(r)
+	return valid
+}
+
+func (a Auth) checkValidSession(r *http.Request) (bool, error) {
 	cookie, err := r.Cookie("stepanel_session")
 	if err != nil {
-		return false
+		return false, nil
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(cookie.Value)
 	if err != nil {
-		return false
+		return false, nil
 	}
 	parts := strings.Split(string(raw), "|")
 	if len(parts) == 3 && a.sessions == nil {
 		if _, known := a.passwordHashFor(parts[0]); !known || !hmac.Equal([]byte(a.sign(parts[0]+"|"+parts[1])), []byte(parts[2])) {
-			return false
+			return false, nil
 		}
 		expiry, err := strconv.ParseInt(parts[1], 10, 64)
 		if err != nil || time.Now().Unix() >= expiry {
-			return false
+			return false, nil
 		}
 		// Legacy signed sessions predate the durable session store, but they
 		// still must stop working when the associated tenant is suspended.
-		return a.Accounts == nil || !a.Accounts.TenantSuspended(parts[0])
+		return a.Accounts == nil || !a.Accounts.TenantSuspended(parts[0]), nil
 	}
 	passwordHash, knownAccount := a.passwordHashFor(parts[0])
 	if len(parts) != 5 || !knownAccount || !hmac.Equal([]byte(parts[3]), []byte(a.credentialFingerprintFor(parts[0], passwordHash))) || !hmac.Equal([]byte(a.sign(strings.Join(parts[:4], "|"))), []byte(parts[4])) {
-		return false
+		return false, nil
 	}
 	expiry, err := strconv.ParseInt(parts[1], 10, 64)
-	if err != nil || a.sessions == nil || !a.sessions.valid(parts[2], parts[0], expiry) {
-		return false
+	if err != nil || a.sessions == nil {
+		return false, nil
+	}
+	valid, err := a.sessions.checkValid(parts[2], parts[0], expiry)
+	if err != nil || !valid {
+		return false, err
 	}
 	if a.Accounts != nil {
 		if a.Accounts.TenantSuspended(parts[0]) {
-			return false
+			return false, nil
 		}
 	}
-	return true
+	return true, nil
 }
 
 // StillAuthenticated re-checks the credential of a request that Require

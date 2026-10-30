@@ -2,6 +2,8 @@ package stepanel
 
 import (
 	"context"
+	"database/sql"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +15,7 @@ import (
 
 	authpolicy "github.com/cyberducttape/StePanel/internal/auth"
 	"golang.org/x/crypto/bcrypt"
+	_ "modernc.org/sqlite"
 )
 
 func TestLoginPageUsesCSPCompatibleAssets(t *testing.T) {
@@ -128,6 +131,44 @@ func TestAuthSessionAndCSRF(t *testing.T) {
 	}
 	if !auth.CSRF(csrfRequest) {
 		t.Fatal("expected valid csrf token")
+	}
+}
+
+func TestRequireReportsSessionStoreFailureAsUnavailable(t *testing.T) {
+	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")
+	t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")
+	t.Setenv("STEPANEL_SESSION_SECRET", "12345678901234567890123456789012")
+	auth, err := NewAuth(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE sessions (id TEXT PRIMARY KEY, username TEXT NOT NULL, expiry INTEGER NOT NULL, updated_at INTEGER NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.ConfigureSessionStoreDB(db, ""); err != nil {
+		t.Fatal(err)
+	}
+	const sessionID = "durable-session"
+	expiry := time.Now().Add(time.Hour).Unix()
+	if err := auth.sessions.add(sessionID, "admin", expiry); err != nil {
+		t.Fatal(err)
+	}
+	unsigned := strings.Join([]string{"admin", strconv.FormatInt(expiry, 10), sessionID, auth.credentialFingerprintFor("admin", auth.PasswordHash)}, "|")
+	value := base64.RawURLEncoding.EncodeToString([]byte(unsigned + "|" + auth.sign(unsigned)))
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/jobs", nil)
+	request.AddCookie(&http.Cookie{Name: "stepanel_session", Value: value})
+	called := false
+	response := httptest.NewRecorder()
+	auth.Require(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true })).ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable || called || !strings.Contains(response.Body.String(), "session validation is unavailable") {
+		t.Fatalf("unavailable session store response = %d, called=%t, body=%q; want 503 without entering the handler", response.Code, called, response.Body.String())
 	}
 }
 
