@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- Site CPU quota utilization is now derived on real hosts: `systemctl show`
+  reports `CPUQuotaPerSecUSec` as a timespan (`2s`, `500ms`), which the
+  runtime sampler could not parse, so the CPU quota alerts never fired.
+- SSH server inventory sends its probe script to the remote shell as one
+  quoted word. Previously the remote shell re-split it, dropped the hostname
+  line, and every server reported incomplete data.
+- Staging clone and WordPress staging promotion lock the databases they read
+  and create, so a concurrent database drop or credential rotation can no
+  longer race the clone. Promotion refuses if either database changed while it
+  waited for locks.
+
 ### Changed
 
 - Prometheus alert descriptions now include the observed metric value and
