@@ -22,6 +22,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   tests, race tests, recovery/ENOSPC drills, database restore integrations,
   and browser E2E), CodeQL, documentation, and release evidence. Run IDs are
   recorded in `PROGRESS.md`.
+- Recorded one completed Rocky Linux 9 installed-host process-interruption
+  matrix run (123 smoke/matrix passes) with source, environment, checksums,
+  and limits. The run used older source and QEMU writeback caching, so it does
+  not close the current-source or host power-loss release gates.
 - Recorded exact-source CI integration, CodeQL, documentation, browser E2E,
   release-evidence, and installed-host smoke results for `79e1de4`. The
   AlmaLinux 9/Caddy/MariaDB install passed one recovery-matrix iteration and

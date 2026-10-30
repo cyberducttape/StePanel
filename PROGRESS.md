@@ -100,22 +100,20 @@
   -timeout 10m ./...`; root package 65.7s). JavaScript syntax/unit checks
   passed (17/17), and the focused disposable Playwright journey passed (1/1).
 
-## Installed-host recovery matrix in progress — 2026-10-30
+## Installed-host recovery matrix completed — 2026-10-30
 
-- The disposable Rocky Linux 9 KVM guest is running the expanded installed-host
-  matrix from clean source `1348611198dbb72b5a7099a86f33bf2de43e6012` (one
-  matrix repetition, four guest CPUs, 4 GiB RAM; QEMU writeback cache). The
-  image checksum and host/guest details are in
-  `/var/tmp/stepanel-kvm-install-1348611/environment.txt`.
-- Live logs show successful worker-interruption recovery for cPanel import,
-  backup publication, file restore, database restore, site termination, and
-  account suspension. The expanded matrix is continuing through additional
-  restore and termination journal boundaries. No full run is credited until
-  the harness finishes successfully and the resulting job, database,
-  filesystem, and service state are reviewed.
-- This is one run of a larger required 20–50 repetition matrix, uses an older
-  source than current `HEAD`, and does not establish physical power-loss
-  durability because the guest's virtual disks use writeback caching.
+- The Rocky Linux 9 KVM installed-host harness completed one full matrix
+  iteration on clean source `1348611198dbb72b5a7099a86f33bf2de43e6012`.
+  Boot and installation passed; the harness recorded 123 smoke/matrix passes
+  over 12,155 seconds. It covered cPanel imports, backup publication, file and
+  database restore, termination checkpoints, staging rollback, account
+  suspension, and additional installed-host workflows. Scenario counts,
+  environment, artifact hashes, and limitations are recorded in the
+  [reviewed run report](docs/lab-results/2026-10-30-rocky9-kvm-recovery-matrix-1348611.md).
+- This is one iteration on an older source revision with QEMU writeback cache.
+  It tests process interruption, not physical host power loss, and does not
+  satisfy the 20–50 repetition or current-source requirements. Gate 5 remains
+  open.
 
 ## Certificate alert coverage correction — 2026-10-29
 

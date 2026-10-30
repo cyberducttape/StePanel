@@ -206,9 +206,10 @@ site-operation routes still replay HTTP handlers.
 `41019722358` on `79e1de4` passed one installed recovery-matrix iteration and
 the WordPress application proof (7.309 s); see the reviewed
 [result](docs/lab-results/2026-10-30-current-source-almalinux-install-79e1de4.md).
-A separate one-repetition Rocky Linux 9 KVM run against older source
-`1348611198dbb72b5a7099a86f33bf2de43e6012` is still running locally and is
-not counted as current-source evidence. Neither run establishes physical
+One Rocky Linux 9 KVM iteration against older source
+`1348611198dbb72b5a7099a86f33bf2de43e6012` completed with 123 smoke/matrix
+passes; see the reviewed [run report](docs/lab-results/2026-10-30-rocky9-kvm-recovery-matrix-1348611.md).
+It is not counted as current-source evidence. Neither run establishes physical
 power-loss durability or meets the 20–50 repeat requirement.
 **Source of truth:** Gate 5 and `docs/REAL_HOST_FAILURE_MATRIX.md`.
 
