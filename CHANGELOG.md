@@ -14,6 +14,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   connection refusal, authentication rejection, or missing socket/helper and
   a safe next step; raw helper output is not exposed. Regression coverage
   verifies the cause evidence and secret redaction.
+- Exact-source CI run
+  [41033987875](https://github.com/cyberducttape/StePanel/actions/runs/41033987875)
+  passed Go coverage and race tests, recovery/ENOSPC drills, database restore
+  checks, container validation, static analysis, and full browser E2E for this
+  diagnostics change. CodeQL and documentation passed; the installed-host
+  smoke is still running.
 - Recorded the full repository production-gate pass for exact source
   `1ad78a6`, including coverage, race, recovery drills, benchmarks, and mixed
   load. The evidence documents inactive local project-quota enforcement and

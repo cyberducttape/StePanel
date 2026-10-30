@@ -143,10 +143,15 @@ and browser E2E passed on `c91a88b`. The earlier hosted installed-host smoke
 `41019722358` passed one AlmaLinux 9/Caddy/MariaDB recovery-matrix iteration
 and measured a 7.309-second WordPress recovery proof on `79e1de4`; it is not
 current-source host evidence. The repeated recovery gate remains open.
-The current-source follow-up for backup freshness timing passes `make check`,
-focused Go tests, JavaScript unit tests (17/17), syntax checks, and the focused
-disposable Chromium E2E (1/1); exact-source hosted CI is pending for this
-follow-up.
+The diagnostics follow-up passes `make check`, focused Go tests, JavaScript
+syntax checks, the focused disposable Chromium journey (1/1), and exact-source
+hosted CI run [41033987875](https://github.com/cyberducttape/StePanel/actions/runs/41033987875)
+(Go coverage, race, recovery/ENOSPC, database restore, container, and UI E2E).
+CodeQL [41033987807](https://github.com/cyberducttape/StePanel/actions/runs/41033987807)
+and documentation [41033988021](https://github.com/cyberducttape/StePanel/actions/runs/41033988021)
+also passed. The exact-source installed-host smoke
+[41033987854](https://github.com/cyberducttape/StePanel/actions/runs/41033987854)
+is still running; production-host certification remains open.
 
 The current diagnostics refinement distinguishes low free bytes from low free
 inodes in filesystem evidence, and classifies database probe failures into

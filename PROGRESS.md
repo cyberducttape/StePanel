@@ -541,3 +541,19 @@ does not close a current-source or power-loss gate.
   `git diff --check` passed. Full `make check` passed, and the focused
   disposable Chromium journey passed (1/1). Hosted exact-source CI and
   production-host certification gates remain open.
+
+## Hosted verification for site incident diagnostics — 2026-10-30
+
+- Exact source `c155752c64979ec1e4fb960a9c04e318047efd73` passed hosted CI
+  [41033987875](https://github.com/cyberducttape/StePanel/actions/runs/41033987875),
+  including formatting, release checks, vet, full Go coverage suite, race
+  tests, recovery drills, tmpfs ENOSPC, MySQL/PostgreSQL restore integration,
+  static analysis, container validation, and browser E2E. CodeQL
+  [41033987807](https://github.com/cyberducttape/StePanel/actions/runs/41033987807)
+  and documentation [41033988021](https://github.com/cyberducttape/StePanel/actions/runs/41033988021)
+  also passed.
+- The exact-source AlmaLinux 9/Caddy/MariaDB installed-host smoke
+  [41033987854](https://github.com/cyberducttape/StePanel/actions/runs/41033987854)
+  is still running without a reported failure. It is not counted as passed yet.
+  Repeated recovery, physical power loss, production capacity, and other P0
+  certification gates remain open.
