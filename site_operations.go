@@ -106,7 +106,7 @@ type siteOperationPrincipal struct {
 
 var siteOperationRoutes = map[string]siteOperationRoute{
 	"release.pipeline":          {handler: func(a *App) http.HandlerFunc { return a.releasePipeline }, site: siteFromBody, scope: "site:deploy"},
-	"runner.build":              {handler: func(a *App) http.HandlerFunc { return a.runnerBuild }, site: siteFromBody, scope: "site:deploy"},
+	"runner.build":              {handler: func(a *App) http.HandlerFunc { return a.runnerBuild }, validate: validateRunnerBuildPayload, execute: executeRunnerBuildCommand, site: siteFromBody, scope: "site:deploy"},
 	"git.deploy":                {handler: func(a *App) http.HandlerFunc { return a.gitDeploy }, site: siteFromBody, scope: "deploy:write"},
 	"composer.install":          {handler: func(a *App) http.HandlerFunc { return a.composer }, validate: validateComposerInstallPayload, execute: executeComposerInstallCommand, site: siteFromPath("/api/composer/"), scope: "site:deploy"},
 	"node.tooling":              {handler: func(a *App) http.HandlerFunc { return a.nodeTooling }, validate: validateNodeToolingPayload, execute: executeNodeToolingCommand, site: siteFromBody, scope: "site:deploy"},

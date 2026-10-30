@@ -60,6 +60,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   the canonical site target, acquires the site mutation lock, runs the same
   bounded helper operation, persists its result, and records the audit event
   without replaying the HTTP handler.
+- Sandboxed runner builds now use strict typed command validation and a shared
+  operation service. Worker execution rechecks the current site owner and
+  deploy scope, reapplies image registry and digest policy, holds the site
+  mutation lock, and invokes the existing resource-limited runner broker
+  without replaying the HTTP handler. Runner script close failures are checked.
 
 - Site-operation jobs now use bounded operation-specific deadlines: restore
   work receives the full helper allowance plus cleanup reserve, and offsite

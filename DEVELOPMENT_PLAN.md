@@ -89,9 +89,9 @@ request.
   criterion individually.
 - Migrate each remaining route in focused changes, preserving audit, lock,
   validation, retry, and recovery contracts. Node tooling, Python deployment,
-  and Composer install now use typed worker services. Remaining routes still
-  replay handlers; remove the fallback only after every registered route has a
-  tested typed service.
+  Composer install, and sandboxed runner builds now use typed worker services.
+  Remaining routes still replay handlers; remove the fallback only after every
+  registered route has a tested typed service.
 - Installed Apache runtime tests from allowed and denied sources are required
   before reporting effective IP enforcement as verified.
 
@@ -154,9 +154,9 @@ unverified where they cannot establish application-level behavior.
 
 ### M0e — Continue typed durable operation extraction (P1)
 
-**Status:** In progress. Node tooling, Python deployment, and Composer install
-have typed worker executors; the remaining durable site-operation routes still
-replay HTTP handlers.
+**Status:** In progress. Node tooling, Python deployment, Composer install,
+and sandboxed runner builds have typed worker executors; the remaining durable
+site-operation routes still replay HTTP handlers.
 
 **Acceptance criteria**
 

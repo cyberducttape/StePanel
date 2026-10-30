@@ -1,6 +1,6 @@
 # Production-readiness progress
 
-## Current change — typed Composer operation execution (2026-10-29)
+## Current change — typed durable Composer and runner execution (2026-10-29)
 
 - Composer install now validates one strict JSON command at queue admission and
   worker execution. The queued worker rechecks site ownership and current
@@ -10,11 +10,16 @@
 - The synchronous handler route remains compatible and uses the same service;
   status reads remain unchanged. Worker execution no longer needs to replay the
   Composer HTTP handler.
-- Added regression coverage for malformed, trailing, and unknown request data,
-  plus typed durable-executor registration and rejection without an authorized
-  principal.
-- Verification passed: focused Composer and site-operation Go tests; full
-  `make check` (artifact check, vet, all Go packages); JavaScript syntax check,
+- Sandboxed runner builds now follow the same typed-worker model: strict
+  admission/execution decoding, current owner and scope checks, image policy
+  revalidation, site lease acquisition, and broker invocation through the
+  shared build service. Runner definition write and close failures are both
+  checked.
+- Added regression coverage for malformed, trailing, unknown, and unsafe build
+  request data, plus typed durable-executor registration and rejection without
+  an authorized principal.
+- Focused Composer and runner Go tests pass. Combined-revision validation passed:
+  `make check` (API artifact check, vet, all Go packages), JavaScript syntax,
   frontend unit tests (17/17), and `git diff --check`.
 - M0e in `DEVELOPMENT_PLAN.md` tracks remaining replay routes. Production
   readiness is still NO-GO until the host certification gates close.
