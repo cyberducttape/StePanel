@@ -170,6 +170,14 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
   await expect(diagnosis).toContainText('certificate-42');
   await expect(diagnosis).toContainText('Certificate renewal history unavailable for quiet.example.test');
   await expect(diagnosis).toContainText('Certificate issuance history could not be read from the durable job store.');
+  const incidentFindings = diagnosis.locator('.incident-finding');
+  const findingCount = await incidentFindings.count();
+  expect(findingCount).toBeGreaterThan(0);
+  for (const finding of await incidentFindings.all()) {
+    await expect(finding.locator('strong')).not.toBeEmpty();
+    await expect(finding.locator('p')).not.toBeEmpty();
+    await expect(finding.locator('small')).not.toBeEmpty();
+  }
   await page.getByRole('tab', { name: 'Guided workflow' }).click();
   await expect(panel.getByRole('heading', { name: 'Import or create the site' })).toBeVisible();
   await expect(panel).toContainText('origin and exact set of imported cPanel components are not inferred');

@@ -64,6 +64,11 @@
   counts and the sample timestamp. Certificate renewal findings identify the
   durable job ID, terminal state, and start time while keeping raw job output
   in authorized job history.
+- The incident-view browser regression now verifies that every rendered
+  finding has a diagnosis title, supporting evidence, and a recommended next
+  action. The focused Chromium E2E passed against a freshly built
+  current-source binary. An initial run against the stale existing binary was
+  discarded after rebuilding and rerunning successfully.
 - Focused Go diagnostics tests and JavaScript syntax/unit checks passed; the
   disposable Playwright incident journey passed with saturation, byte/inode
   quota pressure, database failure, stale backup, and certificate-job evidence.

@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- The site incident browser regression now verifies that every rendered finding
+  includes a diagnosis title, supporting evidence, and an actionable next step.
+  The focused Chromium E2E passed against a freshly built current-source
+  binary.
 - Recorded exact-source CI integration, CodeQL, documentation, browser E2E,
   release-evidence, and installed-host smoke results for `79e1de4`. The
   AlmaLinux 9/Caddy/MariaDB install passed one recovery-matrix iteration and
