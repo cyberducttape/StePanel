@@ -341,7 +341,10 @@ groups:
           description: "Observed cgroup memory use is {{ $value | humanizePercentage }} of memory.max. Check the current/max byte metrics and recent OOM evidence; reduce workload or free host capacity before an operator-approved limit change."
 
       - alert: StePanelSiteCPUQuotaNearLimit
-        expr: stepanel_site_resource_cpu_quota_utilization_percent{job="stepanel"} > 90
+        expr: |
+          (stepanel_site_resource_cpu_quota_utilization_percent{job="stepanel"} > 90)
+          and
+          (stepanel_site_resource_cpu_quota_utilization_percent{job="stepanel"} < 100)
         for: 5m
         labels:
           severity: warning
