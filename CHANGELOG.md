@@ -30,6 +30,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   domain, so high activity on one domain cannot crowd another domain's result
   out of a globally limited history query. A job-store read failure is shown
   as unknown evidence instead of silently implying that no renewal failed.
+- Added current-source Rocky Linux 9 KVM evidence for real backup and file-
+  restore ENOSPC recovery on a dedicated ext4 volume. The report records the
+  image checksum, host/guest setup, exact source, and limitations; installed-
+  host and broader failure gates remain open.
 - Expanded cPanel migration preflight with provisional domain/document-root
   mapping, SQL dump source-version checks against the configured destination,
   Maildir layout/message inventory, and an explicit DNS/mail/TLS cutover

@@ -36,6 +36,22 @@
   workflow pins, assets, and shell syntax. Host-level certification remains
   open as recorded above.
 
+## Current-source Rocky Linux 9 ENOSPC drill — 2026-10-30
+
+- Verified the Rocky GenericCloud image against its published CHECKSUM file,
+  confirmed `/dev/kvm` access, and ran the harness on source
+  `1130c071f3c5f1319c004b67580c7ac1e9d538cd` with a clean worktree.
+- The KVM guest booted with `/var/www` ext4 quota options and mounted the
+  dedicated 96 MiB ENOSPC volume. Both `TestBackupRecoversFromRealENOSPC` and
+  `TestRestoreFilesRecoversFromRealENOSPC` passed. Environment, phase results,
+  and raw logs are retained in `/var/tmp/stepanel-kvm-enospc-70bdc34`; the
+  committed report is `docs/lab-results/2026-10-30-rocky9-kvm-focused-enospc-1130c07.md`.
+- Full installed-host certification was not launched: the host's available
+  memory was below even the reduced required reserve for the 4 GiB install
+  guest. This focused test does not cover systemd install/recovery, database
+  restore ENOSPC, import/publication exhaustion, power loss, or the 20–50
+  repetition cohort. Production remains NO-GO.
+
 ## Current change — per-site WordPress database health (2026-10-29)
 
 - Added an application-level database probe using StePanel's closed, read-only

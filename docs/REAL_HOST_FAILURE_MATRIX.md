@@ -135,11 +135,13 @@ Run the same harness with:
 deploy/lab/local-kvm-certification.sh Rocky-9-GenericCloud.latest.x86_64.qcow2
 ```
 
-**KVM*** records the focused 2026-10-11 file-restore ENOSPC drill on a
-dedicated 85 MiB ext4 filesystem. It verifies preservation of existing site
-files, cleanup of restore staging, and successful retry after space is freed;
-it does not cover database restore or whole-host ENOSPC. See the
-[focused drill record](lab-results/2026-10-11-real-enospc-restore.md).
+**KVM*** records focused file-restore ENOSPC drills. The
+[2026-10-30 current-source run](lab-results/2026-10-30-rocky9-kvm-focused-enospc-1130c07.md)
+passed both backup creation and file restore on a dedicated 96 MiB ext4
+filesystem. The earlier [2026-10-11 drill](lab-results/2026-10-11-real-enospc-restore.md)
+also verified preservation of existing files, staging cleanup, and retry after
+space was freed. Neither run covers database restore, import, or whole-host
+ENOSPC.
 
 Only mark a cell complete when the guest has rebooted or the fault was
 injected on the real host and the post-boot invariant checks pass: no orphaned

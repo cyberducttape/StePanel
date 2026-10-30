@@ -182,7 +182,9 @@ site-operation routes still replay HTTP handlers.
 
 ### M1 — Complete installed-host failure recovery (P0)
 
-**Status:** Open; requires an accessible disposable KVM host/runner.  
+**Status:** Open; one current-source focused backup/file-restore ENOSPC run
+passed on Rocky Linux 9 KVM. The installed-host run was not started because
+the available workstation memory was below the harness's minimum reserve.
 **Source of truth:** Gate 5 and `docs/REAL_HOST_FAILURE_MATRIX.md`.
 
 Run the installed native systemd stack on each supported OS/filesystem, and
