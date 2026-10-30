@@ -143,7 +143,7 @@ test('site settings expose measured PHP-FPM demand and quota evidence', async ({
   await page.getByRole('tab', { name: 'Settings' }).click();
   const panel = page.locator('#workspace-panel');
   await expect(panel).toContainText('Filesystem quota headroom');
-  await expect(panel).toContainText('624.0 MB estimated allowance remaining');
+  await expect(panel).toContainText('up to 624.0 MB estimated bytes remain');
   await expect(panel).toContainText('PHP-FPM measurements');
   await expect(panel).toContainText('current summed RSS 156.0 MB');
   await expect(panel).toContainText('sampled 10/29/2026');

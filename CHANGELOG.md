@@ -119,6 +119,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- The PHP-FPM and quota browser regression now expects the current
+  account-scoped upper-bound wording for estimated byte headroom.
 - Customer-panel browser tests now provision a worker- and repeat-specific
   account, avoiding collisions when Playwright retries or runs repeated tests
   concurrently against the same disposable control plane.
@@ -384,6 +386,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Add `DEVELOPMENT_PLAN.md` with prioritized, evidence-based production gates
+  and `PROGRESS.md` with exact-source test results, known blockers, and the
+  next certification steps.
 - Reconcile production-gate smoke claims with authoritative GitHub run SHAs;
   prior-source WordPress and recovery results are labeled historical, while
   current PHP-FPM socket-root validation is listed as pending until its host
