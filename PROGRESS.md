@@ -1,5 +1,22 @@
 # Production-readiness progress
 
+## Backup freshness alert timing — 2026-10-30
+
+- Corrected a false positive where an enabled schedule with no prior run was
+  immediately labeled stale. Site diagnostics now include `next_run`; the
+  incident view allows a two-interval grace after the first due time or last
+  attempt before reporting a missing recovery point as stale. Once a success
+  exists, freshness is judged against two configured intervals. Stale findings
+  include available last-attempt and next-run timestamps, alongside the
+  recovery action.
+- Added browser regression coverage for a not-yet-due first run and a
+  never-successful overdue schedule. Focused Go tests passed, JavaScript unit
+  tests passed (17/17), and the focused disposable Chromium journey passed
+  (1/1), including the disabled-schedule/no-policy state. `make check` also
+  passed, including API artifact validation, vet, and
+  every Go package. This source has not yet passed hosted CI. Production
+  recovery and certification gates remain open.
+
 ## Recovery state in site incident findings — 2026-10-30
 
 - Surfaced failing, degraded, unverified, and no-backup recovery states in the

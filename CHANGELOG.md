@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Backup freshness findings now include the schedule's next-run evidence and
+  do not call a newly enabled, not-yet-due schedule stale. A schedule with no
+  successful backup is flagged only after its first attempt or due window has
+  exceeded the grace interval; established successful backups still use the
+  configured two-interval freshness threshold.
 - The site incident view now surfaces the recovery engine's failing, degraded,
   unverified, and no-backup states as evidence-backed findings. Sites without
   an enabled backup schedule are explicitly marked as having no measurable

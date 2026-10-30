@@ -114,7 +114,7 @@ func (a *App) siteDiagnostics(w http.ResponseWriter, r *http.Request) {
 		schedule, ok := a.Schedules.items[site]
 		a.Schedules.mu.Unlock()
 		if ok && schedule.Enabled {
-			result["backup_schedule"] = map[string]any{"enabled": true, "interval_minutes": schedule.IntervalMinutes, "last_run": schedule.LastRun, "last_success": schedule.LastSuccess, "has_error_detail": schedule.LastError != "", "consecutive_failures": schedule.ConsecutiveFails}
+			result["backup_schedule"] = map[string]any{"enabled": true, "interval_minutes": schedule.IntervalMinutes, "next_run": schedule.NextRun, "last_run": schedule.LastRun, "last_success": schedule.LastSuccess, "has_error_detail": schedule.LastError != "", "consecutive_failures": schedule.ConsecutiveFails}
 		} else {
 			result["backup_schedule"] = map[string]any{"enabled": false}
 		}

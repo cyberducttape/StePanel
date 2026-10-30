@@ -134,7 +134,7 @@ exports both preview and final evidence as JSON and Markdown.
 
 ### M0d — Evidence-backed site incident diagnosis (P1)
 
-**Status:** Implemented and locally verified. Exact-source CI integration
+**Status:** Implemented. Prior exact-source CI integration
 ([41026353462](https://github.com/cyberducttape/StePanel/actions/runs/41026353462)),
 CodeQL ([41026353439](https://github.com/cyberducttape/StePanel/actions/runs/41026353439)),
 documentation ([41026353453](https://github.com/cyberducttape/StePanel/actions/runs/41026353453)),
@@ -143,6 +143,10 @@ and browser E2E passed on `c91a88b`. The earlier hosted installed-host smoke
 `41019722358` passed one AlmaLinux 9/Caddy/MariaDB recovery-matrix iteration
 and measured a 7.309-second WordPress recovery proof on `79e1de4`; it is not
 current-source host evidence. The repeated recovery gate remains open.
+The current-source follow-up for backup freshness timing passes `make check`,
+focused Go tests, JavaScript unit tests (17/17), syntax checks, and the focused
+disposable Chromium E2E (1/1); exact-source hosted CI is pending for this
+follow-up.
 
 Correlate PHP-FPM saturation and historical pressure, systemd memory/task
 limits, host byte/inode capacity, database-engine connectivity, TLS metadata
@@ -163,6 +167,10 @@ unverified where they cannot establish application-level behavior.
 - Failed certificate issuance jobs and enabled backup schedules with repeated
   failure or a recovery point older than twice the interval appear as findings
   with timestamps and measured evidence.
+- A newly enabled schedule is not reported stale before its first due run; a
+  schedule with no successful backup becomes stale only after its initial run
+  has been attempted or its first due window has expired by the documented
+  grace interval.
 - Prometheus exposes per-site enabled-schedule success presence, consecutive
   failures, and latest-attempt age. Alerts identify the site and include the
   failing count or explicit missing-success evidence; enabled schedules that

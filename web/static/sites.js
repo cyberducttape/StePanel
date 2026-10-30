@@ -668,10 +668,22 @@
       const schedule = siteDiagnostics.backup_schedule || {};
       if (schedule.enabled) {
         const expectedMs = Number(schedule.interval_minutes) * 2 * 60 * 1000;
-        const lastSuccess = schedule.last_success ? new Date(schedule.last_success) : null;
-        const ageMs = lastSuccess && Number.isFinite(lastSuccess.getTime()) ? Date.now() - lastSuccess.getTime() : Infinity;
+        const parsedSuccess = schedule.last_success ? new Date(schedule.last_success) : null;
+        const lastSuccess = parsedSuccess && Number.isFinite(parsedSuccess.getTime()) ? parsedSuccess : null;
+        const ageMs = lastSuccess ? Date.now() - lastSuccess.getTime() : Infinity;
+        const lastRun = schedule.last_run ? new Date(schedule.last_run) : null;
+        const nextRun = schedule.next_run ? new Date(schedule.next_run) : null;
+        const hasValidLastRun = lastRun && Number.isFinite(lastRun.getTime());
+        const hasValidNextRun = nextRun && Number.isFinite(nextRun.getTime());
+        // A newly created schedule has no recovery point yet, but must not be
+        // called stale before its first run is due. Once attempted, allow two
+        // intervals for a slow backup/retry to finish before raising staleness.
+        const noSuccessOverdue = !lastSuccess && (
+          (hasValidLastRun && Date.now() - lastRun.getTime() > expectedMs)
+          || (!hasValidLastRun && hasValidNextRun && Date.now() - nextRun.getTime() > expectedMs)
+        );
         if (Number(schedule.consecutive_failures) > 0) add('warning', 'Scheduled backups are failing', `${schedule.consecutive_failures} consecutive failure(s); last attempt ${schedule.last_run ? new Date(schedule.last_run).toLocaleString() : 'time not recorded'}; latest success ${lastSuccess ? lastSuccess.toLocaleString() : 'none recorded'}. ${schedule.has_error_detail ? 'Failure detail is retained in the authorized backup job history.' : 'No failure detail was retained.'}`, 'Inspect the latest backup job and destination capacity/connectivity, then confirm a successful backup and restore rehearsal.');
-        if (!lastSuccess || (expectedMs > 0 && ageMs > expectedMs)) add('critical', 'Scheduled backup recovery point is stale', `Schedule interval ${schedule.interval_minutes} minutes; last successful backup ${lastSuccess ? `${Math.floor(ageMs / 3600000)} hours ago (${lastSuccess.toLocaleString()})` : 'has never succeeded'}. Stale threshold is twice the configured interval.`, 'Resolve the backup failure, produce a new verified backup, and run a restore rehearsal before treating this site as recoverable.');
+        if (expectedMs > 0 && ((lastSuccess && ageMs > expectedMs) || noSuccessOverdue)) add('critical', 'Scheduled backup recovery point is stale', `Schedule interval ${schedule.interval_minutes} minutes; last successful backup ${lastSuccess ? `${Math.floor(ageMs / 3600000)} hours ago (${lastSuccess.toLocaleString()})` : 'has never succeeded'}${!lastSuccess && hasValidLastRun ? `; last attempt ${lastRun.toLocaleString()}` : ''}${!lastSuccess && hasValidNextRun ? `; next scheduled run ${nextRun.toLocaleString()}` : ''}. Stale threshold is twice the configured interval.`, 'Resolve the backup failure, produce a new verified backup, and run a restore rehearsal before treating this site as recoverable.');
       }
       if (recoveryAvailable && recovery) {
         const confidence = String(recovery.confidence || 'unknown').toLowerCase();
