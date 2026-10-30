@@ -151,6 +151,13 @@ unverified where they cannot establish application-level behavior.
   with timestamps and measured evidence.
 - The overview reports cgroup memory/task usage against enforced limits and
   preserves existing PHP-FPM saturation evidence.
+- Site-tree byte and inode usage at 90% or more of a configured account
+  allowance is promoted to a warning; at or above the allowance it is
+  critical. Evidence states that this is a tree measurement and an upper-bound
+  headroom estimate for a potentially shared account quota.
+- PHP-FPM saturation evidence includes active/max workers, queue depth, slow
+  request counters, and the sample timestamp. Failed certificate alerts name
+  the durable job ID and time so the authorized job record can be opened.
 - Certificate job evidence is queried as the latest durable job per domain;
   activity on one domain cannot hide another domain's latest result. If the
   durable job store is unavailable, diagnostics report renewal history as

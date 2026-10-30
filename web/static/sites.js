@@ -571,6 +571,22 @@
         const quota = usageData.quota;
         const byteHeadroom = Number.isFinite(Number(quota.estimated_remaining_bytes)) ? `${formatBytes(Number(quota.tree_bytes || 0))} used; up to ${formatBytes(Number(quota.estimated_remaining_bytes))} estimated bytes remain.` : 'Byte headroom is unknown.';
         const inodeHeadroom = Number.isFinite(Number(quota.estimated_remaining_inodes)) ? ` ${Number(quota.tree_inodes || 0).toLocaleString()} inodes measured; up to ${Number(quota.estimated_remaining_inodes).toLocaleString()} estimated account inodes remain.` : '';
+        const quotaPressure = [];
+        const byteLimit = Number(quota.limit_bytes);
+        const treeBytes = Number(quota.tree_bytes);
+        if (Number.isFinite(byteLimit) && byteLimit > 0 && Number.isFinite(treeBytes)) {
+          const ratio = treeBytes / byteLimit;
+          const usedPercent = Math.round(ratio * 100);
+          if (ratio >= 0.9) quotaPressure.push({ label: 'storage', used: treeBytes, limit: byteLimit, percent: usedPercent, ratio });
+        }
+        const inodeLimit = Number(quota.inode_limit);
+        const treeInodes = Number(quota.tree_inodes);
+        if (Number.isFinite(inodeLimit) && inodeLimit > 0 && Number.isFinite(treeInodes)) {
+          const ratio = treeInodes / inodeLimit;
+          const usedPercent = Math.round(ratio * 100);
+          if (ratio >= 0.9) quotaPressure.push({ label: 'inode', used: treeInodes, limit: inodeLimit, percent: usedPercent, ratio });
+        }
+        quotaPressure.forEach((item) => add(item.ratio >= 1 ? 'critical' : 'warning', `Site tree is ${item.ratio >= 1 ? 'at or above' : 'near'} its configured ${item.label} allowance`, `${item.label === 'storage' ? formatBytes(item.used) : item.used.toLocaleString()} of ${item.label === 'storage' ? formatBytes(item.limit) : item.limit.toLocaleString()} (${item.percent}%) measured in this site's tree. ${quota.enforced ? 'Account quota is marked enforced.' : 'Quota enforcement is not confirmed.'} ${quota.scope_note || ''}`, 'Review site files and other content owned by the hosting account, then verify kernel quota usage. The site-tree measurement is a lower bound on account usage; do not delete customer data automatically.'));
         if (Number.isFinite(Number(quota.estimated_remaining_bytes)) || inodeHeadroom) add('guidance', 'Measured filesystem usage and quota estimate', `${byteHeadroom}${inodeHeadroom} ${quota.enforced ? 'Kernel quota is marked enforced.' : 'Kernel enforcement is not confirmed.'} ${quota.scope_note || ''}`, 'Treat byte and inode headroom as upper bounds because other content owned by the hosting account can consume the same quota. Verify kernel quota usage before capacity changes.');
       }
       for (const key of ['Memory', 'Tasks']) {
@@ -583,17 +599,18 @@
       }
       const fpm = resourceData.fpm_status || {};
       const pools = Array.isArray(fpm.pools) ? fpm.pools : [];
+      const fpmSample = fpm.collected_at ? ` Sampled ${new Date(fpm.collected_at).toLocaleString()}.` : ' Sample time was not supplied.';
       const livePools = pools.filter((pool) => pool.state === 'available');
       if (!fpm.available || livePools.length === 0) {
         add('unknown', 'Live PHP-FPM pool status is unavailable', fpm.detail || 'No current pool counters were returned.', 'Check the PHP-FPM service, managed pool configuration, and root-broker status probe.');
       } else {
         const saturated = livePools.filter((pool) => pool.saturated);
         if (saturated.length) {
-          add('critical', 'PHP-FPM pool is currently saturated', saturated.map((pool) => `PHP ${pool.php_version || 'default'}: ${pool.active_processes}/${pool.max_children} active, queue ${pool.listen_queue}`).join('; '), 'Review slow requests and workload, then adjust the pool only after checking host memory headroom.');
+          add('critical', 'PHP-FPM pool is currently saturated', saturated.map((pool) => `PHP ${pool.php_version || 'default'}: ${pool.active_processes}/${pool.max_children} active, queue ${pool.listen_queue}${Number(pool.slow_requests) ? `, ${pool.slow_requests} slow request(s)` : ''}`).join('; ') + fpmSample, 'Review slow requests and workload, then adjust the pool only after checking host memory headroom.');
         }
         const atCapacity = livePools.filter((pool) => pool.at_capacity && !pool.saturated);
         if (atCapacity.length) {
-          add('warning', 'PHP-FPM pool is at its worker limit', atCapacity.map((pool) => `PHP ${pool.php_version || 'default'}: ${pool.active_processes}/${pool.max_children} active with no queued requests at the sample time.`).join('; '), 'Check nearby samples and request latency; reaching the worker limit alone does not prove requests are waiting.');
+          add('warning', 'PHP-FPM pool is at its worker limit', atCapacity.map((pool) => `PHP ${pool.php_version || 'default'}: ${pool.active_processes}/${pool.max_children} active with no queued requests at the sample time.`).join('; ') + fpmSample, 'Check nearby samples and request latency; reaching the worker limit alone does not prove requests are waiting.');
         }
         const historical = livePools.filter((pool) => Number(pool.max_children_reached) > 0);
         if (historical.length) {
@@ -624,7 +641,11 @@
     }
     if (siteDiagnosticsAvailable && siteDiagnostics) {
       for (const storage of (siteDiagnostics.host_storage || [])) {
-        if (storage.status === 'pressure') add('critical', `${storage.label || 'Host filesystem'} is under capacity pressure`, `${formatBytes(storage.available_bytes)} of ${formatBytes(storage.total_bytes)} bytes and ${(Number(storage.available_inodes) || 0).toLocaleString()} of ${(Number(storage.total_inodes) || 0).toLocaleString()} inodes are available. ${storage.detail || ''}`, 'Free or expand the affected filesystem using the host runbook. Check both bytes and inodes before starting restores or deployments.');
+        if (storage.status === 'pressure') {
+          const bytePercent = Number(storage.total_bytes) > 0 ? Math.floor(Number(storage.available_bytes) / Number(storage.total_bytes) * 100) : null;
+          const inodePercent = Number(storage.total_inodes) > 0 ? Math.floor(Number(storage.available_inodes) / Number(storage.total_inodes) * 100) : null;
+          add('critical', `${storage.label || 'Host filesystem'} is under capacity pressure`, `${formatBytes(storage.available_bytes)} of ${formatBytes(storage.total_bytes)} bytes available${bytePercent === null ? '' : ` (${bytePercent}%)`}; ${(Number(storage.available_inodes) || 0).toLocaleString()} of ${(Number(storage.total_inodes) || 0).toLocaleString()} inodes available${inodePercent === null ? '' : ` (${inodePercent}%)`}. Sampled ${storage.collected_at ? new Date(storage.collected_at).toLocaleString() : 'at an unknown time'}. ${storage.detail || ''}`, 'Free or expand the affected filesystem using the host runbook. Check both bytes and inodes before starting restores or deployments.');
+        }
         else if (storage.status === 'unknown') add('unknown', `${storage.label || 'Host filesystem'} capacity not measured`, storage.detail || 'The filesystem capacity probe did not return measurements.', 'Check the configured storage path and panel permissions; do not infer capacity from site tree size.');
       }
       const siteDB = siteDiagnostics.database || {};
@@ -655,7 +676,7 @@
       if (filesystem.status === 'failed') add('critical', 'Site document root is unavailable', filesystem.detail, 'Restore the document root from a verified recovery point or correct its path through the managed site workflow. Do not run recursive chown as a first response.');
       else if (filesystem.status === 'observed') add('guidance', 'Filesystem permission evidence', `Document-root mode ${filesystem.mode}; owner UID ${filesystem.owner_uid ?? 'unknown'}, GID ${filesystem.owner_gid ?? 'unknown'}. ${filesystem.detail || ''}`, 'If logs show permission denied, compare these values with the configured web/PHP service identity and parent-directory traversal. Use the site permission repair workflow rather than broad recursive permission changes.');
       for (const cert of (siteDiagnostics.tls || [])) {
-        if (cert.renewal === 'failed' || cert.renewal === 'dead-letter') add('critical', `Certificate renewal failed for ${cert.domain}`, `${cert.renewal_evidence || 'A certificate job failed.'} Started ${cert.renewal_at ? new Date(cert.renewal_at).toLocaleString() : 'at an unknown time'}.`, 'Open the certificate job for its diagnostic output. Check DNS validation, port 80/443 reachability, and web-server configuration before retrying.');
+        if (cert.renewal === 'failed' || cert.renewal === 'dead-letter') add('critical', `Certificate renewal failed for ${cert.domain}`, `${cert.renewal_evidence || 'A certificate job failed.'}${cert.renewal_job_id ? ` Job: ${cert.renewal_job_id}.` : ''} Started ${cert.renewal_at ? new Date(cert.renewal_at).toLocaleString() : 'at an unknown time'}.`, 'Open the identified certificate job for its diagnostic output. Check DNS validation, port 80/443 reachability, and web-server configuration before retrying.');
         else if (cert.renewal === 'unknown') add('unknown', `Certificate renewal history unavailable for ${cert.domain}`, cert.renewal_evidence || 'The durable certificate job history could not be checked.', 'Check control-plane database health and retry diagnostics; do not interpret missing job evidence as a successful renewal.');
         if (['expired', 'expiring', 'missing', 'hostname_mismatch', 'failed'].includes(cert.status)) {
           add(cert.status === 'expired' || cert.status === 'hostname_mismatch' ? 'critical' : 'warning', `TLS ${cert.status.replace('_', ' ')} for ${cert.domain}`, `${cert.detail || ''}${cert.not_after ? ` Expires ${new Date(cert.not_after).toLocaleString()}.` : ''}`, 'Confirm DNS points to this host and the route is applied, then use the certificate workflow to renew or issue the certificate. Avoid deleting certificate files manually.');

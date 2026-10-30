@@ -8,6 +8,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Site incident alerts now promote measured site-tree byte and inode usage at
+  90% of the configured account allowance, with critical severity at or above
+  the allowance. They state the shared-account measurement limits. PHP-FPM
+  saturation evidence includes active/max workers, queue depth, slow-request
+  count, and sample time; certificate renewal failures identify the durable
+  job ID and timestamp for investigation.
+
 - Recorded a passing repository production gate for source
   `70bdc34cc96ac698ca822c2796267c5ca36f5ad5`, including
   full race tests, coverage thresholds, recovery drills, benchmarks, mixed

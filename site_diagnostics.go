@@ -19,6 +19,7 @@ type siteTLSDiagnostic struct {
 	RouteState      string    `json:"route_state"`
 	Status          string    `json:"status"`
 	Renewal         string    `json:"renewal,omitempty"`
+	RenewalJobID    string    `json:"renewal_job_id,omitempty"`
 	RenewalAt       time.Time `json:"renewal_at,omitempty"`
 	RenewalEvidence string    `json:"renewal_evidence,omitempty"`
 	NotAfter        time.Time `json:"not_after,omitempty"`
@@ -149,9 +150,9 @@ func (a *App) siteDiagnostics(w http.ResponseWriter, r *http.Request) {
 				for i := range tlsChecks {
 					job, ok := latest[tlsChecks[i].Domain]
 					if ok {
-						tlsChecks[i].Renewal, tlsChecks[i].RenewalAt = job.State, job.StartedAt
+						tlsChecks[i].Renewal, tlsChecks[i].RenewalAt, tlsChecks[i].RenewalJobID = job.State, job.StartedAt, job.ID
 						if job.State == "failed" || job.State == "dead-letter" {
-							tlsChecks[i].RenewalEvidence = "The latest durable certificate issuance job for this domain ended " + job.State + ". Job error details are available in authorized job history."
+							tlsChecks[i].RenewalEvidence = fmt.Sprintf("Latest certificate issuance job %s for this domain is in %s state; it was created at %s. Its failure output is available in authorized job history.", job.ID, job.State, job.StartedAt.UTC().Format(time.RFC3339))
 						}
 					}
 				}

@@ -16,6 +16,23 @@
   and load-capacity evidence as external gates. No production-readiness gate
   is claimed closed by this run.
 
+## Site alert evidence improvements — 2026-10-29
+
+- Site-tree byte and inode consumption now raises explicit warning/critical
+  findings at 90% and 100% of configured account allowances. Evidence labels
+  the tree measurement and explains that other account data can consume quota.
+- PHP-FPM saturation and worker-limit findings include queue/slow-request
+  counts and the sample timestamp. Certificate renewal findings identify the
+  durable job ID, terminal state, and start time while keeping raw job output
+  in authorized job history.
+- Focused Go diagnostics tests and JavaScript syntax/unit checks passed; the
+  disposable Playwright incident journey passed with saturation, byte/inode
+  quota pressure, database failure, stale backup, and certificate-job evidence.
+  The final `make check` passed on this source, including API artifact
+  validation, `go vet ./...`, and the serialized Go suite (`go test -p 1
+  -timeout 10m ./...`; root package 65.7s). JavaScript syntax/unit checks
+  passed (17/17), and the focused disposable Playwright journey passed (1/1).
+
 ## Certificate alert coverage correction — 2026-10-29
 
 - Review found that the incident snapshot fetched only ten certificate jobs

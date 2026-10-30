@@ -128,12 +128,16 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
     application_database_connectivity: { status: 'failed', collected_at: new Date().toISOString(), detail: 'WP-CLI db check reports database authentication failure; raw output is withheld.' },
     backup_schedule: { enabled: true, interval_minutes: 60, last_run: new Date().toISOString(), last_success: null, has_error_detail: true, consecutive_failures: 2 },
     tls: [
-      { domain: 'journey.example.test', route_state: 'applied', status: 'unknown', renewal: 'dead-letter', renewal_at: new Date().toISOString(), renewal_evidence: 'Latest durable certificate job entered dead-letter.', detail: 'Live external handshake not tested.' },
+      { domain: 'journey.example.test', route_state: 'applied', status: 'unknown', renewal: 'dead-letter', renewal_job_id: 'certificate-42', renewal_at: new Date().toISOString(), renewal_evidence: 'Latest certificate issuance job certificate-42 for this domain is in dead-letter state.', detail: 'Live external handshake not tested.' },
       { domain: 'quiet.example.test', route_state: 'applied', status: 'unknown', renewal: 'unknown', renewal_evidence: 'Certificate issuance history could not be read from the durable job store.', detail: 'Live external handshake not tested.' },
     ],
   })));
+  await page.route('**/api/sites/usage/e2e-journey', (route) => route.fulfill(json({
+    bytes: 950, inodes: 100, complete: true,
+    quota: { enforced: true, limit_bytes: 1000, tree_bytes: 950, estimated_remaining_bytes: 50, inode_limit: 100, tree_inodes: 100, estimated_remaining_inodes: 0, scope_note: 'Measured site tree; account quota is shared.' },
+  })));
   await page.route('**/api/sites/php/e2e-journey', (route) => route.fulfill(json({ configured: true, profile: { version: '8.3', state: 'applied' } })));
-  await page.route('**/api/sites/resources/e2e-journey', (route) => route.fulfill(json({ configured: true, fpm_status: { pools: [{ php_version: '8.3', state: 'available', active_processes: 2, max_children: 8, listen_queue: 0, slow_requests: 1 }] } })));
+  await page.route('**/api/sites/resources/e2e-journey', (route) => route.fulfill(json({ configured: true, fpm_status: { available: true, collected_at: new Date().toISOString(), pools: [{ php_version: '8.3', state: 'available', saturated: true, active_processes: 8, max_children: 8, listen_queue: 3, slow_requests: 2 }] } })));
   await page.route('**/api/sites/recovery/e2e-journey', (route) => route.fulfill(json({ confidence: 'unverified', last_backup: null, last_passed_rehearsal: null, summary: 'No verified recovery point.' })));
   await page.route('**/api/backups?site=e2e-journey&limit=100', (route) => route.fulfill(json({ backups: [] })));
   await page.route('**/api/wordpress/status/e2e-journey', (route) => route.fulfill(json({ installed: true, wp_cli: true })));
@@ -149,6 +153,12 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
   const diagnosis = panel.getByRole('region', { name: 'Site incident assessment' });
   await expect(diagnosis).toContainText('site files is under capacity pressure');
   await expect(diagnosis).toContainText('1.0 KB of 1.0 MB bytes');
+  await expect(diagnosis).toContainText('PHP-FPM pool is currently saturated');
+  await expect(diagnosis).toContainText('8/8 active, queue 3, 2 slow request(s)');
+  await expect(diagnosis).toContainText('Sampled');
+  await expect(diagnosis).toContainText('Site tree is near its configured storage allowance');
+  await expect(diagnosis).toContainText('950 B of 1000 B (95%)');
+  await expect(diagnosis).toContainText('Site tree is at or above its configured inode allowance');
   await expect(diagnosis).toContainText('WordPress database connection failed');
   await expect(diagnosis).toContainText('database authentication failure');
   await expect(diagnosis).toContainText('Scheduled backups are failing');
@@ -156,7 +166,8 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
   await expect(diagnosis).toContainText('Scheduled backup recovery point is stale');
   await expect(diagnosis).toContainText('has never succeeded');
   await expect(diagnosis).toContainText('Certificate renewal failed for journey.example.test');
-  await expect(diagnosis).toContainText('Latest durable certificate job entered dead-letter.');
+  await expect(diagnosis).toContainText('Latest certificate issuance job certificate-42 for this domain is in dead-letter state.');
+  await expect(diagnosis).toContainText('certificate-42');
   await expect(diagnosis).toContainText('Certificate renewal history unavailable for quiet.example.test');
   await expect(diagnosis).toContainText('Certificate issuance history could not be read from the durable job store.');
   await page.getByRole('tab', { name: 'Guided workflow' }).click();
