@@ -120,9 +120,14 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
   await page.route('**/api/sites/overview', (route) => route.fulfill(json({ sites: [site] })));
   await page.route('**/api/sites/overview/e2e-journey', (route) => route.fulfill(json(site)));
   await page.route('**/api/sites/diagnostics/e2e-journey', (route) => route.fulfill(json({
+    collected_at: new Date().toISOString(),
     filesystem: { status: 'observed', mode: '0750', owner_uid: 1001, owner_gid: 1001, detail: 'Path metadata only.' },
-    database: { available: true, engine: 'mariadb', databases: ['journey_wp'], detail: 'Inventory access only; application credentials were not tested.' },
-    tls: [{ domain: 'journey.example.test', route_state: 'applied', status: 'unknown', detail: 'Live external handshake not tested.' }],
+    host_storage: [{ label: 'site files', status: 'pressure', available_bytes: 1024, total_bytes: 1048576, available_inodes: 4, total_inodes: 100, detail: 'Filesystem headroom is below 10% for bytes or inodes.' }],
+    database: { available: true, engine: 'mariadb', databases: ['journey_wp'], detail: 'Inventory access only.' },
+    database_connectivity: { status: 'connected', engine: 'mariadb', collected_at: new Date().toISOString(), detail: 'Restricted host query succeeded.' },
+    application_database_connectivity: { status: 'failed', collected_at: new Date().toISOString(), detail: 'WP-CLI db check reports database authentication failure; raw output is withheld.' },
+    backup_schedule: { enabled: true, interval_minutes: 60, last_run: new Date().toISOString(), last_success: null, has_error_detail: true, consecutive_failures: 2 },
+    tls: [{ domain: 'journey.example.test', route_state: 'applied', status: 'unknown', renewal: 'dead-letter', renewal_at: new Date().toISOString(), renewal_evidence: 'Latest durable certificate job entered dead-letter.', detail: 'Live external handshake not tested.' }],
   })));
   await page.route('**/api/sites/php/e2e-journey', (route) => route.fulfill(json({ configured: true, profile: { version: '8.3', state: 'applied' } })));
   await page.route('**/api/sites/resources/e2e-journey', (route) => route.fulfill(json({ configured: true, fpm_status: { pools: [{ php_version: '8.3', state: 'available', active_processes: 2, max_children: 8, listen_queue: 0, slow_requests: 1 }] } })));
@@ -137,8 +142,19 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
   await page.reload();
   await page.getByRole('link', { name: 'Sites', exact: true }).click();
   await page.getByRole('button', { name: /Manage site/ }).click();
-  await page.getByRole('tab', { name: 'Guided workflow' }).click();
   const panel = page.locator('#workspace-panel');
+  const diagnosis = panel.getByRole('region', { name: 'Site incident assessment' });
+  await expect(diagnosis).toContainText('site files is under capacity pressure');
+  await expect(diagnosis).toContainText('1.0 KB of 1.0 MB bytes');
+  await expect(diagnosis).toContainText('WordPress database connection failed');
+  await expect(diagnosis).toContainText('database authentication failure');
+  await expect(diagnosis).toContainText('Scheduled backups are failing');
+  await expect(diagnosis).toContainText('2 consecutive failure(s)');
+  await expect(diagnosis).toContainText('Scheduled backup recovery point is stale');
+  await expect(diagnosis).toContainText('has never succeeded');
+  await expect(diagnosis).toContainText('Certificate renewal failed for journey.example.test');
+  await expect(diagnosis).toContainText('Latest durable certificate job entered dead-letter.');
+  await page.getByRole('tab', { name: 'Guided workflow' }).click();
   await expect(panel.getByRole('heading', { name: 'Import or create the site' })).toBeVisible();
   await expect(panel).toContainText('origin and exact set of imported cPanel components are not inferred');
   await expect(panel).toContainText('application login and HTTP behavior are not tested');

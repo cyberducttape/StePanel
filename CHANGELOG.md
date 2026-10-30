@@ -16,7 +16,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   pressure, quota estimates, TLS metadata, logs, and recovery evidence.
   Findings include measured values and explain what each probe does not prove;
   failed or unavailable probes are shown as failures or unknown rather than
-  green.
+  green. The browser regression asserts that storage pressure, application DB
+  authentication failure, backup failure/staleness, and certificate renewal
+  failure each render with their evidence.
 - Expanded cPanel migration preflight with provisional domain/document-root
   mapping, SQL dump source-version checks against the configured destination,
   Maildir layout/message inventory, and an explicit DNS/mail/TLS cutover

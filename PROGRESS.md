@@ -20,6 +20,10 @@
   race test, full `make check`, JavaScript syntax, frontend unit tests (17/17),
   and `git diff --check`. The full Go race suite also passed on the immediately
   preceding typed-worker revision (453.4s).
+- Added a browser regression for pressure, application database authentication,
+  backup failure/staleness, and certificate job failure evidence. The complete
+  disposable seeded browser suite passed: 21 passed, 1 skipped (optional
+  customer-auth isolation needs a customer password).
 
 ## Current change — typed durable Composer and runner execution (2026-10-29)
 

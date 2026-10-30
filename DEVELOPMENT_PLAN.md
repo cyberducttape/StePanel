@@ -153,6 +153,9 @@ unverified where they cannot establish application-level behavior.
   preserves existing PHP-FPM saturation evidence.
 - Focused Go tests, JavaScript syntax/unit checks, and `make check` pass; each
   rendered alert includes a diagnosis, supporting evidence, and safe action.
+- A browser E2E regression verifies the incident view renders measured storage
+  pressure, per-site WordPress DB authentication failure, stale/failed backup
+  evidence, and a failed certificate job; the seeded full UI suite passes.
 
 ### M0e — Continue typed durable operation extraction (P1)
 
