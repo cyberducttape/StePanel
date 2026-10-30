@@ -167,8 +167,12 @@ outbox evidence, and suggest a safe next action. Rule syntax and rendered
 annotation tests pass with promtool. The site incident view combines PHP-FPM
 worker-memory/saturation evidence, database probes, byte/inode pressure,
 certificate renewal history, backup freshness, and resource enforcement. These
-per-site checks are snapshot-based; continuous Prometheus series for every one
-of those signals remain an instrumentation gap.
+per-site checks are snapshot-based; continuous Prometheus series for PHP-FPM,
+certificate renewal, and resource-limit usage remain an instrumentation gap.
+Prometheus now continuously samples free/total bytes and inodes for configured
+site, backup, database, and control-plane storage roots. Low-capacity and failed
+probe alerts include role, measured ratio or probe result, threshold, and a safe
+next action. Host paths are not emitted as labels.
 
 Correlate PHP-FPM saturation and historical pressure, systemd memory/task
 limits, host byte/inode capacity, database-engine connectivity, TLS metadata

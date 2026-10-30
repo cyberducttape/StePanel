@@ -23,6 +23,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Prometheus now measures available/total bytes and inodes for configured site,
+  backup, database, and control-plane storage roots using fixed role labels.
+  Alerts fire when a probe stays unavailable or free bytes/inodes remain below
+  10%, with the measured ratio, affected storage role, threshold, and a safe
+  investigation step. Host paths are not exposed in metric labels.
 - Application activation compensation now uses its own bounded context after
   the initiating request is canceled. It preserves fencing values, allowing
   the broker to restore the prior runtime when the mutation lease remains

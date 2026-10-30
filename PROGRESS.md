@@ -1,5 +1,21 @@
 # Production-readiness progress
 
+## Continuous host storage alerts — 2026-10-30
+
+- `/metrics` now samples filesystem byte and inode headroom for configured
+  hosting, backup, database, and control-plane storage roles. It emits only
+  fixed role labels, not host paths, and makes failed probes explicit.
+- Added Prometheus alerts for unavailable capacity probes and sustained free
+  byte/inode headroom below 10%. Alert descriptions identify the role, measured
+  ratio or failure result, threshold, evidence metrics, and a safe operator
+  action.
+- Added metrics and rendered-alert regression fixtures. Focused and full checks
+  passed: the targeted Go test, `make check` (API artifact validation, vet, and
+  all Go packages), Prometheus 3.5.0 rule validation (28 rules), and rendered
+  Prometheus alert tests. Continuous FPM, certificate-renewal, and
+  per-site resource-limit alert series remain unimplemented; existing site
+  diagnostics still provide those findings on demand.
+
 ## App activation compensation survives request cancellation — 2026-10-30
 
 - App activation and app-state transitions now run compensation in a bounded

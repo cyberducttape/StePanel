@@ -8,6 +8,50 @@ evaluation_interval: 30s
 tests:
   - interval: 1m
     input_series:
+      - series: 'stepanel_host_filesystem_probe_up{job="stepanel",role="control_plane"}'
+        values: '0+0x30'
+      - series: 'stepanel_host_filesystem_available_bytes{job="stepanel",role="sites"}'
+        values: '500+0x30'
+      - series: 'stepanel_host_filesystem_total_bytes{job="stepanel",role="sites"}'
+        values: '10000+0x30'
+      - series: 'stepanel_host_filesystem_available_inodes{job="stepanel",role="backups"}'
+        values: '80+0x30'
+      - series: 'stepanel_host_filesystem_total_inodes{job="stepanel",role="backups"}'
+        values: '1000+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: StePanelFilesystemCapacityUnavailable
+        exp_alerts:
+          - exp_labels:
+              job: stepanel
+              role: control_plane
+              severity: warning
+            exp_annotations:
+              summary: Filesystem capacity could not be measured for control_plane
+              description: The control_plane filesystem probe reports 0 (0 means Statfs failed) for five minutes. Check the configured storage path and panel permissions; do not assume the filesystem has free capacity until a fresh measurement succeeds.
+      - eval_time: 20m
+        alertname: StePanelFilesystemBytesLow
+        exp_alerts:
+          - exp_labels:
+              job: stepanel
+              role: sites
+              severity: critical
+            exp_annotations:
+              summary: Free disk space is below 10% for sites storage
+              description: Only 5% of filesystem bytes remain for the sites storage role, below the 10% threshold for ten minutes. Check the filesystem's available/total byte metrics, identify large consumers, and expand or free space using the host runbook before starting imports or restores.
+      - eval_time: 20m
+        alertname: StePanelFilesystemInodesLow
+        exp_alerts:
+          - exp_labels:
+              job: stepanel
+              role: backups
+              severity: critical
+            exp_annotations:
+              summary: Free inodes are below 10% for backups storage
+              description: Only 8% of filesystem inodes remain for the backups storage role, below the 10% threshold for ten minutes. Check the available/total inode metrics and identify directories with excessive file counts; free or expand capacity using the host runbook before making changes.
+
+  - interval: 1m
+    input_series:
       - series: 'stepanel_control_plane_database_limit_ratio{job="stepanel"}'
         values: '0.90+0x30'
       - series: 'stepanel_capacity_reservations_up{job="stepanel"}'

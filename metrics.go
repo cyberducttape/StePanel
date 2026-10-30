@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/audit"
@@ -404,6 +405,45 @@ func writeDatabaseMetrics(w io.Writer, diagnostics DatabaseDiagnostics) {
 	_, _ = fmt.Fprintf(w, "# HELP stepanel_database_diagnostics_up Database diagnostics collection succeeded\n# TYPE stepanel_database_diagnostics_up gauge\nstepanel_database_diagnostics_up{engine=%q} %d\n", diagnostics.Engine, up)
 	for _, name := range []string{"connections", "active_connections", "long_transactions", "blocked_sessions", "deadlocks", "database_bytes"} {
 		_, _ = fmt.Fprintf(w, "# TYPE stepanel_database_%s gauge\nstepanel_database_%s{engine=%q} %d\n", name, name, diagnostics.Engine, diagnostics.Values[name])
+	}
+}
+
+// writeHostFilesystemMetrics exports byte and inode headroom for the few
+// operator-configured storage roots that affect hosting recovery. Labels are
+// fixed role names; host paths and customer data are never included.
+func writeHostFilesystemMetrics(w io.Writer, cfg Config) {
+	roots := []struct{ role, path string }{
+		{"sites", cfg.WebRoot},
+		{"backups", cfg.BackupRoot},
+		{"databases", cfg.DBDataDir},
+	}
+	if cfg.ControlPlaneDB != "" {
+		roots = append(roots, struct{ role, path string }{"control_plane", filepath.Dir(cfg.ControlPlaneDB)})
+	}
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_host_filesystem_probe_up Whether filesystem capacity was measured for a configured storage role")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_host_filesystem_probe_up gauge")
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_host_filesystem_available_bytes Available bytes on the filesystem containing a configured storage root")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_host_filesystem_available_bytes gauge")
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_host_filesystem_total_bytes Total bytes on the filesystem containing a configured storage root")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_host_filesystem_total_bytes gauge")
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_host_filesystem_available_inodes Available inodes on the filesystem containing a configured storage root")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_host_filesystem_available_inodes gauge")
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_host_filesystem_total_inodes Total inodes on the filesystem containing a configured storage root")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_host_filesystem_total_inodes gauge")
+	for _, root := range roots {
+		if strings.TrimSpace(root.path) == "" {
+			continue
+		}
+		var stat syscall.Statfs_t
+		if err := syscall.Statfs(root.path, &stat); err != nil {
+			_, _ = fmt.Fprintf(w, "stepanel_host_filesystem_probe_up{role=%q} 0\n", root.role)
+			continue
+		}
+		_, _ = fmt.Fprintf(w, "stepanel_host_filesystem_probe_up{role=%q} 1\n", root.role)
+		_, _ = fmt.Fprintf(w, "stepanel_host_filesystem_available_bytes{role=%q} %d\n", root.role, stat.Bavail*uint64(stat.Bsize))
+		_, _ = fmt.Fprintf(w, "stepanel_host_filesystem_total_bytes{role=%q} %d\n", root.role, stat.Blocks*uint64(stat.Bsize))
+		_, _ = fmt.Fprintf(w, "stepanel_host_filesystem_available_inodes{role=%q} %d\n", root.role, stat.Ffree)
+		_, _ = fmt.Fprintf(w, "stepanel_host_filesystem_total_inodes{role=%q} %d\n", root.role, stat.Files)
 	}
 }
 

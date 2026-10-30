@@ -100,6 +100,49 @@ groups:
           summary: Durable storage admission telemetry is unavailable
           description: The capacity reservation ledger health metric is {{ $value }} (0 means unavailable). Verify control-plane SQLite health and confirm storage-consuming operations are refusing admission when reservations cannot be checked.
 
+      - alert: StePanelFilesystemCapacityUnavailable
+        expr: stepanel_host_filesystem_probe_up{job="stepanel"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Filesystem capacity could not be measured for {{ $labels.role }}
+          description: "The {{ $labels.role }} filesystem probe reports {{ $value }} (0 means Statfs failed) for five minutes. Check the configured storage path and panel permissions; do not assume the filesystem has free capacity until a fresh measurement succeeds."
+
+      - alert: StePanelFilesystemBytesLow
+        expr: |
+          (
+            stepanel_host_filesystem_available_bytes{job="stepanel"}
+            /
+            stepanel_host_filesystem_total_bytes{job="stepanel"}
+            < 0.10
+          )
+          and on(role)
+          (stepanel_host_filesystem_total_bytes{job="stepanel"} > 0)
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Free disk space is below 10% for {{ $labels.role }} storage
+          description: "Only {{ $value | humanizePercentage }} of filesystem bytes remain for the {{ $labels.role }} storage role, below the 10% threshold for ten minutes. Check the filesystem's available/total byte metrics, identify large consumers, and expand or free space using the host runbook before starting imports or restores."
+
+      - alert: StePanelFilesystemInodesLow
+        expr: |
+          (
+            stepanel_host_filesystem_available_inodes{job="stepanel"}
+            /
+            stepanel_host_filesystem_total_inodes{job="stepanel"}
+            < 0.10
+          )
+          and on(role)
+          (stepanel_host_filesystem_total_inodes{job="stepanel"} > 0)
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Free inodes are below 10% for {{ $labels.role }} storage
+          description: "Only {{ $value | humanizePercentage }} of filesystem inodes remain for the {{ $labels.role }} storage role, below the 10% threshold for ten minutes. Check the available/total inode metrics and identify directories with excessive file counts; free or expand capacity using the host runbook before making changes."
+
       - alert: StePanelAuditOutboxBacklog
         expr: stepanel_audit_outbox_oldest_pending_age_seconds{job="stepanel"} > 300 and stepanel_audit_outbox_pending{job="stepanel"} > 0
         for: 5m

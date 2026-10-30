@@ -65,6 +65,34 @@ func TestMetricsExposeStateCategoriesAndSQLiteBusy(t *testing.T) {
 	}
 }
 
+func TestHostFilesystemMetricsReportEvidenceWithoutExposingPaths(t *testing.T) {
+	root := t.TempDir()
+	var output strings.Builder
+	writeHostFilesystemMetrics(&output, Config{
+		WebRoot:        root,
+		BackupRoot:     root,
+		DBDataDir:      filepath.Join(root, "missing-database-path"),
+		ControlPlaneDB: filepath.Join(root, "control", "panel.db"),
+	})
+	text := output.String()
+	for _, want := range []string{
+		`stepanel_host_filesystem_probe_up{role="sites"} 1`,
+		`stepanel_host_filesystem_available_bytes{role="sites"}`,
+		`stepanel_host_filesystem_total_bytes{role="sites"}`,
+		`stepanel_host_filesystem_available_inodes{role="sites"}`,
+		`stepanel_host_filesystem_total_inodes{role="sites"}`,
+		`stepanel_host_filesystem_probe_up{role="databases"} 0`,
+		`stepanel_host_filesystem_probe_up{role="control_plane"} 0`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("filesystem metrics missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, root) {
+		t.Fatalf("filesystem metrics exposed a host path:\n%s", text)
+	}
+}
+
 func TestGitReleaseMetricsExposeInventoryReadFailures(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "sites"), []byte("not-a-directory"), 0600); err != nil {

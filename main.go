@@ -953,6 +953,7 @@ func (a *App) metrics(w http.ResponseWriter, r *http.Request) {
 		writeControlPlaneStorageMetrics(w, a.Jobs.db, a.Config.ControlPlaneDB, sqliteutil.DefaultDatabaseMaxBytes)
 	}
 	writeDatabaseMetrics(w, a.cachedDatabaseDiagnostics(15*time.Second))
+	writeHostFilesystemMetrics(w, a.Config)
 	writeReadinessMetrics(w, readinessChecks(a.Config, a.Jobs))
 	schedules := []BackupSchedule{}
 	if a.Schedules != nil {
