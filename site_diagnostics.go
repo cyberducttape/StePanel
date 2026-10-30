@@ -101,7 +101,7 @@ func (a *App) siteDiagnostics(w http.ResponseWriter, r *http.Request) {
 	}
 	result["database"] = diagnostics
 	engineProbe := a.cachedDatabaseDiagnostics(15 * time.Second)
-	connection := map[string]any{"status": "unavailable", "engine": diagnostics["engine"], "collected_at": engineProbe.Collected, "detail": engineProbe.Detail}
+	connection := map[string]any{"status": "unavailable", "engine": diagnostics["engine"], "failure_code": engineProbe.FailureCode, "collected_at": engineProbe.Collected, "detail": engineProbe.Detail}
 	if engineProbe.Available {
 		connection["status"] = "connected"
 		connection["detail"] = "The restricted host diagnostic query completed successfully. This verifies host-to-engine connectivity, not the site's application credentials or query behavior."
@@ -253,14 +253,17 @@ func classifyWordPressDBCheckFailure(err error) string {
 }
 
 type filesystemCapacity struct {
-	Label           string    `json:"label"`
-	Status          string    `json:"status"`
-	AvailableBytes  uint64    `json:"available_bytes,omitempty"`
-	TotalBytes      uint64    `json:"total_bytes,omitempty"`
-	AvailableInodes uint64    `json:"available_inodes,omitempty"`
-	TotalInodes     uint64    `json:"total_inodes,omitempty"`
-	CollectedAt     time.Time `json:"collected_at"`
-	Detail          string    `json:"detail"`
+	Label                  string    `json:"label"`
+	Status                 string    `json:"status"`
+	AvailableBytes         uint64    `json:"available_bytes,omitempty"`
+	TotalBytes             uint64    `json:"total_bytes,omitempty"`
+	AvailableBytesPercent  uint64    `json:"available_bytes_percent,omitempty"`
+	AvailableInodes        uint64    `json:"available_inodes,omitempty"`
+	TotalInodes            uint64    `json:"total_inodes,omitempty"`
+	AvailableInodesPercent uint64    `json:"available_inodes_percent,omitempty"`
+	PressureReasons        []string  `json:"pressure_reasons,omitempty"`
+	CollectedAt            time.Time `json:"collected_at"`
+	Detail                 string    `json:"detail"`
 }
 
 func inspectFilesystemCapacity(label, path string) map[string]any {
@@ -273,15 +276,34 @@ func inspectFilesystemCapacity(label, path string) map[string]any {
 	check.TotalBytes = stat.Blocks * uint64(stat.Bsize)
 	check.AvailableInodes, check.TotalInodes = stat.Ffree, stat.Files
 	check.Status = "healthy"
-	byteLow := check.TotalBytes > 0 && check.AvailableBytes*100/check.TotalBytes < 10
-	inodeLow := check.TotalInodes > 0 && check.AvailableInodes*100/check.TotalInodes < 10
-	if byteLow || inodeLow {
+	check.AvailableBytesPercent = capacityPercent(check.AvailableBytes, check.TotalBytes)
+	check.AvailableInodesPercent = capacityPercent(check.AvailableInodes, check.TotalInodes)
+	check.PressureReasons = filesystemPressureReasons(check.AvailableBytesPercent, check.TotalBytes > 0, check.AvailableInodesPercent, check.TotalInodes > 0)
+	if len(check.PressureReasons) > 0 {
 		check.Status = "pressure"
-		check.Detail = "Filesystem headroom is below 10% for bytes or inodes."
+		check.Detail = "Filesystem headroom is below 10% for: " + strings.Join(check.PressureReasons, ", ") + "."
 	} else {
 		check.Detail = "Filesystem available bytes and inodes were measured from the host."
 	}
-	return map[string]any{"label": check.Label, "status": check.Status, "available_bytes": check.AvailableBytes, "total_bytes": check.TotalBytes, "available_inodes": check.AvailableInodes, "total_inodes": check.TotalInodes, "collected_at": check.CollectedAt, "detail": check.Detail}
+	return map[string]any{"label": check.Label, "status": check.Status, "available_bytes": check.AvailableBytes, "total_bytes": check.TotalBytes, "available_bytes_percent": check.AvailableBytesPercent, "available_inodes": check.AvailableInodes, "total_inodes": check.TotalInodes, "available_inodes_percent": check.AvailableInodesPercent, "pressure_reasons": check.PressureReasons, "collected_at": check.CollectedAt, "detail": check.Detail}
+}
+
+func capacityPercent(available, total uint64) uint64 {
+	if total == 0 {
+		return 0
+	}
+	return uint64(float64(available) * 100 / float64(total))
+}
+
+func filesystemPressureReasons(bytesPercent uint64, hasBytes bool, inodesPercent uint64, hasInodes bool) []string {
+	var reasons []string
+	if hasBytes && bytesPercent < 10 {
+		reasons = append(reasons, "free bytes below 10%")
+	}
+	if hasInodes && inodesPercent < 10 {
+		reasons = append(reasons, "free inodes below 10%")
+	}
+	return reasons
 }
 
 // inspectSiteCertificate reads route certificate metadata. The Certbot store

@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Site incident findings now identify whether filesystem pressure is caused by
+  low free bytes, low free inodes, or both, with timestamped capacity values.
+  Database connectivity failures now include a bounded cause such as timeout,
+  connection refusal, authentication rejection, or missing socket/helper and
+  a safe next step; raw helper output is not exposed. Regression coverage
+  verifies the cause evidence and secret redaction.
 - Recorded the full repository production-gate pass for exact source
   `1ad78a6`, including coverage, race, recovery drills, benchmarks, and mixed
   load. The evidence documents inactive local project-quota enforcement and

@@ -148,6 +148,14 @@ focused Go tests, JavaScript unit tests (17/17), syntax checks, and the focused
 disposable Chromium E2E (1/1); exact-source hosted CI is pending for this
 follow-up.
 
+The current diagnostics refinement distinguishes low free bytes from low free
+inodes in filesystem evidence, and classifies database probe failures into
+bounded causes such as connection refusal, authentication rejection, socket
+unavailability, and timeout. Raw helper output remains hidden. Focused Go tests
+and the modified browser journey pass locally, as do `make check` and the
+focused disposable Chromium journey. Hosted exact-source CI remains the next
+verification step.
+
 Correlate PHP-FPM saturation and historical pressure, systemd memory/task
 limits, host byte/inode capacity, database-engine connectivity, TLS metadata
 and failed certificate issuance jobs, scheduled-backup failures/staleness,
@@ -158,12 +166,14 @@ unverified where they cannot establish application-level behavior.
 **Acceptance criteria**
 
 - Site diagnostics report timestamped byte and inode measurements for the site,
-  backup, and configured database filesystems, and explicitly identify low
-  headroom or unavailable probes.
+  backup, and configured database filesystems, and explicitly identify which
+  resource has low headroom or unavailable probes. A zero-sized filesystem
+  measurement is not divided or presented as a percentage.
 - Database connectivity is based on a completed restricted engine query and is
   clearly distinguished from a per-site WP-CLI check using the site's
   configured credentials; the latter runs as that site identity and is bounded
-  and briefly cached.
+  and briefly cached. Failed engine probes include a bounded failure class and
+  a safe diagnostic detail without exposing raw helper output.
 - Failed certificate issuance jobs and enabled backup schedules with repeated
   failure or a recovery point older than twice the interval appear as findings
   with timestamps and measured evidence.

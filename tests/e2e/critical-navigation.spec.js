@@ -124,9 +124,9 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
   await page.route('**/api/sites/diagnostics/e2e-journey', (route) => route.fulfill(json({
     collected_at: new Date().toISOString(),
     filesystem: { status: 'observed', mode: '0750', owner_uid: 1001, owner_gid: 1001, detail: 'Path metadata only.' },
-    host_storage: [{ label: 'site files', status: 'pressure', available_bytes: 1024, total_bytes: 1048576, available_inodes: 4, total_inodes: 100, detail: 'Filesystem headroom is below 10% for bytes or inodes.' }],
+    host_storage: [{ label: 'site files', status: 'pressure', pressure_reasons: ['free bytes below 10%', 'free inodes below 10%'], available_bytes: 1024, total_bytes: 1048576, available_inodes: 4, total_inodes: 100, detail: 'Filesystem headroom is below 10% for: free bytes below 10%, free inodes below 10%.' }],
     database: { available: true, engine: 'mariadb', databases: ['journey_wp'], detail: 'Inventory access only.' },
-    database_connectivity: { status: 'connected', engine: 'mariadb', collected_at: new Date().toISOString(), detail: 'Restricted host query succeeded.' },
+    database_connectivity: { status: 'unavailable', engine: 'mariadb', failure_code: 'connection_refused', collected_at: new Date().toISOString(), detail: 'The database helper reported that the local database connection was refused. Check that the configured database service is running.' },
     application_database_connectivity: { status: 'failed', collected_at: new Date().toISOString(), detail: 'WP-CLI db check reports database authentication failure; raw output is withheld.' },
     backup_schedule: backupScheduleEnabled
       ? backupHasRun
@@ -159,6 +159,7 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
   const diagnosis = panel.getByRole('region', { name: 'Site incident assessment' });
   await expect(diagnosis).not.toContainText('Scheduled backup recovery point is stale');
   await expect(diagnosis).toContainText('site files is under capacity pressure');
+  await expect(diagnosis).toContainText('free bytes below 10% and free inodes below 10%');
   await expect(diagnosis).toContainText('1.0 KB of 1.0 MB bytes');
   await expect(diagnosis).toContainText('PHP-FPM pool is currently saturated');
   await expect(diagnosis).toContainText('8/8 active, queue 3, 2 slow request(s)');
@@ -168,6 +169,9 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
   await expect(diagnosis).toContainText('Site tree is at or above its configured inode allowance');
   await expect(diagnosis).toContainText('WordPress database connection failed');
   await expect(diagnosis).toContainText('database authentication failure');
+  await expect(diagnosis).toContainText('Database engine connectivity probe failed');
+  await expect(diagnosis).toContainText('connection_refused');
+  await expect(diagnosis).toContainText('connection was refused');
   await expect(diagnosis).toContainText('Application recovery is not proven');
   await expect(diagnosis).toContainText('No verified recovery point.');
   await expect(diagnosis).toContainText('Certificate renewal failed for journey.example.test');

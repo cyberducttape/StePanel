@@ -58,12 +58,13 @@ func makeDatabaseDeletionPreview(item DatabaseResource, engine string) databaseD
 }
 
 type DatabaseDiagnostics struct {
-	Available bool              `json:"available"`
-	Engine    string            `json:"engine"`
-	Collected time.Time         `json:"collected_at"`
-	Values    map[string]uint64 `json:"values"`
-	Warnings  []string          `json:"warnings"`
-	Detail    string            `json:"detail,omitempty"`
+	Available   bool              `json:"available"`
+	Engine      string            `json:"engine"`
+	Collected   time.Time         `json:"collected_at"`
+	Values      map[string]uint64 `json:"values"`
+	Warnings    []string          `json:"warnings"`
+	FailureCode string            `json:"failure_code,omitempty"`
+	Detail      string            `json:"detail,omitempty"`
 }
 
 type DatabaseSafetyBackup struct {
@@ -310,7 +311,7 @@ func collectDatabaseDiagnostics(cfg Config) DatabaseDiagnostics {
 	d := DatabaseDiagnostics{Engine: engine, Collected: time.Now().UTC(), Values: map[string]uint64{}, Warnings: []string{}}
 	output, err := runDatabaseHelper(cfg, 10*time.Second, "", "diagnostics")
 	if err != nil {
-		d.Detail = "Database diagnostics require a healthy local engine and the restricted lifecycle helper."
+		d.FailureCode, d.Detail = classifyDatabaseDiagnosticsFailure(err)
 		return d
 	}
 	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
@@ -331,6 +332,31 @@ func collectDatabaseDiagnostics(cfg Config) DatabaseDiagnostics {
 		d.Warnings = append(d.Warnings, "transactions older than five minutes were detected")
 	}
 	return d
+}
+
+// classifyDatabaseDiagnosticsFailure turns helper errors into bounded,
+// non-secret operator evidence. Raw command output can contain host details or
+// credentials, so it must never be copied into diagnostics responses.
+func classifyDatabaseDiagnosticsFailure(err error) (code, detail string) {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout", "The restricted database health query exceeded its 10-second deadline. Check database load, service responsiveness, and the helper timeout logs."
+	}
+	if errors.Is(err, context.Canceled) {
+		return "cancelled", "The restricted database health query was cancelled before it completed. Retry the diagnostic when the request context is stable."
+	}
+	message := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(message, "connection refused"):
+		return "connection_refused", "The database helper reported that the local database connection was refused. Check that the configured database service is running and that its socket or listener matches the helper configuration."
+	case strings.Contains(message, "access denied"), strings.Contains(message, "authentication failed"), strings.Contains(message, "password authentication failed"):
+		return "authentication", "The database health query was rejected during authentication. Verify the restricted helper's managed credentials and database grants; secret values are withheld."
+	case strings.Contains(message, "no such file"), strings.Contains(message, "socket"):
+		return "socket_unavailable", "The configured local database socket or helper path could not be opened. Verify the database socket location and service configuration."
+	case strings.Contains(message, "not found"), strings.Contains(message, "executable"):
+		return "helper_unavailable", "The configured database diagnostic helper or client executable is unavailable. Verify the installed helper and database client package."
+	default:
+		return "probe_failed", "The restricted database health query failed before returning measurements. Check the database service and its restricted helper logs for the underlying error."
+	}
 }
 
 func (a *App) cachedDatabaseDiagnostics(maxAge time.Duration) DatabaseDiagnostics {

@@ -2,6 +2,7 @@ package stepanel
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -91,6 +92,58 @@ func TestInspectFilesystemCapacityUnknownPathIsExplicit(t *testing.T) {
 	}
 	if got["detail"] == "" || got["collected_at"] == nil {
 		t.Fatalf("unavailable probe must carry explanation and time: %#v", got)
+	}
+}
+
+func TestFilesystemPressureEvidenceNamesExhaustedResource(t *testing.T) {
+	tests := []struct {
+		name         string
+		bytes, inode uint64
+		want         []string
+	}{
+		{name: "bytes", bytes: 4, inode: 40, want: []string{"free bytes below 10%"}},
+		{name: "inodes", bytes: 40, inode: 2, want: []string{"free inodes below 10%"}},
+		{name: "both", bytes: 0, inode: 0, want: []string{"free bytes below 10%", "free inodes below 10%"}},
+		{name: "healthy", bytes: 10, inode: 10},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := filesystemPressureReasons(tt.bytes, true, tt.inode, true)
+			if len(got) != len(tt.want) {
+				t.Fatalf("pressure reasons = %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Fatalf("pressure reasons = %v, want %v", got, tt.want)
+				}
+			}
+		})
+	}
+}
+
+func TestClassifyDatabaseDiagnosticsFailureProvidesSafeCause(t *testing.T) {
+	tests := []struct {
+		name, input, wantCode, wantDetail string
+	}{
+		{name: "connection refused", input: "dial tcp: connection refused", wantCode: "connection_refused", wantDetail: "connection was refused"},
+		{name: "authentication", input: "Access denied for user secret-user password=do-not-show", wantCode: "authentication", wantDetail: "rejected during authentication"},
+		{name: "socket unavailable", input: "open /run/mysql.sock: no such file", wantCode: "socket_unavailable", wantDetail: "socket or helper path"},
+		{name: "unknown", input: "unexpected provider failure token=do-not-show", wantCode: "probe_failed", wantDetail: "failed before returning measurements"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			code, detail := classifyDatabaseDiagnosticsFailure(errors.New(tt.input))
+			if code != tt.wantCode || !strings.Contains(detail, tt.wantDetail) {
+				t.Fatalf("classification = %q, %q; want code %q and detail containing %q", code, detail, tt.wantCode, tt.wantDetail)
+			}
+			if strings.Contains(detail, "secret-user") || strings.Contains(detail, "do-not-show") {
+				t.Fatalf("classification exposed raw helper detail: %q", detail)
+			}
+		})
+	}
+	code, detail := classifyDatabaseDiagnosticsFailure(context.DeadlineExceeded)
+	if code != "timeout" || !strings.Contains(detail, "10-second deadline") {
+		t.Fatalf("timeout classification = %q, %q", code, detail)
 	}
 }
 

@@ -526,3 +526,18 @@ does not close a current-source or power-loss gate.
    notification, capacity, upgrade, and independent security gates in
    `DEVELOPMENT_PLAN.md`.
 
+
+## More specific site incident evidence — 2026-10-30
+
+- Filesystem-pressure findings now state whether free bytes, free inodes, or
+  both fell below the 10% headroom threshold, while retaining actual capacity
+  counts and sample time. This gives operators a concrete resource to address.
+- Database engine probe failures now distinguish timeout, connection refusal,
+  authentication rejection, missing socket/helper, and other probe failures.
+  Diagnostic details are bounded and do not echo raw helper output or secrets.
+- Added Go regression coverage for the classification and redaction rules and
+  extended the browser incident journey to assert byte/inode and refused-
+  connection evidence. Focused `go test ./... -run ...`, `node --check`, and
+  `git diff --check` passed. Full `make check` passed, and the focused
+  disposable Chromium journey passed (1/1). Hosted exact-source CI and
+  production-host certification gates remain open.
