@@ -224,3 +224,27 @@ credential-rotation procedures.
    evidence.
 4. Measure M4 and complete M5; then perform the M6 exact-source audit.
 
+### Guided site lifecycle experience (product work; not a release-gate closure)
+
+**Status:** Implemented in the site workspace, with browser regression coverage.
+
+The per-site guide connects existing cPanel/WordPress import, site validation,
+deployment history, domain and TLS troubleshooting, recovery points and
+rehearsals, staging clone/promotion, logs, PHP-FPM diagnostics, and the
+administrator termination preview. New site creation opens the guide after
+the creation job completes.
+
+Acceptance criteria:
+
+- Each step links to the existing authorized workflow and does not bypass its
+  preview, job, or confirmation contract.
+- Missing data is shown as unknown/unavailable; process state, `wp-config.php`,
+  database inventory, or Caddy certificate metadata is never presented as a
+  successful live application/TLS check.
+- WordPress WP-CLI status and PHP-FPM/log evidence render with authorization
+  checks and bounded API reads.
+- The browser regression covers steps, evidence limits, WordPress status,
+  logs, and staging navigation; UI unit tests and accessibility E2E pass.
+- This UI does not close the independent installed-host, application recovery,
+  or capacity certification gates above.
+

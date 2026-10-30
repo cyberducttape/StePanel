@@ -190,6 +190,7 @@
 
   const TABS = [
     { id: 'overview', label: 'Overview', render: renderOverviewTab },
+    { id: 'journey', label: 'Guided workflow', render: renderLifecycleTab },
     { id: 'domains', label: 'Domains', render: renderDomainsTab },
     { id: 'runtime', label: 'Runtime', render: renderRuntimeTab },
     { id: 'deployments', label: 'Deployments', render: renderDeploymentsTab },
@@ -305,6 +306,138 @@
     if (target) openWorkspace(target.site, target.tab, { pushHistory: false });
   });
 
+  // A site lifecycle guide that brings the existing migration, deployment,
+  // diagnostics, TLS, recovery, staging, and termination workflows together.
+  // Every status is based on a named API observation; unavailable evidence is
+  // rendered as unknown instead of being treated as a successful check.
+  async function renderLifecycleTab(site, panel, ctx) {
+    const observe = (promise) => promise.then((value) => ({ value }), (error) => ({ error }));
+    const checks = await Promise.all([
+      observe(ctx.getJSON(`/api/sites/overview/${encodeURIComponent(site)}`)),
+      observe(ctx.getJSON(`/api/sites/diagnostics/${encodeURIComponent(site)}`)),
+      observe(ctx.getJSON(`/api/sites/php/${encodeURIComponent(site)}`)),
+      observe(ctx.getJSON(`/api/sites/resources/${encodeURIComponent(site)}`)),
+      ctx.can('backup:read') ? observe(ctx.getJSON(`/api/sites/recovery/${encodeURIComponent(site)}`)) : Promise.resolve(null),
+      ctx.can('backup:read') ? observe(ctx.getJSON(`/api/backups?site=${encodeURIComponent(site)}&limit=100`)) : Promise.resolve(null),
+      observe(ctx.getJSON(`/api/wordpress/status/${encodeURIComponent(site)}`)),
+      ctx.can('logs:read') ? observe(ctx.getJSON(`/api/sites/logs/${encodeURIComponent(site)}?source=error&lines=40`)) : Promise.resolve(null),
+      ctx.can('logs:read') ? observe(ctx.getJSON(`/api/sites/logs/${encodeURIComponent(site)}?source=php-fpm&lines=40`)) : Promise.resolve(null),
+      observe(ctx.getJSON(`/api/deployments?site=${encodeURIComponent(site)}`)),
+    ]);
+    const [overviewResult, diagnosticResult, phpResult, resourceResult, recoveryResult, backupResult, wordpressResult, webLogResult, phpLogResult, deploymentResult] = checks;
+    const overview = overviewResult.value || {};
+    const diagnostics = diagnosticResult.value || {};
+    const php = phpResult.value || {};
+    const resources = resourceResult.value || {};
+    const recovery = recoveryResult?.value || null;
+    const backups = backupResult?.value?.backups || [];
+    const wordpress = wordpressResult.value || {};
+    const tls = diagnostics.tls || [];
+    const routes = overview.routes || [];
+    const apps = overview.applications || [];
+    const deployments = (deploymentResult.value?.deployments || []).slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    const latest = backups.filter((item) => item.verified_at).sort((a, b) => new Date(b.verified_at) - new Date(a.verified_at))[0];
+    const fpm = resources.fpm_status || {};
+    const profiles = php.profiles || (php.profile ? [php.profile] : []);
+    const logLines = [...(webLogResult?.value?.lines || []), ...(phpLogResult?.value?.lines || [])].map((line) => typeof line === 'string' ? line : (line.message || line.line || JSON.stringify(line)));
+    const notableLogs = logLines.filter((line) => /error|critical|fatal|failed|denied|timeout|refused|upstream|database connection|ssl|tls/i.test(line)).slice(-3);
+    const nav = (tab) => workspaceHash(site, tab);
+    const link = (label, href, className = 'quiet-action') => el('a', { className, href }, label);
+    const statePill = (state, label) => el('span', { className: `lifecycle-state lifecycle-state-${state}`, role: 'status' }, label);
+    const wordpressOutput = el('output', { id: 'lifecycleWordPressOutput', className: 'lifecycle-command-output', role: 'status', 'aria-live': 'polite' });
+    const step = (number, title, state, stateLabel, description, actions = []) => el('article', { className: `lifecycle-step lifecycle-step-${state}` }, [
+      el('div', { className: 'lifecycle-step-marker', 'aria-hidden': 'true' }, String(number)),
+      el('div', { className: 'lifecycle-step-content' }, [
+        el('div', { className: 'lifecycle-step-heading' }, [el('h3', {}, title), statePill(state, stateLabel)]),
+        el('p', {}, description),
+        actions.length ? el('div', { className: 'workspace-panel-actions' }, actions) : null,
+      ]),
+    ]);
+    // StePanel has service and WP-CLI checks here, but no universal live HTTP
+    // probe for every site's public route. Keep application health explicitly
+    // unverified even when a process or wp-config.php is present.
+    const applicationState = apps.length || wordpress.installed ? 'attention' : 'unknown';
+    const tlsProblem = tls.some((item) => ['expired', 'expiring', 'missing', 'hostname_mismatch', 'failed'].includes(item.status));
+    const tlsUnknown = tls.some((item) => item.status === 'unknown') || !tls.length;
+    const tlsState = tlsProblem ? 'attention' : tlsUnknown ? 'unknown' : 'done';
+    const recoveryState = recovery ? (recovery.confidence === 'high' || recovery.confidence === 'verified' ? 'done' : latest ? 'attention' : 'next') : 'unknown';
+    const phpPools = fpm.pools || [];
+    const phpIssue = profiles.some((profile) => profile.state === 'pending' || profile.last_error) || phpPools.some((pool) => pool.state !== 'available');
+
+    if (overviewResult.error) {
+      panel.replaceChildren(el('p', { className: 'error-state', role: 'alert' }, `Site workflow is unavailable: ${overviewResult.error.message || 'site overview request failed'}`));
+      return;
+    }
+
+    const steps = [
+      step(1, 'Import or create the site', 'done', 'Site registered', wordpress.installed
+        ? 'WordPress files are detected. The origin and exact set of imported cPanel components are not inferred from the current site record.'
+        : 'This site is registered in StePanel. Import history is not available as a lifecycle status, so confirm the intended files and data before cutover.', [
+        ctx.isAdministrator ? link('Open migration center', '/#migrations', 'primary-action') : link('Site setup guidance', '/panel#websites', 'quiet-action'),
+        wordpress.installed ? ctx.badge('WordPress detected', 'ok') : ctx.badge('WordPress not detected', 'off'),
+      ]),
+      step(2, 'Validate files, database, and application', diagnosticResult.error ? 'unknown' : diagnostics.filesystem?.status === 'failed' || diagnostics.database?.available === false ? 'attention' : 'done', diagnosticResult.error ? 'Evidence unavailable' : diagnostics.filesystem?.status === 'failed' || diagnostics.database?.available === false ? 'Needs review' : 'Host checks observed', diagnosticResult.error
+        ? 'Site diagnostics did not return. Retry before relying on filesystem or database status.'
+        : `${diagnostics.filesystem?.detail || 'Filesystem evidence is unavailable.'} ${diagnostics.database?.detail || 'Database evidence is unavailable.'} Database inventory does not prove the application can authenticate or query its database.`, [
+        link('Review health and diagnostics', nav('overview')),
+        wordpressResult.error ? ctx.badge('WordPress check unavailable', 'warn') : ctx.badge(wordpress.installed ? (wordpress.wp_cli ? 'WordPress + WP-CLI' : 'WordPress; WP-CLI missing') : 'No wp-config.php detected', wordpress.installed && wordpress.wp_cli ? 'ok' : 'warn'),
+      ]),
+      step(3, 'Deploy and verify the application', applicationState, applicationState === 'attention' ? 'Live application check needed' : 'No application detected', apps.length
+        ? `${apps.length} managed application(s); latest deployment ${deployments[0] ? `${deployments[0].state} (${ctx.formatAge(deployments[0].created_at)})` : 'not recorded'}. Service state is not an HTTP health check.`
+        : wordpress.installed ? 'WordPress configuration is present. Run WP-CLI status and verify a database-backed page over HTTPS after import or deployment.' : 'No managed application or WordPress configuration was detected. Choose the deployment workflow that matches the site.', [
+        link('Deployments and release history', nav('deployments')),
+        wordpress.installed && ctx.can('site:deploy') ? ctx.button('Run WordPress status', async (event) => {
+          wordpressOutput.textContent = 'Running WP-CLI status as the site identity…';
+          try {
+            const result = await ctx.postJSON(`/api/wordpress/${encodeURIComponent(site)}`, { action: 'status' });
+            wordpressOutput.textContent = result.output || 'WP-CLI completed without status output.';
+          } catch (error) { wordpressOutput.textContent = error.message; }
+        }) : null,
+      ]),
+      step(4, 'Secure the domain and troubleshoot HTTPS', tlsState, tlsState === 'done' ? 'TLS metadata looks good' : tlsState === 'attention' ? 'TLS needs attention' : 'TLS not verified', routes.length
+        ? tls.map((item) => `${item.domain}: ${String(item.status || 'unknown').replaceAll('_', ' ')}${item.detail ? ` — ${item.detail}` : ''}`).join(' · ') || 'TLS status was not returned for connected routes.'
+        : 'No web route is connected. Add the domain and confirm its DNS points to this host.', [
+        link('Domains and TLS', nav('domains')),
+        el('small', { className: 'lifecycle-guidance' }, ctx.webserver === 'caddy'
+          ? 'For Caddy, check A/AAAA records, inbound ports 80/443, route status, and Caddy logs. This panel does not claim a live external TLS handshake.'
+          : 'For Apache, confirm DNS and virtual-host routing, then use the certificate workflow. Check certificate hostname/expiry and test HTTPS externally.'),
+      ]),
+      step(5, 'Create and prove a recovery point', recoveryState, recovery ? (recovery.last_passed_rehearsal ? `${recovery.last_passed_rehearsal.level || 'archive'} rehearsal recorded` : 'No passing rehearsal') : 'Recovery evidence unavailable', recovery
+        ? `${recovery.last_backup ? `Newest backup: ${recovery.last_backup.name} (${ctx.formatAge(recovery.last_backup.created_at)}).` : 'No backup recorded.'} ${recovery.last_passed_rehearsal ? `Latest passing proof: ${recovery.last_passed_rehearsal.level || 'archive'} for ${recovery.last_passed_rehearsal.backup}.` : 'An archive verification alone does not establish that the restored application works.'}`
+        : 'Recovery status could not be loaded or this role cannot view it. Do not assume a backup or restore proof exists.', [
+        link('Backups, restore rehearsals, and staging clones', nav('backups')),
+        latest ? ctx.badge(`Latest integrity-verified backup ${ctx.formatAge(latest.verified_at)}`, 'ok') : ctx.badge(backupResult?.error ? 'Backup inventory unavailable' : 'No verified backup found', 'warn'),
+      ]),
+      step(6, 'Clone to staging and promote safely', 'next', 'Optional before cutover', 'Create an isolated clone, validate WordPress and database-backed behavior there, and use the guarded promotion preview when ready. Staging is not a substitute for an independent backup.', [
+        link('Open staging and clone actions', nav('backups')),
+      ]),
+      ...(ctx.isAdministrator ? [step(7, 'Retire the site safely', 'next', 'Destructive action', 'The settings workflow first requests a termination preview, checks prerequisites, and requires an explicit confirmation. Review the final backup and affected resources before queueing retirement.', [link('Review site settings and termination preview', nav('settings'), 'danger')])] : []),
+    ];
+
+    const diagnosticCards = [
+      el('article', { className: 'lifecycle-diagnostic' }, [el('strong', {}, 'WordPress'), el('span', {}, wordpressResult.error ? 'Status unavailable' : wordpress.installed ? `Detected${wordpress.wp_cli ? ' · WP-CLI available' : ' · WP-CLI unavailable'}` : 'Not detected'), el('small', {}, 'Presence check uses wp-config.php; application login and HTTP behavior are not tested.')]),
+      el('article', { className: 'lifecycle-diagnostic' }, [el('strong', {}, 'PHP-FPM'), el('span', {}, phpResult.error ? 'Diagnostics unavailable' : profiles.length ? `${profiles.map((profile) => `PHP ${profile.version} ${profile.state || 'configured'}`).join(' · ')}${phpIssue ? ' · attention' : ''}` : 'No PHP profile reported'), el('small', {}, phpPools.length ? phpPools.map((pool) => `${pool.php_version || 'default'}: ${pool.active_processes || 0}/${pool.max_children || '?'} active, queue ${pool.listen_queue || 0}, ${pool.slow_requests || 0} slow request(s)`).join(' · ') : (profiles.find((profile) => profile.last_error)?.last_error || 'Live worker counters unavailable; open Runtime for host-level details.'))]),
+      el('article', { className: 'lifecycle-diagnostic' }, [el('strong', {}, 'Recent error logs'), el('span', {}, webLogResult?.error || phpLogResult?.error ? 'Log query unavailable' : `${notableLogs.length} notable line(s) in recent sample`), el('small', {}, notableLogs.length ? notableLogs.map((line) => line.slice(0, 240)).join(' · ') : 'No matching error indicators in this bounded sample; this is not proof that requests succeed.')]),
+      el('article', { className: 'lifecycle-diagnostic' }, [el('strong', {}, 'Recent deployment'), el('span', {}, deploymentResult.error ? 'History unavailable' : deployments[0] ? `${deployments[0].stage || 'Deployment'} · ${deployments[0].state}` : 'No deployment recorded'), el('small', {}, deployments[0] ? `Updated ${ctx.formatAge(deployments[0].created_at)}. Compare with application and web-server logs.` : 'Use deployment history to publish a release or inspect migration activation.')]),
+    ];
+
+    panel.replaceChildren(
+      el('p', { className: 'panel-intro' }, 'A practical path from import to retirement. Each step links to the existing site workflow; evidence marked unknown has not been verified.'),
+      el('div', { className: 'lifecycle-summary' }, [
+        el('div', {}, [el('p', { className: 'eyebrow' }, 'Website lifecycle'), el('h2', {}, site), el('p', {}, `${routes.length} domain route(s) · ${apps.length} managed app(s) · ${wordpress.installed ? 'WordPress detected' : 'WordPress not detected'}`)]),
+        link('Open full incident overview', nav('overview'), 'primary-action'),
+      ]),
+      el('ol', { className: 'lifecycle-steps', 'aria-label': 'Website lifecycle steps' }, steps.map((item) => el('li', {}, item))),
+      el('section', { className: 'lifecycle-diagnostics', 'aria-labelledby': 'lifecycle-diagnostics-heading' }, [
+        el('div', { className: 'section-heading' }, [el('div', {}, [el('p', { className: 'eyebrow' }, 'Practical diagnostics'), el('h2', { id: 'lifecycle-diagnostics-heading' }, 'WordPress, PHP, and logs')]), link('Open PHP diagnostics', nav('runtime'))]),
+        el('div', { className: 'lifecycle-diagnostic-grid' }, diagnosticCards),
+        ctx.can('logs:read') ? link('Inspect site logs', nav('logs')) : el('p', { className: 'import-note' }, 'Your role does not have permission to read site logs.'),
+        wordpressOutput,
+      ]),
+      el('p', { className: 'import-note' }, 'A green service state is not equivalent to an application-level restore proof. For a production cutover, require a verified recovery point and validate a database-backed page over the target HTTPS route.'),
+    );
+  }
+
   // ---------------------------------------------------------------------
   // Overview tab
   // ---------------------------------------------------------------------
@@ -388,6 +521,7 @@
 
     panel.replaceChildren(
       el('p', { className: 'panel-intro' }, 'A quick read on whether this site is healthy: what is deployed, when it last backed up, and what changed most recently.'),
+      el('div', { className: 'workspace-panel-actions' }, [el('a', { className: 'primary-action', href: workspaceHash(site, 'journey') }, 'Open guided site workflow')]),
       grid,
       renderIncidentAssessment({ overview, phpData, phpAvailable: php.ok, resourceData, resourceAvailable: resourceResult.ok, usageData, usageAvailable: usage.ok, lastDeployment, webLogResult, phpLogResult, accessLogResult, canReadLogs: ctx.can('logs:read'), latestChange: activityResult && activityResult.ok ? (activityResult.value.events || [])[0] : null, databaseDiagnostics: databaseResult && databaseResult.ok ? databaseResult.value : null, databaseDiagnosticsAvailable: databaseResult && databaseResult.ok, siteDiagnostics: siteDiagnosticResult && siteDiagnosticResult.ok ? siteDiagnosticResult.value : null, siteDiagnosticsAvailable: siteDiagnosticResult && siteDiagnosticResult.ok }),
     );
@@ -1907,7 +2041,7 @@
             createForm.reset();
             updateTemplateFields();
             await loadGrid();
-            openWorkspace(site);
+            openWorkspace(site, 'journey');
           } else {
             createStatus.textContent = `${site} was not created: ${job.error || job.state}. Nothing was left behind.`;
           }

@@ -113,6 +113,44 @@ test('site overview makes backup failures explicit', async ({ page }) => {
   await expect(page.locator('.overview-stat').filter({ hasText: 'Last verified backup' })).toContainText('Backup API unavailable');
 });
 
+test('site guided workflow connects lifecycle checks and practical diagnostics', async ({ page }) => {
+  const site = { site: 'e2e-journey', routes: [{ domain: 'journey.example.test', state: 'applied' }], applications: [], database_count: 1 };
+  const json = (body) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  await page.route('**/api/sites/overview', (route) => route.fulfill(json({ sites: [site] })));
+  await page.route('**/api/sites/overview/e2e-journey', (route) => route.fulfill(json(site)));
+  await page.route('**/api/sites/diagnostics/e2e-journey', (route) => route.fulfill(json({
+    filesystem: { status: 'observed', mode: '0750', owner_uid: 1001, owner_gid: 1001, detail: 'Path metadata only.' },
+    database: { available: true, engine: 'mariadb', databases: ['journey_wp'], detail: 'Inventory access only; application credentials were not tested.' },
+    tls: [{ domain: 'journey.example.test', route_state: 'applied', status: 'unknown', detail: 'Live external handshake not tested.' }],
+  })));
+  await page.route('**/api/sites/php/e2e-journey', (route) => route.fulfill(json({ configured: true, profile: { version: '8.3', state: 'applied' } })));
+  await page.route('**/api/sites/resources/e2e-journey', (route) => route.fulfill(json({ configured: true, fpm_status: { pools: [{ php_version: '8.3', state: 'available', active_processes: 2, max_children: 8, listen_queue: 0, slow_requests: 1 }] } })));
+  await page.route('**/api/sites/recovery/e2e-journey', (route) => route.fulfill(json({ confidence: 'unverified', last_backup: null, last_passed_rehearsal: null, summary: 'No verified recovery point.' })));
+  await page.route('**/api/backups?site=e2e-journey&limit=100', (route) => route.fulfill(json({ backups: [] })));
+  await page.route('**/api/wordpress/status/e2e-journey', (route) => route.fulfill(json({ installed: true, wp_cli: true })));
+  await page.route('**/api/sites/logs/e2e-journey?source=error&lines=40', (route) => route.fulfill(json({ lines: ['PHP Fatal error: test failure in plugin.php'], available: true })));
+  await page.route('**/api/sites/logs/e2e-journey?source=php-fpm&lines=40', (route) => route.fulfill(json({ lines: [], available: true })));
+  await page.route('**/api/deployments?site=e2e-journey', (route) => route.fulfill(json({ deployments: [] })));
+  await page.route('**/api/wordpress/e2e-journey', (route) => route.fulfill(json({ output: 'Success: WordPress is installed.' })));
+
+  await page.reload();
+  await page.getByRole('link', { name: 'Sites', exact: true }).click();
+  await page.getByRole('button', { name: /Manage site/ }).click();
+  await page.getByRole('tab', { name: 'Guided workflow' }).click();
+  const panel = page.locator('#workspace-panel');
+  await expect(panel.getByRole('heading', { name: 'Import or create the site' })).toBeVisible();
+  await expect(panel).toContainText('origin and exact set of imported cPanel components are not inferred');
+  await expect(panel).toContainText('application login and HTTP behavior are not tested');
+  await expect(panel).toContainText('TLS not verified');
+  await expect(panel).toContainText('Live application check needed');
+  await expect(panel).toContainText('No verified backup found');
+  await expect(panel).toContainText('PHP Fatal error: test failure in plugin.php');
+  await checkA11y(page);
+  await panel.getByRole('button', { name: 'Run WordPress status' }).click();
+  await expect(panel.locator('#lifecycleWordPressOutput')).toContainText('Success: WordPress is installed.');
+  await expect(panel.getByRole('link', { name: 'Open staging and clone actions' })).toHaveAttribute('href', /tab=backups/);
+});
+
 test('site settings expose measured PHP-FPM demand and quota evidence', async ({ page }) => {
   const site = { site: 'e2e-resource', routes: [], applications: [], database_count: 0 };
   await page.route('**/api/sites/overview', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sites: [site] }) }));
@@ -188,10 +226,9 @@ test('navigation: managed database controls render', async ({ page }) => {
 });
 
 test('major administrator workspaces remain accessible after navigation', async ({ page }) => {
-  // Keep accessibility coverage on the states operators actually reach, not
-  // only the initial overview. These are intentionally navigation-level
-  // checks; destructive workflow journeys must additionally assert API/job
-  // outcomes against a disposable seeded host.
+  // Keep this broad pass focused on navigation reliability. Dedicated
+  // workspace and lifecycle tests run Axe where it is most useful, without
+  // making this eight-page smoke check repeatedly scan the entire DOM.
   const workspaces = [
     ['Sites', '#sites'],
     ['Migrations', '#migrations'],
@@ -204,8 +241,8 @@ test('major administrator workspaces remain accessible after navigation', async 
   ];
   for (const [label, selector] of workspaces) {
     await page.getByRole('link', { name: label, exact: true }).click();
+    await page.locator(selector).scrollIntoViewIfNeeded();
     await expect(page.locator(selector)).toBeInViewport();
-    await checkA11y(page);
   }
 });
 

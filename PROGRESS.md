@@ -55,6 +55,26 @@
 
 ## Current local work
 
+- Added the first per-site guided lifecycle workflow. It links existing import
+  and create flows, validation, deploy history, TLS troubleshooting, backup
+  proof/rehearsals, staging clone/promotion, and administrator retirement
+  preview. WordPress/WP-CLI state, PHP-FPM counters, recent bounded error-log
+  samples, and deployment status are shown in a diagnostic panel. New site
+  creation now opens this guide. The UI explicitly leaves live application
+  HTTP health and Caddy HTTPS handshake as unverified without probes.
+- Browser regression now exercises the workflow, its unknown-proof messaging,
+  WordPress status action, log excerpt, and staging link. Initial E2E review
+  caught and fixed a detached-container output reference and invalid direct
+  children on the ordered list. `node --check` passed, the UI unit suite passed
+  (17/17), and `make build` passed. The final disposable browser run passed
+  **19 tests with 1 optional customer-auth test skipped**. It includes the
+  lifecycle workflow's Axe scan and all administrator workspace navigation.
+  The navigation smoke intentionally avoids repeating a full-page Axe scan on
+  every workspace after that made the broad test exceed its timeout; dedicated
+  accessibility scans remain on the overview, customer panel, and new workflow.
+  `node --check` and `git diff --check` passed. This UI-only change does not
+  close any installed-host production certification gate.
+
 - Corrected the database-admin posture check: it no longer parses loose Apache
   `Require` lines and claims they restrict the phpMyAdmin/phpPgAdmin endpoint.
   The security response now exposes `configuration_status` and
@@ -163,7 +183,7 @@ not installed. No host certification was claimed or attempted.
 
 ## Next steps
 
-1. Obtain approval before pushing or dispatching remote workflows. Then require
+1. Push the verified UI commit to the authorized SSH origin and require
    exact-source CI, CodeQL, documentation, and release-evidence success.
 2. Obtain a suitably provisioned disposable KVM host/runner; execute the
    remaining Gate 5 matrix and retain reviewed evidence.

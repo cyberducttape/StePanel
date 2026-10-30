@@ -8,6 +8,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Added a per-site guided lifecycle workflow that links migration/import,
+  validation, deployment, domain/TLS troubleshooting, verified backups and
+  rehearsals, staging clone/promotion, and administrator-only retirement
+  preview. WordPress installation/WP-CLI status, PHP-FPM counters, recent
+  error-log excerpts, and deployment history appear alongside the steps. The
+  workflow labels application HTTP health and Caddy TLS handshakes unverified
+  where no live probe ran. New WordPress sites open directly into this guide.
 - The database-administrator security check now reports configuration
   detection separately from effective access enforcement. A readable managed
   Apache configuration is no longer treated as proof of an IP restriction;
