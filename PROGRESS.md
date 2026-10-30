@@ -1,5 +1,26 @@
 # Production-readiness progress
 
+## Continuous per-site runtime and certificate alerts — 2026-10-30
+
+- Added a one-minute background sampler with a fixed worker pool, per-probe
+  deadlines, and a 5,000-site inventory cap. It samples PHP-FPM worker,
+  listen-queue, and slow-request counters plus systemd cgroup memory/task
+  usage. `/metrics` renders cached samples only; counters-only broker requests
+  avoid scanning worker RSS for telemetry. Inventory/sample timestamps and
+  explicit probe status make missing evidence visible.
+- Added Prometheus alerts for FPM saturation, unavailable/stale runtime
+  samples, per-site memory/task pressure, and certificate issuance failures
+  identified by domain and durable job state/time. Existing alerts cover DB
+  diagnostics/connectivity, byte and inode pressure, backup freshness/failure,
+  and application recovery-proof freshness. Alert annotations state the
+  triggering evidence and safe next diagnostic action.
+- Full `make check` passed (API artifact validation, `go vet ./...`, and all
+  Go packages). Focused Prometheus rule validation and rendered alert tests
+  passed (39 rules). Focused Go and broker regressions passed; a targeted race
+  run is the remaining local check before commit. This verifies code and rule
+  behavior, not Prometheus delivery, live host capacity, or alert routing;
+  those certification gates remain open.
+
 ## KVM install attempt classified and preflight hardened — 2026-10-30
 
 - Inspected the retained run at `/var/tmp/stepanel-kvm-current-6a77e38` and

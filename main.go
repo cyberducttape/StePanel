@@ -47,6 +47,7 @@ type App struct {
 	Auth                     Auth
 	Jobs                     *Jobs
 	Metrics                  *Metrics
+	siteRuntimeMetrics       *siteRuntimeMetricsStore
 	Schedules                *backupSchedules
 	Accounts                 *AccountStore
 	recovery                 recoveryState
@@ -611,7 +612,7 @@ func Main() {
 	if err != nil {
 		log.Fatalf("initialize capacity ledger: %v", err)
 	}
-	app := &App{Config: cfg, View: view, PanelView: panelView, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, Notifications: notifications, AuditOutbox: auditOutbox, BackupIndex: backupIndex, Recovery: recoveryStore, webhookReplayCache: NewDurableWebhookReplayCache(controlPlaneDB, 5*time.Minute), dbLocks: dbLocks, siteManager: siteManager, capacity: capacity}
+	app := &App{Config: cfg, View: view, PanelView: panelView, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), siteRuntimeMetrics: &siteRuntimeMetricsStore{}, Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, Notifications: notifications, AuditOutbox: auditOutbox, BackupIndex: backupIndex, Recovery: recoveryStore, webhookReplayCache: NewDurableWebhookReplayCache(controlPlaneDB, 5*time.Minute), dbLocks: dbLocks, siteManager: siteManager, capacity: capacity}
 	app.startup.begin()
 	// Workers in this and the external worker process claim jobs only once
 	// the panel's startup recovery has succeeded.
@@ -721,6 +722,7 @@ func Main() {
 	}
 	go app.runOperatorNotificationLoop(runCtx)
 	go app.runOffsiteStagingSweepLoop(runCtx)
+	go app.runSiteRuntimeMetricsLoop(runCtx)
 	go func() {
 		scheduleTicker := time.NewTicker(time.Minute)
 		cleanupTicker := time.NewTicker(15 * time.Minute)
@@ -954,6 +956,7 @@ func (a *App) metrics(w http.ResponseWriter, r *http.Request) {
 	}
 	writeDatabaseMetrics(w, a.cachedDatabaseDiagnostics(15*time.Second))
 	writeHostFilesystemMetrics(w, a.Config)
+	a.writeSiteRuntimeMetrics(w)
 	writeReadinessMetrics(w, readinessChecks(a.Config, a.Jobs))
 	schedules := []BackupSchedule{}
 	if a.Schedules != nil {
@@ -961,6 +964,18 @@ func (a *App) metrics(w http.ResponseWriter, r *http.Request) {
 		writeBackupScheduleMetrics(w, schedules)
 	}
 	writeRecoveryProofMetrics(w, a.Recovery, schedules, a.Config.RehearsalIntervalHours)
+	certificateDomains := []string(nil)
+	if a.Domains != nil {
+		certificateDomains = a.Domains.domainsSnapshot()
+	}
+	var certificateJobs []Job
+	var certificateJobsErr error
+	if a.Jobs == nil || a.Domains == nil {
+		certificateJobsErr = errors.New("certificate renewal inventory is unavailable")
+	} else {
+		certificateJobs, certificateJobsErr = a.Jobs.LatestForOwnersSummaries("certificate.issue", certificateDomains)
+	}
+	writeCertificateRenewalMetrics(w, certificateJobs, certificateJobsErr == nil)
 	writeGitReleaseMetrics(w, a.Config)
 }
 func (a *App) services(w http.ResponseWriter, r *http.Request) {

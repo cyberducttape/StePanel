@@ -167,12 +167,17 @@ outbox evidence, and suggest a safe next action. Rule syntax and rendered
 annotation tests pass with promtool. The site incident view combines PHP-FPM
 worker-memory/saturation evidence, database probes, byte/inode pressure,
 certificate renewal history, backup freshness, and resource enforcement. These
-per-site checks are snapshot-based; continuous Prometheus series for PHP-FPM,
-certificate renewal, and resource-limit usage remain an instrumentation gap.
+site incident checks include timestamped diagnostic snapshots; the separate
+Prometheus background sampler now continuously exports per-site PHP-FPM and
+resource-limit samples, and durable certificate renewal jobs have per-domain
+alert series.
 Prometheus now continuously samples free/total bytes and inodes for configured
 site, backup, database, and control-plane storage roots. Low-capacity and failed
 probe alerts include role, measured ratio or probe result, threshold, and a safe
-next action. Host paths are not emitted as labels.
+next action. Host paths are not emitted as labels. A bounded background sampler
+also exports PHP-FPM pool counters and per-site systemd cgroup memory/task
+usage; it reports sample freshness and unavailable probes without blocking
+scrapes. Durable certificate issuance status is indexed by domain for alerts.
 
 Correlate PHP-FPM saturation and historical pressure, systemd memory/task
 limits, host byte/inode capacity, database-engine connectivity, TLS metadata
@@ -204,14 +209,17 @@ unverified where they cannot establish application-level behavior.
   failing count or explicit missing-success evidence; enabled schedules that
   have never succeeded are alertable without mislabeling disabled schedules.
 - The overview reports cgroup memory/task usage against enforced limits and
-  preserves existing PHP-FPM saturation evidence.
+  preserves existing PHP-FPM saturation evidence. Prometheus samples these in
+  the background, alerts on saturation, unavailable samples, and limit
+  pressure, and does not perform privileged probes during a scrape.
 - Site-tree byte and inode usage at 90% or more of a configured account
   allowance is promoted to a warning; at or above the allowance it is
   critical. Evidence states that this is a tree measurement and an upper-bound
   headroom estimate for a potentially shared account quota.
 - PHP-FPM saturation evidence includes active/max workers, queue depth, slow
   request counters, and the sample timestamp. Failed certificate alerts name
-  the durable job ID and time so the authorized job record can be opened.
+  the domain, durable job state, and job time; the authorized job history
+  provides the associated helper error.
 - Certificate job evidence is queried as the latest durable job per domain;
   activity on one domain cannot hide another domain's latest result. If the
   durable job store is unavailable, diagnostics report renewal history as

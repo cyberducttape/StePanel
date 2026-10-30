@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -81,6 +82,22 @@ func (s *DomainClaimStore) get(domain string) (DomainClaim, bool) {
 	defer s.mu.RUnlock()
 	claim, ok := s.values[domain]
 	return claim, ok
+}
+
+func (s *DomainClaimStore) domainsSnapshot() []string {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	domains := make([]string, 0, len(s.values))
+	for domain := range s.values {
+		if domainname.Valid(domain) {
+			domains = append(domains, domain)
+		}
+	}
+	sort.Strings(domains)
+	return domains
 }
 
 func (s *DomainClaimStore) removeSite(access SiteCapability) error {

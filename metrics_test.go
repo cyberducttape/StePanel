@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/audit"
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
 func TestMetricsWrite(t *testing.T) {
@@ -90,6 +91,55 @@ func TestHostFilesystemMetricsReportEvidenceWithoutExposingPaths(t *testing.T) {
 	}
 	if strings.Contains(text, root) {
 		t.Fatalf("filesystem metrics exposed a host path:\n%s", text)
+	}
+}
+
+func TestSiteRuntimeMetricsExposeFPMAndEnforcedResourceEvidence(t *testing.T) {
+	var output strings.Builder
+	writeSiteRuntimeSamples(&output, map[string]siteRuntimeMetricSample{
+		"shop": {
+			site: "shop", collectedAt: time.Unix(1_800_000_000, 0).UTC(),
+			fpmConfigured: true, fpmAvailable: true,
+			pools:             []rootbroker.FPMStatusPool{{PHPVersion: "8.3", State: "available", ActiveProcesses: 8, MaxChildren: 8, ListenQueue: 3, SlowRequests: 11, Saturated: true}},
+			resourceAvailable: true, memoryCurrent: 900, memoryMax: 1000, tasksCurrent: 18, tasksMax: 20,
+		},
+	})
+	for _, want := range []string{
+		`stepanel_site_fpm_configured{site="shop"} 1`,
+		`stepanel_site_fpm_probe_up{site="shop"} 1`,
+		`stepanel_site_fpm_saturated{site="shop",php_version="8.3"} 1`,
+		`stepanel_site_fpm_active_workers{site="shop",php_version="8.3"} 8`,
+		`stepanel_site_fpm_max_children{site="shop",php_version="8.3"} 8`,
+		`stepanel_site_fpm_listen_queue{site="shop",php_version="8.3"} 3`,
+		`stepanel_site_fpm_slow_requests{site="shop",php_version="8.3"} 11`,
+		`stepanel_site_resource_memory_current_bytes{site="shop"} 900`,
+		`stepanel_site_resource_memory_max_bytes{site="shop"} 1000`,
+		`stepanel_site_resource_tasks_current{site="shop"} 18`,
+		`stepanel_site_resource_tasks_max{site="shop"} 20`,
+		`stepanel_site_resource_sample_timestamp_seconds{site="shop"} 1800000000`,
+	} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("site runtime metrics missing %q:\n%s", want, output.String())
+		}
+	}
+}
+
+func TestSiteRuntimeMetricsMarkUnavailableProbesWithoutInventingUsage(t *testing.T) {
+	var output strings.Builder
+	writeSiteRuntimeSamples(&output, map[string]siteRuntimeMetricSample{
+		"shop": {site: "shop", collectedAt: time.Unix(1_800_000_000, 0).UTC(), fpmConfigured: true},
+	})
+	for _, want := range []string{
+		`stepanel_site_fpm_configured{site="shop"} 1`,
+		`stepanel_site_fpm_probe_up{site="shop"} 0`,
+		`stepanel_site_resource_probe_up{site="shop"} 0`,
+	} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("unavailable probe metric %q missing:\n%s", want, output.String())
+		}
+	}
+	if strings.Contains(output.String(), "memory_current_bytes{site=\"shop\"}") || strings.Contains(output.String(), "tasks_current{site=\"shop\"}") {
+		t.Fatalf("unavailable probes emitted fabricated usage values:\n%s", output.String())
 	}
 }
 
@@ -307,5 +357,32 @@ func TestBackupScheduleMetricsExposePerSiteAgeForEnabledSchedules(t *testing.T) 
 		if strings.Contains(text, unwanted) {
 			t.Fatalf("backup metrics include %s, which is disabled or has no successful result:\n%s", unwanted, text)
 		}
+	}
+}
+
+func TestCertificateRenewalMetricsExposeLatestDurableFailureEvidence(t *testing.T) {
+	started := time.Unix(1793385600, 0).UTC()
+	var output strings.Builder
+	writeCertificateRenewalMetrics(&output, []Job{
+		{ID: "cert-failed", Kind: "certificate.issue", User: "example.test", State: "failed", StartedAt: started},
+		{ID: "ignored", Kind: "certificate.issue", User: "invalid domain", State: "failed", StartedAt: started},
+		{ID: "ignored-state", Kind: "certificate.issue", User: "other.example", State: "unknown", StartedAt: started},
+	}, true)
+	text := output.String()
+	for _, want := range []string{
+		"stepanel_certificate_renewal_inventory_up 1",
+		`stepanel_certificate_renewal_latest_job_timestamp_seconds{domain="example.test",state="failed"} 1793385600`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("certificate metrics missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "cert-failed") || strings.Contains(text, "invalid domain") || strings.Contains(text, "unknown") {
+		t.Fatalf("certificate metrics contain unsafe or unbounded job labels:\n%s", text)
+	}
+	var unavailable strings.Builder
+	writeCertificateRenewalMetrics(&unavailable, nil, false)
+	if !strings.Contains(unavailable.String(), "stepanel_certificate_renewal_inventory_up 0") {
+		t.Fatalf("unavailable durable evidence was not reported:\n%s", unavailable.String())
 	}
 }

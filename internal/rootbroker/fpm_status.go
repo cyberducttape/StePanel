@@ -111,17 +111,18 @@ type fpmPoolConfig struct {
 // connects to sockets directly below the root-owned configured socket root.
 // The request itself is FastCGI over the private Unix socket; no HTTP status
 // route is added to a vhost.
-func collectFPMStatus(ctx context.Context, site, siteUser string) (FPMStatus, error) {
+func collectFPMStatus(ctx context.Context, site, siteUser string, countersOnly ...bool) (FPMStatus, error) {
 	if !fpmSitePattern.MatchString(site) || siteUser == "" {
 		return FPMStatus{}, errors.New("invalid site identity for PHP-FPM status")
 	}
 	return collectFPMStatusFrom(ctx, site, siteUser, "/etc/ste-panel.env", []string{
 		"/etc/php/*/fpm/pool.d",
 		"/etc/php-fpm.d",
-	})
+	}, countersOnly...)
 }
 
-func collectFPMStatusFrom(ctx context.Context, site, siteUser, identityConfig string, poolRoots []string) (FPMStatus, error) {
+func collectFPMStatusFrom(ctx context.Context, site, siteUser, identityConfig string, poolRoots []string, countersOnly ...bool) (FPMStatus, error) {
+	includeWorkerMemory := len(countersOnly) == 0 || !countersOnly[0]
 	result := FPMStatus{CollectedAt: time.Now().UTC(), Pools: []FPMStatusPool{}, Warnings: []string{}, PerformanceGuidance: []FPMGuidance{}}
 	if available, err := readMemAvailableBytes("/proc/meminfo"); err == nil {
 		result.HostMemory = &FPMHostMemory{AvailableBytes: available, CollectedAt: result.CollectedAt, Source: "/proc/meminfo MemAvailable"}
@@ -168,25 +169,27 @@ func collectFPMStatusFrom(ctx context.Context, site, siteUser, identityConfig st
 		// Attribute each worker through its root-owned FPM master, even when
 		// only one version is installed; otherwise a site process could spoof
 		// the worker title and contaminate the memory estimate.
-		memory, memoryErr := sampleFPMWorkerMemory("/proc", uid, site, pool.version)
-		if memoryErr == nil {
-			memory.ProjectedRSSAtMaxChildrenBytes = memory.P95RSSBytes * pool.max
-			memory.ProjectedMaxRSSAtMaxChildrenBytes = memory.MaxRSSBytes * pool.max
-			memory.OneAdditionalWorkerBytes = memory.P95RSSBytes
-			memory.Estimate = "P95 and largest-observed worker RSS from one instantaneous sample multiplied by configured max_children; shared pages are included, and neither projection is a memory limit or sustained-load forecast"
-			if result.HostMemory != nil && memory.P95RSSBytes > 0 {
-				// Treat only 70% of current MemAvailable as candidate capacity;
-				// the remainder is an explicit safety reserve for other host work.
-				// This remains an advisory ceiling because MemAvailable is transient
-				// and RSS includes shared mappings.
-				if ceiling, ok := estimateFPMWorkerCeiling(memory.SampledWorkers, memory.P95RSSBytes, result.HostMemory.AvailableBytes); ok {
-					memory.EstimatedWorkerCeiling = ceiling
-					memory.WorkerCeilingBasis = "sampled worker count plus 70% of current host MemAvailable divided by per-worker P95 RSS; 30% held as a host reserve; transient planning estimate, not a safe or enforced limit"
+		if includeWorkerMemory {
+			memory, memoryErr := sampleFPMWorkerMemory("/proc", uid, site, pool.version)
+			if memoryErr == nil {
+				memory.ProjectedRSSAtMaxChildrenBytes = memory.P95RSSBytes * pool.max
+				memory.ProjectedMaxRSSAtMaxChildrenBytes = memory.MaxRSSBytes * pool.max
+				memory.OneAdditionalWorkerBytes = memory.P95RSSBytes
+				memory.Estimate = "P95 and largest-observed worker RSS from one instantaneous sample multiplied by configured max_children; shared pages are included, and neither projection is a memory limit or sustained-load forecast"
+				if result.HostMemory != nil && memory.P95RSSBytes > 0 {
+					// Treat only 70% of current MemAvailable as candidate capacity;
+					// the remainder is an explicit safety reserve for other host work.
+					// This remains an advisory ceiling because MemAvailable is transient
+					// and RSS includes shared mappings.
+					if ceiling, ok := estimateFPMWorkerCeiling(memory.SampledWorkers, memory.P95RSSBytes, result.HostMemory.AvailableBytes); ok {
+						memory.EstimatedWorkerCeiling = ceiling
+						memory.WorkerCeilingBasis = "sampled worker count plus 70% of current host MemAvailable divided by per-worker P95 RSS; 30% held as a host reserve; transient planning estimate, not a safe or enforced limit"
+					}
 				}
+				item.WorkerMemory = memory
+			} else {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("PHP %s worker memory could not be sampled.", pool.version))
 			}
-			item.WorkerMemory = memory
-		} else {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("PHP %s worker memory could not be sampled.", pool.version))
 		}
 		item.AtCapacity, item.Saturated = fpmPoolIndicators(stats.Active, stats.Queue, pool.max)
 		guidance := FPMGuidanceForPool(pool.version, item)

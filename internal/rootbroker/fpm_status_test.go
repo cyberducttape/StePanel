@@ -59,6 +59,9 @@ func TestFPMStatusBrokerRequestRejectsCallerControlledInputs(t *testing.T) {
 	if err := validator.validateSiteRequest(&SiteRequest{Action: "fpm-status", Site: "demo"}); err != nil {
 		t.Fatalf("valid aggregate status request rejected: %v", err)
 	}
+	if err := validator.validateSiteRequest(&SiteRequest{Action: "fpm-status", Site: "demo", CountersOnly: true}); err != nil {
+		t.Fatalf("valid counters-only status request rejected: %v", err)
+	}
 	forged := &SiteRequest{Action: "fpm-status", Site: "demo", SiteUser: "root"}
 	if err := validator.validateSiteRequest(forged); err == nil {
 		t.Fatal("caller-selected account was accepted")
@@ -66,6 +69,10 @@ func TestFPMStatusBrokerRequestRejectsCallerControlledInputs(t *testing.T) {
 	forged = &SiteRequest{Action: "fpm-status", Site: "demo", PHPVersion: "8.3"}
 	if err := validator.validateSiteRequest(forged); err == nil {
 		t.Fatal("caller-selected pool metadata was accepted")
+	}
+	forged = &SiteRequest{Action: "resources", Site: "demo", CountersOnly: true}
+	if err := validator.validateSiteRequest(forged); err == nil {
+		t.Fatal("counters-only flag was accepted for an unrelated operation")
 	}
 }
 

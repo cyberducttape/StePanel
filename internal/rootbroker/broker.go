@@ -1138,7 +1138,7 @@ func (b *Broker) siteFPMStatus(ctx context.Context, req *SiteRequest) (*Response
 	if err != nil {
 		return &Response{OK: false, Error: err.Error()}, nil
 	}
-	status, err := collectFPMStatus(ctx, req.Site, siteUser)
+	status, err := collectFPMStatus(ctx, req.Site, siteUser, req.CountersOnly)
 	if err != nil {
 		return &Response{OK: false, Error: fmt.Sprintf("PHP-FPM status probe failed: %v", err)}, nil
 	}

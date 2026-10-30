@@ -23,6 +23,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- `/metrics` now refreshes bounded per-site PHP-FPM and cgroup resource samples
+  in a background worker pool, keeping privileged probes off the scrape path.
+  It exports active/max workers, listen queue, slow-request counts, memory/task
+  use and limits, sample freshness, inventory completeness, and explicit probe
+  availability. A counters-only broker request avoids periodic `/proc` RSS
+  scans. Alerts identify saturated pools, unavailable probes, and near/reached
+  resource limits with measured evidence and safe investigation steps.
+- Prometheus now tracks the latest durable certificate issuance job per
+  claimed domain and alerts on failed/dead-lettered issuance or unavailable
+  history. Existing database connectivity, filesystem byte/inode pressure,
+  backup staleness/failures, and recovery-proof alerts remain evidence-bearing.
+- Added regression tests for the certificate evidence metrics, per-site runtime
+  metric rendering, and restricted counters-only broker requests.
 - The local KVM install harness now rejects install runs with less than 2 GiB
   of reserved host memory. Recorded an interrupted Rocky Linux 9 run whose
   kernel OOM log confirms QEMU was killed; the attempt is explicitly classified

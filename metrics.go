@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/audit"
+	"github.com/cyberducttape/StePanel/internal/domainname"
 	"github.com/cyberducttape/StePanel/internal/recovery"
 )
 
@@ -509,6 +510,36 @@ func writeBackupScheduleMetrics(w io.Writer, schedules []BackupSchedule) {
 		if schedule.LastRun != nil {
 			_, _ = fmt.Fprintf(w, "stepanel_backup_last_attempt_age_seconds{site=%q} %.0f\n", schedule.Site, max(0, now.Sub(*schedule.LastRun).Seconds()))
 		}
+	}
+}
+
+// writeCertificateRenewalMetrics exposes the latest durable issuance attempt
+// per claimed domain. The finite state label avoids hiding quiet domains
+// behind a globally limited job history query.
+func writeCertificateRenewalMetrics(w io.Writer, jobs []Job, available bool) {
+	up := 0
+	if available {
+		up = 1
+	}
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_certificate_renewal_inventory_up Whether durable certificate job evidence was read")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_certificate_renewal_inventory_up gauge")
+	_, _ = fmt.Fprintf(w, "stepanel_certificate_renewal_inventory_up %d\n", up)
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_certificate_renewal_latest_job_timestamp_seconds Creation time of the latest certificate issuance job by domain and state")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_certificate_renewal_latest_job_timestamp_seconds gauge")
+	for _, job := range jobs {
+		if job.Kind != "certificate.issue" || !domainname.Valid(job.User) || !validCertificateJobState(job.State) {
+			continue
+		}
+		_, _ = fmt.Fprintf(w, "stepanel_certificate_renewal_latest_job_timestamp_seconds{domain=%q,state=%q} %d\n", job.User, job.State, job.StartedAt.Unix())
+	}
+}
+
+func validCertificateJobState(state string) bool {
+	switch state {
+	case "queued", "running", "retrying", "succeeded", "failed", "dead-letter", "cancelled":
+		return true
+	default:
+		return false
 	}
 }
 

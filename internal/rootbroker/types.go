@@ -175,6 +175,7 @@ type SiteRequest struct {
 	FTPEnabled          *bool  `json:"ftp,omitempty"`
 	FTPPassword         string `json:"ftp_password,omitempty"`
 	PHPWorkers          int    `json:"php_workers,omitempty"`
+	CountersOnly        bool   `json:"counters_only,omitempty"` // Skip /proc worker RSS scans for periodic telemetry.
 	DiskMB              int    `json:"disk_mb,omitempty"`
 	Inodes              int    `json:"inodes,omitempty"`
 	PHPVersion          string `json:"php_version,omitempty"`  // e.g. "8.2"

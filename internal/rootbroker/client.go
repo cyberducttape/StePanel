@@ -74,7 +74,18 @@ func (c *Client) Ping(ctx context.Context) error {
 // the privileged broker. The request does not accept a socket or filesystem
 // path from the caller.
 func (c *Client) SiteFPMStatus(ctx context.Context, site string) (FPMStatus, error) {
-	resp, err := c.Execute(ctx, &Request{RequestType: "site", Site: &SiteRequest{Action: "fpm-status", Site: site}})
+	return c.siteFPMStatus(ctx, site, false)
+}
+
+// SiteFPMCounters reads bounded pool counters without scanning /proc for
+// worker RSS. It is intended for periodic monitoring; interactive tuning
+// views should use SiteFPMStatus when memory projections are needed.
+func (c *Client) SiteFPMCounters(ctx context.Context, site string) (FPMStatus, error) {
+	return c.siteFPMStatus(ctx, site, true)
+}
+
+func (c *Client) siteFPMStatus(ctx context.Context, site string, countersOnly bool) (FPMStatus, error) {
+	resp, err := c.Execute(ctx, &Request{RequestType: "site", Site: &SiteRequest{Action: "fpm-status", Site: site, CountersOnly: countersOnly}})
 	if err != nil {
 		return FPMStatus{}, err
 	}

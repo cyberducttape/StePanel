@@ -144,6 +144,7 @@ func writeSupportBundle(out io.Writer, a *App) error {
 	if a.Metrics != nil {
 		a.Metrics.Write(&metricsText)
 	}
+	a.writeSiteRuntimeMetrics(&metricsText)
 	writeReadinessMetrics(&metricsText, readiness)
 	writeJobMetrics(&metricsText, a.Jobs)
 	if a.Jobs == nil {

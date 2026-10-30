@@ -575,6 +575,9 @@ func (v *Validator) validateSiteRequest(req *SiteRequest) error {
 	if err := v.ValidateSiteName(req.Site); err != nil {
 		return fmt.Errorf("invalid site name: %w", err)
 	}
+	if req.CountersOnly && req.Action != "fpm-status" {
+		return errors.New("counters_only is accepted only for PHP-FPM status")
+	}
 	// A legacy site has a per-site sp-* account; a site placed in a hosting
 	// account runs as the account user. resolveSiteUser then requires the
 	// name to match the site's recorded identity or placement.
