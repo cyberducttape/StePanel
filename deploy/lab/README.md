@@ -63,9 +63,10 @@ inside a disposable Rocky Linux 9 KVM guest with SELinux enforcing. It needs
 a usable `/dev/kvm`, QEMU, and a run directory on disk (not tmpfs); a full
 run takes about four hours. A fresh run also requires at least `VM_MEMORY_MB`
 plus `VM_HOST_RESERVE_MB` (default 2048 MiB) in `/proc/meminfo`'s
-`MemAvailable`; the default 4096 MiB guest allocation is required by the Git
-clone admission check in the install smoke. Increase the host reserve if other
-workloads need more memory.
+`MemAvailable`; install runs reject a host reserve below 2048 MiB because a
+lower reserve has allowed the host OOM killer to terminate QEMU. The default
+4096 MiB guest allocation is required by the Git clone admission check in the
+install smoke. Increase the host reserve if other workloads need more memory.
 Nothing is installed on the workstation itself.
 
 The `abrupt-loss-operations` phase holds file restore and Git activation at

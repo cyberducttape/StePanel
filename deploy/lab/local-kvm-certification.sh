@@ -64,6 +64,10 @@ if [[ ${RESUME:-0} != 1 ]]; then
     echo 'VM_MEMORY_MB and VM_HOST_RESERVE_MB must be nonnegative integer MiB values; VM_MEMORY_MB must be positive' >&2
     exit 1
   }
+  if [[ " $phases " == *" install "* ]] && (( host_reserve < 2048 )); then
+    echo 'the install phase requires at least 2048 MiB of host reserve; lower reserves have previously allowed the host OOM killer to terminate QEMU' >&2
+    exit 1
+  fi
   available_memory_mb=$(awk '/^MemAvailable:/ { print int($2 / 1024) }' /proc/meminfo)
   required_memory_mb=$((memory + host_reserve))
   if (( available_memory_mb < required_memory_mb )); then

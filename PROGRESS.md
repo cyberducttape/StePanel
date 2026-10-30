@@ -1,5 +1,21 @@
 # Production-readiness progress
 
+## KVM install attempt classified and preflight hardened — 2026-10-30
+
+- Inspected the retained run at `/var/tmp/stepanel-kvm-current-6a77e38` and
+  correlated its result table and console with the host kernel journal. The
+  boot passed; install was interrupted when the host OOM killer terminated
+  QEMU after about five minutes. The run used a 4096 MiB guest and only a
+  512 MiB host reserve; this closes no installed-host gate.
+- The install harness now refuses reserves below 2048 MiB before creating a
+  run directory. A preflight regression invocation confirmed the low-reserve
+  case fails with an actionable message and leaves no run directory. Detailed
+  evidence and limitations: [`2026-10-30-rocky9-kvm-host-oom-6a77e38.md`](docs/lab-results/2026-10-30-rocky9-kvm-host-oom-6a77e38.md).
+- The new minimum prevents this known unsafe override but cannot guarantee
+  against other host memory consumers during a long run. Retry requires
+  adequate free memory and swap; the recovery and power-loss certification
+  gates remain open.
+
 ## Continuous host storage alerts — 2026-10-30
 
 - `/metrics` now samples filesystem byte and inode headroom for configured

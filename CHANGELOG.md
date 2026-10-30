@@ -23,6 +23,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- The local KVM install harness now rejects install runs with less than 2 GiB
+  of reserved host memory. Recorded an interrupted Rocky Linux 9 run whose
+  kernel OOM log confirms QEMU was killed; the attempt is explicitly classified
+  as incomplete host-capacity evidence, not a StePanel pass or guest defect.
 - Prometheus now measures available/total bytes and inodes for configured site,
   backup, database, and control-plane storage roots using fixed role labels.
   Alerts fire when a probe stays unavailable or free bytes/inodes remain below
