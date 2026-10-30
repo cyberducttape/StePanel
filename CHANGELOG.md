@@ -8,9 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
-- Recorded the exact-source CI integration, CodeQL, documentation, browser
-  E2E, and release-evidence results for `79e1de4`; the installed-host recovery
-  smoke remains in progress, and production recovery gates remain open.
+- Recorded exact-source CI integration, CodeQL, documentation, browser E2E,
+  release-evidence, and installed-host smoke results for `79e1de4`. The
+  AlmaLinux 9/Caddy/MariaDB install passed one recovery-matrix iteration and
+  WordPress recovery proof (7.309 s); repeated recovery and power-loss gates
+  remain open. Reviewed evidence:
+  [`2026-10-30-current-source-almalinux-install-79e1de4.md`](docs/lab-results/2026-10-30-current-source-almalinux-install-79e1de4.md).
 - Reconciled the progress record with the pushed exact-source workflow results
   and corrected the KVM environment note after confirming that a Rocky Linux 9
   recovery run is active on the workstation.

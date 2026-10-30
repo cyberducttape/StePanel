@@ -14,8 +14,9 @@
   suite), Prometheus 3.5.0 `check rules` and `test rules`, and
   `git diff --check` all passed locally. Exact-source CI integration, CodeQL,
   documentation, browser E2E, and release evidence also passed on
-  `79e1de4`. The installed-host smoke is still running; this change does not
-  close any production certification gate.
+  `79e1de4`. Its exact-source installed-host smoke and artifact review are
+  recorded below; this change does not close any production certification
+  gate.
 
 ## Exact-source hosted validation — 2026-10-30
 
@@ -29,12 +30,14 @@
   ([41021459620](https://github.com/cyberducttape/StePanel/actions/runs/41021459620))
   passed on the same source.
 - Installation smoke [41019722358](https://github.com/cyberducttape/StePanel/actions/runs/41019722358)
-  passed host selection and image setup and is still executing the installed
-  recovery matrix. No install result is credited until the job and uploaded
-  diagnostics complete review.
-- This exact-source software validation does not close the physical power-loss,
-  20–50 repeated installed-host matrix, broad ENOSPC, supported capacity, live
-  notification, or independent security review gates.
+  passed on AlmaLinux 9/Caddy/MariaDB. Its reviewed artifact records a
+  one-iteration installed recovery matrix and WordPress HTTP/database restore
+  proof with 7.309 s measured RTO. Details and limits are in the
+  [result report](docs/lab-results/2026-10-30-current-source-almalinux-install-79e1de4.md).
+- This exact-source evidence does not close the physical power-loss,
+  20–50 repeated installed-host matrix, broad ENOSPC, current-source six-host
+  matrix, supported capacity, live notification, or independent security
+  review gates.
 
 ## Repository production gate — 2026-10-29
 
@@ -433,12 +436,10 @@ does not close a current-source or power-loss gate.
 
 ## Next steps
 
-1. Review the completion status and uploaded diagnostics for exact-source
-   installed-host smoke [41019722358](https://github.com/cyberducttape/StePanel/actions/runs/41019722358).
-2. Review the active local Rocky matrix artifacts when its process exits; run
+1. Review the active local Rocky matrix artifacts when its process exits; run
    a current-source cohort only after deciding which matrix cases it can
    validly establish.
-3. Continue with repeated host recovery, application restore, operational
+2. Continue with repeated host recovery, application restore, operational
    notification, capacity, upgrade, and independent security gates in
    `DEVELOPMENT_PLAN.md`.
 

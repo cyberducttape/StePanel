@@ -15,10 +15,12 @@ successful one-off smoke does not close a host-certification gate.
 ### M0 — Restore green exact-source CI
 
 **Priority:** Immediate release hygiene  
-**Status:** CI integration, CodeQL, documentation, browser E2E, and release
-evidence passed on exact source `79e1de4`. The installed-host smoke is still
-running as run `41019722358`; do not credit it until the job and artifacts are
-reviewed.
+**Status:** CI integration, CodeQL, documentation, browser E2E, release
+evidence, and the installed-host smoke passed on exact source `79e1de4`.
+Artifact review is recorded in
+[`docs/lab-results/2026-10-30-current-source-almalinux-install-79e1de4.md`](docs/lab-results/2026-10-30-current-source-almalinux-install-79e1de4.md).
+This closes exact-source validation only; production recovery gates remain
+open.
 
 - Correct the Playwright quota-headroom expectation to match the UI's current
   account-scoped upper-bound wording.
@@ -40,7 +42,8 @@ reviewed.
 
 **Status:** Implemented and locally verified; exact-source CI, CodeQL,
 documentation, and browser E2E passed on `79e1de4`. Installed-host smoke
-`41019722358` remains in progress.
+`41019722358` passed one AlmaLinux 9/Caddy/MariaDB install and recovery-matrix
+iteration; it is not a repeat cohort or power-loss certification.
 
 Use operation-specific async deadlines that cover the corresponding helper
 timeout and cleanup, renew durable leases throughout long work, and propagate
@@ -132,7 +135,9 @@ exports both preview and final evidence as JSON and Markdown.
 
 **Status:** Implemented and locally verified. Exact-source CI integration,
 CodeQL, documentation, release evidence, and browser E2E passed on
-`79e1de4`; hosted installed-host smoke `41019722358` remains in progress.
+`79e1de4`; hosted installed-host smoke `41019722358` passed one AlmaLinux
+9/Caddy/MariaDB recovery-matrix iteration and measured a 7.309-second
+WordPress recovery proof. The repeated recovery gate remains open.
 
 Correlate PHP-FPM saturation and historical pressure, systemd memory/task
 limits, host byte/inode capacity, database-engine connectivity, TLS metadata
@@ -197,11 +202,14 @@ site-operation routes still replay HTTP handlers.
 
 ### M1 — Complete installed-host failure recovery (P0)
 
-**Status:** Open. A one-repetition expanded installed-host recovery matrix is
-currently running on Rocky Linux 9 KVM against source
-`1348611198dbb72b5a7099a86f33bf2de43e6012`. Its result is not counted until
-the harness exits successfully and the full phase artifacts are reviewed. One
-current-source focused backup/file-restore ENOSPC run also passed previously.
+**Status:** Open. Exact-source hosted AlmaLinux 9/Caddy/MariaDB run
+`41019722358` on `79e1de4` passed one installed recovery-matrix iteration and
+the WordPress application proof (7.309 s); see the reviewed
+[result](docs/lab-results/2026-10-30-current-source-almalinux-install-79e1de4.md).
+A separate one-repetition Rocky Linux 9 KVM run against older source
+`1348611198dbb72b5a7099a86f33bf2de43e6012` is still running locally and is
+not counted as current-source evidence. Neither run establishes physical
+power-loss durability or meets the 20–50 repeat requirement.
 **Source of truth:** Gate 5 and `docs/REAL_HOST_FAILURE_MATRIX.md`.
 
 Run the installed native systemd stack on each supported OS/filesystem, and
