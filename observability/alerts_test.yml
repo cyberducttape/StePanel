@@ -50,6 +50,10 @@ tests:
         values: '20+0x30'
       - series: 'stepanel_site_resource_tasks_max{job="stepanel",site="tasks-full"}'
         values: '20+0x30'
+      - series: 'stepanel_site_resource_cpu_quota_utilization_percent{job="stepanel",site="cpu-near"}'
+        values: '96.5+0x30'
+      - series: 'stepanel_site_resource_cpu_quota_utilization_percent{job="stepanel",site="cpu-full"}'
+        values: '100+0x30'
     alert_rule_test:
       - eval_time: 20m
         alertname: StePanelDatabaseDiagnosticsDown
@@ -162,6 +166,26 @@ tests:
             exp_annotations:
               summary: Site tasks-full has reached its task limit
               description: Observed cgroup task use is 100% of TasksMax. Check current/max task metrics and recent task creation errors; investigate runaway processes before changing the limit.
+      - eval_time: 20m
+        alertname: StePanelSiteCPUQuotaNearLimit
+        exp_alerts:
+          - exp_labels:
+              job: stepanel
+              site: cpu-near
+              severity: warning
+            exp_annotations:
+              summary: Site cpu-near is using most of its CPU quota
+              description: The site's measured CPU time used 96.5% of its configured CPU quota over the latest sampling interval, above 90% for five minutes. Compare the CPU utilization and resource sample timestamp metrics; inspect slow PHP requests and job activity before an operator-approved quota change.
+      - eval_time: 20m
+        alertname: StePanelSiteCPUQuotaSaturated
+        exp_alerts:
+          - exp_labels:
+              job: stepanel
+              site: cpu-full
+              severity: critical
+            exp_annotations:
+              summary: Site cpu-full reached its CPU quota
+              description: The site's measured CPU time used 100.0% of its configured CPU quota over the latest sampling interval, at or above the enforced limit for two minutes. Check the resource sample timestamp, PHP-FPM slow requests, and active jobs; reduce workload or review capacity before an operator-approved quota change.
 
   - interval: 1m
     input_series:

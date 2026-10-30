@@ -29,6 +29,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Per-site runtime monitoring now measures CPU time against each site's
+  configured systemd CPU quota using counter deltas between successful samples.
+  It reports sustained near-limit and saturated quota alerts with the measured
+  interval utilization and investigation guidance; resets, stale samples,
+  unlimited quotas, and unavailable probes do not produce a utilization value.
 - `/metrics` now refreshes bounded per-site PHP-FPM and cgroup resource samples
   in a background worker pool, keeping privileged probes off the scrape path.
   It exports active/max workers, listen queue, slow-request counts, memory/task

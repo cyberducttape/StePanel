@@ -41,6 +41,10 @@ type siteRuntimeMetricSample struct {
 	memoryMax          uint64
 	tasksCurrent       uint64
 	tasksMax           uint64
+	cpuUsageNSec       uint64
+	cpuQuotaPerSecUSec uint64
+	cpuUtilizationPct  float64
+	cpuUtilizationUp   bool
 }
 
 func (s *ResourceStore) profilesSnapshot() []ResourceProfile {
@@ -115,6 +119,8 @@ func (a *App) refreshSiteRuntimeMetrics(parent context.Context) {
 				sample.memoryMax, _ = strconv.ParseUint(observed["MemoryMax"], 10, 64)
 				sample.tasksCurrent, _ = strconv.ParseUint(observed["TasksCurrent"], 10, 64)
 				sample.tasksMax, _ = strconv.ParseUint(observed["TasksMax"], 10, 64)
+				sample.cpuUsageNSec, _ = strconv.ParseUint(observed["CPUUsageNSec"], 10, 64)
+				sample.cpuQuotaPerSecUSec, _ = strconv.ParseUint(observed["CPUQuotaPerSecUSec"], 10, 64)
 				samples[site] = sample
 				samplesMu.Unlock()
 			}
@@ -137,11 +143,40 @@ sendSites:
 		return
 	}
 	a.siteRuntimeMetrics.mu.Lock()
+	// CPUUsageNSec is cumulative. Derive a bounded interval utilization from
+	// two successful samples; never infer a rate from a single counter value.
+	for site, sample := range samples {
+		previous, ok := a.siteRuntimeMetrics.samples[site]
+		if ok {
+			sample.cpuUtilizationPct, sample.cpuUtilizationUp = cpuQuotaUtilization(previous, sample)
+		}
+		samples[site] = sample
+	}
 	a.siteRuntimeMetrics.samples = samples
 	a.siteRuntimeMetrics.inventoryUp = inventoryUp
 	a.siteRuntimeMetrics.inventorySize = len(names)
 	a.siteRuntimeMetrics.updatedAt = time.Now().UTC()
 	a.siteRuntimeMetrics.mu.Unlock()
+}
+
+func cpuQuotaUtilization(previous, current siteRuntimeMetricSample) (float64, bool) {
+	if !previous.resourceAvailable || !current.resourceAvailable ||
+		previous.cpuQuotaPerSecUSec == 0 || current.cpuQuotaPerSecUSec == 0 ||
+		previous.cpuQuotaPerSecUSec != current.cpuQuotaPerSecUSec ||
+		current.cpuUsageNSec < previous.cpuUsageNSec ||
+		!current.collectedAt.After(previous.collectedAt) {
+		return 0, false
+	}
+	elapsed := current.collectedAt.Sub(previous.collectedAt)
+	if elapsed < 10*time.Second || elapsed > 5*siteRuntimeMetricsInterval {
+		return 0, false
+	}
+	// CPUQuotaPerSecUSec is allowed CPU time in microseconds per wall second.
+	allowedCPU := float64(current.cpuQuotaPerSecUSec) * elapsed.Seconds() * 1e3
+	if allowedCPU <= 0 {
+		return 0, false
+	}
+	return float64(current.cpuUsageNSec-previous.cpuUsageNSec) / allowedCPU * 100, true
 }
 
 func (a *App) siteRuntimeInventory() ([]string, map[string]ResourceProfile, bool) {
@@ -250,6 +285,7 @@ func writeSiteRuntimeSamples(w io.Writer, samples map[string]siteRuntimeMetricSa
 		{"stepanel_site_resource_memory_max_bytes", "Configured site cgroup memory limit in bytes"},
 		{"stepanel_site_resource_tasks_current", "Current number of tasks in the site cgroup"},
 		{"stepanel_site_resource_tasks_max", "Configured maximum number of tasks in the site cgroup"},
+		{"stepanel_site_resource_cpu_quota_utilization_percent", "Measured site CPU time as a percentage of its configured systemd CPU quota over the latest sampling interval"},
 		{"stepanel_site_resource_sample_timestamp_seconds", "Unix timestamp of the site's cgroup resource sample"},
 	} {
 		_, _ = fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s gauge\n", metric.name, metric.help, metric.name)
@@ -282,6 +318,9 @@ func writeSiteRuntimeSamples(w io.Writer, samples map[string]siteRuntimeMetricSa
 		if sample.resourceAvailable && sample.tasksMax > 0 {
 			_, _ = fmt.Fprintf(w, "stepanel_site_resource_tasks_current{site=%q} %d\n", site, sample.tasksCurrent)
 			_, _ = fmt.Fprintf(w, "stepanel_site_resource_tasks_max{site=%q} %d\n", site, sample.tasksMax)
+		}
+		if sample.resourceAvailable && sample.cpuUtilizationUp {
+			_, _ = fmt.Fprintf(w, "stepanel_site_resource_cpu_quota_utilization_percent{site=%q} %.2f\n", site, sample.cpuUtilizationPct)
 		}
 	}
 }

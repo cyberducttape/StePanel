@@ -102,6 +102,7 @@ func TestSiteRuntimeMetricsExposeFPMAndEnforcedResourceEvidence(t *testing.T) {
 			fpmConfigured: true, fpmAvailable: true,
 			pools:             []rootbroker.FPMStatusPool{{PHPVersion: "8.3", State: "available", ActiveProcesses: 8, MaxChildren: 8, ListenQueue: 3, SlowRequests: 11, Saturated: true}},
 			resourceAvailable: true, memoryCurrent: 900, memoryMax: 1000, tasksCurrent: 18, tasksMax: 20,
+			cpuUtilizationPct: 96.5, cpuUtilizationUp: true,
 		},
 	})
 	for _, want := range []string{
@@ -116,6 +117,7 @@ func TestSiteRuntimeMetricsExposeFPMAndEnforcedResourceEvidence(t *testing.T) {
 		`stepanel_site_resource_memory_max_bytes{site="shop"} 1000`,
 		`stepanel_site_resource_tasks_current{site="shop"} 18`,
 		`stepanel_site_resource_tasks_max{site="shop"} 20`,
+		`stepanel_site_resource_cpu_quota_utilization_percent{site="shop"} 96.50`,
 		`stepanel_site_resource_sample_timestamp_seconds{site="shop"} 1800000000`,
 	} {
 		if !strings.Contains(output.String(), want) {

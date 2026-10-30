@@ -177,7 +177,9 @@ probe alerts include role, measured ratio or probe result, threshold, and a safe
 next action. Host paths are not emitted as labels. A bounded background sampler
 also exports PHP-FPM pool counters and per-site systemd cgroup memory/task
 usage; it reports sample freshness and unavailable probes without blocking
-scrapes. Durable certificate issuance status is indexed by domain for alerts.
+scrapes. CPU quota utilization is derived from interval deltas of systemd's
+cumulative CPU-time counter and the enforced quota. Durable certificate
+issuance status is indexed by domain for alerts.
 
 Correlate PHP-FPM saturation and historical pressure, systemd memory/task
 limits, host byte/inode capacity, database-engine connectivity, TLS metadata
@@ -209,9 +211,11 @@ unverified where they cannot establish application-level behavior.
   failing count or explicit missing-success evidence; enabled schedules that
   have never succeeded are alertable without mislabeling disabled schedules.
 - The overview reports cgroup memory/task usage against enforced limits and
-  preserves existing PHP-FPM saturation evidence. Prometheus samples these in
-  the background, alerts on saturation, unavailable samples, and limit
-  pressure, and does not perform privileged probes during a scrape.
+  CPU time against the enforced quota and preserves existing PHP-FPM saturation
+  evidence. Prometheus samples these in the background, alerts on saturation,
+  unavailable samples, and limit pressure, and does not perform privileged
+  probes during a scrape. CPU rates are omitted after counter resets, stale or
+  unavailable samples, and for units without a finite quota.
 - Site-tree byte and inode usage at 90% or more of a configured account
   allowance is promoted to a warning; at or above the allowance it is
   critical. Evidence states that this is a tree measurement and an upper-bound

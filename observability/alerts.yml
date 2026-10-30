@@ -340,6 +340,24 @@ groups:
           summary: Site {{ $labels.site }} has reached its cgroup memory limit
           description: "Observed cgroup memory use is {{ $value | humanizePercentage }} of memory.max. Check the current/max byte metrics and recent OOM evidence; reduce workload or free host capacity before an operator-approved limit change."
 
+      - alert: StePanelSiteCPUQuotaNearLimit
+        expr: stepanel_site_resource_cpu_quota_utilization_percent{job="stepanel"} > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Site {{ $labels.site }} is using most of its CPU quota
+          description: "The site's measured CPU time used {{ printf \"%.1f\" $value }}% of its configured CPU quota over the latest sampling interval, above 90% for five minutes. Compare the CPU utilization and resource sample timestamp metrics; inspect slow PHP requests and job activity before an operator-approved quota change."
+
+      - alert: StePanelSiteCPUQuotaSaturated
+        expr: stepanel_site_resource_cpu_quota_utilization_percent{job="stepanel"} >= 100
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Site {{ $labels.site }} reached its CPU quota
+          description: "The site's measured CPU time used {{ printf \"%.1f\" $value }}% of its configured CPU quota over the latest sampling interval, at or above the enforced limit for two minutes. Check the resource sample timestamp, PHP-FPM slow requests, and active jobs; reduce workload or review capacity before an operator-approved quota change."
+
       - alert: StePanelSiteCgroupTasksNearLimit
         expr: |
           (

@@ -1,5 +1,24 @@
 # Production-readiness progress
 
+## Per-site CPU quota saturation evidence — 2026-10-30
+
+- Extended the background runtime sampler to calculate per-site CPU-quota
+  utilization from the delta in systemd `CPUUsageNSec` divided by the enforced
+  `CPUQuotaPerSecUSec` over the observed interval. No value is emitted for
+  unavailable probes, unlimited quotas, counter resets, or stale samples.
+- Added warning and critical Prometheus alerts for sustained near-limit and
+  saturated CPU quotas. Both identify the site, observed utilization interval,
+  threshold, relevant sample/slow-request evidence, and a safe operator action.
+- Added regression coverage for the counter calculation, invalid samples,
+  metric rendering, and rendered warning/critical alerts. The focused Go tests
+  passed. Local Prometheus rule validation could not run because `promtool` is
+  unavailable in this shell; hosted CI on the prior pushed source is still
+  running and will validate the fixture after this change is committed.
+- This adds CPU quota pressure to the existing PHP-FPM, database, filesystem,
+  certificate, backup, memory, and task alerts. It does not provide CPU PSI or
+  kernel throttling counters; the measured quota utilization is an interval
+  estimate, not proof of customer-visible latency.
+
 ## Full repository production gate — 2026-10-30
 
 - `make production-gate` passed on exact source
