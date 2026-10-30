@@ -556,7 +556,8 @@ For each critical operation (backup, restore, deploy, terminate):
 // verification/extraction/activation/database/commit, termination init and
 // each journal boundary (backup/database/routes/proxies/tasks/services/
 // site-state/ownership), deployment activation, account suspension before
-// persistence, and transaction init/commit.
+// persistence, transaction init/commit, and WordPress staging promotion
+// (promote:backup/copy/clone/activate/seal/configure/record/commit).
 failureInjection("restore", "commit")
 ```
 

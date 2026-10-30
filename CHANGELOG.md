@@ -14,6 +14,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - SSH server inventory sends its probe script to the remote shell as one
   quoted word. Previously the remote shell re-split it, dropped the hostname
   line, and every server reported incomplete data.
+- New WordPress site creation and WordPress staging promotion take their
+  database-inclusive recovery backups through the durable capacity ledger.
+  Production refuses database backups without it, so every production
+  WordPress creation failed at its final recovery point and rolled back, and
+  every promotion refused. A build-time guard now rejects ledger-less backup
+  calls in panel code.
+- CPU quota parsing also accepts the fractional form systemd 259 prints
+  (`CPUQuotaPerSecUSec=1.500000s`); parsers are tested against captured
+  `systemctl show` output.
 - Staging clone and WordPress staging promotion lock the databases they read
   and create, so a concurrent database drop or credential rotation can no
   longer race the clone. Promotion refuses if either database changed while it
@@ -26,6 +35,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   give a safe next step. Rendered-rule tests cover the queue-delay and backup-
   overdue evidence. `make check`, `promtool check rules`, and `promtool test
   rules` passed locally.
+
+### Testing
+
+- WordPress staging promotion runs end to end in tests against a temporary web
+  root, succeeding and failing at each of 14 steps; every failure must leave
+  production files and configuration unchanged, no pending recovery journal or
+  stage, and the candidate database dropped. New `STEPANEL_FAIL_AT=promote:*`
+  points make the same failures available to host drills.
+- SSH remote commands are checked word-for-word as the remote shell parses
+  them, and every database mutation lock must use one key helper.
 
 ### Documentation
 
