@@ -2,14 +2,15 @@
 
 ## Repository production gate — 2026-10-29
 
-- Tested source: `9015370` (`test: assert evidence in site incident alerts`).
+- Tested source: `70bdc34cc96ac698ca822c2796267c5ca36f5ad5`
+  (`fix: preserve certificate alerts across busy domains`).
 - `make production-gate` passed, including `go vet ./...`, coverage thresholds
-  (57.8% overall), the full serialized race suite (root package 405.6s),
+  (57.8% overall), the full serialized race suite (root package 407.4s),
   repository recovery drills, control-plane benchmarks, mixed-load test,
   documentation/reference checks, quota-state contract checks, Action pin
   checks, asset validation, and shell syntax checks.
 - Mixed-load evidence: 200 sites, 180 requests, four readers and 20 backup
-  jobs; p95 request latency 23.5ms, maximum 34.9ms in this synthetic run.
+  jobs; p95 request latency 26.0ms, maximum 35.6ms in this synthetic run.
 - These results establish repository-level validation only. The gate itself
   reports real-host ENOSPC, physical power-loss, supported-distro, screenshot,
   and load-capacity evidence as external gates. No production-readiness gate
@@ -29,8 +30,11 @@
   source; the focused race test passed; JS syntax and unit tests passed (17/17);
   the complete disposable Playwright suite passed (21 passed, one optional
   customer-auth case skipped); and `git diff --check` passed. The repository
-  production gate had passed immediately before this follow-up, so its result
-  is recorded against source `9015370`, not this updated source.
+  exact-source `make production-gate` also passed for
+  `70bdc34cc96ac698ca822c2796267c5ca36f5ad5`: full coverage and race checks,
+  repository recovery drills, benchmarks, mixed load, docs, quota contracts,
+  workflow pins, assets, and shell syntax. Host-level certification remains
+  open as recorded above.
 
 ## Current change — per-site WordPress database health (2026-10-29)
 

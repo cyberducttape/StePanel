@@ -8,7 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
-- Recorded a passing repository production gate for source `9015370`, including
+- Recorded a passing repository production gate for source
+  `70bdc34cc96ac698ca822c2796267c5ca36f5ad5`, including
   full race tests, coverage thresholds, recovery drills, benchmarks, mixed
   load, documentation, quota-state, workflow pin, asset, and shell checks.
   Host-level ENOSPC and power-loss recovery, distro certification, and a
