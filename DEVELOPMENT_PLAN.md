@@ -123,6 +123,33 @@ exports both preview and final evidence as JSON and Markdown.
   exact-source CI pass. This milestone does not close installed-host recovery
   or production certification gates.
 
+### M0d — Evidence-backed site incident diagnosis (P1)
+
+**Status:** Implemented locally; focused Go and frontend checks pass. Full
+`make check` and hosted exact-source CI remain to be run.
+
+Correlate PHP-FPM saturation and historical pressure, systemd memory/task
+limits, host byte/inode capacity, database-engine connectivity, TLS metadata
+and failed certificate issuance jobs, scheduled-backup failures/staleness,
+recent errors, and recovery evidence. Each displayed finding must state its
+observed evidence and a safe next action. Probes must report unavailable or
+unverified where they cannot establish application-level behavior.
+
+**Acceptance criteria**
+
+- Site diagnostics report timestamped byte and inode measurements for the site,
+  backup, and configured database filesystems, and explicitly identify low
+  headroom or unavailable probes.
+- Database connectivity is based on a completed restricted engine query and is
+  clearly distinguished from application credential verification.
+- Failed certificate issuance jobs and enabled backup schedules with repeated
+  failure or a recovery point older than twice the interval appear as findings
+  with timestamps and measured evidence.
+- The overview reports cgroup memory/task usage against enforced limits and
+  preserves existing PHP-FPM saturation evidence.
+- Focused Go tests, JavaScript syntax/unit checks, and `make check` pass; each
+  rendered alert includes a diagnosis, supporting evidence, and safe action.
+
 ### M1 — Complete installed-host failure recovery (P0)
 
 **Status:** Open; requires an accessible disposable KVM host/runner.  

@@ -1,5 +1,28 @@
 # Production-readiness progress
 
+## Current change — evidence-backed site diagnostics (2026-10-29)
+
+- Extended the per-site diagnostics snapshot with measured host filesystem byte
+  and inode headroom, database-engine probe status and timestamp, enabled backup
+  schedule cadence/results, and recent failed certificate issuance jobs.
+- Expanded the incident panel to explain low filesystem headroom, systemd slice
+  memory/task pressure, database connectivity failures, stale or repeatedly
+  failing scheduled backups, and certificate renewal failures, alongside its
+  existing PHP-FPM, quota, TLS, deployment, log, and recovery findings.
+- Evidence distinguishes host database reachability from application
+  credentials. Backup failure details remain in authorized job history rather
+  than being copied into the site diagnostics response.
+- Added tests for measured filesystem evidence and explicit unknown status when
+  a filesystem probe fails.
+- Validation: `make check` passed (API artifact validation, `go vet ./...`,
+  and the complete serialized Go suite); filesystem diagnostic tests passed;
+  `node --check web/static/sites.js` passed; frontend unit tests passed (17/17);
+  and `git diff --check` passed. The first JavaScript syntax run caught a
+  quoting error in the new message, which was corrected before the passing run.
+- This does not establish live HTTPS behavior for Caddy, application database
+  login, or a complete restore. Those remain explicit unknowns without a
+  configured application-level probe.
+
 **Updated:** 2026-10-30
 **Published base:** `ffb9e02419dd8c8ae3218bde60cbdd993349bb6c`  
 **Verified local commits:**
