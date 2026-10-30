@@ -20,6 +20,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   including coverage floors, the race suite, recovery drills, benchmarks, and
   mixed HTTP load. The report explicitly distinguishes mocked quota contract
   checks from real-filesystem certification and keeps host recovery gates open.
+- Recorded the exact-source browser journey for the incident diagnostics on
+  the gate-built `cab5cd4` binary (1/1 passed).
 - Recorded completed exact-source AlmaLinux 9/Caddy/MariaDB installed smoke
   `41033987854` on `c155752`, including the single recovery-matrix pass and
   7.440-second WordPress HTTP/database restore proof. The 20–50 repeat,

@@ -22,6 +22,10 @@
 - Mixed HTTP load passed with 200 sites, 180 requests, four readers, and 20
   backup jobs: average 4.5 ms, p95 25.1 ms, maximum 34.9 ms. `/metrics` maximum
   latency was 25.2 ms in this run.
+- The exact-source browser regression for the site guided workflow and
+  evidence-backed incident diagnostics passed 1/1 using the binary built by
+  the gate (`CI=true STEPANEL_E2E_GREP='site guided workflow'
+  scripts/e2e-ui-test.sh ./stepanel`).
 - Documentation links/references, bounded smoke-workflow contracts, Grafana
   dashboard validation, quota-state contract fixtures, action-SHA pin checks,
   asset validation, and shell syntax checks passed.

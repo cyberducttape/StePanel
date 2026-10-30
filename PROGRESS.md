@@ -9,6 +9,8 @@
   quota-contract fixtures, action pinning, assets, and shell syntax.
 - Mixed-load results were 4.5 ms average / 25.1 ms p95 / 34.9 ms maximum;
   `/metrics` maximum was 25.2 ms. The 50-job batch benchmark measured 51.3 ms.
+- The current-source browser journey for the site guided workflow and incident
+  diagnostics passed 1/1 against the gate-built `cab5cd4` binary.
   Recovery drill details are retained at `/tmp/stepanel-recovery-drills.md`
   on the local test host; reviewed summary and limits are in
   [`2026-10-30-repository-production-gate-cab5cd4.md`](docs/lab-results/2026-10-30-repository-production-gate-cab5cd4.md).
