@@ -11,7 +11,7 @@ to administrators but not exposed as a tenant entitlement; **Experimental**
 means the interface may change; **Planned** means not implemented. Release-tag
 documentation must be read from the matching release tag, not from `main`.
 
-Documentation version: `main` (reviewed 2026-10-10)
+Documentation version: `main` (reviewed 2026-10-30)
 Release approval: use `V1_PRODUCTION_GATES.md`; this catalog is not a release gate.
 
 ## Available now
@@ -40,7 +40,56 @@ New on `main` since v0.7.0 (unreleased):
   owners can use it; a tenant owner's site is assigned to their account and
   counted against their plan before the job is queued, and a failed job
   releases the reservation. Git deployment is available for assigned sites;
-  WordPress and Node templates are planned.
+  a Node template is planned.
+- **WordPress site creation** (Beta): `POST /api/sites` with the `wordpress`
+  template provisions the site account and PHP-FPM pool, a managed database
+  and credentials, WordPress itself with conservative security constants, an
+  HTTPS route, a database-inclusive first backup verified for archive
+  integrity, and a daily backup schedule, all as one durable job that rolls
+  back on failure. It needs MySQL or MariaDB, WP-CLI, a backup root, and Caddy
+  or Apache (Apache also needs the managed Certbot helper). Tenant owners must
+  verify domain ownership first. The completion report separates archive
+  integrity from an application restore rehearsal, which has not yet run.
+- **WordPress staging clone and promotion** (Beta): staging clones get their
+  own managed database, rewritten URLs, Basic Auth, and `noindex`, and keep a
+  recorded relationship to production. Promotion
+  (`/api/staging/promote/preview`, then `/api/staging/promote`) takes a
+  verified production safety backup, imports staging into a *new* database
+  rather than overwriting the live one, switches WordPress to it, checks it
+  with WP-CLI, and keeps the previous production database for rollback. Any
+  failure restores production files and drops the new database. Public HTTP
+  behavior after promotion still needs operator checks.
+- **Change previews for risky host changes**: domain route apply and delete,
+  `.htaccess` import, PHP runtime changes, site resource changes, certificate
+  issuance, and WordPress promotion first return a preview of the current
+  state, proposed state, effects, and recovery plan. The change runs only with
+  that preview's token, which expires after 5 minutes and is refused if the
+  state changed in between.
+- **Site incident diagnostics** (Beta): `GET /api/sites/diagnostics/{site}`
+  correlates filesystem headroom, document-root ownership, database inventory
+  and engine connectivity, a WP-CLI database check with the site's own
+  credentials, backup schedule state, and route certificate expiry and
+  renewal jobs. Each finding carries its evidence, and checks that were not
+  run (such as a live TLS handshake) are reported as unknown.
+- **Per-site runtime metrics and alerts**: Prometheus metrics and alerts for
+  per-site PHP-FPM saturation, cgroup memory and task limits, CPU-quota use,
+  scheduled-backup results, certificate renewal, application recovery-proof
+  freshness, and host filesystem bytes and inodes. See
+  [observability/README.md](../observability/README.md).
+- **PHP-FPM worker sizing guidance** (Beta): pool counters, slow-request
+  counts, and sampled worker memory (mean, P95, and maximum RSS) with
+  projections at `max_children`. Administrators also see host memory headroom
+  context. The guidance is advisory and never changes a pool.
+- **Automation API, SDKs, and CLI** (Beta): a stable `/api/v1` namespace, Go
+  and TypeScript clients under `sdk/`, and `stepanelctl` with Bash, Zsh, and
+  Fish completions under `completions/`. See [API_GUIDE.md](API_GUIDE.md) and
+  [API_COMPATIBILITY.md](API_COMPATIBILITY.md).
+- **cPanel migration evidence** (Beta): migration preflight maps provisional
+  domains and document roots, checks SQL dumps against the destination
+  database version, inventories Maildir content, and gives a DNS/mail/TLS
+  cutover checklist. Preflight and results export as JSON or Markdown. See
+  [MIGRATION_CUTOVER.md](MIGRATION_CUTOVER.md) and
+  [MIGRATION_DOCTOR.md](MIGRATION_DOCTOR.md).
 - **Transactional offsite backups**: uploads go to a temporary remote prefix,
   are checked, and are promoted with a completion marker that restore
   requires. A destination prefix holding objects from anything other than
@@ -203,9 +252,9 @@ Shipped in v0.7.0 and earlier:
   assigned-site viewing, tracked domain routes, databases, environment values,
   Redis allocations, SSH/deploy keys, PHP settings, workers, scheduled tasks,
   logs, verified backup creation, restore-to-staging, owner-managed
-  delegated team roles, and owner-initiated blank PHP site creation within
-  the plan. File management, billing, and production promotion
-  remain outside the beta customer boundary.
+  delegated team roles, owner-initiated blank PHP and WordPress site creation
+  within the plan, and WordPress staging promotion for their own sites. File
+  management and billing remain outside the beta customer boundary.
 - PITR/WAL or binlog management, replication orchestration, configuration
   mutation, and automatic failover remain operator-managed and deliberately
   have no unsafe simulated controls.
@@ -226,9 +275,10 @@ must be implemented before offering untrusted customer access:
   CPU/memory/process/PHP-worker/disk/inode resource envelopes are now shipped;
   bandwidth and provider-specific database, mail, and Redis quotas remain
   unfinished.
-- Customer-facing file manager, Git-provider App/OAuth integrations, database
-  promotion, notifications, and full self-service production restore remain
-  unfinished. The shipped deploy-key, resource-profile, Security Center,
+- Customer-facing file manager, Git-provider App/OAuth integrations,
+  notifications, and full self-service production restore remain unfinished.
+  WordPress staging promotion is shipped as a beta; general database promotion
+  for other applications is not. The shipped deploy-key, resource-profile, Security Center,
   scheduled-task, and restore-to-staging APIs are tenant-enforced on the
   single host, but remain beta controls until delegated roles, durable
   multi-host state, and the broader provider lifecycle are complete. Owner,

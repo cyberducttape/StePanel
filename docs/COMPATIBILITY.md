@@ -30,6 +30,18 @@ not confused with it.
 | `0.8` | current source | Unsupported | Pre-release snapshot (see above). |
 | current source | v0.6.0, v0.7.0 | Tested, by the documented procedure only | Same run: the procedure in [Rollback](#rollback) restored each release, which then served `/readyz` and verified the audit log. A binary never opens a newer schema on its own (see [Downgrades](#downgrades)). |
 
+The latest N-1 run, [41066237188](https://github.com/cyberducttape/StePanel/actions/runs/41066237188)
+on source `1ff3233` (2026-10-30), passed all six jobs: v0.6.0 and v0.7.0
+upgrades in a systemd container with no interruption and with an interrupted
+verification step, plus the Apache QEMU guest upgrade from each release.
+Scheduled N-1 runs had failed every job from the installer preflight change in
+`b6ce902` (2026-10-28) until that fix. The candidate installer stopped
+silently while looking up the database package's candidate version, and the
+installer now names its failing line if it ever exits that way again.
+
+The release notes and operator checklist for the v0.6.0 → v0.7.0 step are in
+[UPGRADE_v0.6.0_to_v0.7.0.md](UPGRADE_v0.6.0_to_v0.7.0.md).
+
 v0.6.0 and v0.7.0 cannot complete a fresh install as published on a current
 Ubuntu 24.04 host: their local database helper runs through `sudo`, which
 their own service sandbox refuses, and with Caddy the PHP packages they

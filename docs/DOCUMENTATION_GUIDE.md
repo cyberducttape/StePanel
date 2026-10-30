@@ -67,6 +67,39 @@ StePanel's documentation is organized around **4 authoritative documents**:
 
 ---
 
+## Status, plans, and evidence
+
+Release and progress information has exactly one owner per question. Other
+documents link to these instead of restating their content.
+
+| Question | Owner | Notes |
+| --- | --- | --- |
+| May this source be released? | [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) | The only release-gate authority |
+| Status at a glance and where to look | [CURRENT_STATUS.md](./CURRENT_STATUS.md) | Short summary; no dated change lists |
+| What remains, in what order | [DEVELOPMENT_PLAN.md](../DEVELOPMENT_PLAN.md) | Milestones with acceptance evidence |
+| What was done, with results | [PROGRESS.md](../PROGRESS.md) | Newest entry first; record failed and unverified results too |
+| What changed for users | [CHANGELOG.md](../CHANGELOG.md) | Keep a Changelog sections |
+| What a deployment can rely on | [PRODUCTION_READINESS.md](./PRODUCTION_READINESS.md) | Capabilities and limitations, not approval |
+
+Placement rules:
+
+- **Dated evidence** (lab runs, load baselines, audits with results) goes in
+  `docs/lab-results/YYYY-MM-DD-<topic>.md` and is never edited after the
+  fact except to fix links.
+- **Completed or superseded plans and findings** move to `docs/archive/`
+  with a one-line entry in [archive/README.md](./archive/README.md) saying
+  what replaced them. Carry any still-open item into the roadmap or
+  development plan before archiving.
+- **Release-specific guides** stay while a supported upgrade path uses them
+  (for example the N-1 upgrade guide) and are deleted afterwards; git tags
+  keep the history.
+- **Notes with no traceability value** (announcement copy, scratch notes) are
+  deleted rather than archived.
+- **Code comments are documentation.** When a value changes, update the
+  comment that states it.
+
+---
+
 ## Supporting Documentation by Category
 
 All other documentation falls into these categories:

@@ -363,6 +363,28 @@ Pending resource enforcement shows in each site's resource profile
 sites that still fail. Do not unsuspend affected accounts until helper state is
 applied and verified.
 
+## HTTP timeouts
+
+The panel applies one deadline class per request path
+(`internal/http/timeouts.go`). Headers must arrive within 5 seconds and idle
+keep-alive connections close after 30 seconds on every path.
+
+| Class | Paths | Deadline |
+| --- | --- | --- |
+| Ordinary API | `/api/*`, `/livez`, `/readyz` not listed below | 30 s request read, 2 min response write |
+| Long poll | `/api/jobs/` | 45 s |
+| Event stream | `/api/jobs/events` and other server-sent event streams | no request deadline; each write must drain in 15 s and the stream closes after 25–30 min so the client reconnects and re-authenticates |
+| Upload | `/api/cpmove/import`, `/api/cpmove/inspect`, `/api/wpress/import`, `/api/wpress/preflight` | 60 min ceiling; a body that stops arriving for 2 min fails earlier |
+| Download class | no registered route currently uses it | 5 min response write; also the server-wide write ceiling for every response |
+| Service operation | `/api/python/` | 3 min: the helper's 60-second service lifecycle bound plus the site lock wait |
+
+Builds, deployments, dependency installs, restores, and staging work run as
+durable jobs: their requests return a job ID in milliseconds, and job
+progress is read through the long-poll or stream classes. A reverse proxy in
+front of the panel must allow at least these deadlines; set its upload body
+timeout above 2 minutes of inactivity and its stream read timeout above the
+25-second heartbeat.
+
 ## Logs
 
 ```sh

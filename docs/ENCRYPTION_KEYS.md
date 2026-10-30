@@ -242,4 +242,4 @@ This requirement enforces:
 
 - [INSTALLATION.md](INSTALLATION.md) - Production deployment guide
 - [OPERATIONS.md](OPERATIONS.md) - Operations and secrets management
-- [P1 HTTP Timeout and Upload Hardening](P1_HTTP_TIMEOUT_AND_UPLOAD_HARDENING.md) - Related security hardening
+- [HTTP timeouts](OPERATIONS.md#http-timeouts) - Request, upload, download, and stream deadlines

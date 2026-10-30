@@ -98,7 +98,7 @@ published only as a certified envelope, never as targets.
 | Application runtime/manifest consistency | ✅ Journaled; installed-host evidence open | App deploy, rollback, start, stop, and restart persist the previous and target generations before changing runtime state. Startup compensates uncommitted transitions and re-applies the committed target before retiring its journal. Regression coverage includes `TestRecoverAppActivationJournalRestoresRuntimeAndManifest`, `TestRecoverAppActivationJournalReconcilesCommittedGeneration`, and `TestAppStateActionFailureCompensatesAndCleansJournal`; focused results are recorded in [the filesystem and app-activation audit](./lab-results/2026-10-15-filesystem-and-app-activation-audit-bad2c1d.md). Real systemd crash-point injection remains required before claiming host-level recovery. |
 | Application-level WordPress restore proof | ⚠️ Partial; exact-source proof passed on all six tested combinations | The exact-source [six-host smoke](https://github.com/cyberducttape/StePanel/actions/runs/40686884988) on `3fb7667` passed the WordPress HTTP and database-backed recovery probe on Ubuntu 24.04/Apache (5.195 s), AlmaLinux 9/Apache (6.359 s), Rocky Linux 9/Apache (6.314 s), Ubuntu 24.04/Caddy (7.785 s), AlmaLinux 9/Caddy (9.237 s), and Rocky Linux 9/Caddy (6.152 s). Exact-source AlmaLinux 9/Caddy/MariaDB run [41019722358](https://github.com/cyberducttape/StePanel/actions/runs/41019722358) on `79e1de4` also passed the database-backed WordPress HTTP recovery proof (7.309 s); see the [reviewed report](./lab-results/2026-10-30-current-source-almalinux-install-79e1de4.md). Each test is a disposable-host result, not repeated or physical-host recovery certification. |
 | Operational notifications | ⚠️ Implemented; delivery evidence required | Failed/dead-letter transitions enter a SQLite outbox atomically; signed HTTPS webhook and STARTTLS SMTP delivery retry independently, and `/api/health/operational` exposes undelivered and failed counts. Tests cover event creation, HMAC signatures, a verified STARTTLS SMTP session including auth and message delivery, redaction, and retry state. `OPERATIONS.md` now includes redacted incident triage, retry verification, and independent-monitoring guidance. Still required: delivery against configured live SMTP/webhook endpoints and outage/recovery evidence on an installed host. |
-| Capacity certification | ❌ Open | [CERTIFIED_ENVELOPE.md](./CERTIFIED_ENVELOPE.md) lists targets (500 sites, 2,000 domains, 100 accounts, 2 concurrent mutations), not a certified envelope. Synthetic HTTP evidence includes the [200-site CI baseline](./HTTP_LOAD_BASELINE_2026-10-02.md) and a [single 500-site experiment](./lab-results/2026-10-24-500-site-mixed-load.md) on an unsupported OS without resource monitoring. High-backlog SQLite claim latency, including the 100k queued/ten stalled-owner case and query-plan comparisons, is in [CAPACITY.md](./CAPACITY.md) and its [benchmark report](./lab-results/2026-10-18-queue-claim-benchmark-a8d0340.md). These measurements omit real PHP/database traffic, sustained load, resource ceilings, and required recovery evidence. A reproducible full-envelope run must certify limits before any site/domain/account count is promised. |
+| Capacity certification | ❌ Open | [CERTIFIED_ENVELOPE.md](./CERTIFIED_ENVELOPE.md) lists targets (500 sites, 2,000 domains, 100 accounts, 2 concurrent mutations), not a certified envelope. Synthetic HTTP evidence includes the [200-site CI baseline](./lab-results/2026-10-02-http-load-baseline.md) and a [single 500-site experiment](./lab-results/2026-10-24-500-site-mixed-load.md) on an unsupported OS without resource monitoring. High-backlog SQLite claim latency, including the 100k queued/ten stalled-owner case and query-plan comparisons, is in [CAPACITY.md](./CAPACITY.md) and its [benchmark report](./lab-results/2026-10-18-queue-claim-benchmark-a8d0340.md). These measurements omit real PHP/database traffic, sustained load, resource ceilings, and required recovery evidence. A reproducible full-envelope run must certify limits before any site/domain/account count is promised. |
 | Upgrade and rollback | ⚠️ Partial; v0.6.0 and v0.7.0 paths exercised | The current-source [N-1 matrix](./lab-results/2026-10-28-current-source-installed-and-upgrade-smokes.md#results) ([run 40610530756](https://github.com/cyberducttape/StePanel/actions/runs/40610530756)) passed six jobs for both published sources in Ubuntu 24.04 systemd containers and QEMU guests, including verification interruption, candidate rollback, documented downgrade, readiness/audit verification, and repeat upgrade. Older releases needed compatibility-only fixture adaptations to install on current Ubuntu. `COMPATIBILITY.md` documents supported schema behavior and rollback. Still required: repeat on release candidates, AlmaLinux/Rocky, more interruption points, and populated prior installations. The earlier 2026-10-27 run is retained as historical evidence in its [report](./lab-results/2026-10-27-upgrade-matrix-40452352170.md). |
 | Supported runtime matrix | ⚠️ Partial; six tested combinations passed once on exact source | The exact-source [six-host run 40686884988](https://github.com/cyberducttape/StePanel/actions/runs/40686884988) passed Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with both Apache and Caddy plus MariaDB on source `3fb7667`. Each run included PHP-FPM checks, installed WordPress HTTP recovery proof, one recovery-matrix iteration, and database/broker outage recovery. Exact-source AlmaLinux 9/Caddy/MariaDB smoke [41019722358](https://github.com/cyberducttape/StePanel/actions/runs/41019722358) passed on `79e1de4`; its evidence is [here](./lab-results/2026-10-30-current-source-almalinux-install-79e1de4.md). These are disposable-host results, not physical-host certification or a current-source six-host matrix. Dedicated physical hosts, Debian 12, OpenLiteSpeed, other database engines, PHP minor-version combinations, and alternate SELinux/filesystem configurations remain outside the demonstrated matrix. `INSTALLATION.md` describes the tested combinations as Operator Beta, not production-certified. |
 | Security lifecycle | ⚠️ Partial | [SECURITY.md](../SECURITY.md) defines private reporting, beta limitations, stable-version support windows, and patch-response objectives. The local Go scan on `b434e3b` found zero reachable vulnerabilities and one uncalled OpenPGP module advisory; details are in the [scan report](./lab-results/2026-10-30-local-security-scan-b434e3b.md). Remaining: recheck the exact release candidate with hosted scanners, complete an independent security review, and demonstrate the advisory, patch, and credential-rotation process. |
@@ -687,11 +687,11 @@ closed device policy still refuses to open it.
 Initial synthetic SQLite microbenchmarks now cover 10/100/500-site mutation
 maps, 10 concurrent mutators, panel/worker connection-pool contention, two
 actual concurrent test processes, 50-job backup/restore batches, and
-audit-heavy writes ([LOAD_BASELINE_2026-09-29.md](./LOAD_BASELINE_2026-09-29.md)).
+audit-heavy writes ([lab-results/2026-09-29-control-plane-load-baseline.md](./lab-results/2026-09-29-control-plane-load-baseline.md)).
 A mixed HTTP workload now runs in CI on every push: a real `stepanel` process
 with 200 sites, 8 concurrent readers across 12 endpoints, and 20 real backup
 jobs running at the same time, failing on any error, unfinished job, or p95
-above 500 ms ([HTTP_LOAD_BASELINE_2026-10-02.md](./HTTP_LOAD_BASELINE_2026-10-02.md)).
+above 500 ms ([lab-results/2026-10-02-http-load-baseline.md](./lab-results/2026-10-02-http-load-baseline.md)).
 It found and fixed a quadratic site-overview scan and an uncoordinated
 service-status refresh. This still does not satisfy the production load
 gate: it is not representative production hardware, real web servers and
@@ -721,20 +721,6 @@ After v1.0.0 is released, the following should be true:
 4. **Incident response is clear** - Failed operations leave auditable state
 5. **Concurrent safety proven** - Adversarial tests pass consistently
 6. **Recovery is fast** - Can restore from any failure in <5 minutes
-
----
-
-## Timeline Estimate
-
-| Component | Effort | Dependency |
-|-----------|--------|------------|
-| Gate 1 (Lifecycle Authority) | 2-3 days | None |
-| Gate 2 (Distributed Locks) | 3-4 days | Gate 1 |
-| Gate 3 (Capability Accuracy) | 1 day | None (mostly done) |
-| Gate 4 (DB Restoration) | 2-3 days | None |
-| Gate 5 (Failure Injection) | 3-4 days | Gate 1 + Gate 2 |
-| Integration Tests | 2-3 days | All gates |
-| **Total** | **14-18 days** | **Sequential** |
 
 ---
 

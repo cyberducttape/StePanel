@@ -53,15 +53,33 @@ An architecture/stability release, not a feature-count release.
 The next release continues the 1.0 evidence work rather than widening scope.
 Changes already on `main` are listed under `[Unreleased]` in
 [CHANGELOG.md](../CHANGELOG.md) and under "New on `main`" in
-[FEATURES.md](./FEATURES.md); the main ones are guided installation, recovery
-status, the concurrent root broker, blank PHP site creation for
-administrators and tenant owners, and crash-recoverable application
-activation.
+[FEATURES.md](./FEATURES.md). The main ones are guided installation,
+recovery status, the concurrent root broker, blank PHP and WordPress site
+creation, WordPress staging clone and promotion, preview-guarded host
+changes, per-site incident diagnostics and runtime alerts, the `/api/v1`
+automation API with Go/TypeScript SDKs and `stepanelctl`, and
+crash-recoverable application activation.
 
-- Repeat the real-host recovery matrix and extend ENOSPC and database-outage
-  drills ([REAL_HOST_FAILURE_MATRIX.md](./REAL_HOST_FAILURE_MATRIX.md)).
+The ordered work toward 1.0, with acceptance evidence for each milestone, is
+in [DEVELOPMENT_PLAN.md](../DEVELOPMENT_PLAN.md). In short:
+
+- Repeat the real-host recovery matrix as a 20–50 run cohort and extend
+  ENOSPC, database-outage, and abrupt-loss drills
+  ([REAL_HOST_FAILURE_MATRIX.md](./REAL_HOST_FAILURE_MATRIX.md)).
+- Prove alert delivery and publish a measured capacity envelope
+  ([CERTIFIED_ENVELOPE.md](./CERTIFIED_ENVELOPE.md)).
 - Continue moving migration and backup workflows behind interfaces that can be
   tested without the full control-plane assembly.
+
+Known open hardening items:
+
+- Node application units still start through `bash -lc` and `nvm use`;
+  resolving the Node binary when the unit is generated is described in
+  [NODE_STARTUP_HARDENING.md](./NODE_STARTUP_HARDENING.md).
+- The container image pins its base image digest, but runtime packages come
+  from live Debian repositories, so images are not byte-for-byte
+  reproducible. A complete package lock or a dated Debian snapshot is needed;
+  `docker/apt-pins.txt` is only an inventory.
 
 ## 1.0 — Production contract for operator-managed hosting
 
@@ -86,10 +104,11 @@ escalation tooling, and automated incident response are 2.0 work.
   lifecycle
 - Database PITR/WAL or binlog orchestration, replication topology, controlled
   switchover, and externally fenced automatic failover
-- Customer portal, file manager, Git-provider App/OAuth integrations, database
-  promotion, notifications, and self-service backup/restore;
-  deploy-key Git webhooks, sandboxed builds, scheduled tasks, and operator
-  restore-to-staging are already available with documented beta boundaries.
+- Customer portal, file manager, Git-provider App/OAuth integrations,
+  general (non-WordPress) database promotion, notifications, and self-service
+  backup/restore; deploy-key Git webhooks, sandboxed builds, scheduled tasks,
+  operator restore-to-staging, and WordPress staging promotion are already
+  available with documented beta boundaries.
 
   The customer portal now includes a tenant-scoped account/usage view and
   session security controls, owner/manager/developer/viewer roles, and

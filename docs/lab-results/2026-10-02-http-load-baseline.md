@@ -52,7 +52,7 @@ Fixes found by this workload:
   15 ms and 69 ms overall p95.
 
 For SQLite session-validation latency under job load on the same day, see
-[LOAD_BASELINE_2026-10-02.md](LOAD_BASELINE_2026-10-02.md).
+[the 2026-10-02 control-plane baseline](2026-10-02-control-plane-load-baseline.md).
 
 At the repeat run, 14 GiB RAM was installed, 2.8 GiB was available, and
 511 MiB swap was in use. Both post-fix runs passed the configured 250 ms p95

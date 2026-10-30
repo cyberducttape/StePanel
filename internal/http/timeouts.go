@@ -109,14 +109,13 @@ func (tc TimeoutConfiguration) ApplyToServer(srv *http.Server) {
 	srv.IdleTimeout = 30 * time.Second
 }
 
-// Rationale for timeout choices:
+// Rationale for timeout choices (values are in DefaultTimeouts):
 //
-// ORDINARY API (10s read/write):
-//   - Simple DB queries complete in <1s
-//   - Site list/detail in <2s
-//   - Job queries in <1s
-//   - Error responses in milliseconds
-//   - 10s allows for network jitter + slow storage without being wasteful
+// ORDINARY API (30s read, 2m write):
+//   - Site, database, and job queries complete in about a second; the read
+//     bound stops slow-body clients, the write bound covers response
+//     generation on slow storage
+//   - Work that takes minutes runs as a durable job and answers immediately
 //
 // STREAMS (no context deadline):
 //   - Server-sent events stay open while a dashboard is visible
@@ -126,36 +125,26 @@ func (tc TimeoutConfiguration) ApplyToServer(srv *http.Server) {
 //     server-wide WriteTimeout per write and closes after StreamLifetime
 //
 // LONG-POLL (45s):
-//   - Client holds connection waiting for updates
-//   - Common pattern for dashboards, activity feeds
-//   - 45s is standard for long-polling (Twitter uses 45s)
-//   - Client can retry if timeout occurs
+//   - Job and activity polling waits for an update, then the client retries
 //
-// UPLOADS (60 minutes):
-//   - Backup archives up to 20GB
-//   - Network speed: 100Mbps → 27 minutes to transfer 20GB
-//   - Add substantial margin for network variance and system load
-//   - Uploads use explicit body size/rate limits (prevent abuse)
-//   - Should be in job queue (async) for better UX
+// UPLOADS (60m ceiling):
+//   - A 20 GiB archive takes about 27 minutes at 100 Mbps
+//   - The body streams into a staged object under the upload admission
+//     limits; an idle-body guard fails a stalled upload after 2 minutes, so
+//     the ceiling only bounds slow but active transfers
 //
-// DOWNLOADS (20 minutes):
-//   - Large backup files
-//   - Network variance same as uploads
-//   - 20 minutes allows for 27GB at 100Mbps
+// DOWNLOADS (5m write):
+//   - Backup downloads and exports; also the server-wide WriteTimeout
 //
-// KEY INSIGHT:
-//   Even 30-minute timeouts are not ideal for huge uploads.
-//   Better architecture: queue the upload, stream to background job,
-//   avoid tying up an HTTP connection. This is Phase 2 work.
+// SERVICE OPERATIONS (3m):
+//   - Synchronous service actions: the helper's 60-second lifecycle bound
+//     plus the site lock wait
 
 // Middleware creates an HTTP middleware that enforces timeouts per route
 func (tc TimeoutConfiguration) Middleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Route-specific timeout classification
-			// This is a template; would need full routing context to implement
-
-			// Classify based on path
+			// Classify the request by path.
 			var timeout time.Duration
 			switch {
 			case IsStreamPath(r.URL.Path):

@@ -21,8 +21,8 @@ These pathological fixtures support regression comparisons, not production
 throughput promises.
 
 Other measurements cover session validation and job listing at
-[`LOAD_BASELINE_2026-10-02.md`](LOAD_BASELINE_2026-10-02.md), and synthetic HTTP
-mixes at [`HTTP_LOAD_BASELINE_2026-10-02.md`](HTTP_LOAD_BASELINE_2026-10-02.md).
+[`lab-results/2026-10-02-control-plane-load-baseline.md`](lab-results/2026-10-02-control-plane-load-baseline.md), and synthetic HTTP
+mixes at [`lab-results/2026-10-02-http-load-baseline.md`](lab-results/2026-10-02-http-load-baseline.md).
 They are short developer-host or CI measurements and do not represent a
 certified workload envelope.
 

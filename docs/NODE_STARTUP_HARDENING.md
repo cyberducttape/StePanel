@@ -1,6 +1,8 @@
 # Node Application Startup Hardening
 
-**Status:** Recommended approach documented  
+**Status:** Open — not implemented. `stepanel-appctl` still generates the
+`bash -lc` unit shown below (checked 2026-10-30); tracked in
+[ROADMAP.md](ROADMAP.md).  
 **Priority:** Medium (improves robustness and reduces attack surface)  
 **Target Component:** `stepanel-appctl` helper (systemd unit generation)
 

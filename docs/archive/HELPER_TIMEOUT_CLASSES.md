@@ -4,7 +4,8 @@
 > root-owned Unix-socket broker. This document records the older helper/sudo
 > timeout design and is not a current implementation specification. For the
 > active boundary, see `docs/ROOT_BROKER_INTEGRATION.md` and
-> `docs/CURRENT_STATUS.md`.
+> `docs/CURRENT_STATUS.md`. Current HTTP request deadlines are in
+> `docs/OPERATIONS.md#http-timeouts`.
 
 ## Issue: Universal 2-Minute Timeout for All Operations
 

@@ -351,9 +351,9 @@ maximum slots and utilization for the host budget and each workload class.
 
 ## Related Documents
 
-- [CLAUDE.md](../CLAUDE.md) - Code quality standards (includes Tier 1 filesystem operations)
-- [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) - Gate 5 requirements
-- [GATE5_FINAL_STATUS.md](archive/GATE5_FINAL_STATUS.md) - Production readiness progress
+- [CLAUDE.md](../../CLAUDE.md) - Code quality standards (includes Tier 1 filesystem operations)
+- [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) - Gate 5 requirements
+- [GATE5_FINAL_STATUS.md](GATE5_FINAL_STATUS.md) - Production readiness progress
 
 ---
 

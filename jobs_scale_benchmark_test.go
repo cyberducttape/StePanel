@@ -121,7 +121,7 @@ func TestDurableJobsListReturnsNewestAndAllActiveInOrder(t *testing.T) {
 // BenchmarkSessionValidationUnderJobLoad measures the latency of the
 // per-request session check while the Job Center polls and workers claim
 // jobs on the same single-connection control-plane database. It reports
-// p50/p99 alongside ns/op; see docs/LOAD_BASELINE_2026-10-02.md for the
+// p50/p99 alongside ns/op; see docs/lab-results/2026-10-02-control-plane-load-baseline.md for the
 // current measured target profile and evidence limits.
 func BenchmarkSessionValidationUnderJobLoad(b *testing.B) {
 	for _, load := range []struct {

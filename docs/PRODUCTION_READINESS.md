@@ -3,7 +3,9 @@
 **Last Updated:** 2026-10-27
 **Status:** Operator Beta; release approval is governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md)
 
-**👉 For overall project status, see [CURRENT_STATUS.md](./CURRENT_STATUS.md) — the single authoritative source for version, progress, and release gates.**
+For a one-page status summary and a map of which document owns what, see
+[CURRENT_STATUS.md](./CURRENT_STATUS.md). Release approval belongs only to
+[V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md).
 
 This document describes deployment capabilities and limitations. It is not a release approval; the sole current release-gate document is [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md). Older scorecards and audits are historical evidence only.
 
@@ -23,7 +25,7 @@ in [CERTIFIED_ENVELOPE.md](./CERTIFIED_ENVELOPE.md); those figures are targets,
 not promises, until a reproducible run records capacity, latency, recovery,
 and data-integrity evidence. The first measured control-plane target (session
 validation at 500 sites) is in
-[LOAD_BASELINE_2026-10-02.md](./LOAD_BASELINE_2026-10-02.md); it is a
+[lab-results/2026-10-02-control-plane-load-baseline.md](./lab-results/2026-10-02-control-plane-load-baseline.md); it is a
 synthetic single-process measurement, not a certified envelope.
 
 The full host-management architecture is a single native systemd host with
@@ -218,13 +220,13 @@ providing disaster-recovery material rather than an automatic standby.
 It is complete when:
 
 - every gate in [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) has
-  recorded evidence (Gate 5 is the main open item: the full recovery matrix
-  has passed once on a KVM guest, but repeated runs, ENOSPC beyond backup,
-  and physical power-loss evidence remain);
+  recorded evidence for the release-candidate source (Gate 5 is the main open
+  item: single installed-host recovery matrices have passed, but the 20–50
+  run repeat cohort, broader ENOSPC, and physical power-loss evidence remain;
+  [DEVELOPMENT_PLAN.md](../DEVELOPMENT_PLAN.md) orders this work as M1–M6); and
 - the roadmap 1.0 items ship: stable API and migration policy, signed
   multi-platform releases, upgrade and rollback tooling, a full accessibility
-  review, and a security review with a documented support policy; and
-- the staging soak in [CURRENT_STATUS.md](./CURRENT_STATUS.md) completes.
+  review, and a security review with a documented support policy.
 
 Nothing else is a 1.0 requirement. In particular, 1.0 does **not** include
 high availability, multi-host operation, multi-region replication, SLA

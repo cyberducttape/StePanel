@@ -6,7 +6,7 @@ Go: go1.26.7
 
 Evidence label: **Measured** (synthetic SQLite/control-plane benchmark). This
 is not HTTP latency and not a validated production ceiling; see
-[PERFORMANCE.md](PERFORMANCE.md) for the evidence labels.
+[PERFORMANCE.md](../PERFORMANCE.md) for the evidence labels.
 
 ## Capacity target
 
@@ -70,4 +70,4 @@ every candidate.
 - These are single-process measurements on a developer laptop. A production
   envelope still needs the panel and worker as separate processes on a
   production-like host, with HTTP request latency, as described in
-  [LOAD_BASELINE_2026-09-29.md](LOAD_BASELINE_2026-09-29.md).
+  [the 2026-09-29 control-plane baseline](2026-09-29-control-plane-load-baseline.md).

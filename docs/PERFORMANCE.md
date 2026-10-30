@@ -11,13 +11,13 @@ This guide separates three different claims:
   after host, HTTP, filesystem, restore, and recovery evidence. No such ceiling
   is currently certified for StePanel v0.7.0.
 
-The control-plane measurements in [`LOAD_BASELINE_2026-09-29.md`](LOAD_BASELINE_2026-09-29.md)
+The control-plane measurements in [`lab-results/2026-09-29-control-plane-load-baseline.md`](lab-results/2026-09-29-control-plane-load-baseline.md)
 are measured SQLite/control-plane microbenchmarks only. They are not HTTP
 latency, full restore throughput, or 100-site production evidence.
 
 The control-plane capacity target (500 sites: session validation p99 ≤ 25 ms
 with 50 Job Center viewers and two active workers) and its measured results
-are in [`LOAD_BASELINE_2026-10-02.md`](LOAD_BASELINE_2026-10-02.md). Those
+are in [`lab-results/2026-10-02-control-plane-load-baseline.md`](lab-results/2026-10-02-control-plane-load-baseline.md). Those
 results are also synthetic single-process measurements.
 
 High-backlog durable job-claim measurements and their limitations are recorded
@@ -25,7 +25,7 @@ in [`CAPACITY.md`](CAPACITY.md). They are synthetic SQLite benchmarks and do
 not establish a production capacity ceiling.
 
 HTTP latency is **measured** for synthetic mixed workloads in
-[`HTTP_LOAD_BASELINE_2026-10-02.md`](HTTP_LOAD_BASELINE_2026-10-02.md): a real
+[`lab-results/2026-10-02-http-load-baseline.md`](lab-results/2026-10-02-http-load-baseline.md): a real
 `stepanel` process with 200- and 500-site fixtures, concurrent readers, and
 file-backup jobs. The 500-site profile measured 14.6 ms and 69.0 ms overall
 p95 in two runs on a developer laptop after an overview-path optimization;
