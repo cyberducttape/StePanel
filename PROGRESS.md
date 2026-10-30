@@ -55,6 +55,30 @@
 
 ## Current local work
 
+- Implemented the P1 restore-timeout and API-token-limiter corrections in the
+  working tree. Site-operation routes now carry timeout classes; local restore
+  has two 120-minute helper windows plus a 15-minute compensation reserve,
+  staging creation has a 165-minute budget, and offsite restore adds the
+  configured total-transfer deadline. The offsite staging download now uses
+  the operation request context, so worker cancellation reaches the transfer.
+- Reworked API-token throttling into bounded LRU caches for token, authenticated
+  account, and trusted client source. Initial bursts are 60/token, 600/account,
+  and 1,200/source, separate from sustained rates of 600, 6,000, and 12,000 per
+  minute. A full cache evicts least-recently-used state instead of rejecting a
+  new valid token; raw credentials, usernames, and client addresses are not
+  retained as keys.
+- New focused tests pass for timeout classes, lease renewal during a long
+  restore, token burst/refill, per-account and per-source aggregation, LRU
+  admission under 100 concurrent new identities, and bounded cache behavior.
+  The pre-existing canceled staging database restore test verifies cleanup and
+  recovery-required reporting when compensation itself fails.
+- `make check` passed after the implementation: API artifact check, `go vet
+  ./...`, and all Go packages; the root package completed in 67.654 seconds on the final source.
+  Targeted `go test -race` passed for timeout, lease-renewal, and limiter
+  concurrency tests; a final `go vet ./...` and `git diff --check` also passed.
+  These tests do not substitute for installed-host power-loss/ENOSPC
+  certification.
+
 - `tests/e2e/critical-navigation.spec.js`: expect the actual upper-bound quota
   copy (`up to … estimated bytes remain`).
 - `CHANGELOG.md`: record the corrected browser regression assertion.

@@ -34,6 +34,31 @@ to push.
   release-evidence checks complete successfully. Any failed job is diagnosed
   from its log/trace and fixed before starting another milestone.
 
+### M0a — Bound long-running restore and API-token behavior (P1)
+
+**Status:** Implemented and locally verified. Hosted exact-source CI still
+requires approval to push.
+
+Use operation-specific async deadlines that cover the corresponding helper
+timeout and cleanup, renew durable leases throughout long work, and propagate
+cancellation into offsite transfer. Bound API-token, account, and trusted-source
+rate-limit state with LRU eviction, distinct initial bursts and sustained
+rates, and no capacity-based rejection of otherwise-valid tokens.
+
+**Acceptance criteria**
+
+- Restore timeout classes exceed the full helper budget plus an explicit
+  compensation reserve; offsite restore includes its configured transfer
+  deadline.
+- A restore test spans multiple short lease periods, completes without
+  cancellation, and proves the durable lease was renewed. Canceled staging
+  restore tests preserve the existing recovery/compensation contract.
+- Limiter tests prove burst and refill behavior, account/source aggregation,
+  bounded cache size, LRU eviction, and successful concurrent admission while
+  full. Race-enabled targeted tests are clean.
+- `make check` passes on the exact local source and the changelog/progress
+  record the evidence and any remaining host-certification limits.
+
 ### M1 — Complete installed-host failure recovery (P0)
 
 **Status:** Open; requires an accessible disposable KVM host/runner.  

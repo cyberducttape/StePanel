@@ -25,10 +25,43 @@ import (
 // for the duration of a build, and a dropped browser does not cancel it.
 const siteOperationKind = "site.operation"
 
-// siteOperationDeadline bounds one operation in the worker. The largest
-// handler budget is restore-to-staging and staging creation (30 minutes plus
-// a database restore).
-const siteOperationDeadline = 60 * time.Minute
+// Site operations have bounded, operation-specific budgets. The restore
+// classes include time for compensation after their longest helper/transfer
+// deadline, so the worker's parent context cannot cut those operations short.
+const (
+	siteOperationDefaultDeadline = 60 * time.Minute
+	siteOperationCleanupReserve  = 15 * time.Minute
+	siteOperationStagingDeadline = helperBackupRestoreTimeout + 30*time.Minute + siteOperationCleanupReserve
+	siteOperationRestoreDeadline = 2*helperBackupRestoreTimeout + siteOperationCleanupReserve
+)
+
+type siteOperationTimeoutClass uint8
+
+const (
+	siteOperationTimeoutDefault siteOperationTimeoutClass = iota
+	siteOperationTimeoutStaging
+	siteOperationTimeoutRestore
+	siteOperationTimeoutOffsiteRestore
+)
+
+func siteOperationDeadline(class siteOperationTimeoutClass) (time.Duration, error) {
+	switch class {
+	case siteOperationTimeoutDefault:
+		return siteOperationDefaultDeadline, nil
+	case siteOperationTimeoutStaging:
+		return siteOperationStagingDeadline, nil
+	case siteOperationTimeoutRestore:
+		return siteOperationRestoreDeadline, nil
+	case siteOperationTimeoutOffsiteRestore:
+		transferDeadline, err := offsiteTransferTimeout()
+		if err != nil {
+			return 0, err
+		}
+		return transferDeadline + siteOperationRestoreDeadline, nil
+	default:
+		return 0, fmt.Errorf("unknown site-operation timeout class %d", class)
+	}
+}
 
 // siteOperationBodyLimit covers the largest operation request (a release
 // pipeline definition, 48 KiB).
@@ -42,6 +75,7 @@ const siteOperationInterrupted = "the operation was interrupted by a restart and
 
 type siteOperationRoute struct {
 	handler func(*App) http.HandlerFunc
+	timeout siteOperationTimeoutClass
 	// site names the site the operation mutates. It owns the job, so
 	// operations on one site run one at a time.
 	site func(path string, body []byte) string
@@ -58,10 +92,10 @@ var siteOperationRoutes = map[string]siteOperationRoute{
 	"composer.install":          {handler: func(a *App) http.HandlerFunc { return a.composer }, site: siteFromPath("/api/composer/"), scope: "site:deploy"},
 	"node.tooling":              {handler: func(a *App) http.HandlerFunc { return a.nodeTooling }, site: siteFromBody, scope: "site:deploy"},
 	"python.deploy":             {handler: func(a *App) http.HandlerFunc { return a.pythonDeploy }, site: siteFromBody, scope: "deploy:write"},
-	"staging.create":            {handler: func(a *App) http.HandlerFunc { return a.stagingCreate }, site: siteFromBody, scope: "site:deploy"},
+	"staging.create":            {handler: func(a *App) http.HandlerFunc { return a.stagingCreate }, site: siteFromBody, scope: "site:deploy", timeout: siteOperationTimeoutStaging},
 	"staging.promote":           {handler: func(a *App) http.HandlerFunc { return a.stagingPromote }, site: siteFromBody, scope: "site:deploy"},
-	"backup.restore-to-staging": {handler: func(a *App) http.HandlerFunc { return a.backupRestoreToStaging }, site: siteFromBody, scope: "backup:restore"},
-	"backup.offsite-to-staging": {handler: func(a *App) http.HandlerFunc { return a.backupRestoreOffsiteToStaging }, site: siteFromBody, scope: "backup:restore"},
+	"backup.restore-to-staging": {handler: func(a *App) http.HandlerFunc { return a.backupRestoreToStaging }, site: siteFromBody, scope: "backup:restore", timeout: siteOperationTimeoutRestore},
+	"backup.offsite-to-staging": {handler: func(a *App) http.HandlerFunc { return a.backupRestoreOffsiteToStaging }, site: siteFromBody, scope: "backup:restore", timeout: siteOperationTimeoutOffsiteRestore},
 }
 
 func siteFromBody(_ string, body []byte) string {
@@ -189,12 +223,16 @@ func (a *App) handleSiteOperationJob(ctx context.Context, item Job) ([]byte, err
 	if item.Progress > 0 {
 		return nil, a.recoverInterruptedSiteOperation(ctx, payload.Site)
 	}
+	deadline, err := siteOperationDeadline(route.timeout)
+	if err != nil {
+		return nil, fmt.Errorf("resolve site operation deadline: %w", err)
+	}
 	// Mark the operation started, so a worker that dies mid-operation leaves
 	// a record that the next claim recognizes as interrupted.
 	if err := a.Jobs.UpdateClaim(item.ID, item.LeaseOwner, 1); err != nil {
 		return nil, fmt.Errorf("record operation start: %w", err)
 	}
-	operationCtx, cancel := context.WithTimeout(ctx, siteOperationDeadline)
+	operationCtx, cancel := context.WithTimeout(ctx, deadline)
 	defer cancel()
 	switch {
 	case payload.Webhook:

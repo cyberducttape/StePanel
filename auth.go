@@ -683,9 +683,9 @@ func (a Auth) validAPIToken(r *http.Request) (apiTokenIdentity, bool) {
 		return apiTokenIdentity{}, false
 	}
 
-	// Rate limit per API token to prevent abuse of compromised tokens.
-	// Each token gets 600 requests per minute (10 per second).
-	if a.apiTokenLimiter != nil && !a.apiTokenLimiter.allow(tokenValue) {
+	// Rate-limit the token, its account's aggregate token use, and its source.
+	// ClientIP honors only explicitly trusted proxy headers.
+	if a.apiTokenLimiter != nil && !a.apiTokenLimiter.allow(tokenValue, token.Username, a.ClientIP(r)) {
 		return apiTokenIdentity{}, false
 	}
 

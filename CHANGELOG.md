@@ -8,6 +8,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Site-operation jobs now use bounded operation-specific deadlines: restore
+  work receives the full helper allowance plus cleanup reserve, and offsite
+  staging restores also include the configured transfer deadline. Offsite
+  downloads now inherit the worker context so shutdown, lease loss, or explicit
+  cancellation stops the transfer and leaves existing staged-restore
+  compensation in control. API-token throttling now separates burst from
+  sustained rates and applies bounded LRU buckets per token, account, and
+  trusted client source; a full cache admits new valid tokens while aggregate
+  limits constrain token rotation.
+- Regression tests cover restore deadline classes, lease renewal during a
+  long-running restore, cancellation-safe staged restore compensation,
+  limiter burst/refill behavior, full-cache admission, concurrent LRU churn,
+  and account/source aggregate throttling.
+
 - PHP-FPM capacity guidance now estimates a conservative worker ceiling from
   the site's sampled P95 worker RSS and current host memory, retaining 30% of
   available memory as an explicit reserve. Worker previews compare the

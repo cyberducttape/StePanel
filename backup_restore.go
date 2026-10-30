@@ -661,7 +661,7 @@ func (a *App) backupRestoreOffsiteToStaging(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "API token lacks the backup:restore scope", http.StatusForbidden)
 		return
 	}
-	root, cleanup, err := downloadOffsiteBackupWithLedgerContext(context.Background(), a.Config, input.SourceSite, input.Backup, a.capacityLedger())
+	root, cleanup, err := downloadOffsiteBackupWithLedgerContext(r.Context(), a.Config, input.SourceSite, input.Backup, a.capacityLedger())
 	if err != nil {
 		http.Error(w, "could not download offsite backup: "+err.Error(), http.StatusBadGateway)
 		return

@@ -158,8 +158,8 @@ func TestSiteOperationQueuesAndReplaysAsTheRequester(t *testing.T) {
 	if seen.body != body || seen.path != "/api/test/echo?dry=1" {
 		t.Fatalf("replayed request = %q %q", seen.path, seen.body)
 	}
-	if seen.deadline < siteOperationDeadline-time.Minute || seen.deadline > siteOperationDeadline {
-		t.Fatalf("operation deadline = %s, want %s", seen.deadline, siteOperationDeadline)
+	if seen.deadline < siteOperationDefaultDeadline-time.Minute || seen.deadline > siteOperationDefaultDeadline {
+		t.Fatalf("operation deadline = %s, want %s", seen.deadline, siteOperationDefaultDeadline)
 	}
 	if job, _ := app.Jobs.Get(item.ID); job.Progress == 0 {
 		t.Fatal("the operation start was not recorded")
@@ -394,12 +394,111 @@ func TestSiteOperationsAreRouted(t *testing.T) {
 		if !strings.Contains(string(source), `a.siteOperation("`+name+`")`) {
 			t.Errorf("site operation %s is not routed", name)
 		}
+		if _, err := siteOperationDeadline(siteOperationRoutes[name].timeout); err != nil {
+			t.Errorf("site operation %s has invalid timeout class: %v", name, err)
+		}
+	}
+	if siteOperationRoutes["backup.restore-to-staging"].timeout != siteOperationTimeoutRestore ||
+		siteOperationRoutes["backup.offsite-to-staging"].timeout != siteOperationTimeoutOffsiteRestore {
+		t.Fatal("restore operations must use their dedicated timeout classes")
 	}
 	if !strings.Contains(string(source), `a.Auth.Require(a.siteOperation("git.deploy"))`) {
 		t.Fatal("Git deployment must use the site-scoped customer authorization wrapper")
 	}
 	if strings.Contains(string(source), `a.Auth.RequireAdministrator(a.siteOperation("git.deploy"))`) {
 		t.Fatal("Git deployment must not be administrator-only")
+	}
+}
+
+func TestSiteOperationTimeoutClasses(t *testing.T) {
+	tests := []struct {
+		name  string
+		class siteOperationTimeoutClass
+		want  time.Duration
+	}{
+		{"ordinary", siteOperationTimeoutDefault, 60 * time.Minute},
+		{"staging", siteOperationTimeoutStaging, 165 * time.Minute},
+		{"local restore", siteOperationTimeoutRestore, 255 * time.Minute},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := siteOperationDeadline(test.class)
+			if err != nil || got != test.want {
+				t.Fatalf("deadline = %s, %v; want %s", got, err, test.want)
+			}
+		})
+	}
+	t.Run("offsite restore follows configured transfer budget", func(t *testing.T) {
+		t.Setenv("STEPANEL_OFFSITE_TRANSFER_TIMEOUT", "4h")
+		got, err := siteOperationDeadline(siteOperationTimeoutOffsiteRestore)
+		if err != nil || got != 4*time.Hour+siteOperationRestoreDeadline {
+			t.Fatalf("deadline = %s, %v", got, err)
+		}
+	})
+	t.Run("invalid offsite transfer budget is rejected", func(t *testing.T) {
+		t.Setenv("STEPANEL_OFFSITE_TRANSFER_TIMEOUT", "not-a-duration")
+		if _, err := siteOperationDeadline(siteOperationTimeoutOffsiteRestore); err == nil {
+			t.Fatal("invalid configured transfer deadline was accepted")
+		}
+	})
+}
+
+func TestLongSiteOperationRenewsLeasePastShortLeasePeriods(t *testing.T) {
+	app, _ := newSiteOperationFixture(t, http.StatusOK, `{}`)
+	app.Jobs.leaseTTL = 90 * time.Millisecond
+	completed := make(chan struct{})
+	const operation = "test.long-restore"
+	siteOperationRoutes[operation] = siteOperationRoute{
+		timeout: siteOperationTimeoutRestore,
+		site:    siteFromBody,
+		handler: func(*App) http.HandlerFunc {
+			return func(w http.ResponseWriter, r *http.Request) {
+				deadline, ok := r.Context().Deadline()
+				if !ok || time.Until(deadline) < siteOperationRestoreDeadline-time.Minute {
+					http.Error(w, "restore deadline was truncated", http.StatusGatewayTimeout)
+					return
+				}
+				select {
+				case <-time.After(250 * time.Millisecond):
+					close(completed)
+					w.WriteHeader(http.StatusNoContent)
+				case <-r.Context().Done():
+					http.Error(w, r.Context().Err().Error(), http.StatusGatewayTimeout)
+				}
+			}
+		},
+	}
+	t.Cleanup(func() { delete(siteOperationRoutes, operation) })
+	payload, err := json.Marshal(siteOperationPayload{Operation: operation, Path: "/api/test/long", Site: "shop", Actor: "admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, err := app.Jobs.Enqueue(siteOperationKind, "shop", "", payload, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := claimSiteOperation(t, app)
+	var before int64
+	if err := app.Jobs.db.QueryRow(`SELECT lease_expires_at FROM jobs WHERE id = ?`, item.ID).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	ctx, stopLease := app.Jobs.maintainLeaseContext(context.Background(), &item)
+	_, runErr := app.handleSiteOperationJob(ctx, item)
+	stopLease()
+	if runErr != nil {
+		t.Fatalf("long restore failed: %v", runErr)
+	}
+	select {
+	case <-completed:
+	default:
+		t.Fatal("long restore handler did not complete")
+	}
+	var after int64
+	if err := app.Jobs.db.QueryRow(`SELECT lease_expires_at FROM jobs WHERE id = ?`, queued.ID).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if after <= before {
+		t.Fatalf("lease expiry did not advance during long operation: before=%d after=%d", before, after)
 	}
 }
 

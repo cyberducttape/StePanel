@@ -2,192 +2,182 @@ package stepanel
 
 import (
 	"crypto/sha256"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
 
-func TestAPITokenRateLimiter(t *testing.T) {
+func testLimiter(tokenRate, tokenBurst, userRate, userBurst, sourceRate, sourceBurst float64, capacity int) *apiTokenRateLimiter {
+	return &apiTokenRateLimiter{
+		byToken: newBucketCache(bucketPolicy{tokenRate, tokenBurst, capacity}),
+		byUser:  newBucketCache(bucketPolicy{userRate, userBurst, capacity}),
+		byIP:    newBucketCache(bucketPolicy{sourceRate, sourceBurst, capacity}),
+		lastGC:  time.Now(),
+	}
+}
+
+func TestAPITokenRateLimiterUsesSeparateBurstAndSustainedRate(t *testing.T) {
+	limiter := testLimiter(60, 3, 600, 10, 1200, 20, 10)
+	for i := 0; i < 3; i++ {
+		if !limiter.allow("token", "user", "192.0.2.1") {
+			t.Fatalf("initial burst request %d rejected", i+1)
+		}
+	}
+	if limiter.allow("token", "user", "192.0.2.1") {
+		t.Fatal("request beyond initial burst was allowed")
+	}
+	// The token refills at 60/minute, independently of its burst capacity.
+	limiter.mu.Lock()
+	entry := limiter.byToken.items[scopedLimitKey("token", "token")].Value.(*bucketEntry)
+	entry.bucket.lastRefill = time.Now().Add(-2 * time.Second)
+	limiter.mu.Unlock()
+	if !limiter.allow("token", "user", "192.0.2.1") {
+		t.Fatal("request was not admitted after sustained-rate refill")
+	}
+}
+
+func TestAPITokenLimiterAdmitsNewIdentityWhenTokenMapFull(t *testing.T) {
+	limiter := testLimiter(600, 2, 6000, 10, 12000, 20, 2)
+	if !limiter.allow("old-1", "user-1", "192.0.2.1") || !limiter.allow("old-2", "user-2", "192.0.2.2") {
+		t.Fatal("failed to populate limiter")
+	}
+	if !limiter.allow("new-valid-token", "user-3", "192.0.2.3") {
+		t.Fatal("valid new token was rejected at capacity")
+	}
+	if tracked, max := limiter.stats(); tracked != max || max != 2 {
+		t.Fatalf("token buckets = (%d, %d), want bounded full cache", tracked, max)
+	}
+}
+
+func TestAPITokenLimiterAdmitsConcurrentValidTokensAtCapacity(t *testing.T) {
+	limiter := testLimiter(600, 2, 6000, 10, 12000, 20, 2)
+	limiter.allow("fill-a", "fill-user-a", "192.0.2.1")
+	limiter.allow("fill-b", "fill-user-b", "192.0.2.2")
+	const count = 100
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var rejected []string
+	for i := 0; i < count; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if !limiter.allow(fmt.Sprintf("valid-%d", i), fmt.Sprintf("user-%d", i), fmt.Sprintf("192.0.2.%d", i+10)) {
+				mu.Lock()
+				rejected = append(rejected, fmt.Sprintf("valid-%d", i))
+				mu.Unlock()
+			}
+		}(i)
+	}
+	wg.Wait()
+	if len(rejected) != 0 {
+		t.Fatalf("valid tokens rejected under bounded-cache churn: %v", rejected)
+	}
+	for _, cache := range []*bucketCache{&limiter.byToken, &limiter.byUser, &limiter.byIP} {
+		if len(cache.items) > cache.policy.maxKeys {
+			t.Fatalf("bucket cache grew past limit: %d > %d", len(cache.items), cache.policy.maxKeys)
+		}
+	}
+}
+
+func TestAPITokenLimiterEvictsLeastRecentlyUsedBucket(t *testing.T) {
+	limiter := testLimiter(60, 2, 600, 10, 1200, 20, 2)
+	limiter.allow("oldest", "user-old", "192.0.2.1")
+	limiter.allow("recent", "user-recent", "192.0.2.2")
+	// Touch the recent bucket, then ensure the oldest entry is the eviction.
+	limiter.allow("recent", "user-recent", "192.0.2.2")
+	limiter.allow("new", "user-new", "192.0.2.3")
+	limiter.mu.Lock()
+	_, oldestExists := limiter.byToken.items[scopedLimitKey("token", "oldest")]
+	_, recentExists := limiter.byToken.items[scopedLimitKey("token", "recent")]
+	_, newExists := limiter.byToken.items[scopedLimitKey("token", "new")]
+	limiter.mu.Unlock()
+	if oldestExists || !recentExists || !newExists {
+		t.Fatalf("unexpected LRU membership: oldest=%v recent=%v new=%v", oldestExists, recentExists, newExists)
+	}
+}
+
+func TestAPITokenLimiterAggregatesByUserAndSource(t *testing.T) {
+	t.Run("account", func(t *testing.T) {
+		limiter := testLimiter(600, 10, 60, 2, 1200, 20, 10)
+		if !limiter.allow("token-a", "same-user", "192.0.2.1") || !limiter.allow("token-b", "same-user", "192.0.2.2") {
+			t.Fatal("account burst unexpectedly rejected")
+		}
+		if limiter.allow("token-c", "same-user", "192.0.2.3") {
+			t.Fatal("account aggregate limit was bypassed with another token")
+		}
+	})
+	t.Run("source", func(t *testing.T) {
+		limiter := testLimiter(600, 10, 6000, 20, 60, 2, 10)
+		if !limiter.allow("token-a", "user-a", "192.0.2.1") || !limiter.allow("token-b", "user-b", "192.0.2.1") {
+			t.Fatal("source burst unexpectedly rejected")
+		}
+		if limiter.allow("token-c", "user-c", "192.0.2.1") {
+			t.Fatal("source aggregate limit was bypassed with another token")
+		}
+	})
+}
+
+func TestAPITokenLimiterGarbageCollectsInactiveEntries(t *testing.T) {
+	limiter := testLimiter(600, 10, 6000, 20, 12000, 40, 100)
+	limiter.allow("old-token", "old-user", "192.0.2.1")
+	limiter.mu.Lock()
+	for _, cache := range []*bucketCache{&limiter.byToken, &limiter.byUser, &limiter.byIP} {
+		for element := cache.lru.Front(); element != nil; element = element.Next() {
+			element.Value.(*bucketEntry).lastSeen = time.Now().Add(-10 * time.Minute)
+		}
+	}
+	limiter.lastGC = time.Now().Add(-2 * time.Minute)
+	limiter.mu.Unlock()
+	limiter.allow("new-token", "new-user", "192.0.2.2")
+	if tracked, _ := limiter.stats(); tracked != 1 {
+		t.Fatalf("inactive token buckets remain: %d", tracked)
+	}
+}
+
+func TestAPITokenLimiterResetAndNil(t *testing.T) {
+	limiter := testLimiter(60, 1, 600, 10, 1200, 20, 10)
+	if !limiter.allow("reset-me", "user", "192.0.2.1") || limiter.allow("reset-me", "user", "192.0.2.1") {
+		t.Fatal("token burst behavior incorrect")
+	}
+	limiter.reset("reset-me")
+	if !limiter.allow("reset-me", "user", "192.0.2.1") {
+		t.Fatal("reset did not replenish token bucket")
+	}
+	var nilLimiter *apiTokenRateLimiter
+	if !nilLimiter.allow("token", "user", "source") {
+		t.Fatal("nil limiter should permit requests")
+	}
+	nilLimiter.reset("token")
+}
+
+func TestAPITokenLimiterStoresOnlyScopedDigests(t *testing.T) {
 	limiter := newAPITokenRateLimiter()
-
-	t.Run("allows requests within limit", func(t *testing.T) {
-		token := "test-token-1"
-
-		// Should allow 600 requests in one minute
-		for i := 0; i < 100; i++ {
-			if !limiter.allow(token) {
-				t.Fatalf("request %d should be allowed", i)
-			}
-		}
-	})
-
-	t.Run("rate limits after quota exceeded", func(t *testing.T) {
-		token := "test-token-2"
-
-		// Consume all tokens
-		for i := 0; i < 600; i++ {
-			limiter.allow(token)
-		}
-
-		// Next request should be rate limited
-		if limiter.allow(token) {
-			t.Fatal("should be rate limited after quota exceeded")
-		}
-	})
-
-	t.Run("refills tokens over time", func(t *testing.T) {
-		token := "test-token-3"
-
-		// Consume all tokens
-		for i := 0; i < 600; i++ {
-			limiter.allow(token)
-		}
-
-		// Wait for tokens to refill (600 per minute = 10 per second = 1 per 100ms)
-		time.Sleep(150 * time.Millisecond)
-
-		// Should have at least 1-2 new tokens after 150ms (need ~60ms per token)
-		allowed := 0
-		for i := 0; i < 5; i++ {
-			if limiter.allow(token) {
-				allowed++
-			}
-		}
-
-		if allowed < 1 {
-			t.Fatalf("expected at least 1 refilled token after 150ms, got %d", allowed)
-		}
-	})
-
-	t.Run("tracks multiple tokens", func(t *testing.T) {
-		token1 := "token-one"
-		token2 := "token-two"
-
-		// Consume tokens for token1
-		for i := 0; i < 100; i++ {
-			limiter.allow(token1)
-		}
-
-		// token2 should still have full quota
-		for i := 0; i < 100; i++ {
-			if !limiter.allow(token2) {
-				t.Fatalf("token-two should have independent quota")
-			}
-		}
-	})
-
-	t.Run("garbage collects unused tokens", func(t *testing.T) {
-		limiter2 := newAPITokenRateLimiter()
-
-		// Manually populate state with old tokens by direct access
-		limiter2.mu.Lock()
-		now := time.Now()
-		oldTime := now.Add(-10 * time.Minute) // Older than 5-minute threshold
-		for i := 0; i < 100; i++ {
-			limiter2.state[sha256.Sum256([]byte("token-"+string(rune(i))))] = &tokenBucket{
-				tokens:     100.0,
-				lastRefill: oldTime,
-			}
-		}
-		limiter2.lastGC = now.Add(-2 * time.Minute) // Trigger GC on next allow()
-		limiter2.mu.Unlock()
-
-		// Verify we have 100 tokens
-		tracked, _ := limiter2.stats()
-		if tracked != 100 {
-			t.Fatalf("expected 100 tracked tokens, got %d", tracked)
-		}
-
-		// Add a new token - this should trigger GC
-		limiter2.allow("new-token")
-
-		// GC should have cleaned up old tokens (all the old ones should be gone)
-		// We should have just the new-token and possibly 1-2 other recently added
-		tracked, _ = limiter2.stats()
-		if tracked > 10 {
-			t.Fatalf("GC should have removed old tokens, still have %d (expected <10)", tracked)
-		}
-	})
-
-	t.Run("rejects new tokens when at capacity", func(t *testing.T) {
-		limiter3 := newAPITokenRateLimiter()
-		limiter3.maxKeys = 10 // Small limit for testing
-
-		// Fill up to capacity
-		for i := 0; i < 10; i++ {
-			limiter3.allow("token-" + string(rune(i)))
-		}
-
-		// Try to add one more token when at capacity
-		if limiter3.allow("token-new") {
-			t.Fatal("should reject new token when at capacity")
-		}
-	})
-
-	t.Run("reset clears token state", func(t *testing.T) {
-		token := "test-token-reset"
-		limiter4 := newAPITokenRateLimiter()
-
-		// Consume all tokens
-		for i := 0; i < 600; i++ {
-			limiter4.allow(token)
-		}
-
-		// Should be rate limited
-		if limiter4.allow(token) {
-			t.Fatal("should be rate limited before reset")
-		}
-
-		// Reset token
-		limiter4.reset(token)
-
-		// Should have full quota again
-		if !limiter4.allow(token) {
-			t.Fatal("should have full quota after reset")
-		}
-	})
-
-	t.Run("handles nil limiter gracefully", func(t *testing.T) {
-		var nilLimiter *apiTokenRateLimiter
-
-		// Should allow when limiter is nil (disabled)
-		if !nilLimiter.allow("any-token") {
-			t.Fatal("nil limiter should allow requests")
-		}
-
-		nilLimiter.reset("any-token") // Should not panic
-	})
+	secret := "bearer-secret-that-must-not-be-a-map-key"
+	if !limiter.allow(secret, "private-user", "192.0.2.10") {
+		t.Fatal("initial request rejected")
+	}
+	key := scopedLimitKey("token", secret)
+	if key == sha256.Sum256([]byte(secret)) {
+		t.Fatal("limiter key is not domain-separated")
+	}
+	limiter.mu.Lock()
+	_, found := limiter.byToken.items[key]
+	limiter.mu.Unlock()
+	if !found {
+		t.Fatal("scoped token digest not used as cache key")
+	}
 }
 
 func TestAPITokenLimiterStats(t *testing.T) {
 	limiter := newAPITokenRateLimiter()
-
-	tracked, max := limiter.stats()
-	if tracked != 0 || max != maxTokenKeys {
-		t.Fatalf("expected (0, %d), got (%d, %d)", maxTokenKeys, tracked, max)
+	if tracked, max := limiter.stats(); tracked != 0 || max != maxTokenKeys {
+		t.Fatalf("initial stats = (%d, %d)", tracked, max)
 	}
-
-	// Create some tokens
 	for i := 0; i < 5; i++ {
-		limiter.allow("token-" + string(rune(i)))
+		limiter.allow("token", "user", string(rune('a'+i)))
 	}
-
-	tracked, max = limiter.stats()
-	if tracked != 5 || max != maxTokenKeys {
-		t.Fatalf("expected (5, %d), got (%d, %d)", maxTokenKeys, tracked, max)
-	}
-}
-
-func TestAPITokenLimiterStoresOnlyDigestKeys(t *testing.T) {
-	limiter := newAPITokenRateLimiter()
-	secret := "bearer-secret-that-must-not-be-a-map-key"
-	if !limiter.allow(secret) {
-		t.Fatal("initial token request was rejected")
-	}
-	key := sha256.Sum256([]byte(secret))
-	limiter.mu.Lock()
-	_, found := limiter.state[key]
-	limiter.mu.Unlock()
-	if !found {
-		t.Fatal("token digest was not used as limiter key")
+	if tracked, max := limiter.stats(); tracked != 1 || max != maxTokenKeys {
+		t.Fatalf("token stats = (%d, %d)", tracked, max)
 	}
 }
