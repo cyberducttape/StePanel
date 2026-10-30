@@ -13,7 +13,8 @@ func TestParseMigrationInventoryUsesObservedFacts(t *testing.T) {
 		"OS_ID\trocky",
 		"PHP_VERSION\t8.2.12",
 		"PHP_EXTENSIONS\tCore, curl, mysqli, mbstring,",
-		"DB_VERSION\tmysql  Ver 8.0.36",
+		"DB_CLIENT_VERSION\tmysql  Ver 8.0.36",
+		"DB_SERVER_VERSION\t8.0.40",
 		"DISK_TOTAL_KB\t104857600",
 		"DISK_AVAILABLE_KB\t52428800",
 		"CPU_CORES\t8",
@@ -26,7 +27,7 @@ func TestParseMigrationInventoryUsesObservedFacts(t *testing.T) {
 	if inventory.Hostname != "source-1" || inventory.OS.DistributorID != "rocky" || inventory.PHP.Version != "8.2.12" {
 		t.Fatalf("inventory did not preserve observed host facts: %#v", inventory)
 	}
-	if inventory.Database.Type != "MySQL" || inventory.SystemResources.AvailableDiskGB != 50 || inventory.CronJobs != 4 {
+	if inventory.Database.Type != "MySQL" || inventory.Database.Version != "8.0.40" || inventory.Database.VersionSource != "server" || inventory.SystemResources.AvailableDiskGB != 50 || inventory.CronJobs != 4 {
 		t.Fatalf("inventory facts were parsed incorrectly: %#v", inventory)
 	}
 }

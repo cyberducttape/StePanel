@@ -27,47 +27,57 @@ import (
 )
 
 type CPMoveInfo struct {
-	Archive           string   `json:"archive"`
-	UploadID          string   `json:"upload_id,omitempty"`
-	ArchiveBytes      int64    `json:"archive_bytes"`
-	ExpandedBytes     int64    `json:"expanded_bytes"`
-	DatabaseBytes     int64    `json:"database_bytes"`
-	RequiredFreeBytes int64    `json:"required_free_bytes"`
-	Entries           int      `json:"entries"`
-	User              string   `json:"detected_user"`
-	HasHome           bool     `json:"has_home"`
-	HasMySQL          bool     `json:"has_mysql"`
-	HasMail           bool     `json:"has_mail"`
-	Mailboxes         []string `json:"mailboxes,omitempty"`
-	DNSZones          []string `json:"dns_zones,omitempty"`
-	CronSchedules     []string `json:"cron_schedules,omitempty"`
-	DNSZoneOmitted    int      `json:"dns_zone_omitted_count,omitempty"`
-	CronOmitted       int      `json:"cron_omitted_count,omitempty"`
-	Databases         []string `json:"databases"`
+	Archive                string                       `json:"archive"`
+	UploadID               string                       `json:"upload_id,omitempty"`
+	ArchiveBytes           int64                        `json:"archive_bytes"`
+	ExpandedBytes          int64                        `json:"expanded_bytes"`
+	DatabaseBytes          int64                        `json:"database_bytes"`
+	RequiredFreeBytes      int64                        `json:"required_free_bytes"`
+	Entries                int                          `json:"entries"`
+	User                   string                       `json:"detected_user"`
+	HasHome                bool                         `json:"has_home"`
+	HasMySQL               bool                         `json:"has_mysql"`
+	HasMail                bool                         `json:"has_mail"`
+	Mailboxes              []string                     `json:"mailboxes,omitempty"`
+	DNSZones               []string                     `json:"dns_zones,omitempty"`
+	CronSchedules          []string                     `json:"cron_schedules,omitempty"`
+	DNSZoneOmitted         int                          `json:"dns_zone_omitted_count,omitempty"`
+	CronOmitted            int                          `json:"cron_omitted_count,omitempty"`
+	Databases              []string                     `json:"databases"`
+	DatabaseVersions       []MigrationDatabaseVersion   `json:"database_versions,omitempty"`
+	DomainMappings         []MigrationDomainMapping     `json:"domain_mappings,omitempty"`
+	MailboxValidation      []MigrationMailboxValidation `json:"mailbox_validation,omitempty"`
+	DomainInventoryStatus  string                       `json:"domain_inventory_status"`
+	DomainInventoryDetails string                       `json:"domain_inventory_details,omitempty"`
 }
 
-// CPMoveInspectionResponse contains only metadata needed by the import form.
-// Archive-derived names and paths remain server-side so they cannot become
-// browser-controlled markup through the inspection response.
+// CPMoveInspectionResponse contains bounded archive metadata for the import
+// form. Names rendered by the browser are text, and source paths are only
+// exposed as validated document-root evidence in the domain mapping report.
 type CPMoveInspectionResponse struct {
-	UploadID          string                      `json:"upload_id,omitempty"`
-	ArchiveBytes      int64                       `json:"archive_bytes"`
-	ExpandedBytes     int64                       `json:"expanded_bytes"`
-	DatabaseBytes     int64                       `json:"database_bytes"`
-	RequiredFreeBytes int64                       `json:"required_free_bytes"`
-	Entries           int                         `json:"entries"`
-	HasHome           bool                        `json:"has_home"`
-	HasMySQL          bool                        `json:"has_mysql"`
-	HasMail           bool                        `json:"has_mail"`
-	DatabaseCount     int                         `json:"database_count"`
-	MailboxCount      int                         `json:"mailbox_count"`
-	DNSZoneCount      int                         `json:"dns_zone_count"`
-	CronJobCount      int                         `json:"cron_job_count"`
-	Components        []MigrationPreviewComponent `json:"components"`
-	Compatibility     []MigrationCheck            `json:"compatibility"`
+	UploadID              string                       `json:"upload_id,omitempty"`
+	ArchiveBytes          int64                        `json:"archive_bytes"`
+	ExpandedBytes         int64                        `json:"expanded_bytes"`
+	DatabaseBytes         int64                        `json:"database_bytes"`
+	RequiredFreeBytes     int64                        `json:"required_free_bytes"`
+	Entries               int                          `json:"entries"`
+	HasHome               bool                         `json:"has_home"`
+	HasMySQL              bool                         `json:"has_mysql"`
+	HasMail               bool                         `json:"has_mail"`
+	DatabaseCount         int                          `json:"database_count"`
+	MailboxCount          int                          `json:"mailbox_count"`
+	DNSZoneCount          int                          `json:"dns_zone_count"`
+	CronJobCount          int                          `json:"cron_job_count"`
+	Components            []MigrationPreviewComponent  `json:"components"`
+	Compatibility         []MigrationCheck             `json:"compatibility"`
+	DatabaseVersions      []MigrationDatabaseVersion   `json:"database_versions,omitempty"`
+	DomainMappings        []MigrationDomainMapping     `json:"domain_mappings,omitempty"`
+	MailboxValidation     []MigrationMailboxValidation `json:"mailbox_validation,omitempty"`
+	DNSCutoverChecklist   []MigrationChecklistItem     `json:"dns_cutover_checklist"`
+	SourceScanRecommended bool                         `json:"source_scan_recommended"`
 }
 
-func (info CPMoveInfo) response(uploadID string) CPMoveInspectionResponse {
+func (info CPMoveInfo) response(uploadID string, cfg Config) CPMoveInspectionResponse {
 	response := CPMoveInspectionResponse{
 		UploadID:          uploadID,
 		ArchiveBytes:      info.ArchiveBytes,
@@ -84,6 +94,11 @@ func (info CPMoveInfo) response(uploadID string) CPMoveInspectionResponse {
 		CronJobCount:      len(info.CronSchedules) + info.CronOmitted,
 	}
 	response.Components = previewCPMoveComponents(info)
+	response.DatabaseVersions = assessCPMoveDatabaseVersions(cfg, info)
+	response.DomainMappings = append([]MigrationDomainMapping(nil), info.DomainMappings...)
+	response.MailboxValidation = append([]MigrationMailboxValidation(nil), info.MailboxValidation...)
+	response.DNSCutoverChecklist = cpmoveDNSCutoverChecklist(info)
+	response.SourceScanRecommended = true
 	return response
 }
 
@@ -122,8 +137,45 @@ func cpmoveCompatibilityChecks(cfg Config, info CPMoveInfo) []MigrationCheck {
 	} else {
 		checks = append(checks, MigrationCheck{Name: "Database engine", Status: "unknown", Details: "No database dumps were found in the archive."})
 	}
+	versions := assessCPMoveDatabaseVersions(cfg, info)
+	versionStatus, versionDetails := "passed", "Source dump headers and the configured destination database version were compared."
+	if len(versions) == 0 {
+		versionStatus, versionDetails = "unknown", "No database dumps were found."
+	} else {
+		for _, version := range versions {
+			if version.Status == "warning" {
+				versionStatus = "warning"
+			} else if version.Status == "unknown" && versionStatus != "warning" {
+				versionStatus = "unknown"
+			}
+		}
+		versionDetails = fmt.Sprintf("%d dump(s) assessed. %s", len(versions), versions[0].Details)
+	}
+	domainStatus, domainDetails := info.DomainInventoryStatus, info.DomainInventoryDetails
+	if domainStatus == "complete" {
+		domainStatus = "passed"
+	} else if domainStatus == "partial" {
+		domainStatus = "warning"
+	} else if domainStatus == "" {
+		domainStatus, domainDetails = "unknown", "Domain mapping inventory is unavailable."
+	}
+	mailStatus, mailDetails := "unknown", "No mailbox data was found; confirm whether mail is hosted elsewhere or was omitted from the archive."
+	if len(info.MailboxValidation) > 0 {
+		mailDetails = fmt.Sprintf("Validated Maildir structure for %d mailbox path(s); mailbox credentials, aliases, delivery, TLS, and DNS remain separate.", len(info.MailboxValidation))
+		for _, mailbox := range info.MailboxValidation {
+			if mailbox.Status != "valid" {
+				mailStatus = "warning"
+				mailDetails = fmt.Sprintf("%s %s: %s", mailbox.Address, mailbox.MaildirLayout, mailbox.Details)
+				break
+			}
+		}
+	}
 	checks = append(checks,
-		MigrationCheck{Name: "Application compatibility", Status: "unknown", Details: "Source PHP version and required extensions are not declared reliably in cpmove archives; the post-import rehearsal determines runtime compatibility when supported."},
+		MigrationCheck{Name: "Application compatibility", Status: "unknown", Details: "A cpmove archive cannot prove the source site's active PHP version or loaded extensions. Run the source-server compatibility scan and compare its modules with the destination; WordPress rehearsal is a separate post-import check."},
+		MigrationCheck{Name: "PHP extensions", Status: "unknown", Details: "Source PHP extensions are not reliably encoded in cpmove archives. Run the read-only SSH source scan to compare source modules with the destination CLI runtime; per-site PHP-FPM pools may still differ."},
+		MigrationCheck{Name: "Database versions", Status: versionStatus, Details: versionDetails},
+		MigrationCheck{Name: "Domain mapping", Status: domainStatus, Details: domainDetails},
+		MigrationCheck{Name: "Mailbox structure", Status: mailStatus, Details: mailDetails},
 		MigrationCheck{Name: "DNS and scheduled tasks", Status: "warning", Details: "DNS records and cron commands are not activated by import; the report includes manual cutover dispositions."},
 		MigrationCheck{Name: "Mail service", Status: "warning", Details: "Mailbox data can be staged, but mail identities, delivery configuration, aliases, and DNS cutover are not migrated."},
 	)
@@ -155,6 +207,93 @@ func applyRehearsalCompatibility(checks []MigrationCheck, rehearsal *MigrationRe
 	}
 }
 
+func realizedCPMoveDomainMappings(info CPMoveInfo, result ImportResult) []MigrationDomainMapping {
+	planned := append([]MigrationDomainMapping(nil), info.DomainMappings...)
+	byDomain := make(map[string]int, len(planned))
+	for i := range planned {
+		byDomain[strings.ToLower(planned[i].SourceDomain)] = i
+	}
+	for _, imported := range result.Domains {
+		key := strings.ToLower(imported.Domain)
+		mapping, ok := byDomain[key]
+		if !ok {
+			planned = append(planned, MigrationDomainMapping{SourceDomain: imported.Domain, Kind: imported.Kind, SourceDocumentRoot: imported.DocumentRoot, Destination: imported.Site, Status: "imported", Details: "Domain was created as a separate destination site."})
+			byDomain[key] = len(planned) - 1
+			continue
+		}
+		planned[mapping].Destination = imported.Site
+		planned[mapping].Status = "imported"
+		planned[mapping].Details = "Domain was created as a separate destination site; verify its route and HTTPS response before DNS cutover."
+	}
+	for _, domain := range result.DomainErrors {
+		name := strings.TrimSpace(strings.SplitN(domain, ":", 2)[0])
+		if i, ok := byDomain[strings.ToLower(name)]; ok {
+			planned[i].Status = "warning"
+			planned[i].Details = "Destination domain creation reported an error: " + domain
+		}
+	}
+	if result.MainDomain != "" {
+		for i := range planned {
+			if planned[i].Kind == "main" && strings.EqualFold(planned[i].SourceDomain, result.MainDomain) {
+				planned[i].Destination = "account " + result.Account + " / public_html (main site)"
+				planned[i].Status = "imported"
+				planned[i].Details = "Main-site files were restored to the hosting account; verify the destination virtual host and application response."
+			}
+			if planned[i].Kind == "parked" {
+				planned[i].Status = "planned"
+				planned[i].Details = "Parked domain is retained as an alias candidate; route/DNS activation requires operator validation."
+			}
+		}
+	}
+	return planned
+}
+
+func cpmovePostMigrationChecks(info CPMoveInfo, result ImportResult) []MigrationCheck {
+	checks := []MigrationCheck{
+		{Name: "Website files", Status: "passed", Details: "The archive file tree passed import validation and was staged into the destination account."},
+		{Name: "Database restore", Status: "unknown", Details: "Database restore outcome is not recorded in this import result."},
+		{Name: "Domain routes", Status: "unknown", Details: "Verify destination routes and request each hostname before DNS cutover."},
+		{Name: "Mailbox delivery", Status: "unknown", Details: "Maildir data may be staged; verify identities, aliases, SMTP delivery, IMAP login, and mailbox message counts."},
+		{Name: "DNS and TLS cutover", Status: "unknown", Details: "Complete the DNS checklist only after application and mail checks pass."},
+	}
+	if !result.FilesRestored {
+		checks[0].Status = "warning"
+		checks[0].Details = "No website files were recorded as restored; confirm the selected archive contents and destination."
+	}
+	if !result.DatabaseRestoreRequested {
+		checks[1].Status, checks[1].Details = "warning", "Database restoration was not selected; source databases remain outside this import."
+	} else if result.DatabaseErrorCount > 0 || len(result.DatabaseErrors) > 0 {
+		checks[1].Status, checks[1].Details = "blocked", fmt.Sprintf("%d database restore error(s) were recorded; resolve these before application verification.", max(result.DatabaseErrorCount, len(result.DatabaseErrors)))
+	} else if result.DatabasesRestoredTotal > 0 || len(result.DatabasesRestored) > 0 {
+		checks[1].Status, checks[1].Details = "passed", "Database import completed. Run application queries and validate routines, grants, character sets, and data counts."
+	}
+	if len(result.DomainErrors) > 0 || result.DomainErrorCount > 0 {
+		checks[2].Status, checks[2].Details = "blocked", fmt.Sprintf("%d domain mapping error(s) were recorded; resolve them and verify destination routes before DNS cutover.", max(result.DomainErrorCount, len(result.DomainErrors)))
+	} else if info.DomainInventoryStatus == "complete" {
+		checks[2].Status, checks[2].Details = "warning", "Domain metadata was applied where supported, but no live route/HTTP check is implied. Request each destination hostname over HTTPS before cutover."
+	}
+	if !result.MailStaged {
+		checks[3].Status, checks[3].Details = "warning", "No mailbox data was staged. Validate whether mail is hosted elsewhere and record the chosen mail cutover plan."
+	} else if result.MailErrorCount > 0 || len(result.MailErrors) > 0 {
+		checks[3].Status, checks[3].Details = "blocked", fmt.Sprintf("%d mailbox staging error(s) were recorded; validate the affected mailboxes before cutover.", max(result.MailErrorCount, len(result.MailErrors)))
+	} else {
+		checks[3].Status, checks[3].Details = "warning", "Mailbox data was staged, but account authentication and end-to-end SMTP/IMAP delivery have not been verified."
+	}
+	if result.Rehearsal != nil {
+		switch result.Rehearsal.Status {
+		case "passed":
+			checks = append(checks, MigrationCheck{Name: "Application rehearsal", Status: "passed", Details: result.Rehearsal.Details})
+		case "failed", "unsupported":
+			checks = append(checks, MigrationCheck{Name: "Application rehearsal", Status: "blocked", Details: result.Rehearsal.Details})
+		default:
+			checks = append(checks, MigrationCheck{Name: "Application rehearsal", Status: "unknown", Details: result.Rehearsal.Details})
+		}
+	} else {
+		checks = append(checks, MigrationCheck{Name: "Application rehearsal", Status: "unknown", Details: "No disposable application-level restore proof was recorded."})
+	}
+	return checks
+}
+
 func humanBytes(n int64) string {
 	const unit = 1024
 	if n < unit {
@@ -176,6 +315,14 @@ const maxCPMoveCronInventoryBytes = 8 << 20
 // randomSecret uses base64.RawURLEncoding, whose first character may be '-'
 // or '_' as well as an alphanumeric. Keep the full URL-safe alphabet valid.
 var cpmoveUploadIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
+var dumpServerVersionPattern = regexp.MustCompile(`(?i)server version[[:space:]]+([0-9]+(?:\.[0-9]+){1,3}(?:[-+._a-z0-9]*)?)`)
+var mailboxLocalPartPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$`)
+
+const (
+	maxCPMoveSQLHeaderBytes         = 256 << 10
+	maxCPMoveUserdataInventory      = 8 << 20
+	maxCPMoveUserdataInventoryFiles = 512
+)
 
 type cpmoveUpload struct {
 	ID            string    `json:"id"`
@@ -263,30 +410,35 @@ type ImportResult struct {
 	// account (ADR-0007): the main domain is served from public_html, addon
 	// and subdomains become their own sites beside it, and parked domains
 	// are aliases of the main site waiting for a route.
-	Account                  string               `json:"account,omitempty"`
-	MainDomain               string               `json:"main_domain,omitempty"`
-	ParkedDomains            []string             `json:"parked_domains,omitempty"`
-	Domains                  []ImportedDomain     `json:"domains,omitempty"`
-	DomainErrors             []string             `json:"domain_errors,omitempty"`
-	Evidence                 []MigrationEvidence  `json:"migration_evidence,omitempty"`
-	Components               []MigrationComponent `json:"components,omitempty"`
-	Compatibility            []MigrationCheck     `json:"compatibility,omitempty"`
-	Rehearsal                *MigrationRehearsal  `json:"application_rehearsal,omitempty"`
-	ReportCreatedAt          time.Time            `json:"report_created_at,omitempty"`
-	SourceArchive            string               `json:"source_archive,omitempty"`
-	ArchiveSHA256            string               `json:"archive_sha256,omitempty"`
-	ArchiveBytes             int64                `json:"archive_bytes,omitempty"`
-	ExpandedBytes            int64                `json:"expanded_bytes,omitempty"`
-	StartedAt                time.Time            `json:"started_at,omitempty"`
-	FinishedAt               time.Time            `json:"finished_at,omitempty"`
-	DatabaseRestoreRequested bool                 `json:"database_restore_requested"`
-	OmittedComponentCount    int                  `json:"omitted_component_count,omitempty"`
-	DatabasesRestoredTotal   int                  `json:"databases_restored_total,omitempty"`
-	DatabaseErrorCount       int                  `json:"database_error_count,omitempty"`
-	MailboxesStagedTotal     int                  `json:"mailboxes_staged_total,omitempty"`
-	MailErrorCount           int                  `json:"mail_error_count,omitempty"`
-	DomainsImportedTotal     int                  `json:"domains_imported_total,omitempty"`
-	DomainErrorCount         int                  `json:"domain_error_count,omitempty"`
+	Account                  string                       `json:"account,omitempty"`
+	MainDomain               string                       `json:"main_domain,omitempty"`
+	ParkedDomains            []string                     `json:"parked_domains,omitempty"`
+	Domains                  []ImportedDomain             `json:"domains,omitempty"`
+	DomainErrors             []string                     `json:"domain_errors,omitempty"`
+	Evidence                 []MigrationEvidence          `json:"migration_evidence,omitempty"`
+	Components               []MigrationComponent         `json:"components,omitempty"`
+	Compatibility            []MigrationCheck             `json:"compatibility,omitempty"`
+	PostMigrationChecks      []MigrationCheck             `json:"post_migration_checks,omitempty"`
+	DatabaseVersions         []MigrationDatabaseVersion   `json:"database_versions,omitempty"`
+	DomainMappings           []MigrationDomainMapping     `json:"domain_mappings,omitempty"`
+	MailboxValidation        []MigrationMailboxValidation `json:"mailbox_validation,omitempty"`
+	DNSCutoverChecklist      []MigrationChecklistItem     `json:"dns_cutover_checklist,omitempty"`
+	Rehearsal                *MigrationRehearsal          `json:"application_rehearsal,omitempty"`
+	ReportCreatedAt          time.Time                    `json:"report_created_at,omitempty"`
+	SourceArchive            string                       `json:"source_archive,omitempty"`
+	ArchiveSHA256            string                       `json:"archive_sha256,omitempty"`
+	ArchiveBytes             int64                        `json:"archive_bytes,omitempty"`
+	ExpandedBytes            int64                        `json:"expanded_bytes,omitempty"`
+	StartedAt                time.Time                    `json:"started_at,omitempty"`
+	FinishedAt               time.Time                    `json:"finished_at,omitempty"`
+	DatabaseRestoreRequested bool                         `json:"database_restore_requested"`
+	OmittedComponentCount    int                          `json:"omitted_component_count,omitempty"`
+	DatabasesRestoredTotal   int                          `json:"databases_restored_total,omitempty"`
+	DatabaseErrorCount       int                          `json:"database_error_count,omitempty"`
+	MailboxesStagedTotal     int                          `json:"mailboxes_staged_total,omitempty"`
+	MailErrorCount           int                          `json:"mail_error_count,omitempty"`
+	DomainsImportedTotal     int                          `json:"domains_imported_total,omitempty"`
+	DomainErrorCount         int                          `json:"domain_error_count,omitempty"`
 }
 
 // MigrationDisposition is the final operator-facing outcome for one source
@@ -314,6 +466,39 @@ type MigrationPreviewComponent struct {
 	Source             string               `json:"source"`
 	PlannedDisposition MigrationDisposition `json:"planned_disposition"`
 	Details            string               `json:"details,omitempty"`
+}
+
+type MigrationDatabaseVersion struct {
+	Database           string `json:"database"`
+	SourceVersion      string `json:"source_version,omitempty"`
+	SourceFamily       string `json:"source_family,omitempty"`
+	DestinationVersion string `json:"destination_version,omitempty"`
+	Status             string `json:"status"` // passed, warning, unknown
+	Details            string `json:"details"`
+}
+
+type MigrationDomainMapping struct {
+	SourceDomain       string `json:"source_domain"`
+	Kind               string `json:"kind"`
+	SourceDocumentRoot string `json:"source_document_root,omitempty"`
+	Destination        string `json:"destination"`
+	Status             string `json:"status"` // planned, warning, unknown
+	Details            string `json:"details"`
+}
+
+type MigrationMailboxValidation struct {
+	Address       string `json:"address"`
+	Status        string `json:"status"` // valid, warning
+	MaildirLayout string `json:"maildir_layout"`
+	MessageFiles  int    `json:"message_files"`
+	Bytes         int64  `json:"bytes"`
+	Details       string `json:"details"`
+}
+
+type MigrationChecklistItem struct {
+	Step   string `json:"step"`
+	Status string `json:"status"` // required, unknown, pending
+	Detail string `json:"detail"`
 }
 
 type MigrationCheck struct {
@@ -393,7 +578,12 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 	info := CPMoveInfo{Archive: html.EscapeString(header.Filename), ArchiveBytes: header.Size, User: html.EscapeString(userFromArchiveName(header.Filename))}
 	seen := map[string]bool{}
 	seenMail := map[string]bool{}
+	mailboxes := map[string]*mailboxInventory{}
 	seenZones := map[string]bool{}
+	databaseVersions := map[string]string{}
+	userdataFiles := map[string][]byte{}
+	var userdataBytes int64
+	userdataIncomplete := false
 	var cronInventoryBytes int64
 	paths := archivesafe.NewPathSet()
 	var total int64
@@ -445,6 +635,13 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 					info.Databases = append(info.Databases, db)
 					seen[db] = true
 				}
+				prefix, readErr := io.ReadAll(io.LimitReader(tr, maxCPMoveSQLHeaderBytes))
+				if readErr != nil {
+					return info, errors.New("could not safely inspect SQL dump version header")
+				}
+				if match := dumpServerVersionPattern.FindSubmatch(prefix); len(match) == 2 {
+					databaseVersions[db] = string(match[1])
+				}
 			}
 		}
 		if strings.HasPrefix(name, "homedir/mail/") {
@@ -455,6 +652,38 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 					info.Mailboxes = append(info.Mailboxes, mailbox)
 					seenMail[mailbox] = true
 				}
+				validMailbox := domainname.Validate(parts[2]) == nil && mailboxLocalPartPattern.MatchString(parts[3])
+				address := "invalid archive path: " + mailbox
+				if validMailbox {
+					address = strings.ToLower(parts[3] + "@" + parts[2])
+				}
+				entry := mailboxes[address]
+				if entry == nil {
+					entry = &mailboxInventory{address: address, valid: validMailbox, folders: map[string]bool{}}
+					mailboxes[address] = entry
+				}
+				if validMailbox && len(parts) >= 5 && (parts[4] == "cur" || parts[4] == "new" || parts[4] == "tmp") {
+					entry.folders[parts[4]] = true
+					if kind == archivesafe.File && len(parts) >= 6 && !strings.HasPrefix(parts[5], ".") {
+						entry.messages++
+						if entry.bytes <= int64(^uint64(0)>>1)-h.Size {
+							entry.bytes += h.Size
+						}
+					}
+				}
+			}
+		}
+		if strings.HasPrefix(name, "userdata/") && kind == archivesafe.File {
+			parts := strings.Split(name, "/")
+			if len(parts) == 2 && len(userdataFiles) < maxCPMoveUserdataInventoryFiles && h.Size <= maxCPMoveUserdataBytes && userdataBytes <= maxCPMoveUserdataInventory-h.Size {
+				data, readErr := io.ReadAll(io.LimitReader(tr, h.Size+1))
+				if readErr != nil || int64(len(data)) != h.Size {
+					return info, errors.New("could not safely inspect cPanel domain metadata")
+				}
+				userdataFiles[parts[1]] = data
+				userdataBytes += h.Size
+			} else if len(parts) == 2 {
+				userdataIncomplete = true
 			}
 		}
 		if strings.HasPrefix(name, "dnszones/") && strings.HasSuffix(strings.ToLower(name), ".db") {
@@ -506,11 +735,191 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 	sort.Strings(info.Mailboxes)
 	sort.Strings(info.DNSZones)
 	sort.Strings(info.CronSchedules)
+	for database, version := range databaseVersions {
+		family := "MySQL"
+		if strings.Contains(strings.ToLower(version), "mariadb") || strings.HasPrefix(version, "10.") && strings.Contains(strings.ToLower(version), "maria") {
+			family = "MariaDB"
+		}
+		info.DatabaseVersions = append(info.DatabaseVersions, MigrationDatabaseVersion{Database: database, SourceVersion: version, SourceFamily: family, Status: "unknown", Details: "Version was read from the SQL dump header; compare server features and SQL mode separately."})
+	}
+	sort.Slice(info.DatabaseVersions, func(i, j int) bool { return info.DatabaseVersions[i].Database < info.DatabaseVersions[j].Database })
+	info.MailboxValidation = buildCPMoveMailboxValidation(mailboxes)
+	info.DomainMappings, info.DomainInventoryStatus, info.DomainInventoryDetails = buildCPMoveDomainMappings(info.User, userdataFiles, userdataIncomplete)
 	info.ExpandedBytes = total
 	if info.Entries == 0 {
 		return info, errors.New("backup archive is empty")
 	}
 	return info, nil
+}
+
+type mailboxInventory struct {
+	address  string
+	valid    bool
+	folders  map[string]bool
+	messages int
+	bytes    int64
+}
+
+func buildCPMoveMailboxValidation(inventory map[string]*mailboxInventory) []MigrationMailboxValidation {
+	result := make([]MigrationMailboxValidation, 0, len(inventory))
+	for address, item := range inventory {
+		layout := "complete"
+		status := "valid"
+		details := "Mailbox path and Maildir folders are present in the archive. Data will be staged; identities, passwords, aliases, and delivery are not activated."
+		if !item.valid {
+			status, layout = "warning", "invalid-address"
+			details = "Archive path does not form a valid mailbox local-part and domain; do not create a destination mailbox from this entry without operator review."
+		} else if !item.folders["cur"] || !item.folders["new"] || !item.folders["tmp"] {
+			status, layout = "warning", "incomplete"
+			details = "One or more Maildir folders (cur, new, tmp) were not found. Mailbox staging may be incomplete; validate with a real mail client after provisioning."
+		}
+		result = append(result, MigrationMailboxValidation{Address: address, Status: status, MaildirLayout: layout, MessageFiles: item.messages, Bytes: item.bytes, Details: details})
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Address < result[j].Address })
+	return result
+}
+
+func buildCPMoveDomainMappings(user string, userdata map[string][]byte, incomplete bool) ([]MigrationDomainMapping, string, string) {
+	mainData, ok := userdata["main"]
+	if !ok {
+		if incomplete {
+			return nil, "warning", "Domain metadata exceeded inspection limits; domain mapping is incomplete."
+		}
+		return nil, "unknown", "No userdata/main domain inventory was found; inspect source domains and document roots manually."
+	}
+	main, err := parseCPMoveUserdataMain(mainData)
+	if err != nil {
+		return nil, "warning", "Domain metadata could not be parsed safely: " + err.Error()
+	}
+	status, details := "complete", "Domain names and planned account placements were read from cPanel userdata. Site-name collisions are resolved during import; DNS and route activation are separate."
+	if incomplete {
+		status, details = "warning", "Domain metadata was partially omitted by inspection limits; review this mapping against the source control panel."
+	}
+	var mappings []MigrationDomainMapping
+	add := func(domain, kind, metadataName, destination string) {
+		domain = strings.ToLower(strings.TrimSpace(domain))
+		if domain == "" || domainname.Validate(domain) != nil {
+			return
+		}
+		sourceRoot := ""
+		mappingStatus := "planned"
+		mappingDetails := "Target location is provisional until destination ownership and site-name collision checks run."
+		if metadataName != "" {
+			if data, found := userdata[metadataName]; found {
+				root, rootErr := parseCPMoveDocumentRoot(data, user, metadataName)
+				if rootErr != nil {
+					mappingStatus, mappingDetails = "warning", "Source document-root metadata is invalid: "+rootErr.Error()
+				} else if root != "" {
+					sourceRoot = root
+				} else {
+					mappingStatus, mappingDetails = "warning", "Source document root is not declared; verify where this domain's content resides before import."
+				}
+			} else if kind == "addon" || kind == "subdomain" {
+				mappingStatus, mappingDetails = "warning", "Domain has no per-domain userdata document-root record."
+			}
+		}
+		mappings = append(mappings, MigrationDomainMapping{SourceDomain: domain, Kind: kind, SourceDocumentRoot: sourceRoot, Destination: destination, Status: mappingStatus, Details: mappingDetails})
+	}
+	if main.MainDomain != "" {
+		add(main.MainDomain, "main", main.MainDomain, "account "+user+" / public_html (main site)")
+	}
+	parked := append([]string(nil), main.Parked...)
+	sort.Strings(parked)
+	for _, domain := range parked {
+		add(domain, "parked", "", "main site "+user+" / public_html (parked-domain alias)")
+	}
+	addons := make([]string, 0, len(main.Addons))
+	for domain := range main.Addons {
+		addons = append(addons, domain)
+	}
+	sort.Strings(addons)
+	aliases := map[string]bool{}
+	for _, domain := range addons {
+		alias := main.Addons[domain]
+		aliases[alias] = true
+		metadataName := alias
+		if metadataName == "" {
+			metadataName = domain
+		}
+		add(domain, "addon", metadataName, "account "+user+" / "+domain+" (separate site; final site name assigned during import)")
+	}
+	subdomains := append([]string(nil), main.Subdomains...)
+	sort.Strings(subdomains)
+	for _, domain := range subdomains {
+		if aliases[domain] {
+			continue
+		}
+		add(domain, "subdomain", domain, "account "+user+" / "+domain+" (separate site; final site name assigned during import)")
+	}
+	if main.MainDomain == "" {
+		status, details = "warning", "userdata/main exists but does not declare a valid main_domain; validate the account's primary domain manually."
+	}
+	sort.Slice(mappings, func(i, j int) bool { return mappings[i].SourceDomain < mappings[j].SourceDomain })
+	if len(mappings) > maxCPMoveDomains {
+		mappings = mappings[:maxCPMoveDomains]
+		status, details = "warning", "Domain mapping list exceeded the supported preview limit; inspect the complete source inventory before importing."
+	}
+	return mappings, status, details
+}
+
+func assessCPMoveDatabaseVersions(cfg Config, info CPMoveInfo) []MigrationDatabaseVersion {
+	versions := append([]MigrationDatabaseVersion(nil), info.DatabaseVersions...)
+	byName := make(map[string]bool, len(versions))
+	for i := range versions {
+		byName[versions[i].Database] = true
+	}
+	for _, database := range info.Databases {
+		if !byName[database] {
+			versions = append(versions, MigrationDatabaseVersion{Database: database, Status: "unknown", Details: "No server-version comment was found in the SQL dump header."})
+		}
+	}
+	destinationFamily := strings.ToLower(cfg.DBEngine)
+	if destinationFamily == "mysql" || destinationFamily == "mariadb" {
+		if destinationFamily == "mysql" {
+			destinationFamily = "mysql"
+		} else {
+			destinationFamily = "mariadb"
+		}
+	}
+	for i := range versions {
+		versions[i].DestinationVersion = cfg.DBVersion
+		if versions[i].SourceVersion == "" || cfg.DBVersion == "" || destinationFamily == "" {
+			versions[i].Status = "unknown"
+			versions[i].Details = "Source dump version or configured destination database version is unavailable; verify the live server versions and SQL features before cutover."
+			continue
+		}
+		sourceFamily := strings.ToLower(versions[i].SourceFamily)
+		if sourceFamily == "mariadb" && destinationFamily != "mariadb" || sourceFamily == "mysql" && destinationFamily != "mysql" {
+			versions[i].Status = "warning"
+			versions[i].Details = fmt.Sprintf("Source dump identifies %s %s while the destination is configured as %s %s. Import may work, but cross-family compatibility is not inferred; rehearse the import and validate collations, routines, and SQL mode.", versions[i].SourceFamily, versions[i].SourceVersion, cfg.DBEngine, cfg.DBVersion)
+			continue
+		}
+		sourceMajor := strings.Split(versions[i].SourceVersion, ".")[0]
+		destinationMajor := strings.Split(cfg.DBVersion, ".")[0]
+		if sourceMajor != destinationMajor {
+			versions[i].Status = "warning"
+			versions[i].Details = fmt.Sprintf("Source %s %s and destination %s %s have different major versions; rehearse SQL import and validate collations, routines, and SQL mode.", versions[i].SourceFamily, versions[i].SourceVersion, cfg.DBEngine, cfg.DBVersion)
+		} else {
+			versions[i].Status = "passed"
+			versions[i].Details = fmt.Sprintf("Source dump and destination are configured for the %s %s major line. This does not replace schema, collation, SQL-mode, and application restore tests.", cfg.DBEngine, cfg.DBVersion)
+		}
+	}
+	sort.Slice(versions, func(i, j int) bool { return versions[i].Database < versions[j].Database })
+	return versions
+}
+
+func cpmoveDNSCutoverChecklist(info CPMoveInfo) []MigrationChecklistItem {
+	zoneDetail := "No zone file was detected in the archive; export the authoritative provider zone directly."
+	if len(info.DNSZones) > 0 || info.DNSZoneOmitted > 0 {
+		zoneDetail = "Zone filenames were detected, but records were not imported. Compare the live authoritative zone and archive records before changing DNS."
+	}
+	return []MigrationChecklistItem{
+		{Step: "Domain records", Status: "required", Detail: zoneDetail + " Review A, AAAA, CNAME, redirects, and destination routes."},
+		{Step: "Mail routing", Status: "required", Detail: "Validate MX, SPF, DKIM, DMARC, mailboxes, aliases, and forwarders with the destination mail operator; mail is staged, not activated."},
+		{Step: "TTL and propagation", Status: "required", Detail: "Record current TTLs, lower them at least one TTL period before cutover, and monitor authoritative answers and resolver propagation."},
+		{Step: "TLS and application", Status: "required", Detail: "Issue/validate destination TLS and test the site over HTTPS before publishing production A/AAAA changes."},
+		{Step: "Rollback", Status: "required", Detail: "Save current DNS values and retain the source host until application, database, and mail acceptance is complete."},
+	}
 }
 
 func RestoreCPMove(cfg Config, file multipart.File, header *multipart.FileHeader, site SiteCapability, databases bool, ledgers ...*capacityLedger) (ImportResult, error) {
@@ -773,6 +1182,10 @@ func restoreCPMoveArchiveContextWithApp(ctx context.Context, cfg Config, archive
 	}
 	result.Evidence = buildCPMoveMigrationEvidence(archiveInfo, result, databases, plan, domainInventoryErr)
 	result.Compatibility = cpmoveCompatibilityChecks(cfg, archiveInfo)
+	result.DatabaseVersions = assessCPMoveDatabaseVersions(cfg, archiveInfo)
+	result.DomainMappings = realizedCPMoveDomainMappings(archiveInfo, result)
+	result.MailboxValidation = append([]MigrationMailboxValidation(nil), archiveInfo.MailboxValidation...)
+	result.DNSCutoverChecklist = cpmoveDNSCutoverChecklist(archiveInfo)
 	result.ReportCreatedAt = time.Now().UTC()
 	if app != nil && wordpressProofEnabled(cfg, false) {
 		proofStarted := time.Now()
@@ -792,6 +1205,7 @@ func restoreCPMoveArchiveContextWithApp(ctx context.Context, cfg Config, archive
 		result.Rehearsal = &MigrationRehearsal{Status: "skipped", Details: "The built-in WordPress recovery proof is not enabled or its site, database, and web-server helpers are unavailable."}
 	}
 	applyRehearsalCompatibility(result.Compatibility, result.Rehearsal)
+	result.PostMigrationChecks = cpmovePostMigrationChecks(archiveInfo, result)
 	result.Components, result.OmittedComponentCount = buildMigrationComponents(archiveInfo, result, databases, nil)
 	return result, nil
 }
@@ -1579,7 +1993,7 @@ func safeArchivePath(path string) bool {
 func normalizeCPMovePath(path string) cpmovePathInfo {
 	name := strings.Trim(filepath.ToSlash(path), "/")
 	parts := strings.Split(name, "/")
-	if len(parts) >= 2 && isCPMoveRoot(parts[0]) && (parts[1] == "homedir" || parts[1] == "mysql" || parts[1] == "dnszones" || parts[1] == "cron") {
+	if len(parts) >= 2 && isCPMoveRoot(parts[0]) && (parts[1] == "homedir" || parts[1] == "mysql" || parts[1] == "dnszones" || parts[1] == "cron" || parts[1] == "userdata") {
 		return cpmovePathInfo{Path: strings.Join(parts[1:], "/"), User: userFromArchiveName(parts[0])}
 	}
 	return cpmovePathInfo{Path: name}

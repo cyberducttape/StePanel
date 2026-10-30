@@ -1062,7 +1062,7 @@ func (a *App) inspect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not persist upload", 500)
 		return
 	}
-	preview := info.response(uploadID)
+	preview := info.response(uploadID, a.Config)
 	preview.Compatibility = cpmoveCompatibilityChecks(a.Config, info)
 	writeJSON(w, 200, preview)
 }
@@ -1178,6 +1178,10 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 			_ = reportFile.Close()
 			if inspectErr == nil {
 				result.Compatibility = cpmoveCompatibilityChecks(a.Config, info)
+				result.DatabaseVersions = assessCPMoveDatabaseVersions(a.Config, info)
+				result.DomainMappings = realizedCPMoveDomainMappings(info, result)
+				result.MailboxValidation = append([]MigrationMailboxValidation(nil), info.MailboxValidation...)
+				result.DNSCutoverChecklist = cpmoveDNSCutoverChecklist(info)
 				result.Evidence = buildCPMoveMigrationEvidence(info, result, request.RestoreDBs, cpmoveDomainPlan{}, nil)
 				for i := range result.Evidence {
 					result.Evidence[i].Status = "failed"
@@ -1187,6 +1191,7 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 					}
 				}
 				result.Rehearsal = &MigrationRehearsal{Status: "skipped", Details: "Application rehearsal did not run because the import did not complete."}
+				result.PostMigrationChecks = cpmovePostMigrationChecks(info, result)
 				result.ReportCreatedAt = time.Now().UTC()
 				result.Components, result.OmittedComponentCount = buildMigrationComponents(info, result, request.RestoreDBs, restoreErr)
 			}

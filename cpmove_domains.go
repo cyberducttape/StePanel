@@ -128,6 +128,10 @@ func cpmoveDocumentRoot(root, user, name string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read userdata for %s: %w", name, err)
 	}
+	return parseCPMoveDocumentRoot(data, user, name)
+}
+
+func parseCPMoveDocumentRoot(data []byte, user, name string) (string, error) {
 	for _, line := range strings.Split(string(data), "\n") {
 		key, value, found := strings.Cut(strings.TrimSpace(line), ":")
 		if !found || strings.TrimSpace(key) != "documentroot" {

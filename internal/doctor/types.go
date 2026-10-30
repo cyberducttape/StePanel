@@ -30,24 +30,26 @@ type OperatingSystem struct {
 
 // PHPRuntime describes PHP configuration
 type PHPRuntime struct {
-	Version      string            `json:"version"`     // "7.4", "8.1", "8.2"
-	Extensions   []string          `json:"extensions"`  // "mysqli", "curl", "redis", "igbinary"
-	FPMVersion   string            `json:"fpm_version"` // "7.4.x", "8.1.x"
-	MaxUploadMB  int               `json:"max_upload_mb"`
-	MemoryLimit  int               `json:"memory_limit_mb"`
-	MaxExecution int               `json:"max_execution_seconds"`
-	TimeZone     string            `json:"timezone"`
-	OpCacheInfo  map[string]string `json:"opcache_info,omitempty"`
+	Version       string            `json:"version"`                  // "7.4", "8.1", "8.2"
+	VersionSource string            `json:"version_source,omitempty"` // "cli" or "fpm"
+	Extensions    []string          `json:"extensions"`               // "mysqli", "curl", "redis", "igbinary"
+	FPMVersion    string            `json:"fpm_version"`              // "7.4.x", "8.1.x"
+	MaxUploadMB   int               `json:"max_upload_mb"`
+	MemoryLimit   int               `json:"memory_limit_mb"`
+	MaxExecution  int               `json:"max_execution_seconds"`
+	TimeZone      string            `json:"timezone"`
+	OpCacheInfo   map[string]string `json:"opcache_info,omitempty"`
 }
 
 // DatabaseSystem describes database configuration
 type DatabaseSystem struct {
-	Type      string `json:"type"`     // "MySQL", "MariaDB", "PostgreSQL"
-	Version   string `json:"version"`  // "5.7.x", "8.0.x", "10.4.x"
-	Encoding  string `json:"encoding"` // "utf8mb4", "utf8"
-	SQLMode   string `json:"sql_mode"` // MySQL SQL modes
-	Databases int    `json:"databases"`
-	Reachable bool   `json:"reachable"`
+	Type          string `json:"type"`                     // "MySQL", "MariaDB", "PostgreSQL"
+	Version       string `json:"version"`                  // "5.7.x", "8.0.x", "10.4.x"
+	VersionSource string `json:"version_source,omitempty"` // "server", "client", or "configured"
+	Encoding      string `json:"encoding"`                 // "utf8mb4", "utf8"
+	SQLMode       string `json:"sql_mode"`                 // MySQL SQL modes
+	Databases     int    `json:"databases"`
+	Reachable     bool   `json:"reachable"`
 }
 
 // WebServerInfo describes web server configuration

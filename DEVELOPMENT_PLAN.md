@@ -93,6 +93,36 @@ request.
 - Installed Apache runtime tests from allowed and denied sources are required
   before reporting effective IP enforcement as verified.
 
+### M0c — Exportable cPanel migration compatibility evidence (P1)
+
+**Status:** Feature implemented and focused Go/browser checks pass locally.
+The complete browser suite had one timeout in the existing customer-panel
+accessibility test; that same test passed when rerun alongside the new
+migration-report browser test. Exact-source hosted CI remains outstanding.
+
+The cpmove preflight reports bounded domain/document-root mappings, SQL dump
+version evidence, Maildir structure, and explicit DNS/mail/TLS cutover work.
+An optional read-only SSH scan compares source PHP extensions and host
+inventory. The import result records observed post-migration checks and the UI
+exports both preview and final evidence as JSON and Markdown.
+
+**Acceptance criteria**
+
+- Archive tests cover parsed domain maps, unknown/major-mismatch database
+  versions, complete/incomplete Maildir structure, and post-import failure
+  states.
+- Missing source/runtime data is reported as unknown or warning; PHP CLI,
+  staged mail, and archive metadata are not represented as PHP-FPM, delivery,
+  or DNS verification.
+- Dashboard preview exposes domain mappings, database checks, mailbox
+  validation, and a DNS cutover checklist; optional SSH analysis uses the
+  existing administrator-only, read-only job workflow.
+- Preview and completed import evidence download as valid JSON and readable
+  Markdown, without including SSH credentials.
+- Focused Go tests, JavaScript syntax/unit/E2E checks, full `make check`, and
+  exact-source CI pass. This milestone does not close installed-host recovery
+  or production certification gates.
+
 ### M1 — Complete installed-host failure recovery (P0)
 
 **Status:** Open; requires an accessible disposable KVM host/runner.  

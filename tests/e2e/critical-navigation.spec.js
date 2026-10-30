@@ -5,6 +5,7 @@
 // job completion, host state, audit events, and state after a restart.
 const { test, expect } = require('@playwright/test');
 const AxeBuilder = require('@axe-core/playwright').default;
+const fs = require('node:fs/promises');
 
 const enabled = Boolean(process.env.STEPANEL_E2E_BASE_URL);
 const username = process.env.STEPANEL_E2E_USERNAME || 'admin';
@@ -195,6 +196,37 @@ test('navigation: cPanel migration controls render', async ({ page }) => {
   await page.getByRole('link', { name: 'Migrations' }).click();
   await expect(page.locator('#cpmoveForm')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Import a cpmove backup' })).toBeVisible();
+});
+
+test('cPanel preflight exposes compatibility evidence and downloadable report', async ({ page }) => {
+  await page.route('**/api/cpmove/inspect', (route) => route.fulfill({ json: {
+    upload_id: 'fixture-upload', archive_bytes: 1024, expanded_bytes: 2048, database_count: 1,
+    mailbox_count: 1, dns_zone_count: 1, cron_job_count: 0, has_home: true, has_mysql: true,
+    components: [{ category: 'website_files', source: 'home', planned_disposition: 'imported' }],
+    compatibility: [{ name: 'PHP extensions', status: 'unknown', details: 'Run source scan.' }],
+    database_versions: [{ database: 'acct_wp', source_family: 'MariaDB', source_version: '10.11.6', destination_version: '10.11.6', status: 'passed', details: 'Version line matches.' }],
+    domain_mappings: [{ source_domain: 'example.test', kind: 'main', source_document_root: '/home/acct/public_html', destination: 'public_html', status: 'planned', details: 'Provisional.' }],
+    mailbox_validation: [{ address: 'web@example.test', maildir_layout: 'complete', message_files: 4, bytes: 2048, status: 'valid', details: 'Staged only.' }],
+    dns_cutover_checklist: [{ step: 'Mail routing', status: 'required', detail: 'Validate MX and mail delivery.' }],
+    source_scan_recommended: false,
+  } }));
+  await page.getByRole('link', { name: 'Migrations' }).click();
+  await page.locator('#cpmoveForm input[name="backup"]').setInputFiles({ name: 'cpmove-acct.tar.gz', mimeType: 'application/gzip', buffer: Buffer.from('archive') });
+  await expect(page.locator('#cpmoveStatus')).toContainText('Ready:');
+  const preview = page.locator('.migration-preview[aria-label="Migration preview"]');
+  await expect(preview).toContainText('example.test');
+  await expect(preview).toContainText('MariaDB 10.11.6');
+  await expect(preview).toContainText('Mail routing');
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('link', { name: 'Download evidence (JSON)' }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/\.json$/);
+  const downloaded = JSON.parse(await fs.readFile(await download.path(), 'utf8'));
+  expect(downloaded.domain_mappings[0].source_domain).toBe('example.test');
+  const markdownPromise = page.waitForEvent('download');
+  await page.getByRole('link', { name: 'Download evidence (Markdown)' }).click();
+  const markdown = await markdownPromise;
+  expect(await fs.readFile(await markdown.path(), 'utf8')).toContain('DNS cutover checklist');
 });
 
 test('navigation: Job Center opens', async ({ page }) => {

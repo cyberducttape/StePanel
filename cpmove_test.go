@@ -209,6 +209,58 @@ func TestInspectCPMoveHandlesTopLevelCPanelRoot(t *testing.T) {
 	}
 }
 
+func TestCPMovePreflightReportsDomainsDatabaseAndMailboxEvidence(t *testing.T) {
+	archive := makeTarGz(t, map[string]string{
+		"cpmove-alice/userdata/main":                            sampleUserdataMain,
+		"cpmove-alice/userdata/alice.example.com":               "documentroot: /home/alice/public_html\n",
+		"cpmove-alice/userdata/shop.alice.example.com":          "documentroot: /home/alice/public_html/shop\n",
+		"cpmove-alice/homedir/public_html/index.php":            "<?php",
+		"cpmove-alice/mysql/alice_blog.sql":                     "-- Server version 10.11.6-MariaDB\nCREATE TABLE posts (id INT);\n",
+		"cpmove-alice/homedir/mail/example.com/alice/cur/msg-1": "message",
+		"cpmove-alice/homedir/mail/example.com/alice/new/msg-2": "message",
+		"cpmove-alice/homedir/mail/example.com/alice/tmp/.keep": "",
+	})
+	file, header := openMultipartArchive(t, archive, "cpmove-alice.tar.gz")
+	defer file.Close()
+	info, err := InspectCPMove(file, header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.DomainInventoryStatus != "complete" || len(info.DomainMappings) < 3 {
+		t.Fatalf("domain inventory = %q, %d mappings: %+v", info.DomainInventoryStatus, len(info.DomainMappings), info.DomainMappings)
+	}
+	if len(info.DatabaseVersions) != 1 || info.DatabaseVersions[0].SourceFamily != "MariaDB" || info.DatabaseVersions[0].SourceVersion != "10.11.6-MariaDB" {
+		t.Fatalf("database version evidence = %+v", info.DatabaseVersions)
+	}
+	if len(info.MailboxValidation) != 1 || info.MailboxValidation[0].Status != "valid" || info.MailboxValidation[0].MessageFiles != 2 {
+		t.Fatalf("mailbox evidence = %+v", info.MailboxValidation)
+	}
+	preview := info.response("upload-1", Config{DBEngine: "mariadb", DBVersion: "10.11.6"})
+	if !preview.SourceScanRecommended || len(preview.DNSCutoverChecklist) == 0 || preview.DatabaseVersions[0].Status != "passed" {
+		t.Fatalf("preflight response = %+v", preview)
+	}
+}
+
+func TestCPMovePostMigrationChecksDistinguishStagingFromVerification(t *testing.T) {
+	info := CPMoveInfo{DomainInventoryStatus: "complete"}
+	result := ImportResult{FilesRestored: true, DatabaseRestoreRequested: true, DatabasesRestoredTotal: 1, MailStaged: true}
+	checks := cpmovePostMigrationChecks(info, result)
+	statuses := map[string]string{}
+	for _, check := range checks {
+		statuses[check.Name] = check.Status
+	}
+	if statuses["Database restore"] != "passed" || statuses["Domain routes"] != "warning" || statuses["Mailbox delivery"] != "warning" || statuses["Application rehearsal"] != "unknown" {
+		t.Fatalf("post-migration statuses = %#v", statuses)
+	}
+	result.DatabaseErrorCount = 1
+	checks = cpmovePostMigrationChecks(info, result)
+	for _, check := range checks {
+		if check.Name == "Database restore" && check.Status != "blocked" {
+			t.Fatalf("database failure status = %+v", check)
+		}
+	}
+}
+
 func TestInspectCPMoveEscapesArchiveDisplayName(t *testing.T) {
 	archive := makeTarGz(t, map[string]string{"cpmove-account/homedir/public_html/index.php": "ok"})
 	file, header := openMultipartArchive(t, archive, "<script>alert(1)</script>.tar.gz")

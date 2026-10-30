@@ -80,11 +80,15 @@ for _ in {1..30}; do
 done
 [[ $ready == 1 ]] || { echo "stepanel did not become ready" >&2; exit 1; }
 
-STEPANEL_E2E_BASE_URL="$BASE_URL" \
-STEPANEL_E2E_USERNAME="$ADMIN_USER" \
-STEPANEL_E2E_PASSWORD="$ADMIN_PASS" \
-STEPANEL_E2E_SCREENSHOT_DIR="$SCREENSHOT_DIR" \
-npx playwright test
+export STEPANEL_E2E_BASE_URL="$BASE_URL"
+export STEPANEL_E2E_USERNAME="$ADMIN_USER"
+export STEPANEL_E2E_PASSWORD="$ADMIN_PASS"
+export STEPANEL_E2E_SCREENSHOT_DIR="$SCREENSHOT_DIR"
+if [[ -n ${STEPANEL_E2E_GREP:-} ]]; then
+  npx playwright test --grep "$STEPANEL_E2E_GREP"
+else
+  npx playwright test
+fi
 
 if [[ -d $SCREENSHOT_DIR ]]; then
   {

@@ -8,6 +8,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Expanded cPanel migration preflight with provisional domain/document-root
+  mapping, SQL dump source-version checks against the configured destination,
+  Maildir layout/message inventory, and an explicit DNS/mail/TLS cutover
+  checklist. The import report now records post-migration file, database,
+  domain, mailbox, and application-rehearsal checks. Administrators can run the
+  existing read-only SSH Migration Doctor from the preview to compare source
+  PHP extensions and host/database inventory; the report distinguishes PHP
+  CLI evidence from per-site PHP-FPM verification. Preflight and result evidence
+  export as JSON or Markdown.
 - Added a per-site guided lifecycle workflow that links migration/import,
   validation, deployment, domain/TLS troubleshooting, verified backups and
   rehearsals, staging clone/promotion, and administrator-only retirement

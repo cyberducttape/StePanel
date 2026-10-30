@@ -16,7 +16,9 @@ steps below before moving customer traffic.
    authoritative provider; a cpmove restore does not copy or update it.
 3. Confirm destination disk capacity and database compatibility. Inspect the
    archive and review the source-to-destination migration analysis before
-   starting a restore.
+   starting a restore. Export the cpmove preflight evidence as JSON or Markdown
+   so domain mappings, database-version evidence, mailbox layout, and unknowns
+   are available during change review.
 4. Lower relevant DNS TTLs at least one existing TTL period before the planned
    switch. Keep the old host and its backups available through the rollback
    window.
@@ -25,8 +27,11 @@ steps below before moving customer traffic.
 
 1. Review the durable import result by category: account mapping, website roots,
    database dumps, mailbox data, domain placement, and every skipped or
-   uninspected component. A bounded list reports how many additional names were
-   omitted from the job summary.
+   uninspected component. Download the post-migration JSON or Markdown report
+   after the job completes. A bounded list reports how many additional names
+   were omitted from the job summary. Treat `passed`, `warning`, `blocked`, and
+   `unknown` distinctly; staged mail or a parsed archive is not a live service
+   verification.
 2. Verify database imports and credentials, then restore to staging and test
    the application against the destination database. Check representative
    read/write flows, uploads, plugins, and scheduled application tasks.

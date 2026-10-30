@@ -29,8 +29,14 @@ if [ -r /etc/os-release ]; then . /etc/os-release; emit OS_NAME "${NAME:-}"; emi
 emit KERNEL "$(uname -r 2>/dev/null || true)"
 emit ARCH "$(uname -m 2>/dev/null || true)"
 if command -v php >/dev/null 2>&1; then emit PHP_VERSION "$(php -r 'echo PHP_VERSION;' 2>/dev/null || true)"; emit PHP_EXTENSIONS "$(php -m 2>/dev/null | tr '\n' ',' || true)"; fi
-if command -v mysql >/dev/null 2>&1; then emit DB_VERSION "$(mysql --version 2>/dev/null || true)"; fi
-if command -v psql >/dev/null 2>&1; then emit PG_VERSION "$(psql --version 2>/dev/null || true)"; fi
+if command -v mysql >/dev/null 2>&1; then
+  emit DB_CLIENT_VERSION "$(mysql --version 2>/dev/null || true)"
+  emit DB_SERVER_VERSION "$(mysql --batch --skip-column-names --connect-timeout=5 --execute='SELECT VERSION()' 2>/dev/null | head -1 || true)"
+fi
+if command -v psql >/dev/null 2>&1; then
+  emit PG_CLIENT_VERSION "$(psql --version 2>/dev/null || true)"
+  emit PG_SERVER_VERSION "$(psql --no-psqlrc --tuples-only --no-align --command='SELECT version()' 2>/dev/null | head -1 || true)"
+fi
 df -Pk / 2>/dev/null | awk 'NR==2 { printf "DISK_TOTAL_KB\t%s\nDISK_AVAILABLE_KB\t%s\n", $2, $4 }'
 if command -v nproc >/dev/null 2>&1; then emit CPU_CORES "$(nproc 2>/dev/null || true)"; fi
 if command -v free >/dev/null 2>&1; then free -m 2>/dev/null | awk 'NR==2 { printf "MEMORY_MB\t%s\n", $2 }'; fi
@@ -138,6 +144,7 @@ func parseMigrationInventory(output, fallbackHost string) (doctor.ServerInventor
 			inv.OS.Architecture = value
 		case "PHP_VERSION":
 			inv.PHP.Version = value
+			inv.PHP.VersionSource = "cli"
 		case "PHP_EXTENSIONS":
 			for _, ext := range strings.Split(value, ",") {
 				if ext != "" {
@@ -145,9 +152,31 @@ func parseMigrationInventory(output, fallbackHost string) (doctor.ServerInventor
 				}
 			}
 		case "DB_VERSION":
-			inv.Database.Type, inv.Database.Version = "MySQL", value
+			inv.Database.Type, inv.Database.Version, inv.Database.VersionSource = "MySQL", value, "client"
+		case "DB_CLIENT_VERSION":
+			if inv.Database.Type == "" {
+				inv.Database.Type = "MySQL"
+			}
+			if inv.Database.Version == "" {
+				inv.Database.Version, inv.Database.VersionSource = value, "client"
+			}
+		case "DB_SERVER_VERSION":
+			if value != "" {
+				inv.Database.Type, inv.Database.Version, inv.Database.VersionSource = "MySQL", value, "server"
+				if strings.Contains(strings.ToLower(value), "mariadb") {
+					inv.Database.Type = "MariaDB"
+				}
+			}
 		case "PG_VERSION":
-			inv.Database.Type, inv.Database.Version = "PostgreSQL", value
+			inv.Database.Type, inv.Database.Version, inv.Database.VersionSource = "PostgreSQL", value, "client"
+		case "PG_CLIENT_VERSION":
+			if inv.Database.Version == "" {
+				inv.Database.Type, inv.Database.Version, inv.Database.VersionSource = "PostgreSQL", value, "client"
+			}
+		case "PG_SERVER_VERSION":
+			if value != "" {
+				inv.Database.Type, inv.Database.Version, inv.Database.VersionSource = "PostgreSQL", value, "server"
+			}
 		case "DISK_TOTAL_KB":
 			inv.SystemResources.TotalDiskGB = parseDoctorInt(value) / (1024 * 1024)
 		case "DISK_AVAILABLE_KB":
@@ -196,13 +225,29 @@ func parseDoctorIntAsInt(value string) int {
 }
 
 func (a *App) localMigrationInventory() doctor.ServerInventory {
-	inv := doctor.ServerInventory{ScanTime: time.Now().UTC(), Database: doctor.DatabaseSystem{Type: a.Config.DBEngine, Version: a.Config.DBVersion, Reachable: true}}
+	inv := doctor.ServerInventory{ScanTime: time.Now().UTC(), Database: doctor.DatabaseSystem{Type: a.Config.DBEngine, Version: a.Config.DBVersion, VersionSource: "configured", Reachable: true}}
 	if inv.Database.Type == "mysql" {
 		inv.Database.Type = "MySQL"
 	}
 	if inv.Database.Type == "mariadb" {
 		inv.Database.Type = "MariaDB"
 	}
+	phpCtx, phpCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if binary, err := exec.LookPath("php"); err == nil {
+		if output, runErr := runBoundedCommandInput(phpCtx, exec.CommandContext(phpCtx, binary, "-r", "echo PHP_VERSION;"), strings.NewReader("")); runErr == nil {
+			inv.PHP.Version = strings.TrimSpace(string(output))
+			inv.PHP.VersionSource = "cli"
+		}
+		if output, runErr := runBoundedCommandInput(phpCtx, exec.CommandContext(phpCtx, binary, "-m"), strings.NewReader("")); runErr == nil {
+			for _, line := range strings.Split(string(output), "\n") {
+				line = strings.TrimSpace(line)
+				if line != "" && !strings.HasPrefix(line, "[") {
+					inv.PHP.Extensions = append(inv.PHP.Extensions, strings.ToLower(line))
+				}
+			}
+		}
+	}
+	phpCancel()
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs(a.Config.WebRoot, &stat); err == nil {
 		inv.SystemResources.TotalDiskGB = int64(stat.Blocks * uint64(stat.Bsize) / (1024 * 1024 * 1024))

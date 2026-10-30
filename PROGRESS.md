@@ -184,6 +184,43 @@ also committed on the local branch. This file records the latest audit
 evidence. Nothing has been pushed or dispatched remotely. The E2E run used a
 binary rebuilt from this worktree.
 
+## Current work — cPanel migration compatibility evidence
+
+Implemented an expanded migration preflight and export flow:
+
+- Bounded cPanel userdata inspection now proposes main/addon/subdomain/parked
+  domain mappings and source document roots, with provisional status and
+  collision/activation caveats.
+- SQL dump headers contribute source database version/family evidence and are
+  compared with destination configuration. Missing values and cross-family or
+  major-line differences remain unknown/warnings rather than guarantees.
+- Maildir inspection reports address validity, `cur/new/tmp` structure,
+  approximate message-file counts, and data bytes. It explicitly does not
+  claim mailbox credentials or mail delivery are validated.
+- The optional existing SSH Migration Doctor flow now displays source PHP
+  extension checks and compares against the destination PHP CLI inventory.
+  Source and destination database versions identify server/client/configured
+  evidence. CLI data does not claim per-site PHP-FPM parity.
+- Preview and post-import reports show a DNS/mail/TLS cutover checklist and
+  distinct post-migration checks for files, databases, domains, mail, and
+  application rehearsal. Evidence downloads as JSON and Markdown; SSH keys are
+  never included in reports.
+- Added Go regression coverage for archive inspection and post-import statuses,
+  plus a Playwright upload/preview/download journey. The E2E runner accepts an
+  optional grep for focused runs.
+
+Validation on the current worktree: `make check` passed (API artifact check,
+`go vet ./...`, all Go packages); focused migration and scanner tests passed;
+JavaScript syntax checks and `npm run test:unit` passed (17 tests); the focused
+Playwright migration report and customer-panel journeys passed (2 tests).
+The complete Playwright suite passed the new migration journey but timed out
+once in the pre-existing customer-panel test while closing a browser context;
+the isolated rerun passed. This does not change the documented host recovery,
+mail delivery, DNS propagation, or production certification gaps.
+
+Committed locally as `6c12cd1` (`Stephan Loesevitz <stephan.loesevitz@gmail.com>`).
+No remote push or merge was performed for this task.
+
 ## Release blockers and evidence gaps
 
 The authoritative P0 table still marks installed-host power loss and broad
