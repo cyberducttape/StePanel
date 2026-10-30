@@ -72,6 +72,12 @@ targeted OpenAPI contract tests, documentation reference/link checks, and
 release-candidate SDK compatibility testing and the independent security
 review remain open.
 
+Ran the pinned local security tools on `b434e3b`: govulncheck found zero
+reachable vulnerabilities and one uncalled `golang.org/x/crypto/openpgp`
+module advisory (no fixed version); staticcheck reported no diagnostics. The
+advisory is documented and not suppressed in
+[`docs/lab-results/2026-10-30-local-security-scan-b434e3b.md`](docs/lab-results/2026-10-30-local-security-scan-b434e3b.md).
+
 The E2E fix is committed locally as `2d2e2cd`; the plan/progress documents are
 also committed on the local branch. This file records the latest audit
 evidence. Nothing has been pushed or dispatched remotely. The E2E run used a

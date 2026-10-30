@@ -116,6 +116,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Security
 
+- Recorded local govulncheck and staticcheck results for source `b434e3b`.
+  No reachable Go vulnerability or staticcheck finding was reported; one
+  uncalled OpenPGP module advisory with no fixed version remains disclosed.
 - Customer resource responses now suppress host-memory estimates in both
   structured fields and recommendation text. They rebuild pool-only guidance
   using a copy of cached status, so tenant redaction does not change the
