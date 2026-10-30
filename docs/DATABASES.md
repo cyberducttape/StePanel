@@ -122,9 +122,12 @@ the operator before the dashboard reports it ready.
 
 Use the authenticated `/api/database` endpoint to see the selected engine,
 configured version, service state, detected client, and admin-console state.
-The authenticated `/api/security/audit` endpoint also warns when an installed
-console lacks the StePanel Apache policy or when its policy grants access to
-all clients.
+The authenticated `/api/security/audit` endpoint reports whether a
+StePanel-managed Apache configuration file was detected separately from
+whether effective access enforcement was verified. A detected IP directive or
+successful Apache syntax check does not prove the effective policy; the
+dashboard remains unverified until runtime requests from allowed and denied
+client addresses have been tested.
 On the host, verify the corresponding components:
 
 ```sh
@@ -135,9 +138,10 @@ apachectl -t
 
 Debian/Ubuntu may use a versioned PHP-FPM unit such as `php8.3-fpm`; StePanel
 detects these units. If the database administrator is installed but marked
-unavailable, check `/etc/apache2/stepanel-panel/db-admin.conf` or
+unavailable or unverified, inspect `/etc/apache2/stepanel-panel/db-admin.conf` or
 `/etc/httpd/stepanel-panel/db-admin.conf`, confirm the application directory
-under `/usr/share`, and review the configured IP allowlist.
+under `/usr/share`, review the configured IP allowlist, and test effective
+access from both an allowed and a denied address.
 
 For a remote database, set `STEPANEL_DB_HOST`, `STEPANEL_DB_USER`, and
 `STEPANEL_DB_PASSWORD` together. Packaged systemd installations move that

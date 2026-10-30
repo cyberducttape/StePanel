@@ -3,14 +3,15 @@ package stepanel
 import (
 	"fmt"
 	"os"
-	"strings"
 )
 
 type SecurityCheck struct {
-	Name     string `json:"name"`
-	Status   string `json:"status"`
-	Severity string `json:"severity"`
-	Detail   string `json:"detail"`
+	Name                string `json:"name"`
+	Status              string `json:"status"`
+	Severity            string `json:"severity"`
+	Detail              string `json:"detail"`
+	ConfigurationStatus string `json:"configuration_status,omitempty"`
+	EnforcementStatus   string `json:"enforcement_status,omitempty"`
 }
 
 type WAFCapability struct {
@@ -85,37 +86,25 @@ func fail2banSecurityCheck(services map[string]string) SecurityCheck {
 }
 
 func databaseAdminSecurityCheck(database DatabaseAdmin) SecurityCheck {
-	name := database.AdminProduct + " access policy"
-	config := apacheDBAdminConfig()
-	if !database.AdminReady || config == "" {
-		return SecurityCheck{Name: name, Status: "warning", Severity: "high", Detail: "The database administrator is installed without a verified StePanel Apache IP policy."}
-	}
-	data, err := os.ReadFile(config)
-	if err != nil {
-		return SecurityCheck{Name: name, Status: "fail", Severity: "high", Detail: "The database administrator policy cannot be read."}
-	}
-	hasIPAllowlist, openToAll := apacheAccessPolicy(string(data))
-	if openToAll {
-		return SecurityCheck{Name: name, Status: "fail", Severity: "critical", Detail: "The database administrator is open to all clients; replace Require all granted with an IP allowlist."}
-	}
-	if !hasIPAllowlist {
-		return SecurityCheck{Name: name, Status: "fail", Severity: "high", Detail: "The database administrator policy has no explicit Require ip allowlist."}
-	}
-	return SecurityCheck{Name: name, Status: "pass", Severity: "low", Detail: "The database administrator has an explicit Apache IP allowlist."}
+	return databaseAdminSecurityCheckAt(database, apacheDBAdminConfig())
 }
 
-func apacheAccessPolicy(content string) (hasIPAllowlist, openToAll bool) {
-	for _, line := range strings.Split(content, "\n") {
-		line = strings.ToLower(strings.TrimSpace(strings.SplitN(line, "#", 2)[0]))
-		fields := strings.Fields(line)
-		if len(fields) >= 3 && fields[0] == "require" && fields[1] == "all" && fields[2] == "granted" {
-			openToAll = true
-		}
-		if len(fields) >= 3 && fields[0] == "require" && fields[1] == "ip" {
-			hasIPAllowlist = true
-		}
+func databaseAdminSecurityCheckAt(database DatabaseAdmin, config string) SecurityCheck {
+	name := database.AdminProduct + " access policy"
+	if config == "" {
+		return SecurityCheck{Name: name, Status: "warning", Severity: "high", Detail: "No StePanel-managed Apache database-administrator configuration was detected. Effective access restriction is unverified.", ConfigurationStatus: "not-detected", EnforcementStatus: "unverified"}
 	}
-	return hasIPAllowlist, openToAll
+	if !database.AdminReady {
+		return SecurityCheck{Name: name, Status: "unverified", Severity: "high", Detail: "A StePanel-managed Apache configuration file is present, but the database-administrator integration is not ready and effective access restriction is unverified.", ConfigurationStatus: "detected", EnforcementStatus: "unverified"}
+	}
+	return SecurityCheck{
+		Name:                name,
+		Status:              "unverified",
+		Severity:            "high",
+		ConfigurationStatus: "detected",
+		EnforcementStatus:   "unverified",
+		Detail:              "A StePanel-managed Apache configuration file is present, but directive text cannot prove the effective authorization policy or its scope. Runtime requests from allowed and disallowed client addresses are required to verify access restriction.",
+	}
 }
 
 func privateDirectoryCheck(name, path string) SecurityCheck {

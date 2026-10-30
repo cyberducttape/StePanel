@@ -59,6 +59,34 @@ rates, and no capacity-based rejection of otherwise-valid tokens.
 - `make check` passes on the exact local source and the changelog/progress
   record the evidence and any remaining host-certification limits.
 
+### M0b — Report effective security posture and extract typed operation paths (P1/P2)
+
+**Status:** Security reporting and the first typed operation service are
+implemented locally. Remaining site-operation routes still replay HTTP
+handlers and are not considered migrated.
+
+Do not infer effective Apache authorization from isolated directive text.
+Report managed configuration discovery separately from runtime enforcement.
+For durable site operations, progressively move validation, authorization,
+mutation locking, and host changes behind typed commands and shared services;
+the queue worker should dispatch a typed command rather than synthesize an HTTP
+request.
+
+**Acceptance criteria**
+
+- Security API and operator dashboard show `configuration_status` separately
+  from `enforcement_status`; a present `Require ip` directive never produces
+  a pass absent an effective runtime access test.
+- A typed operation validates the same command schema at admission and worker
+  execution, rechecks current ownership and token/role scope, and executes
+  without HTTP request/response replay. Tests prove the worker does not call
+  the route handler.
+- Migrate each remaining route in focused changes, preserving audit, lock,
+  validation, retry, and recovery contracts. Remove the replay fallback only
+  after every registered route has a tested typed service.
+- Installed Apache runtime tests from allowed and denied sources are required
+  before reporting effective IP enforcement as verified.
+
 ### M1 — Complete installed-host failure recovery (P0)
 
 **Status:** Open; requires an accessible disposable KVM host/runner.  

@@ -15,14 +15,12 @@ import (
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 )
 
-// Long-running site operations (Git checkout and build, container builds,
-// dependency installs, staging creation, restore-to-staging) are durable
-// "site.operation" jobs. The HTTP request is authenticated, CSRF-checked,
-// and authorized for the target site, then answered with 202 and a job ID;
-// the worker replays the original request against the operation's handler
-// as the original requester, so validation, scopes, locks, and audit events
-// are exactly those of the synchronous handler. No HTTP connection is held
-// for the duration of a build, and a dropped browser does not cancel it.
+// Long-running site operations are durable "site.operation" jobs. The HTTP
+// request is authenticated, CSRF-checked, and admitted with a site identity.
+// Routes with typed executors dispatch directly to operation services; the
+// remaining routes temporarily retain HTTP-handler replay while their
+// validation and authorization contracts are extracted. No HTTP connection
+// is held for the duration of the work, and a dropped browser does not cancel it.
 const siteOperationKind = "site.operation"
 
 // Site operations have bounded, operation-specific budgets. The restore
@@ -74,8 +72,10 @@ const siteOperationBodyLimit = 64 << 10
 const siteOperationInterrupted = "the operation was interrupted by a restart and was not repeated; check the site and run it again"
 
 type siteOperationRoute struct {
-	handler func(*App) http.HandlerFunc
-	timeout siteOperationTimeoutClass
+	handler  func(*App) http.HandlerFunc
+	validate func([]byte) error
+	execute  func(*App, context.Context, siteOperationCommand, siteOperationPrincipal) ([]byte, error)
+	timeout  siteOperationTimeoutClass
 	// site names the site the operation mutates. It owns the job, so
 	// operations on one site run one at a time.
 	site func(path string, body []byte) string
@@ -85,12 +85,31 @@ type siteOperationRoute struct {
 	scope string
 }
 
+// siteOperationCommand is the durable transport envelope. Operation-specific
+// validators and executors decode Body into typed commands before admission
+// and execution, respectively.
+type siteOperationCommand struct {
+	Operation string
+	Path      string
+	Query     string
+	Site      string
+	Body      []byte
+}
+
+// siteOperationPrincipal is the durable authorization context for a command.
+// It carries identity and current token policy, never an HTTP request object.
+type siteOperationPrincipal struct {
+	Actor  string
+	Token  bool
+	Scopes []string
+}
+
 var siteOperationRoutes = map[string]siteOperationRoute{
 	"release.pipeline":          {handler: func(a *App) http.HandlerFunc { return a.releasePipeline }, site: siteFromBody, scope: "site:deploy"},
 	"runner.build":              {handler: func(a *App) http.HandlerFunc { return a.runnerBuild }, site: siteFromBody, scope: "site:deploy"},
 	"git.deploy":                {handler: func(a *App) http.HandlerFunc { return a.gitDeploy }, site: siteFromBody, scope: "deploy:write"},
 	"composer.install":          {handler: func(a *App) http.HandlerFunc { return a.composer }, site: siteFromPath("/api/composer/"), scope: "site:deploy"},
-	"node.tooling":              {handler: func(a *App) http.HandlerFunc { return a.nodeTooling }, site: siteFromBody, scope: "site:deploy"},
+	"node.tooling":              {handler: func(a *App) http.HandlerFunc { return a.nodeTooling }, validate: validateNodeToolingPayload, execute: executeNodeToolingCommand, site: siteFromBody, scope: "site:deploy"},
 	"python.deploy":             {handler: func(a *App) http.HandlerFunc { return a.pythonDeploy }, site: siteFromBody, scope: "deploy:write"},
 	"staging.create":            {handler: func(a *App) http.HandlerFunc { return a.stagingCreate }, site: siteFromBody, scope: "site:deploy", timeout: siteOperationTimeoutStaging},
 	"staging.promote":           {handler: func(a *App) http.HandlerFunc { return a.stagingPromote }, site: siteFromBody, scope: "site:deploy"},
@@ -164,6 +183,12 @@ func (a *App) siteOperation(name string) http.HandlerFunc {
 			http.Error(w, "a valid site is required", http.StatusUnprocessableEntity)
 			return
 		}
+		if route.validate != nil {
+			if err := route.validate(body); err != nil {
+				http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+				return
+			}
+		}
 		if _, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", http.StatusForbidden); !ok {
 			return
 		}
@@ -208,9 +233,9 @@ func (a *App) enqueueSiteOperation(w http.ResponseWriter, r *http.Request, paylo
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "status_url": "/api/jobs/" + job.ID, "operation": payload.Operation, "site": payload.Site})
 }
 
-// handleSiteOperationJob replays a queued site operation. A 2xx response
-// body becomes the job output; any other response fails the job with the
-// handler's message.
+// handleSiteOperationJob executes a typed service where one is registered;
+// transitional routes replay their handler and convert its HTTP response to
+// a durable job result.
 func (a *App) handleSiteOperationJob(ctx context.Context, item Job) ([]byte, error) {
 	var payload siteOperationPayload
 	if err := json.Unmarshal(item.Payload, &payload); err != nil {
@@ -234,6 +259,7 @@ func (a *App) handleSiteOperationJob(ctx context.Context, item Job) ([]byte, err
 	}
 	operationCtx, cancel := context.WithTimeout(ctx, deadline)
 	defer cancel()
+	principal := siteOperationPrincipal{Actor: payload.Actor, Token: payload.Token, Scopes: append([]string(nil), payload.Scopes...)}
 	switch {
 	case payload.Webhook:
 		// Re-read the webhook policy: a secret or allowlist revoked while the
@@ -258,8 +284,16 @@ func (a *App) handleSiteOperationJob(ctx context.Context, item Job) ([]byte, err
 		operationCtx = context.WithValue(operationCtx, apiTokenUsernameKey{}, token.Username)
 		operationCtx = context.WithValue(operationCtx, apiTokenScopesKey{}, token.Scopes)
 		operationCtx = context.WithValue(operationCtx, apiTokenIDKey{}, token.ID)
+		principal.Actor = token.Username
+		principal.Scopes = append([]string(nil), token.Scopes...)
 	case payload.Actor != "":
 		operationCtx = context.WithValue(operationCtx, replayedIdentityKey{}, payload.Actor)
+	}
+	if route.execute != nil {
+		return route.execute(a, operationCtx, siteOperationCommand{
+			Operation: payload.Operation, Path: payload.Path, Query: payload.Query,
+			Site: payload.Site, Body: append([]byte(nil), payload.Body...),
+		}, principal)
 	}
 	target := payload.Path
 	if payload.Query != "" {

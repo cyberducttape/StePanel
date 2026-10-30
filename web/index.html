@@ -46,7 +46,7 @@
       {{ if .IsAdministrator }}
       <section class="security-card" id="security">
         <div class="section-heading"><div><p class="eyebrow">Security posture</p><h2>Operator checks</h2></div><a class="quiet-action" href="/api/security/audit">View JSON →</a></div>
-        <div class="security-grid">{{ range .Security }}<article class="security-item"><span class="status {{ if eq .Status "pass" }}status-ok{{ else }}status-warn{{ end }}"><i></i>{{ .Status }}</span><strong>{{ .Name }}</strong><small>{{ .Detail }}</small></article>{{ end }}</div>
+        <div class="security-grid">{{ range .Security }}<article class="security-item"><span class="status {{ if eq .Status "pass" }}status-ok{{ else }}status-warn{{ end }}"><i></i>{{ .Status }}</span><strong>{{ .Name }}</strong><small>{{ if .ConfigurationStatus }}Configuration: {{ .ConfigurationStatus }} · Effective access: {{ .EnforcementStatus }}. {{ end }}{{ .Detail }}</small></article>{{ end }}</div>
       </section>
       <div class="section-heading operator-section" id="operations"><div><p class="eyebrow">Administrator view</p><h2>Platform operations</h2></div><a class="quiet-action" href="/api/services">View JSON →</a></div>
       <section class="import-panel capability-center" id="capabilityCenter" aria-labelledby="capabilityCenterHeading" hidden></section>

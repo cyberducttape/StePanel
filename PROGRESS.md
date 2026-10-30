@@ -55,6 +55,26 @@
 
 ## Current local work
 
+- Corrected the database-admin posture check: it no longer parses loose Apache
+  `Require` lines and claims they restrict the phpMyAdmin/phpPgAdmin endpoint.
+  The security response now exposes `configuration_status` and
+  `enforcement_status`; installed config is `detected`, while effective access
+  remains `unverified`. The dashboard renders both fields. Apache config
+  discovery uses `Lstat` and only recognizes a regular non-symlink file.
+- Started the handler-replay migration with Node tooling. Its request has a
+  strict typed decoder/validator at queue admission and execution. The worker
+  uses a `siteOperationCommand` and `siteOperationPrincipal`, rechecks current
+  durable ownership and role/token scope, acquires its site mutation lock, and
+  calls the shared Node tooling service directly. Regression tests verify the
+  worker operation succeeds without relying on the HTTP handler and reject
+  unknown fields and inadequate scopes. Other site-operation routes still
+  replay HTTP handlers; this architectural migration remains open.
+- New security and typed-operation tests passed normally and under `-race`;
+  `git diff --check` passed. Final `make check` passed on this source: API
+  artifact check, `go vet ./...`, and all packages, with the root package at
+  67.125 seconds. No Apache runtime allow/deny test was available, so the
+  security posture remains explicitly unverified.
+
 - Implemented the P1 restore-timeout and API-token-limiter corrections in the
   working tree. Site-operation routes now carry timeout classes; local restore
   has two 120-minute helper windows plus a 15-minute compensation reserve,

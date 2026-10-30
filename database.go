@@ -87,7 +87,7 @@ func apacheDBAdminConfigured() bool {
 
 func apacheDBAdminConfig() string {
 	for _, config := range []string{"/etc/apache2/stepanel-panel/db-admin.conf", "/etc/httpd/stepanel-panel/db-admin.conf"} {
-		if info, err := os.Stat(config); err == nil && info.Mode().IsRegular() {
+		if info, err := os.Lstat(config); err == nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
 			return config
 		}
 	}

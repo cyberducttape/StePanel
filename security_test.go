@@ -3,6 +3,7 @@ package stepanel
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -78,13 +79,42 @@ func TestSecurityChecksRequireRunningFail2BanJail(t *testing.T) {
 	}
 }
 
-func TestApacheAccessPolicyIgnoresComments(t *testing.T) {
-	hasIP, open := apacheAccessPolicy("# Require all granted\nRequire ip 127.0.0.1 ::1\n")
-	if !hasIP || open {
-		t.Fatalf("hasIP = %t, open = %t", hasIP, open)
+func TestDatabaseAdminSecurityCheckSeparatesDetectedConfigFromVerifiedEnforcement(t *testing.T) {
+	root := t.TempDir()
+	config := filepath.Join(root, "db-admin.conf")
+	// This policy includes an apparently suitable Require ip alongside a
+	// grant-all rule within a nested authorization expression. More generally,
+	// includes and inherited scopes can change the effective Apache policy.
+	content := `<Directory "/usr/share/phpmyadmin">` + "\n" +
+		"  <RequireAny>\n    Require ip 192.0.2.0/24\n    Require all granted\n  </RequireAny>\n" +
+		"</Directory>\n"
+	if err := os.WriteFile(config, []byte(content), 0600); err != nil {
+		t.Fatal(err)
 	}
-	_, open = apacheAccessPolicy("Require all granted\n")
-	if !open {
-		t.Fatal("open Apache policy was not detected")
+	database := DatabaseAdmin{AdminProduct: "phpMyAdmin", AdminInstalled: true, AdminReady: true}
+	check := databaseAdminSecurityCheckAt(database, config)
+	if check.Status != "unverified" || check.ConfigurationStatus != "detected" || check.EnforcementStatus != "unverified" {
+		t.Fatalf("detected configuration was mistaken for verified enforcement: %#v", check)
+	}
+	if check.Severity != "high" || !strings.Contains(check.Detail, "Runtime requests") {
+		t.Fatalf("unverified access restriction lacks severity or verification guidance: %#v", check)
+	}
+}
+
+func TestDatabaseAdminSecurityCheckReportsMissingConfiguration(t *testing.T) {
+	check := databaseAdminSecurityCheckAt(DatabaseAdmin{AdminProduct: "phpMyAdmin", AdminInstalled: true}, "")
+	if check.ConfigurationStatus != "not-detected" || check.EnforcementStatus != "unverified" || check.Status == "pass" {
+		t.Fatalf("missing access configuration was overstated: %#v", check)
+	}
+}
+
+func TestSecurityDashboardLabelsConfigurationAndEnforcementSeparately(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("web", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := string(data)
+	if !strings.Contains(template, "Configuration: {{ .ConfigurationStatus }}") || !strings.Contains(template, "Effective access: {{ .EnforcementStatus }}") {
+		t.Fatal("security dashboard does not display configuration detection separately from effective enforcement")
 	}
 }

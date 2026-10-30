@@ -8,6 +8,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- The database-administrator security check now reports configuration
+  detection separately from effective access enforcement. A readable managed
+  Apache configuration is no longer treated as proof of an IP restriction;
+  enforcement remains unverified until effective runtime access is exercised.
+  The operator dashboard and security API expose both states explicitly.
+- Added a typed durable operation command/executor path for Node tooling.
+  Admission validates its command, and execution rechecks current site
+  ownership and role/token scope before acquiring the mutation lock and calling
+  the shared application service. Other site-operation routes remain on the
+  documented transitional handler-replay path.
+
 - Site-operation jobs now use bounded operation-specific deadlines: restore
   work receives the full helper allowance plus cleanup reserve, and offsite
   staging restores also include the configured transfer deadline. Offsite

@@ -468,7 +468,12 @@ These tools have their own authentication and must be protected with HTTPS
 plus an IP allowlist, VPN, or equivalent access control; the StePanel session
 does not authenticate them.
 
-The generated Apache route is restricted to loopback by default. Set
+The installer generates an Apache `Require ip` policy restricted to loopback
+by default. The security dashboard reports that the managed file is detected,
+but marks effective enforcement unverified because Apache authorization
+depends on scope, inheritance, and authorization-combination rules. Verify the
+effective policy with requests from both an allowed and a denied client before
+relying on remote access restrictions. Set
 `STEPANEL_DB_ADMIN_ALLOW` to a space- or comma-separated list of trusted IP
 addresses or CIDR networks only when remote browser access is required. The
 installer validates the values and Apache configuration before service reload.
