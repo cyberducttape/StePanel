@@ -452,6 +452,65 @@ func TestDurableJobListingsDoNotOverwriteLocalLeaseSnapshot(t *testing.T) {
 	}
 }
 
+func TestLatestForOwnersSummariesDoesNotStarveQuietOwners(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jobs := newJobsWithDB(db, 1)
+	base := time.Now().UTC().Add(-time.Hour)
+	owners := make([]string, 18)
+	wantLatest := make(map[string]string, len(owners))
+	sequence := int64(0)
+	add := func(owner string) string {
+		t.Helper()
+		sequence++
+		item, err := jobs.Enqueue("certificate.issue", owner, fmt.Sprintf("attempt-%d", sequence), []byte(`{"domain":"example.test"}`), 1)
+		if err != nil {
+			t.Fatalf("enqueue certificate job: %v", err)
+		}
+		stamp := base.Add(time.Duration(sequence) * time.Second).UnixNano()
+		if _, err := db.Exec(`UPDATE jobs SET state='failed', started_at=?, finished_at=? WHERE id=?`, stamp, stamp, item.ID); err != nil {
+			t.Fatalf("age certificate job: %v", err)
+		}
+		return item.ID
+	}
+	for i := range owners {
+		owners[i] = fmt.Sprintf("domain-%02d.example.test", i)
+		wantLatest[owners[i]] = add(owners[i])
+	}
+	for i := 0; i < 15; i++ {
+		wantLatest[owners[0]] = add(owners[0])
+	}
+
+	// The old globally limited query returns only ten terminal jobs, hiding
+	// evidence for quiet owners whenever another domain is busier.
+	legacy, err := jobs.ListForOwnersSummaries(10, owners)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(legacy) >= len(owners) {
+		t.Fatalf("fixture did not reproduce owner starvation: got %d jobs for %d owners", len(legacy), len(owners))
+	}
+
+	latest, err := jobs.LatestForOwnersSummaries("certificate.issue", owners)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(latest) != len(owners) {
+		t.Fatalf("latest-per-owner results = %d, want %d", len(latest), len(owners))
+	}
+	for _, job := range latest {
+		if want := wantLatest[job.User]; want != job.ID {
+			t.Errorf("latest job for %s = %s, want %s", job.User, job.ID, want)
+		}
+		if len(job.Output) != 0 {
+			t.Errorf("summary for %s contains output", job.User)
+		}
+	}
+}
+
 func TestDurableBackupRetryReusesPersistedLocalArchive(t *testing.T) {
 	root := t.TempDir()
 	webRoot := filepath.Join(root, "www")

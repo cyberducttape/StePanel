@@ -135,16 +135,16 @@ func (a *App) siteDiagnostics(w http.ResponseWriter, r *http.Request) {
 			}
 			tlsChecks = append(tlsChecks, check)
 		}
-		if a.Jobs != nil && len(domains) > 0 {
-			if jobs, err := a.Jobs.ListForOwnersSummaries(10, domains); err == nil {
+		if len(domains) > 0 {
+			if a.Jobs == nil {
+				for i := range tlsChecks {
+					tlsChecks[i].Renewal = "unknown"
+					tlsChecks[i].RenewalEvidence = "Certificate issuance history is unavailable because the durable job store is not configured."
+				}
+			} else if jobs, err := a.Jobs.LatestForOwnersSummaries("certificate.issue", domains); err == nil {
 				latest := make(map[string]Job, len(domains))
 				for _, job := range jobs {
-					if job.Kind != "certificate.issue" {
-						continue
-					}
-					if prior, ok := latest[job.User]; !ok || job.StartedAt.After(prior.StartedAt) {
-						latest[job.User] = job
-					}
+					latest[job.User] = job
 				}
 				for i := range tlsChecks {
 					job, ok := latest[tlsChecks[i].Domain]
@@ -154,6 +154,11 @@ func (a *App) siteDiagnostics(w http.ResponseWriter, r *http.Request) {
 							tlsChecks[i].RenewalEvidence = "The latest durable certificate issuance job for this domain ended " + job.State + ". Job error details are available in authorized job history."
 						}
 					}
+				}
+			} else {
+				for i := range tlsChecks {
+					tlsChecks[i].Renewal = "unknown"
+					tlsChecks[i].RenewalEvidence = "Certificate issuance history could not be read from the durable job store."
 				}
 			}
 		}

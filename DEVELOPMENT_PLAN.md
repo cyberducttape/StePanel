@@ -151,6 +151,10 @@ unverified where they cannot establish application-level behavior.
   with timestamps and measured evidence.
 - The overview reports cgroup memory/task usage against enforced limits and
   preserves existing PHP-FPM saturation evidence.
+- Certificate job evidence is queried as the latest durable job per domain;
+  activity on one domain cannot hide another domain's latest result. If the
+  durable job store is unavailable, diagnostics report renewal history as
+  unknown rather than implying a clean renewal state.
 - Focused Go tests, JavaScript syntax/unit checks, and `make check` pass; each
   rendered alert includes a diagnosis, supporting evidence, and safe action.
 - A browser E2E regression verifies the incident view renders measured storage

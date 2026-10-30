@@ -15,6 +15,23 @@
   and load-capacity evidence as external gates. No production-readiness gate
   is claimed closed by this run.
 
+## Certificate alert coverage correction — 2026-10-29
+
+- Review found that the incident snapshot fetched only ten certificate jobs
+  across all site domains, which could hide a quiet domain's renewal failure
+  behind activity on other domains.
+- Added a durable SQLite query that returns the latest matching job per owner
+  and kind. Diagnostics now use it for certificate issuance; if history cannot
+  be read, each domain is explicitly marked unknown with the reason.
+- Added a regression fixture with 18 domains and 15 additional terminal jobs
+  for one busy domain. The old globally limited query omits owners; the new
+  query returns each owner's latest job. `make check` passed on the updated
+  source; the focused race test passed; JS syntax and unit tests passed (17/17);
+  the complete disposable Playwright suite passed (21 passed, one optional
+  customer-auth case skipped); and `git diff --check` passed. The repository
+  production gate had passed immediately before this follow-up, so its result
+  is recorded against source `9015370`, not this updated source.
+
 ## Current change — per-site WordPress database health (2026-10-29)
 
 - Added an application-level database probe using StePanel's closed, read-only

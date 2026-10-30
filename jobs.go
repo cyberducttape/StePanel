@@ -2636,6 +2636,74 @@ func (j *Jobs) ListForOwnersSummaries(limit int, owners []string) ([]Job, error)
 	return j.listForOwners(limit, owners, false)
 }
 
+// LatestForOwnersSummaries returns the newest durable job for each requested
+// owner, filtered by kind in SQLite. Unlike a globally limited owner listing,
+// busy owners cannot crowd out evidence for quieter owners.
+func (j *Jobs) LatestForOwnersSummaries(kind string, owners []string) ([]Job, error) {
+	if j == nil || j.db == nil {
+		return nil, errors.New("durable job store is unavailable")
+	}
+	kind = strings.TrimSpace(kind)
+	if kind == "" {
+		return nil, errors.New("job kind is required")
+	}
+	clean := make([]string, 0, len(owners))
+	seen := make(map[string]struct{}, len(owners))
+	for _, owner := range owners {
+		owner = strings.TrimSpace(owner)
+		if owner == "" {
+			continue
+		}
+		if _, ok := seen[owner]; ok {
+			continue
+		}
+		seen[owner] = struct{}{}
+		clean = append(clean, owner)
+	}
+	if len(clean) == 0 {
+		return []Job{}, nil
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(clean)), ",")
+	query := `SELECT id, ` + durableJobColumns + ` FROM (
+		SELECT id, state, payload, lease_owner, lease_expires_at, next_attempt_at, cancel_requested,
+			ROW_NUMBER() OVER (PARTITION BY owner ORDER BY started_at DESC, id DESC) AS owner_rank
+		FROM jobs WHERE kind = ? AND owner IN (` + placeholders + `)
+	) WHERE owner_rank = 1 ORDER BY id`
+	args := make([]any, 0, len(clean)+1)
+	args = append(args, kind)
+	for _, owner := range clean {
+		args = append(args, owner)
+	}
+	rows, err := j.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list latest jobs for owners: %w", err)
+	}
+	defer rows.Close()
+	items := make([]Job, 0, len(clean))
+	for rows.Next() {
+		var id, state string
+		var data []byte
+		var leaseOwner sql.NullString
+		var leaseExpires, nextAttempt sql.NullInt64
+		var cancelRequested int
+		if err := rows.Scan(&id, &state, &data, &leaseOwner, &leaseExpires, &nextAttempt, &cancelRequested); err != nil {
+			return nil, fmt.Errorf("scan latest jobs for owners: %w", err)
+		}
+		item, err := j.decodeDurableJob(state, data, leaseOwner, leaseExpires, nextAttempt, cancelRequested)
+		if err != nil {
+			return nil, fmt.Errorf("decode latest job %s: %w", id, err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate latest jobs for owners: %w", err)
+	}
+	for i := range items {
+		stripJobOutput(&items[i])
+	}
+	return items, nil
+}
+
 func (j *Jobs) listForOwners(limit int, owners []string, includeOutput bool) ([]Job, error) {
 	if j == nil || j.db == nil {
 		return nil, errors.New("durable job store is unavailable")

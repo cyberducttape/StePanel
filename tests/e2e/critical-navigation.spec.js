@@ -115,7 +115,7 @@ test('site overview makes backup failures explicit', async ({ page }) => {
 });
 
 test('site guided workflow connects lifecycle checks and practical diagnostics', async ({ page }) => {
-  const site = { site: 'e2e-journey', routes: [{ domain: 'journey.example.test', state: 'applied' }], applications: [], database_count: 1 };
+  const site = { site: 'e2e-journey', routes: [{ domain: 'journey.example.test', state: 'applied' }, { domain: 'quiet.example.test', state: 'applied' }], applications: [], database_count: 1 };
   const json = (body) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   await page.route('**/api/sites/overview', (route) => route.fulfill(json({ sites: [site] })));
   await page.route('**/api/sites/overview/e2e-journey', (route) => route.fulfill(json(site)));
@@ -127,7 +127,10 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
     database_connectivity: { status: 'connected', engine: 'mariadb', collected_at: new Date().toISOString(), detail: 'Restricted host query succeeded.' },
     application_database_connectivity: { status: 'failed', collected_at: new Date().toISOString(), detail: 'WP-CLI db check reports database authentication failure; raw output is withheld.' },
     backup_schedule: { enabled: true, interval_minutes: 60, last_run: new Date().toISOString(), last_success: null, has_error_detail: true, consecutive_failures: 2 },
-    tls: [{ domain: 'journey.example.test', route_state: 'applied', status: 'unknown', renewal: 'dead-letter', renewal_at: new Date().toISOString(), renewal_evidence: 'Latest durable certificate job entered dead-letter.', detail: 'Live external handshake not tested.' }],
+    tls: [
+      { domain: 'journey.example.test', route_state: 'applied', status: 'unknown', renewal: 'dead-letter', renewal_at: new Date().toISOString(), renewal_evidence: 'Latest durable certificate job entered dead-letter.', detail: 'Live external handshake not tested.' },
+      { domain: 'quiet.example.test', route_state: 'applied', status: 'unknown', renewal: 'unknown', renewal_evidence: 'Certificate issuance history could not be read from the durable job store.', detail: 'Live external handshake not tested.' },
+    ],
   })));
   await page.route('**/api/sites/php/e2e-journey', (route) => route.fulfill(json({ configured: true, profile: { version: '8.3', state: 'applied' } })));
   await page.route('**/api/sites/resources/e2e-journey', (route) => route.fulfill(json({ configured: true, fpm_status: { pools: [{ php_version: '8.3', state: 'available', active_processes: 2, max_children: 8, listen_queue: 0, slow_requests: 1 }] } })));
@@ -154,6 +157,8 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
   await expect(diagnosis).toContainText('has never succeeded');
   await expect(diagnosis).toContainText('Certificate renewal failed for journey.example.test');
   await expect(diagnosis).toContainText('Latest durable certificate job entered dead-letter.');
+  await expect(diagnosis).toContainText('Certificate renewal history unavailable for quiet.example.test');
+  await expect(diagnosis).toContainText('Certificate issuance history could not be read from the durable job store.');
   await page.getByRole('tab', { name: 'Guided workflow' }).click();
   await expect(panel.getByRole('heading', { name: 'Import or create the site' })).toBeVisible();
   await expect(panel).toContainText('origin and exact set of imported cPanel components are not inferred');
