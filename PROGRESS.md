@@ -8,12 +8,13 @@
 - Added Prometheus alerts for unavailable capacity probes and sustained free
   byte/inode headroom below 10%. Alert descriptions identify the role, measured
   ratio or failure result, threshold, evidence metrics, and a safe operator
-  action.
+  action. Readiness alerts now include the specific failing component label.
 - Added metrics and rendered-alert regression fixtures. Focused and full checks
   passed: the targeted Go test, `make check` (API artifact validation, vet, and
   all Go packages), Prometheus 3.5.0 rule validation (28 rules), and rendered
-  Prometheus alert tests. Continuous FPM, certificate-renewal, and
-  per-site resource-limit alert series remain unimplemented; existing site
+  Prometheus alert tests including readiness component attribution.
+  Continuous FPM, certificate-renewal, and per-site resource-limit alert series
+  remain unimplemented; existing site
   diagnostics still provide those findings on demand.
 
 ## App activation compensation survives request cancellation — 2026-10-30

@@ -168,7 +168,7 @@ groups:
           severity: critical
         annotations:
           summary: A StePanel readiness check is failing
-          description: A durable readiness check reports {{ $value }} (0 means failed) for five minutes. Inspect /readyz component results and address the named failed dependency before making changes.
+          description: "Readiness component {{ $labels.check }} reports {{ $value }} (0 means failed) for five minutes. Inspect /readyz for the component's detailed evidence and address that dependency before making changes."
 
       - alert: StePanelDurableStateError
         expr: |
