@@ -165,7 +165,9 @@ func executeSSHAction(ctx context.Context, server, action, service string) error
 func inspectSSHServer(ctx context.Context, server string) SSHServerStatus {
 	status := SSHServerStatus{Server: server}
 	command := `printf '%s\n' "$(hostname)"; . /etc/os-release 2>/dev/null && printf '%s\n' "${PRETTY_NAME:-unknown}" || printf '%s\n' unknown; systemctl --failed --no-legend --plain 2>/dev/null | wc -l; df -P -h / 2>/dev/null | tail -n 1`
-	cmd := h.NewCommand(ctx, "ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=8", server, "sh", "-c", command)
+	// ssh joins the remote argv with spaces for the remote login shell, so
+	// the script must arrive as one quoted word or that shell re-splits it.
+	cmd := h.NewCommand(ctx, "ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=8", server, "sh", "-c", sshRemoteQuote(command))
 	out, stderr, err := h.RunCappedSeparate(ctx, cmd, sshInventoryStdoutLimit, sshInventoryStderrLimit)
 	if err != nil {
 		status.Error = fmt.Sprintf("SSH inspection failed: %v", err)
@@ -185,6 +187,11 @@ func inspectSSHServer(ctx context.Context, server string) SSHServerStatus {
 	status.FailedUnits = lines[2]
 	status.Disk = lines[3]
 	return status
+}
+
+// sshRemoteQuote single-quotes value as one POSIX shell word.
+func sshRemoteQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
 func validateSSHServers() error {

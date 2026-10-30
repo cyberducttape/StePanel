@@ -165,3 +165,23 @@ func TestInspectSSHServerBoundsOutput(t *testing.T) {
 		t.Fatalf("error carried %d bytes of unbounded output", len(status.Error))
 	}
 }
+
+func TestInspectSSHServerSendsScriptAsOneRemoteWord(t *testing.T) {
+	bin := t.TempDir()
+	// Behave like ssh: drop options and the host, then hand the space-joined
+	// remote argv to a shell, as the remote login shell would.
+	script := "#!/bin/sh\nwhile [ \"$1\" = -o ]; do shift 2; done\nshift\nexec sh -c \"$*\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "ssh"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	status := inspectSSHServer(ctx, "local")
+	if !status.Reachable || status.Hostname == "" || status.OS == "" || status.Disk == "" {
+		t.Fatalf("status = %+v, want a complete inventory", status)
+	}
+	if hostname, err := os.Hostname(); err == nil && status.Hostname != hostname {
+		t.Fatalf("hostname = %q, want %q", status.Hostname, hostname)
+	}
+}
