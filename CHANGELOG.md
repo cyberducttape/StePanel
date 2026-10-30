@@ -389,6 +389,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Add `DEVELOPMENT_PLAN.md` with prioritized, evidence-based production gates
   and `PROGRESS.md` with exact-source test results, known blockers, and the
   next certification steps.
+- Record the local E2E-fix commit, terminal hosted-check results, and
+  certification environment constraints in `PROGRESS.md` without treating
+  them as closed production gates.
 - Reconcile production-gate smoke claims with authoritative GitHub run SHAs;
   prior-source WordPress and recovery results are labeled historical, while
   current PHP-FPM socket-root validation is listed as pending until its host
