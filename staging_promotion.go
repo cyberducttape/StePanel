@@ -296,7 +296,11 @@ func (a *App) stagingPromote(w http.ResponseWriter, r *http.Request) {
 	}
 	var outcome string
 	defer intent.Finish(&outcome, "promotion did not complete")
-	safety, err := CreateSiteBackupContext(operationCtx, a.Config, access, true)
+	host := a.promotionHost()
+	safety, err := host.SafetyBackup(operationCtx, a, access)
+	if err == nil {
+		err = failureInjection("promote", "backup")
+	}
 	if err != nil {
 		writeOperationFailure(w, http.StatusServiceUnavailable, "WordPress promotion", input.Site, "promotion refused because the production safety backup failed", err)
 		return
@@ -316,13 +320,13 @@ func (a *App) stagingPromote(w http.ResponseWriter, r *http.Request) {
 		manager, err = newSiteManagerForConfig(a.Config)
 	}
 	if err != nil || manager == nil {
-		_ = txn.Rollback()
+		rollbackPromotionSetup(txn, input.Site)
 		http.Error(w, "could not initialize site lifecycle manager", http.StatusServiceUnavailable)
 		return
 	}
 	stage, stageOwner, err := manager.CreateSiteStagingLease(operationCtx, input.Site, ".stepanel-promote-")
 	if err != nil {
-		_ = txn.Rollback()
+		rollbackPromotionSetup(txn, input.Site)
 		http.Error(w, "could not create production activation staging", http.StatusServiceUnavailable)
 		return
 	}
@@ -382,7 +386,7 @@ func (a *App) stagingPromote(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "staging document root is unavailable", http.StatusConflict)
 		return
 	}
-	if err := copyTreeContext(operationCtx, stagingRoot, stage); err != nil {
+	if err := copyTreeContext(operationCtx, stagingRoot, stage); err != nil || failureInjection("promote", "copy") != nil {
 		writeOperationFailure(w, http.StatusBadGateway, "WordPress promotion", input.Site, "could not copy staging files", err)
 		return
 	}
@@ -404,9 +408,16 @@ func (a *App) stagingPromote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sourceDB := before.StagingDatabase
-	_, err = cloneManagedDatabaseToStagingContext(operationCtx, a.Config, sourceDB, candidateDB, candidateUser, password, access, a.capacityLedger())
+	err = host.CloneDatabase(operationCtx, a, sourceDB, candidateDB, candidateUser, password, access)
+	if err == nil {
+		err = failureInjection("promote", "clone")
+	}
 	if err != nil {
 		writeOperationFailure(w, http.StatusBadGateway, "WordPress promotion", input.Site, "could not create and validate promoted database", err)
+		return
+	}
+	if err := failureInjection("promote", "activate"); err != nil {
+		http.Error(w, "could not atomically activate staged production files", http.StatusServiceUnavailable)
 		return
 	}
 	if err := a.activateStagedSite(operationCtx, input.Site, stage); err != nil {
@@ -414,13 +425,17 @@ func (a *App) stagingPromote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	activated = true
-	if err := siteHelperContext(operationCtx, a.Config, "seal", input.Site); err != nil {
+	if err := siteHelperContext(operationCtx, a.Config, "seal", input.Site); err != nil || failureInjection("promote", "seal") != nil {
 		http.Error(w, "could not seal promoted production files", http.StatusServiceUnavailable)
 		return
 	}
 	dbHost := strings.TrimSpace(a.Config.DBHost)
 	if dbHost == "" {
 		dbHost = "localhost"
+	}
+	if err := failureInjection("promote", "configure"); err != nil {
+		http.Error(w, "could not connect promoted files to their isolated database", http.StatusBadGateway)
+		return
 	}
 	for _, setting := range []struct{ name, value string }{{"DB_NAME", candidateDB}, {"DB_USER", candidateUser}, {"DB_HOST", dbHost}} {
 		if _, err := runWordPress(operationCtx, a.Config, rootbroker.WordPressRequest{Action: "config-set", Site: input.Site, Name: setting.name, Value: setting.value}); err != nil {
@@ -475,8 +490,16 @@ func (a *App) stagingPromote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	markerWritten = true
+	if err := failureInjection("promote", "record"); err != nil {
+		http.Error(w, "could not persist promotion recovery record", http.StatusServiceUnavailable)
+		return
+	}
 	if _, err := runWordPress(operationCtx, a.Config, rootbroker.WordPressRequest{Action: "maintenance-deactivate", Site: input.Site}); err != nil {
 		http.Error(w, "could not remove the production maintenance gate after promotion", http.StatusBadGateway)
+		return
+	}
+	if err := failureInjection("promote", "commit"); err != nil {
+		http.Error(w, "could not commit the promotion recovery journal", http.StatusServiceUnavailable)
 		return
 	}
 	if err := txn.Commit(); err != nil {
@@ -490,6 +513,41 @@ func (a *App) stagingPromote(w http.ResponseWriter, r *http.Request) {
 	outcome = "staging=" + input.Source + " previous_database=" + before.ActiveDatabase + " promoted_database=" + candidateDB + " safety_backup=" + filepath.Base(safety.Path)
 	result := map[string]any{"site": input.Site, "source": input.Source, "domain": before.ProductionRoute, "database": candidateDB, "previous_database_retained": before.ActiveDatabase, "safety_backup": filepath.Base(safety.Path), "database_verified": true, "application_verification": "WP-CLI database bootstrap passed; public HTTP response still requires operator validation."}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// stagingPromotionHost is the promotion's boundary to verified backups and
+// managed database cloning. Tests replace it to inject failures; production
+// uses defaultPromotionHost.
+type stagingPromotionHost interface {
+	SafetyBackup(ctx context.Context, a *App, access SiteCapability) (BackupResult, error)
+	CloneDatabase(ctx context.Context, a *App, source, target, user, password string, access SiteCapability) error
+}
+
+type defaultPromotionHost struct{}
+
+func (defaultPromotionHost) SafetyBackup(ctx context.Context, a *App, access SiteCapability) (BackupResult, error) {
+	// Production database backups require the durable capacity ledger.
+	return createSiteBackupContext(ctx, a.Config, access, true, a.capacityLedger())
+}
+
+func (defaultPromotionHost) CloneDatabase(ctx context.Context, a *App, source, target, user, password string, access SiteCapability) error {
+	_, err := cloneManagedDatabaseToStagingContext(ctx, a.Config, source, target, user, password, access, a.capacityLedger())
+	return err
+}
+
+func (a *App) promotionHost() stagingPromotionHost {
+	if a.stagingPromotionHost != nil {
+		return a.stagingPromotionHost
+	}
+	return defaultPromotionHost{}
+}
+
+// rollbackPromotionSetup restores the journaled production snapshot when
+// promotion fails before its compensating rollback is armed.
+func rollbackPromotionSetup(txn *SiteTransaction, site string) {
+	if err := txn.Rollback(); err != nil {
+		log.Printf("WordPress promotion for %s: roll back setup: %v", site, err)
+	}
 }
 
 // writeOperationFailure answers with public text only. Helper and filesystem

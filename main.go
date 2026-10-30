@@ -87,6 +87,8 @@ type App struct {
 	siteOperations           operations.Locks
 	dbLocks                  *operations.DBLocks
 	siteManager              siteauthority.Manager
+	// stagingPromotionHost overrides promotion backups and clones in tests.
+	stagingPromotionHost stagingPromotionHost
 	// capacity holds free space promised to in-progress archive uploads.
 	capacity *capacityLedger
 	// streams bounds open server-sent event streams.
