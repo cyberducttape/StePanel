@@ -18,6 +18,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   ownership and role/token scope before acquiring the mutation lock and calling
   the shared application service. Other site-operation routes remain on the
   documented transitional handler-replay path.
+- Python deployment now uses the typed durable-operation path as well. The
+  HTTP adapter and worker share one lifecycle service for audit intent,
+  mutation locking, pending/running manifest transitions, and helper execution.
+  Worker execution revalidates current site ownership and deploy scope; caller
+  supplied document roots and lifecycle state are discarded. Regression
+  coverage verifies typed execution without HTTP handler replay.
 
 - Site-operation jobs now use bounded operation-specific deadlines: restore
   work receives the full helper allowance plus cleanup reserve, and offsite

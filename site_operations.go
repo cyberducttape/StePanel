@@ -110,7 +110,7 @@ var siteOperationRoutes = map[string]siteOperationRoute{
 	"git.deploy":                {handler: func(a *App) http.HandlerFunc { return a.gitDeploy }, site: siteFromBody, scope: "deploy:write"},
 	"composer.install":          {handler: func(a *App) http.HandlerFunc { return a.composer }, site: siteFromPath("/api/composer/"), scope: "site:deploy"},
 	"node.tooling":              {handler: func(a *App) http.HandlerFunc { return a.nodeTooling }, validate: validateNodeToolingPayload, execute: executeNodeToolingCommand, site: siteFromBody, scope: "site:deploy"},
-	"python.deploy":             {handler: func(a *App) http.HandlerFunc { return a.pythonDeploy }, site: siteFromBody, scope: "deploy:write"},
+	"python.deploy":             {handler: func(a *App) http.HandlerFunc { return a.pythonDeploy }, validate: validatePythonAppPayload, execute: executePythonDeploymentCommand, site: siteFromBody, scope: "deploy:write"},
 	"staging.create":            {handler: func(a *App) http.HandlerFunc { return a.stagingCreate }, site: siteFromBody, scope: "site:deploy", timeout: siteOperationTimeoutStaging},
 	"staging.promote":           {handler: func(a *App) http.HandlerFunc { return a.stagingPromote }, site: siteFromBody, scope: "site:deploy"},
 	"backup.restore-to-staging": {handler: func(a *App) http.HandlerFunc { return a.backupRestoreToStaging }, site: siteFromBody, scope: "backup:restore", timeout: siteOperationTimeoutRestore},

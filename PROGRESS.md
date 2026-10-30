@@ -75,6 +75,25 @@
   67.125 seconds. No Apache runtime allow/deny test was available, so the
   security posture remains explicitly unverified.
 
+- Continued the typed operation extraction with Python deployment. Both the
+  direct HTTP adapter and durable worker now call a shared lifecycle service;
+  the worker validates a strict command, rechecks current site ownership and
+  `deploy:write` policy, and no longer replays the Python HTTP handler. The
+  service owns the site mutation lock, audit intent, pending/running manifest
+  transitions, and helper invocation. Caller-supplied root/state fields are
+  ignored. A regression test checks the helper invocation and persisted
+  manifest through the durable worker path.
+- Updated `DEVELOPMENT_PLAN.md` and `CHANGELOG.md` to track this bounded
+  architecture increment. Other durable site operations still use handler
+  replay; job persistence/orchestration and the broader cPanel stage
+  decomposition remain open work, not completed milestones.
+- Final-source verification passed: `make check` (API artifact check, `go vet
+  ./...`, and all Go packages; root package 70.983 seconds), focused Python
+  authorization/deployment tests, focused `go test -race`, and `git diff
+  --check`. The earlier exact-source AlmaLinux 9 Caddy/MariaDB installation
+  smoke, run 40992833027 for base commit 6ca9cbf, also completed successfully;
+  it does not close repeated host recovery certification.
+
 - Implemented the P1 restore-timeout and API-token-limiter corrections in the
   working tree. Site-operation routes now carry timeout classes; local restore
   has two 120-minute helper windows plus a 15-minute compensation reserve,

@@ -61,9 +61,14 @@ rates, and no capacity-based rejection of otherwise-valid tokens.
 
 ### M0b — Report effective security posture and extract typed operation paths (P1/P2)
 
-**Status:** Security reporting and the first typed operation service are
-implemented locally. Remaining site-operation routes still replay HTTP
-handlers and are not considered migrated.
+**Status:** Security reporting and typed services for Node tooling and Python
+deployment are implemented. Remaining site-operation routes still replay
+HTTP handlers and are not considered migrated.
+
+Latest Python extraction verification: full `make check`, focused Python
+authorization/deployment tests, and the focused race test pass. This closes
+the local regression gate for this slice only; it does not close host
+certification or the remaining typed-operation work.
 
 Do not infer effective Apache authorization from isolated directive text.
 Report managed configuration discovery separately from runtime enforcement.
@@ -77,10 +82,11 @@ request.
 - Security API and operator dashboard show `configuration_status` separately
   from `enforcement_status`; a present `Require ip` directive never produces
   a pass absent an effective runtime access test.
-- A typed operation validates the same command schema at admission and worker
+- Typed operations validate the same command schema at admission and worker
   execution, rechecks current ownership and token/role scope, and executes
   without HTTP request/response replay. Tests prove the worker does not call
-  the route handler.
+  the route handler. Node tooling and Python deployment currently satisfy this
+  criterion individually.
 - Migrate each remaining route in focused changes, preserving audit, lock,
   validation, retry, and recovery contracts. Remove the replay fallback only
   after every registered route has a tested typed service.
@@ -209,9 +215,9 @@ credential-rotation procedures.
 
 ## Current sequencing
 
-1. M0's local fix and tracking documents are committed. Obtain approval before
-   pushing or dispatching remote workflows so hosted exact-source checks can
-   close M0.
+1. Continue typed service extraction from high-risk durable operations in
+   focused changes. Keep the handler-replay fallback until each route has
+   equivalent validation, authorization, audit, locking, and recovery tests.
 2. Obtain an accessible disposable KVM certification host/runner and execute
    M1 before broader production claims.
 3. Complete M2 and M3 with real installed services while retaining failure
