@@ -160,15 +160,21 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLocksContext(r.Context(), input.Source, input.Site)
+	input.SourceDatabase = strings.ToLower(strings.TrimSpace(input.SourceDatabase))
+	input.TargetDatabase = strings.ToLower(strings.TrimSpace(input.TargetDatabase))
+	input.TargetUser = strings.ToLower(strings.TrimSpace(input.TargetUser))
+	lockKeys := []string{input.Source, input.Site}
+	if input.Database {
+		// Database drops and credential rotations lock only the database
+		// name, so a clone must hold those keys to exclude them.
+		lockKeys = append(lockKeys, "database:"+input.SourceDatabase, "database:"+input.TargetDatabase)
+	}
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLocksContext(r.Context(), lockKeys...)
 	if lockErr != nil {
 		http.Error(w, "site is busy", http.StatusConflict)
 		return
 	}
 	defer releaseUnlock()
-	input.SourceDatabase = strings.ToLower(strings.TrimSpace(input.SourceDatabase))
-	input.TargetDatabase = strings.ToLower(strings.TrimSpace(input.TargetDatabase))
-	input.TargetUser = strings.ToLower(strings.TrimSpace(input.TargetUser))
 	if input.Database {
 		if a.Config.DBCtl == "" || !validManagedDatabaseIdentifier(input.SourceDatabase, databaseNameLimit(a.Config)) || !validManagedDatabaseIdentifier(input.TargetDatabase, databaseNameLimit(a.Config)) || !validManagedDatabaseIdentifier(input.TargetUser, 32) || input.TargetUser[0] < 'a' || input.TargetUser[0] > 'z' || !validDatabasePassword(input.TargetPassword) {
 			http.Error(w, "source_database, target_database, target_user, and target_password are required for database cloning", 422)

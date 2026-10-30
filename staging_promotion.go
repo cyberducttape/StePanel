@@ -18,7 +18,10 @@ import (
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
-const wordpressPromotionRecordName = ".stepanel-last-promotion.json"
+const (
+	wordpressPromotionRecordName = ".stepanel-last-promotion.json"
+	wordpressConfigReadTimeout   = 30 * time.Second
+)
 
 type stagingPromotionRequest struct {
 	Source       string `json:"source"`
@@ -203,7 +206,11 @@ func promotionPathStateAt(path string) (promotionPathState, error) {
 }
 
 func wordpressConfigValue(cfg Config, site, name string) (string, error) {
-	result, err := runWordPress(context.Background(), cfg, rootbroker.WordPressRequest{Action: "config-get", Site: site, Name: name})
+	// config-get reads wp-config.php only; bound it so a wedged wp-cli
+	// cannot hold the promotion locks or a preview request indefinitely.
+	ctx, cancel := context.WithTimeout(context.Background(), wordpressConfigReadTimeout)
+	defer cancel()
+	result, err := runWordPress(ctx, cfg, rootbroker.WordPressRequest{Action: "config-get", Site: site, Name: name})
 	if err != nil {
 		return "", err
 	}
@@ -240,7 +247,16 @@ func (a *App) stagingPromote(w http.ResponseWriter, r *http.Request) {
 	if !a.requireCustomerScope(w, r, "site:deploy") {
 		return
 	}
-	operationCtx, release, err := a.acquireSiteMutationLocksContext(r.Context(), input.Site, input.Source, "database:"+input.Site)
+	// Database drops and credential rotations lock only "database:<name>",
+	// so discover both databases first, lock them with the sites, and
+	// require the locked names to still be the active ones.
+	unlocked, _, err := a.stagingPromotionState(input.Source, input.Site)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	operationCtx, release, err := a.acquireSiteMutationLocksContext(r.Context(), input.Site, input.Source,
+		"database:"+unlocked.StagingDatabase, "database:"+unlocked.ActiveDatabase)
 	if err != nil {
 		http.Error(w, "production or staging site is busy", http.StatusConflict)
 		return
@@ -249,6 +265,10 @@ func (a *App) stagingPromote(w http.ResponseWriter, r *http.Request) {
 	before, proposed, err := a.stagingPromotionState(input.Source, input.Site)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	if before.StagingDatabase != unlocked.StagingDatabase || before.ActiveDatabase != unlocked.ActiveDatabase {
+		http.Error(w, "promotion databases changed while waiting for locks; generate a new preview", http.StatusConflict)
 		return
 	}
 	if err := changePreviewRequired(input.PreviewToken); err != nil || !a.verifyChangePreview(input.PreviewToken, "wordpress.staging-promote:"+input.Site, before, proposed) {
@@ -345,8 +365,10 @@ func (a *App) stagingPromote(w http.ResponseWriter, r *http.Request) {
 		}
 		if len(compensationErrors) > 0 {
 			cause := errors.Join(compensationErrors...)
-			_ = txn.MarkRecoveryRequired(cause)
 			log.Printf("WordPress promotion rollback requires operator recovery for %s: %v", input.Site, cause)
+			if err := txn.MarkRecoveryRequired(cause); err != nil {
+				log.Printf("persist WordPress promotion recovery requirement for %s: %v", input.Site, err)
+			}
 		}
 		cancel()
 	}()
