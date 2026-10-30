@@ -149,6 +149,11 @@ func (a *App) sshAction(w http.ResponseWriter, r *http.Request) {
 var sshServicePattern = regexp.MustCompile(`^[a-zA-Z0-9@_.:-]{1,80}$`)
 
 func executeSSHAction(ctx context.Context, server, action, service string) error {
+	// The durable worker replays a stored payload; revalidate it so the
+	// remote shell only ever receives fixed words and a pattern-checked unit.
+	if !sshAliasPattern.MatchString(server) || (action != "reboot" && action != "restart-service") || (action == "restart-service" && !sshServicePattern.MatchString(service)) {
+		return errors.New("invalid SSH action request")
+	}
 	args := []string{"-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=8", server, "sudo", "--non-interactive"}
 	if action == "reboot" {
 		args = append(args, "systemctl", "reboot")

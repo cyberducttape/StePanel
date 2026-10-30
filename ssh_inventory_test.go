@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -166,15 +168,45 @@ func TestInspectSSHServerBoundsOutput(t *testing.T) {
 	}
 }
 
-func TestInspectSSHServerSendsScriptAsOneRemoteWord(t *testing.T) {
+// installRecordingSSH puts a fake ssh first on PATH. Like the real client it
+// drops options and the host and joins the remote argv with spaces; it writes
+// that joined command to the returned file and, when run is true, executes it
+// with sh -c as the remote login shell would.
+func installRecordingSSH(t *testing.T, run bool) string {
+	t.Helper()
 	bin := t.TempDir()
-	// Behave like ssh: drop options and the host, then hand the space-joined
-	// remote argv to a shell, as the remote login shell would.
-	script := "#!/bin/sh\nwhile [ \"$1\" = -o ]; do shift 2; done\nshift\nexec sh -c \"$*\"\n"
+	record := filepath.Join(t.TempDir(), "remote-command")
+	script := "#!/bin/sh\nwhile [ \"$1\" = -o ] || [ \"$1\" = -p ]; do shift 2; done\nshift\nprintf '%s' \"$*\" > " + shellQuote(record) + "\n"
+	if run {
+		script += "exec sh -c \"$*\"\n"
+	}
 	if err := os.WriteFile(filepath.Join(bin, "ssh"), []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return record
+}
+
+// remoteShellWords splits a joined remote command into the argv a POSIX
+// remote shell would run, without executing it.
+func remoteShellWords(t *testing.T, record string) []string {
+	t.Helper()
+	joined, err := os.ReadFile(record)
+	if err != nil {
+		t.Fatalf("fake ssh recorded no remote command: %v", err)
+	}
+	if strings.ContainsAny(string(joined), "$`;&|<>()") {
+		t.Fatalf("remote command %q contains shell syntax", joined)
+	}
+	out, err := exec.Command("sh", "-c", `eval "set -- $1"; printf '%s\n' "$@"`, "sh", string(joined)).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Split(strings.TrimSuffix(string(out), "\n"), "\n")
+}
+
+func TestInspectSSHServerSendsScriptAsOneRemoteWord(t *testing.T) {
+	record := installRecordingSSH(t, true)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	status := inspectSSHServer(ctx, "local")
@@ -183,5 +215,48 @@ func TestInspectSSHServerSendsScriptAsOneRemoteWord(t *testing.T) {
 	}
 	if hostname, err := os.Hostname(); err == nil && status.Hostname != hostname {
 		t.Fatalf("hostname = %q, want %q", status.Hostname, hostname)
+	}
+	joined, err := os.ReadFile(record)
+	if err != nil || !strings.HasPrefix(string(joined), "sh -c '") {
+		t.Fatalf("remote command = %q, want the script quoted for sh -c", joined)
+	}
+}
+
+func TestExecuteSSHActionSendsExactRemoteWords(t *testing.T) {
+	for _, test := range []struct {
+		action, service string
+		want            []string
+	}{
+		{"restart-service", "php8.3-fpm.service", []string{"sudo", "--non-interactive", "systemctl", "restart", "php8.3-fpm.service"}},
+		{"restart-service", "getty@tty1.service", []string{"sudo", "--non-interactive", "systemctl", "restart", "getty@tty1.service"}},
+		{"reboot", "", []string{"sudo", "--non-interactive", "systemctl", "reboot"}},
+	} {
+		t.Run(test.action+" "+test.service, func(t *testing.T) {
+			record := installRecordingSSH(t, false)
+			if err := executeSSHAction(context.Background(), "prod-a", test.action, test.service); err != nil {
+				t.Fatal(err)
+			}
+			if got := remoteShellWords(t, record); !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("remote shell words = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestExecuteSSHActionRevalidatesStoredRequest(t *testing.T) {
+	record := installRecordingSSH(t, false)
+	for _, test := range []struct{ server, action, service string }{
+		{"prod-a", "restart-service", "nginx; reboot"},
+		{"prod-a", "restart-service", "$(id)"},
+		{"prod-a", "restart-service", ""},
+		{"prod-a", "stop", "nginx"},
+		{"-oProxyCommand=id", "reboot", ""},
+	} {
+		if err := executeSSHAction(context.Background(), test.server, test.action, test.service); err == nil {
+			t.Fatalf("executeSSHAction(%q, %q, %q) accepted an invalid request", test.server, test.action, test.service)
+		}
+	}
+	if _, err := os.Stat(record); !os.IsNotExist(err) {
+		t.Fatal("an invalid request reached ssh")
 	}
 }
