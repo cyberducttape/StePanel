@@ -209,13 +209,22 @@ groups:
           description: The last successful backup of {{ $labels.site }} is more than an hour past its schedule ({{ $value | humanizeDuration }} late). Inspect the site's latest backup job error and its operator notification.
 
       - alert: StePanelScheduledBackupFailures
-        expr: stepanel_backup_consecutive_failures{job="stepanel"} > 0
+        expr: stepanel_backup_consecutive_failures_by_site{job="stepanel"} > 0
         for: 15m
         labels:
           severity: critical
         annotations:
-          summary: Scheduled backups are failing
-          description: A site has one or more consecutive scheduled backup failures; inspect the job, free space, database helper, and offsite target.
+          summary: Scheduled backups are failing for {{ $labels.site }}
+          description: "{{ $labels.site }} has {{ $value }} consecutive scheduled backup failure(s). Inspect its latest backup job, free bytes and inodes, database helper, and offsite destination before retrying."
+
+      - alert: StePanelBackupNeverSucceeded
+        expr: stepanel_backup_success_present{job="stepanel"} == 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: No successful scheduled backup exists for {{ $labels.site }}
+          description: "The enabled schedule for {{ $labels.site }} has no recorded successful backup (success-present metric is 0). Check its latest attempt age and job result; create a verified backup and rehearse a restore."
 
       - alert: StePanelRecoveryProofInventoryDown
         expr: stepanel_recovery_proof_inventory_up{job="stepanel"} == 0

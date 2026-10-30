@@ -149,6 +149,10 @@ unverified where they cannot establish application-level behavior.
 - Failed certificate issuance jobs and enabled backup schedules with repeated
   failure or a recovery point older than twice the interval appear as findings
   with timestamps and measured evidence.
+- Prometheus exposes per-site enabled-schedule success presence, consecutive
+  failures, and latest-attempt age. Alerts identify the site and include the
+  failing count or explicit missing-success evidence; enabled schedules that
+  have never succeeded are alertable without mislabeling disabled schedules.
 - The overview reports cgroup memory/task usage against enforced limits and
   preserves existing PHP-FPM saturation evidence.
 - Site-tree byte and inode usage at 90% or more of a configured account

@@ -447,6 +447,29 @@ func writeBackupScheduleMetrics(w io.Writer, schedules []BackupSchedule) {
 			_, _ = fmt.Fprintf(w, "stepanel_backup_interval_seconds{site=%q} %d\n", schedule.Site, schedule.IntervalMinutes*60)
 		}
 	}
+	// These per-site series include enabled schedules that have never succeeded
+	// so monitoring can alert on missing recovery points as well as old ones.
+	// Site identities are validated before becoming Prometheus labels.
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_backup_success_present Whether an enabled site backup schedule has ever succeeded")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_backup_success_present gauge")
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_backup_consecutive_failures_by_site Consecutive failed attempts for an enabled site backup schedule")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_backup_consecutive_failures_by_site gauge")
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_backup_last_attempt_age_seconds Age of the latest attempt for an enabled site backup schedule")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_backup_last_attempt_age_seconds gauge")
+	for _, schedule := range schedules {
+		if !schedule.Enabled || safeUser(schedule.Site) != schedule.Site {
+			continue
+		}
+		success := 0
+		if schedule.LastSuccess != nil {
+			success = 1
+		}
+		_, _ = fmt.Fprintf(w, "stepanel_backup_success_present{site=%q} %d\n", schedule.Site, success)
+		_, _ = fmt.Fprintf(w, "stepanel_backup_consecutive_failures_by_site{site=%q} %d\n", schedule.Site, max(0, schedule.ConsecutiveFails))
+		if schedule.LastRun != nil {
+			_, _ = fmt.Fprintf(w, "stepanel_backup_last_attempt_age_seconds{site=%q} %.0f\n", schedule.Site, max(0, now.Sub(*schedule.LastRun).Seconds()))
+		}
+	}
 }
 
 // writeRecoveryProofMetrics exposes freshness of actual application-level

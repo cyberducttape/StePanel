@@ -183,3 +183,35 @@ tests:
             exp_annotations:
               summary: Scheduled backup for late is overdue
               description: The last successful backup of late is more than an hour past its schedule (1h 20m 0s late). Inspect the site's latest backup job error and its operator notification.
+
+  - interval: 1m
+    input_series:
+      - series: 'stepanel_backup_consecutive_failures_by_site{job="stepanel",site="failing"}'
+        values: '2+0x30'
+      - series: 'stepanel_backup_consecutive_failures_by_site{job="stepanel",site="healthy"}'
+        values: '0+0x30'
+      - series: 'stepanel_backup_success_present{job="stepanel",site="never"}'
+        values: '0+0x30'
+      - series: 'stepanel_backup_success_present{job="stepanel",site="good"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: StePanelScheduledBackupFailures
+        exp_alerts:
+          - exp_labels:
+              job: stepanel
+              site: failing
+              severity: critical
+            exp_annotations:
+              summary: Scheduled backups are failing for failing
+              description: failing has 2 consecutive scheduled backup failure(s). Inspect its latest backup job, free bytes and inodes, database helper, and offsite destination before retrying.
+      - eval_time: 20m
+        alertname: StePanelBackupNeverSucceeded
+        exp_alerts:
+          - exp_labels:
+              job: stepanel
+              site: never
+              severity: critical
+            exp_annotations:
+              summary: No successful scheduled backup exists for never
+              description: The enabled schedule for never has no recorded successful backup (success-present metric is 0). Check its latest attempt age and job result; create a verified backup and rehearse a restore.

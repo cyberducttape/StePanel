@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Scheduled-backup metrics now expose per-site success presence, failure
+  counts, and latest-attempt age for enabled schedules. Prometheus alerts name
+  the affected site, report the failure count, and flag schedules that have
+  never completed successfully.
+
 - Recorded the exact source and active state of the expanded Rocky Linux 9
   installed-host recovery matrix. Its results remain uncredited until the
   harness completes and the full artifacts are reviewed; this single run does

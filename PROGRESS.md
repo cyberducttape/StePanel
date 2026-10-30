@@ -1,5 +1,20 @@
 # Production-readiness progress
 
+## Per-site backup alert evidence — 2026-10-30
+
+- Prometheus now exports enabled per-site schedule success presence,
+  consecutive failure count, and age of the latest attempt. Failure alerts name
+  the affected site and include the measured failure count. A separate alert
+  identifies enabled schedules with no successful backup; disabled schedules
+  do not emit these series.
+- Added metric regression coverage for never-succeeded, recently attempted,
+  successful, and disabled schedules, plus Prometheus rule fixtures for the
+  per-site alert labels and evidence text. Focused metrics tests, `make check`
+  (API artifact validation, `go vet ./...`, and the complete serialized Go
+  suite), Prometheus 3.5.0 `check rules` and `test rules`, and
+  `git diff --check` all pass on this change. This is local validation only;
+  no hosted CI or production gate is claimed closed by this change.
+
 ## Repository production gate — 2026-10-29
 
 - Tested source: `70bdc34cc96ac698ca822c2796267c5ca36f5ad5`
