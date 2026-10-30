@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- The site incident view now surfaces the recovery engine's failing, degraded,
+  unverified, and no-backup states as evidence-backed findings. Sites without
+  an enabled backup schedule are explicitly marked as having no measurable
+  freshness policy, rather than implying that a manual backup is current or
+  stale. Recovery reasons are redacted and bounded before display, and each
+  finding includes a concrete operator action.
 - The site incident browser regression now verifies that every rendered finding
   includes a diagnosis title, supporting evidence, and an actionable next step.
   The focused Chromium E2E passed against a freshly built current-source

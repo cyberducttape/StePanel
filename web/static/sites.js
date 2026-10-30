@@ -547,6 +547,10 @@
   function renderIncidentAssessment(signals) {
     const findings = [];
     const add = (level, title, evidence, next) => findings.push({ level, title, evidence, next });
+    const safeExcerpt = (line) => String(line)
+      .replace(/((?:password|passwd|token|secret|api[_-]?key)\s*[=:]\s*)[^\s&,;]+/ig, '$1[redacted]')
+      .replace(/(authorization\s*[=:]\s*)[^,;]+/ig, '$1[redacted]')
+      .slice(0, 260);
     const { overview, phpData, phpAvailable, resourceData, resourceAvailable, usageData, usageAvailable, recovery, recoveryAvailable, lastDeployment, webLogResult, phpLogResult, accessLogResult, canReadLogs, latestChange, databaseDiagnostics, databaseDiagnosticsAvailable, siteDiagnostics, siteDiagnosticsAvailable } = signals;
     const applications = overview.applications || [];
     const unhealthy = applications.filter((app) => !['applied', 'running'].includes(String(app.state || '').toLowerCase()));
@@ -669,6 +673,27 @@
         if (Number(schedule.consecutive_failures) > 0) add('warning', 'Scheduled backups are failing', `${schedule.consecutive_failures} consecutive failure(s); last attempt ${schedule.last_run ? new Date(schedule.last_run).toLocaleString() : 'time not recorded'}; latest success ${lastSuccess ? lastSuccess.toLocaleString() : 'none recorded'}. ${schedule.has_error_detail ? 'Failure detail is retained in the authorized backup job history.' : 'No failure detail was retained.'}`, 'Inspect the latest backup job and destination capacity/connectivity, then confirm a successful backup and restore rehearsal.');
         if (!lastSuccess || (expectedMs > 0 && ageMs > expectedMs)) add('critical', 'Scheduled backup recovery point is stale', `Schedule interval ${schedule.interval_minutes} minutes; last successful backup ${lastSuccess ? `${Math.floor(ageMs / 3600000)} hours ago (${lastSuccess.toLocaleString()})` : 'has never succeeded'}. Stale threshold is twice the configured interval.`, 'Resolve the backup failure, produce a new verified backup, and run a restore rehearsal before treating this site as recoverable.');
       }
+      if (recoveryAvailable && recovery) {
+        const confidence = String(recovery.confidence || 'unknown').toLowerCase();
+        const reasons = Array.isArray(recovery.reasons) ? recovery.reasons.map(safeExcerpt).filter(Boolean) : [];
+        const reasonEvidence = reasons.length ? ` Evidence: ${reasons.join(' ')}` : '';
+        const lastAttempt = recovery.last_rehearsal;
+        if (confidence === 'failing') {
+          add('critical', 'Latest restore rehearsal failed', `${recovery.summary || 'Recovery was not proven.'}${lastAttempt ? ` Backup ${lastAttempt.backup || 'unknown'}; outcome ${lastAttempt.outcome || 'failed'} at ${lastAttempt.at ? new Date(lastAttempt.at).toLocaleString() : 'an unknown time'}.` : ''}${reasonEvidence}`, 'Open the latest rehearsal record, correct its reported failure, then rerun the restore rehearsal and confirm the application-level proof result.');
+        } else if (confidence === 'degraded') {
+          add('warning', 'Recovery evidence has degraded', `${recovery.summary || 'Previously verified recovery evidence no longer meets the current policy.'}${reasonEvidence}`, 'Review the recovery checks and reasons, produce a fresh verified backup if it is stale, and rerun a rehearsal when the proof is outdated.');
+        } else if (confidence === 'unverified') {
+          add('warning', 'Application recovery is not proven', `${recovery.summary || 'No successful restore rehearsal is recorded.'}${recovery.last_backup ? ` Latest backup ${recovery.last_backup.name || 'unnamed'} was created ${recovery.last_backup.created_at ? new Date(recovery.last_backup.created_at).toLocaleString() : 'at an unknown time'}.` : ' No verified backup is recorded.'}${reasonEvidence}`, 'Run a restore rehearsal in disposable infrastructure and require database and application HTTP checks before relying on this recovery point.');
+        } else if (confidence === 'no_backup') {
+          add('critical', 'No verified recovery point is available', `${recovery.summary || 'The recovery status reports no usable backup.'}${reasonEvidence}`, 'Create and verify a backup, then run a restore rehearsal before making further destructive changes.');
+        }
+        if (!schedule.enabled) {
+          const backupEvidence = recovery.last_backup
+            ? `Latest recorded backup ${recovery.last_backup.name || 'unnamed'} was created ${recovery.last_backup.created_at ? new Date(recovery.last_backup.created_at).toLocaleString() : 'at an unknown time'}.`
+            : 'No verified backup timestamp is available.';
+          add('unknown', 'Backup freshness policy is not configured', `${backupEvidence} No enabled recurring backup schedule supplies a freshness threshold, so this snapshot cannot classify the recovery point as current or stale.`, 'Set a backup schedule that matches the required recovery point objective, or document and monitor the manual backup cadence.');
+        }
+      }
       if (recoveryAvailable && recovery && recovery.last_backup && recovery.last_backup.created_at && recovery.last_backup.verified_at) {
         add('guidance', 'Latest backup integrity evidence', `Backup ${recovery.last_backup.name || 'unnamed'} created ${new Date(recovery.last_backup.created_at).toLocaleString()}; verified ${new Date(recovery.last_backup.verified_at).toLocaleString()}.`, 'A verified archive does not by itself prove that the application can be restored; review the latest rehearsal result.');
       }
@@ -694,10 +719,6 @@
       add('unknown', 'Database diagnostics are unavailable', 'The host database diagnostic probe did not return usable measurements.', 'Check database service health and its restricted diagnostic helper.');
     }
     const excerpts = [];
-    const safeExcerpt = (line) => String(line)
-      .replace(/((?:password|passwd|token|secret|api[_-]?key)\s*[=:]\s*)[^\s&,;]+/ig, '$1[redacted]')
-      .replace(/(authorization\s*[=:]\s*)[^,;]+/ig, '$1[redacted]')
-      .slice(0, 260);
     const inspectLog = (result, label, saturation) => {
       if (!canReadLogs) return;
       if (!result || !result.ok) {

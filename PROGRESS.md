@@ -1,5 +1,24 @@
 # Production-readiness progress
 
+## Recovery state in site incident findings — 2026-10-30
+
+- Surfaced failing, degraded, unverified, and no-backup recovery states in the
+  site incident assessment, with rehearsal/backup evidence, redaction of
+  recovery reason text, and a recommended next action for each state. When no
+  backup schedule is enabled, the panel now says freshness cannot be measured
+  and asks the operator to configure a recovery-point cadence instead of
+  silently treating an unscheduled backup as fresh.
+- Extended the incident browser journey to assert the unverified-recovery
+  finding; the same journey checks every finding has a title, evidence, and
+  next step, and it switches the schedule off to verify the explicit unknown
+  freshness state and its recommended action. `go build -trimpath`, JavaScript
+  syntax checks, `npm run test:unit` (17/17), and the focused Chromium E2E
+  journey (1/1) passed. `git diff --check` passed. CI integration for the
+  previous pushed source remains in progress; this worktree's commit will get
+  its own hosted checks. This improves operator visibility; it does not
+  establish backup freshness without an explicit policy or close any host
+  recovery certification gate.
+
 ## Per-site backup alert evidence — 2026-10-30
 
 - Prometheus now exports enabled per-site schedule success presence,

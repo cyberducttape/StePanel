@@ -116,6 +116,7 @@ test('site overview makes backup failures explicit', async ({ page }) => {
 
 test('site guided workflow connects lifecycle checks and practical diagnostics', async ({ page }) => {
   const site = { site: 'e2e-journey', routes: [{ domain: 'journey.example.test', state: 'applied' }, { domain: 'quiet.example.test', state: 'applied' }], applications: [], database_count: 1 };
+  let backupScheduleEnabled = true;
   const json = (body) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   await page.route('**/api/sites/overview', (route) => route.fulfill(json({ sites: [site] })));
   await page.route('**/api/sites/overview/e2e-journey', (route) => route.fulfill(json(site)));
@@ -126,7 +127,9 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
     database: { available: true, engine: 'mariadb', databases: ['journey_wp'], detail: 'Inventory access only.' },
     database_connectivity: { status: 'connected', engine: 'mariadb', collected_at: new Date().toISOString(), detail: 'Restricted host query succeeded.' },
     application_database_connectivity: { status: 'failed', collected_at: new Date().toISOString(), detail: 'WP-CLI db check reports database authentication failure; raw output is withheld.' },
-    backup_schedule: { enabled: true, interval_minutes: 60, last_run: new Date().toISOString(), last_success: null, has_error_detail: true, consecutive_failures: 2 },
+    backup_schedule: backupScheduleEnabled
+      ? { enabled: true, interval_minutes: 60, last_run: new Date().toISOString(), last_success: null, has_error_detail: true, consecutive_failures: 2 }
+      : { enabled: false },
     tls: [
       { domain: 'journey.example.test', route_state: 'applied', status: 'unknown', renewal: 'dead-letter', renewal_job_id: 'certificate-42', renewal_at: new Date().toISOString(), renewal_evidence: 'Latest certificate issuance job certificate-42 for this domain is in dead-letter state.', detail: 'Live external handshake not tested.' },
       { domain: 'quiet.example.test', route_state: 'applied', status: 'unknown', renewal: 'unknown', renewal_evidence: 'Certificate issuance history could not be read from the durable job store.', detail: 'Live external handshake not tested.' },
@@ -161,6 +164,8 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
   await expect(diagnosis).toContainText('Site tree is at or above its configured inode allowance');
   await expect(diagnosis).toContainText('WordPress database connection failed');
   await expect(diagnosis).toContainText('database authentication failure');
+  await expect(diagnosis).toContainText('Application recovery is not proven');
+  await expect(diagnosis).toContainText('No verified recovery point.');
   await expect(diagnosis).toContainText('Scheduled backups are failing');
   await expect(diagnosis).toContainText('2 consecutive failure(s)');
   await expect(diagnosis).toContainText('Scheduled backup recovery point is stale');
@@ -187,6 +192,12 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
   await expect(panel).toContainText('No verified backup found');
   await expect(panel).toContainText('PHP Fatal error: test failure in plugin.php');
   await checkA11y(page);
+  backupScheduleEnabled = false;
+  await page.getByRole('tab', { name: 'Overview' }).click();
+  await expect(panel.getByRole('region', { name: 'Site incident assessment' })).toContainText('Backup freshness policy is not configured');
+  await expect(panel.getByRole('region', { name: 'Site incident assessment' })).toContainText('No enabled recurring backup schedule supplies a freshness threshold');
+  await expect(panel.getByRole('region', { name: 'Site incident assessment' })).toContainText('Set a backup schedule that matches the required recovery point objective');
+  await page.getByRole('tab', { name: 'Guided workflow' }).click();
   await panel.getByRole('button', { name: 'Run WordPress status' }).click();
   await expect(panel.locator('#lifecycleWordPressOutput')).toContainText('Success: WordPress is installed.');
   await expect(panel.getByRole('link', { name: 'Open staging and clone actions' })).toHaveAttribute('href', /tab=backups/);
