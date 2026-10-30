@@ -23,6 +23,19 @@
   visibility; it does not establish backup freshness without an explicit
   policy or close any host recovery certification gate.
 
+## Production plan evidence reconciliation — 2026-10-30
+
+- Updated M0, M0c, and M0d in `DEVELOPMENT_PLAN.md`: the source-exact CI,
+  CodeQL, documentation, browser E2E, and release-evidence runs now reference
+  `c91a88b`; migration and incident browser checks are included in that
+  passing full E2E run. The prior single installed-host smoke remains evidence
+  for `79e1de4` only.
+- Exact current worktree `c1e8661` is clean and matches `origin/main`. A new
+  full local KVM install is deferred until the host has more memory headroom:
+  it currently reports about 5.2 GiB available with swap exhausted, below the
+  lab's documented 6 GiB guest-plus-host-reserve requirement. This is an
+  environment constraint, not a production gate closure.
+
 ## Per-site backup alert evidence — 2026-10-30
 
 - Prometheus now exports enabled per-site schedule success presence,

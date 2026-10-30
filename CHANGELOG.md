@@ -26,6 +26,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   matrix run (123 smoke/matrix passes) with source, environment, checksums,
   and limits. The run used older source and QEMU writeback caching, so it does
   not close the current-source or host power-loss release gates.
+- Reconciled production-plan statuses to the exact-source `c91a88b` hosted
+  checks, while keeping the earlier AlmaLinux installed-host result attributed
+  to `79e1de4`.
 - Recorded exact-source CI integration, CodeQL, documentation, browser E2E,
   release-evidence, and installed-host smoke results for `79e1de4`. The
   AlmaLinux 9/Caddy/MariaDB install passed one recovery-matrix iteration and

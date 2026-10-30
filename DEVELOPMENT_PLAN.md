@@ -15,9 +15,9 @@ successful one-off smoke does not close a host-certification gate.
 ### M0 — Restore green exact-source CI
 
 **Priority:** Immediate release hygiene  
-**Status:** CI integration, CodeQL, documentation, browser E2E, release
-evidence, and the installed-host smoke passed on exact source `79e1de4`.
-Artifact review is recorded in
+**Status:** CI integration, CodeQL, documentation, browser E2E, and release
+evidence passed on exact source `c91a88b`; the installed-host smoke was on the
+earlier source `79e1de4`. The `c91a88b` workflow evidence is recorded in
 [`docs/lab-results/2026-10-30-current-source-almalinux-install-79e1de4.md`](docs/lab-results/2026-10-30-current-source-almalinux-install-79e1de4.md).
 This closes exact-source validation only; production recovery gates remain
 open.
@@ -103,10 +103,11 @@ request.
 
 ### M0c — Exportable cPanel migration compatibility evidence (P1)
 
-**Status:** Feature implemented and focused Go/browser checks pass locally.
-The complete browser suite had one timeout in the existing customer-panel
-accessibility test; that same test passed when rerun alongside the new
-migration-report browser test. Exact-source hosted CI remains outstanding.
+**Status:** Feature implemented. The exact-source `c91a88b` CI integration
+passed the serialized Go suite, race tests, and full browser E2E, including the
+migration journey; CodeQL, documentation, and release evidence also passed.
+The earlier isolated complete-browser timeout was not reproduced in the
+passing hosted run.
 
 The cpmove preflight reports bounded domain/document-root mappings, SQL dump
 version evidence, Maildir structure, and explicit DNS/mail/TLS cutover work.
@@ -133,11 +134,15 @@ exports both preview and final evidence as JSON and Markdown.
 
 ### M0d — Evidence-backed site incident diagnosis (P1)
 
-**Status:** Implemented and locally verified. Exact-source CI integration,
-CodeQL, documentation, release evidence, and browser E2E passed on
-`79e1de4`; hosted installed-host smoke `41019722358` passed one AlmaLinux
-9/Caddy/MariaDB recovery-matrix iteration and measured a 7.309-second
-WordPress recovery proof. The repeated recovery gate remains open.
+**Status:** Implemented and locally verified. Exact-source CI integration
+([41026353462](https://github.com/cyberducttape/StePanel/actions/runs/41026353462)),
+CodeQL ([41026353439](https://github.com/cyberducttape/StePanel/actions/runs/41026353439)),
+documentation ([41026353453](https://github.com/cyberducttape/StePanel/actions/runs/41026353453)),
+release evidence ([41028522602](https://github.com/cyberducttape/StePanel/actions/runs/41028522602)),
+and browser E2E passed on `c91a88b`. The earlier hosted installed-host smoke
+`41019722358` passed one AlmaLinux 9/Caddy/MariaDB recovery-matrix iteration
+and measured a 7.309-second WordPress recovery proof on `79e1de4`; it is not
+current-source host evidence. The repeated recovery gate remains open.
 
 Correlate PHP-FPM saturation and historical pressure, systemd memory/task
 limits, host byte/inode capacity, database-engine connectivity, TLS metadata
