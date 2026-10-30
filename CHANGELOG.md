@@ -119,6 +119,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- The local production audit now passes the complete Go race suite and
+  repository recovery drills; its evidence explicitly distinguishes synthetic
+  drill coverage from the still-required installed-host certification.
 - The PHP-FPM and quota browser regression now expects the current
   account-scoped upper-bound wording for estimated byte headroom.
 - Customer-panel browser tests now provision a worker- and repeat-specific

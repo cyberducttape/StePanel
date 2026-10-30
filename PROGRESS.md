@@ -1,8 +1,10 @@
 # Production-readiness progress
 
-**Updated:** 2026-10-29  
+**Updated:** 2026-10-30
 **Published base:** `ffb9e02419dd8c8ae3218bde60cbdd993349bb6c`  
-**Verified local fix commit:** `2d2e2cda02022b49aad0fbb44b89fdc6a6585fb8`  
+**Verified local commits:**
+`2d2e2cda02022b49aad0fbb44b89fdc6a6585fb8`,
+`3d2131293818867388a9f71bd5ba90dbc722edf8`
 **Decision:** **NO-GO** for production; see [`docs/V1_PRODUCTION_GATES.md`](docs/V1_PRODUCTION_GATES.md).
 
 ## Completed in this work period
@@ -18,6 +20,14 @@
   harness.
 - Ran `make check` after the local E2E fix: API artifact check, `go vet`, and
   all Go tests passed.
+- Ran `make audit` on the current local source: `go vet ./...`, the full Go
+  suite, the full race suite, repository recovery drills, and release-contract
+  checks all passed. The root package took 66.9 seconds normally and 408.0
+  seconds under `-race`; the full race suite completed successfully.
+- Recovery drill artifact `/tmp/stepanel-recovery-drills.md` reports PASS for
+  partial SQL import cleanup (164s), interrupted transaction recovery (1s),
+  configuration rollback (2s), and pending runtime reconciliation (1s).
+  These are synthetic repository-level drills, not installed-host certification.
 - Ran `make release-check`, `bash scripts/check-action-pins.sh`,
   `node --check tests/e2e/critical-navigation.spec.js`, and `git diff --check`;
   all passed.
@@ -46,8 +56,9 @@
 - `PROGRESS.md`: this evidence and next-step record.
 
 The E2E fix is committed locally as `2d2e2cd`; the plan/progress documents are
-also committed on the local branch. Nothing has been pushed or dispatched
-remotely. The E2E run used a binary rebuilt from this worktree.
+also committed on the local branch. This file records the latest audit
+evidence. Nothing has been pushed or dispatched remotely. The E2E run used a
+binary rebuilt from this worktree.
 
 ## Release blockers and evidence gaps
 
@@ -65,11 +76,10 @@ claimed or attempted.
 
 ## Next steps
 
-1. Commit the verified plan/progress documents locally.
-2. Obtain approval before pushing or dispatching remote workflows. Then require
+1. Obtain approval before pushing or dispatching remote workflows. Then require
    exact-source CI, CodeQL, documentation, and release-evidence success.
-3. Obtain a suitably provisioned disposable KVM host/runner; execute the
+2. Obtain a suitably provisioned disposable KVM host/runner; execute the
    remaining Gate 5 matrix and retain reviewed evidence.
-4. Continue with application restore, operational notification, capacity,
+3. Continue with application restore, operational notification, capacity,
    upgrade, and independent security gates in `DEVELOPMENT_PLAN.md`.
 
