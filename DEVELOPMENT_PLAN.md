@@ -15,8 +15,10 @@ successful one-off smoke does not close a host-certification gate.
 ### M0 — Restore green exact-source CI
 
 **Priority:** Immediate release hygiene  
-**Status:** Fix implemented and verified locally; hosted rerun awaits approval
-to push.
+**Status:** CI integration, CodeQL, documentation, browser E2E, and release
+evidence passed on exact source `79e1de4`. The installed-host smoke is still
+running as run `41019722358`; do not credit it until the job and artifacts are
+reviewed.
 
 - Correct the Playwright quota-headroom expectation to match the UI's current
   account-scoped upper-bound wording.
@@ -36,8 +38,9 @@ to push.
 
 ### M0a — Bound long-running restore and API-token behavior (P1)
 
-**Status:** Implemented and locally verified. Hosted exact-source CI still
-requires approval to push.
+**Status:** Implemented and locally verified; exact-source CI, CodeQL,
+documentation, and browser E2E passed on `79e1de4`. Installed-host smoke
+`41019722358` remains in progress.
 
 Use operation-specific async deadlines that cover the corresponding helper
 timeout and cleanup, renew durable leases throughout long work, and propagate
@@ -127,8 +130,9 @@ exports both preview and final evidence as JSON and Markdown.
 
 ### M0d — Evidence-backed site incident diagnosis (P1)
 
-**Status:** Implemented and locally verified. Exact-source hosted CI remains
-outstanding.
+**Status:** Implemented and locally verified. Exact-source CI integration,
+CodeQL, documentation, release evidence, and browser E2E passed on
+`79e1de4`; hosted installed-host smoke `41019722358` remains in progress.
 
 Correlate PHP-FPM saturation and historical pressure, systemd memory/task
 limits, host byte/inode capacity, database-engine connectivity, TLS metadata

@@ -12,8 +12,29 @@
   per-site alert labels and evidence text. Focused metrics tests, `make check`
   (API artifact validation, `go vet ./...`, and the complete serialized Go
   suite), Prometheus 3.5.0 `check rules` and `test rules`, and
-  `git diff --check` all pass on this change. This is local validation only;
-  no hosted CI or production gate is claimed closed by this change.
+  `git diff --check` all passed locally. Exact-source CI integration, CodeQL,
+  documentation, browser E2E, and release evidence also passed on
+  `79e1de4`. The installed-host smoke is still running; this change does not
+  close any production certification gate.
+
+## Exact-source hosted validation — 2026-10-30
+
+- Source `79e1de4ac3799ab5642488b69fd6b7b063d03d9b` is pushed to `main`.
+  CI integration passed (run [41019722389](https://github.com/cyberducttape/StePanel/actions/runs/41019722389)),
+  including Go coverage and race suites, recovery/ENOSPC drills, database
+  restore contracts, static analysis, container checks, and mixed load.
+  CodeQL ([41019722342](https://github.com/cyberducttape/StePanel/actions/runs/41019722342)),
+  documentation ([41019722422](https://github.com/cyberducttape/StePanel/actions/runs/41019722422)),
+  browser E2E (part of CI integration), and release evidence
+  ([41021459620](https://github.com/cyberducttape/StePanel/actions/runs/41021459620))
+  passed on the same source.
+- Installation smoke [41019722358](https://github.com/cyberducttape/StePanel/actions/runs/41019722358)
+  passed host selection and image setup and is still executing the installed
+  recovery matrix. No install result is credited until the job and uploaded
+  diagnostics complete review.
+- This exact-source software validation does not close the physical power-loss,
+  20–50 repeated installed-host matrix, broad ENOSPC, supported capacity, live
+  notification, or independent security review gates.
 
 ## Repository production gate — 2026-10-29
 
@@ -404,18 +425,20 @@ certification, upgrade/security lifecycle evidence, and release-evidence
 reconciliation as partial or open. Existing passing code tests and historical
 QEMU runs do not close those gates.
 
-The documented Rocky Linux KVM lab cannot run on this workstation: `/dev/kvm`
-is `root:kvm` mode `0660` and the current user is not in the `kvm` group;
-noninteractive sudo is unavailable. Memory currently meets the guest plus
-reserve requirement, but there is no cached guest image and Docker/Podman are
-not installed. No host certification was claimed or attempted.
+An earlier environment snapshot said KVM was unavailable; that is no longer
+the current state. The Rocky Linux 9 KVM job below is running as `stephanl`
+with `/dev/kvm` accessible. Its source is still older than `HEAD`, its virtual
+disks use writeback cache, and the repeated matrix has not completed, so it
+does not close a current-source or power-loss gate.
 
 ## Next steps
 
-1. Commit and push this recovery-evidence change, then require exact-source CI,
-   CodeQL, documentation, and release-evidence success.
-2. Obtain a suitably provisioned disposable KVM host/runner; execute the
-   remaining Gate 5 matrix and retain reviewed evidence.
-3. Continue with application restore, operational notification, capacity,
-   upgrade, and independent security gates in `DEVELOPMENT_PLAN.md`.
+1. Review the completion status and uploaded diagnostics for exact-source
+   installed-host smoke [41019722358](https://github.com/cyberducttape/StePanel/actions/runs/41019722358).
+2. Review the active local Rocky matrix artifacts when its process exits; run
+   a current-source cohort only after deciding which matrix cases it can
+   validly establish.
+3. Continue with repeated host recovery, application restore, operational
+   notification, capacity, upgrade, and independent security gates in
+   `DEVELOPMENT_PLAN.md`.
 

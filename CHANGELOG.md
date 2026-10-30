@@ -8,6 +8,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Recorded the exact-source CI integration, CodeQL, documentation, browser
+  E2E, and release-evidence results for `79e1de4`; the installed-host recovery
+  smoke remains in progress, and production recovery gates remain open.
+- Reconciled the progress record with the pushed exact-source workflow results
+  and corrected the KVM environment note after confirming that a Rocky Linux 9
+  recovery run is active on the workstation.
+
 - Scheduled-backup metrics now expose per-site success presence, failure
   counts, and latest-attempt age for enabled schedules. Prometheus alerts name
   the affected site, report the failure count, and flag schedules that have
