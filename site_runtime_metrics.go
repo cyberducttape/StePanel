@@ -115,13 +115,7 @@ func (a *App) refreshSiteRuntimeMetrics(parent context.Context) {
 					sample.fpmAvailable = fpm.Available
 					sample.pools = append([]rootbroker.FPMStatusPool(nil), fpm.Pools...)
 				}
-				sample.resourceAvailable = observed["state"] != "unavailable" && observed["state"] != "unknown"
-				sample.memoryCurrent, _ = strconv.ParseUint(observed["MemoryCurrent"], 10, 64)
-				sample.memoryMax, _ = strconv.ParseUint(observed["MemoryMax"], 10, 64)
-				sample.tasksCurrent, _ = strconv.ParseUint(observed["TasksCurrent"], 10, 64)
-				sample.tasksMax, _ = strconv.ParseUint(observed["TasksMax"], 10, 64)
-				sample.cpuUsageNSec, _ = strconv.ParseUint(observed["CPUUsageNSec"], 10, 64)
-				sample.cpuQuotaPerSecUSec, _ = parseSystemdTimespanUSec(observed["CPUQuotaPerSecUSec"])
+				applyResourceObservation(&sample, observed)
 				samples[site] = sample
 				samplesMu.Unlock()
 			}
@@ -188,11 +182,12 @@ var systemdTimespanUnits = map[string]uint64{
 	"h": 3_600_000_000, "hr": 3_600_000_000,
 }
 
-// parseSystemdTimespanUSec parses a systemctl show timespan such as
-// CPUQuotaPerSecUSec=2s, =500ms, or =1s 500ms into microseconds. systemctl
-// prints *USec properties in this human format, not as integers; a bare
-// integer is accepted as microseconds. "infinity" and anything unparseable
-// report false so callers treat the quota as unknown.
+// parseSystemdTimespanUSec parses a systemctl show timespan into
+// microseconds. systemctl prints *USec properties in human form, not as
+// integers: CPUQuotaPerSecUSec is "1.500000s" on systemd 259 and may be
+// "2s", "500ms", or "1s 500ms" elsewhere. A bare integer is accepted as
+// microseconds. "infinity" and anything unparseable report false so callers
+// treat the quota as unknown.
 func parseSystemdTimespanUSec(value string) (uint64, bool) {
 	fields := strings.Fields(value)
 	if len(fields) == 0 || len(fields) > 8 {
@@ -205,18 +200,63 @@ func parseSystemdTimespanUSec(value string) (uint64, bool) {
 	}
 	var total uint64
 	for _, field := range fields {
-		split := strings.IndexFunc(field, func(r rune) bool { return r < '0' || r > '9' })
+		split := strings.IndexFunc(field, func(r rune) bool { return (r < '0' || r > '9') && r != '.' })
 		if split <= 0 {
 			return 0, false
 		}
-		amount, err := strconv.ParseUint(field[:split], 10, 32)
 		unit, known := systemdTimespanUnits[field[split:]]
-		if err != nil || !known {
+		whole, fraction, hasFraction := strings.Cut(field[:split], ".")
+		if !known || whole == "" || (hasFraction && (fraction == "" || len(fraction) > 9 || strings.Contains(fraction, "."))) {
+			return 0, false
+		}
+		amount, err := strconv.ParseUint(whole, 10, 32)
+		if err != nil {
 			return 0, false
 		}
 		total += amount * unit
+		if hasFraction {
+			digits, err := strconv.ParseUint(fraction, 10, 32)
+			if err != nil {
+				return 0, false
+			}
+			scale := uint64(1)
+			for range fraction {
+				scale *= 10
+			}
+			total += digits * unit / scale
+		}
 	}
 	return total, true
+}
+
+// parseResourceStatus reads the KEY=VALUE lines of systemctl show.
+func parseResourceStatus(output string) map[string]string {
+	values := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		key, value, ok := strings.Cut(line, "=")
+		if ok {
+			values[key] = value
+		}
+	}
+	if values["ActiveState"] == "" {
+		values["state"] = "unknown"
+	} else {
+		values["state"] = values["ActiveState"]
+	}
+	return values
+}
+
+// applyResourceObservation records a site slice's systemctl show values.
+// Unlimited ("infinity") and unset ("[not set]") values become 0, which the
+// metric writers treat as no limit rather than a measured value.
+func applyResourceObservation(sample *siteRuntimeMetricSample, observed map[string]string) {
+	sample.resourceAvailable = observed["state"] != "unavailable" && observed["state"] != "unknown"
+	sample.memoryCurrent, _ = strconv.ParseUint(observed["MemoryCurrent"], 10, 64)
+	sample.memoryMax, _ = strconv.ParseUint(observed["MemoryMax"], 10, 64)
+	sample.tasksCurrent, _ = strconv.ParseUint(observed["TasksCurrent"], 10, 64)
+	sample.tasksMax, _ = strconv.ParseUint(observed["TasksMax"], 10, 64)
+	sample.cpuUsageNSec, _ = strconv.ParseUint(observed["CPUUsageNSec"], 10, 64)
+	sample.cpuQuotaPerSecUSec, _ = parseSystemdTimespanUSec(observed["CPUQuotaPerSecUSec"])
 }
 
 func (a *App) siteRuntimeInventory() ([]string, map[string]ResourceProfile, bool) {

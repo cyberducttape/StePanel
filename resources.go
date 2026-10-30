@@ -905,19 +905,7 @@ func (a *App) resourceObserved(ctx context.Context, site string) map[string]stri
 	if err != nil {
 		return map[string]string{"state": "unavailable"}
 	}
-	values := map[string]string{}
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) == 2 {
-			values[parts[0]] = parts[1]
-		}
-	}
-	if values["ActiveState"] == "" {
-		values["state"] = "unknown"
-	} else {
-		values["state"] = values["ActiveState"]
-	}
-	return values
+	return parseResourceStatus(output)
 }
 
 func (a *App) reconcileResources(w http.ResponseWriter, r *http.Request) {

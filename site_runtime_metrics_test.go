@@ -75,6 +75,7 @@ func TestCPUQuotaUtilizationUsesCounterDeltaAndRejectsInvalidSamples(t *testing.
 func TestParseSystemdTimespanUSecReadsSystemctlShowFormat(t *testing.T) {
 	for value, want := range map[string]uint64{
 		"2s": 2_000_000, "500ms": 500_000, "1s 500ms": 1_500_000,
+		"1.500000s": 1_500_000, "0.250000s": 250_000, "1.5ms": 1_500,
 		"10ms": 10_000, "1min 30s": 90_000_000, "1000000": 1_000_000,
 	} {
 		got, ok := parseSystemdTimespanUSec(value)
@@ -82,9 +83,51 @@ func TestParseSystemdTimespanUSecReadsSystemctlShowFormat(t *testing.T) {
 			t.Errorf("parseSystemdTimespanUSec(%q) = (%d, %v), want (%d, true)", value, got, ok, want)
 		}
 	}
-	for _, value := range []string{"", "infinity", "[not set]", "2x", "ms", "-1s"} {
+	for _, value := range []string{"", "infinity", "[not set]", "2x", "ms", "-1s", "1.s", ".5s", "1..5s", "1.2.3s", "1.0000000001s"} {
 		if got, ok := parseSystemdTimespanUSec(value); ok {
 			t.Errorf("parseSystemdTimespanUSec(%q) = %d, want rejection", value, got)
 		}
+	}
+}
+
+func readSystemctlFixture(t *testing.T, name string) map[string]string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", "systemctl", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return parseResourceStatus(string(data))
+}
+
+func TestResourceObservationReadsRealSystemctlLimitedSlice(t *testing.T) {
+	var sample siteRuntimeMetricSample
+	applyResourceObservation(&sample, readSystemctlFixture(t, "systemd-259-limited.txt"))
+	want := siteRuntimeMetricSample{
+		resourceAvailable: true, memoryCurrent: 2981888, memoryMax: 268435456,
+		tasksCurrent: 1, tasksMax: 64, cpuUsageNSec: 13857000, cpuQuotaPerSecUSec: 1_500_000,
+	}
+	if !reflect.DeepEqual(sample, want) {
+		t.Fatalf("observation = %+v, want %+v", sample, want)
+	}
+
+	// A real quota must yield a utilization once a second sample arrives.
+	start := time.Unix(1_800_000_000, 0)
+	previous, current := sample, sample
+	previous.collectedAt, current.collectedAt = start, start.Add(time.Minute)
+	current.cpuUsageNSec += 45_000_000_000 // 50% of a 1.5 CPU quota for 60s.
+	got, ok := cpuQuotaUtilization(previous, current)
+	if !ok || got != 50 {
+		t.Fatalf("cpuQuotaUtilization() = (%v, %v), want (50, true)", got, ok)
+	}
+}
+
+func TestResourceObservationTreatsRealUnlimitedSliceAsNoLimit(t *testing.T) {
+	var sample siteRuntimeMetricSample
+	applyResourceObservation(&sample, readSystemctlFixture(t, "systemd-259-unlimited.txt"))
+	if !sample.resourceAvailable || sample.memoryMax != 0 || sample.tasksMax != 0 || sample.cpuQuotaPerSecUSec != 0 {
+		t.Fatalf("unlimited slice produced limits: %+v", sample)
+	}
+	if sample.memoryCurrent != 12355264512 || sample.tasksCurrent != 2237 {
+		t.Fatalf("unlimited slice lost current usage: %+v", sample)
 	}
 }

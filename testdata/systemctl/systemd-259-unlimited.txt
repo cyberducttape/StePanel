@@ -1,0 +1,10 @@
+ActiveState=active
+MemoryCurrent=12355264512
+CPUUsageNSec=127608895765000
+TasksCurrent=2237
+CPUWeight=[not set]
+CPUQuotaPerSecUSec=infinity
+IOWeight=[not set]
+MemoryHigh=infinity
+MemoryMax=infinity
+TasksMax=infinity
