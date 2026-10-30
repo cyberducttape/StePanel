@@ -446,7 +446,7 @@ func (a *App) databaseCollection(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "owning site document root does not exist", http.StatusUnprocessableEntity)
 			return
 		}
-		lockKeys := []string{in.Site, "database:" + in.Name}
+		lockKeys := []string{in.Site, databaseLockKey(in.Name)}
 		if !a.Auth.IsAdministrator(r) {
 			lockKeys = append(lockKeys, a.customerTenantLockKey(r))
 		}
@@ -621,7 +621,7 @@ func (a *App) databaseResource(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "password must contain 20-128 supported characters", http.StatusUnprocessableEntity)
 			return
 		}
-		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), "database:"+name)
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), databaseLockKey(name))
 		if lockErr != nil {
 			http.Error(w, "database mutation is busy", http.StatusConflict)
 			return
@@ -665,7 +665,7 @@ func (a *App) databaseResource(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "database user does not match the registered owner", http.StatusUnprocessableEntity)
 			return
 		}
-		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), "database:"+name)
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), databaseLockKey(name))
 		if lockErr != nil {
 			http.Error(w, "database mutation is busy", http.StatusConflict)
 			return

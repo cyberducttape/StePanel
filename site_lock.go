@@ -23,6 +23,13 @@ func (a *App) acquireSiteMutationLock(ctx context.Context, key string) (func(), 
 // when the durable lease is fenced by another owner. High-risk operations
 // must pass this context to their helper calls; otherwise Hold would detect a
 // lost lease but the operation could continue mutating host state.
+// databaseLockKey is the mutation lock for one managed database. Every
+// operation that reads, clones, rotates, restores, or drops a database by
+// name must hold this key (TestDatabaseLocksUseOneKeyHelper).
+func databaseLockKey(name string) string {
+	return "database:" + name
+}
+
 func (a *App) acquireSiteMutationLockContext(ctx context.Context, key string) (context.Context, func(), error) {
 	localRelease := a.siteOperations.Acquire(key)
 	if a.dbLocks == nil {

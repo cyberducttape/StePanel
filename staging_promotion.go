@@ -194,6 +194,12 @@ func (a *App) stagingPromotionState(source, site string) (promotionBefore, promo
 	return before, proposed, nil
 }
 
+// stagingPromotionLockKeys fences both sites and both databases a promotion
+// reads or retains, so drops and rotations of either cannot overlap it.
+func stagingPromotionLockKeys(state promotionBefore) []string {
+	return []string{state.Production, state.Source, databaseLockKey(state.StagingDatabase), databaseLockKey(state.ActiveDatabase)}
+}
+
 func promotionPathStateAt(path string) (promotionPathState, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -255,8 +261,7 @@ func (a *App) stagingPromote(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
-	operationCtx, release, err := a.acquireSiteMutationLocksContext(r.Context(), input.Site, input.Source,
-		"database:"+unlocked.StagingDatabase, "database:"+unlocked.ActiveDatabase)
+	operationCtx, release, err := a.acquireSiteMutationLocksContext(r.Context(), stagingPromotionLockKeys(unlocked)...)
 	if err != nil {
 		http.Error(w, "production or staging site is busy", http.StatusConflict)
 		return

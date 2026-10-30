@@ -167,7 +167,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 	if input.Database {
 		// Database drops and credential rotations lock only the database
 		// name, so a clone must hold those keys to exclude them.
-		lockKeys = append(lockKeys, "database:"+input.SourceDatabase, "database:"+input.TargetDatabase)
+		lockKeys = append(lockKeys, databaseLockKey(input.SourceDatabase), databaseLockKey(input.TargetDatabase))
 	}
 	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLocksContext(r.Context(), lockKeys...)
 	if lockErr != nil {
