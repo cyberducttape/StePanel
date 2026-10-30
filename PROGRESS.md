@@ -13,11 +13,15 @@
   next step, and it switches the schedule off to verify the explicit unknown
   freshness state and its recommended action. `go build -trimpath`, JavaScript
   syntax checks, `npm run test:unit` (17/17), and the focused Chromium E2E
-  journey (1/1) passed. `git diff --check` passed. CI integration for the
-  previous pushed source remains in progress; this worktree's commit will get
-  its own hosted checks. This improves operator visibility; it does not
-  establish backup freshness without an explicit policy or close any host
-  recovery certification gate.
+  journey (1/1) passed. `git diff --check` passed. On exact source `c91a88b`,
+  hosted CI integration [41026353462](https://github.com/cyberducttape/StePanel/actions/runs/41026353462),
+  CodeQL [41026353439](https://github.com/cyberducttape/StePanel/actions/runs/41026353439),
+  documentation [41026353453](https://github.com/cyberducttape/StePanel/actions/runs/41026353453),
+  and release evidence [41028522602](https://github.com/cyberducttape/StePanel/actions/runs/41028522602)
+  passed. CI included full Go tests, race tests, ENOSPC/recovery drills,
+  database restore integrations, and browser E2E. This improves operator
+  visibility; it does not establish backup freshness without an explicit
+  policy or close any host recovery certification gate.
 
 ## Per-site backup alert evidence — 2026-10-30
 
