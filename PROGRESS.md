@@ -1,5 +1,22 @@
 # Production-readiness progress
 
+## Full repository production gate — 2026-10-30
+
+- `make production-gate` passed on exact source
+  `cab5cd41b861cd90681a04752ad260cfe8ed1419`: `go vet`, all Go tests,
+  57.9% total coverage and all package floors, complete race suite, recovery
+  drills, control-plane benchmarks, 200-site mixed HTTP load, documentation,
+  quota-contract fixtures, action pinning, assets, and shell syntax.
+- Mixed-load results were 4.5 ms average / 25.1 ms p95 / 34.9 ms maximum;
+  `/metrics` maximum was 25.2 ms. The 50-job batch benchmark measured 51.3 ms.
+  Recovery drill details are retained at `/tmp/stepanel-recovery-drills.md`
+  on the local test host; reviewed summary and limits are in
+  [`2026-10-30-repository-production-gate-cab5cd4.md`](docs/lab-results/2026-10-30-repository-production-gate-cab5cd4.md).
+- These are repository and synthetic-load results. They do not certify live
+  filesystem quota enforcement, real PHP/database workload, sustained load,
+  installed-host ENOSPC, physical power loss, repeat recovery cohorts, or live
+  alert delivery; production remains NO-GO.
+
 ## Continuous per-site runtime and certificate alerts — 2026-10-30
 
 - Added a one-minute background sampler with a fixed worker pool, per-probe

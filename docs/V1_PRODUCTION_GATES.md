@@ -40,12 +40,15 @@ Hand-written snapshots kept until 2026-10-27 are in
 [the evidence history](./archive/EVIDENCE_HISTORY.md).
 
 The latest local repository-level production-gate run is recorded in
-[`2026-10-30-repository-production-gate-1ad78a6.md`](./lab-results/2026-10-30-repository-production-gate-1ad78a6.md)
-on exact source `1ad78a6`. It passed the full software gate on Go 1.26.10,
-including race detection, coverage floors, recovery drills, benchmarks, and
-mixed-load checks. The local quota probe found enforcement inactive for the
-tested mounts. This run is not installed-host certification and does not close
-any host-level P0 gate.
+[`2026-10-30-repository-production-gate-cab5cd4.md`](./lab-results/2026-10-30-repository-production-gate-cab5cd4.md)
+on exact source `cab5cd41b861cd90681a04752ad260cfe8ed1419`. It passed the full
+software gate, including race detection, coverage floors, recovery drills,
+benchmarks, and mixed load. Its quota-state test used mocked command responses
+and is contract evidence only; it does not establish real mount enforcement.
+An earlier run recorded inactive local enforcement in
+[`2026-10-30-repository-production-gate-1ad78a6.md`](./lab-results/2026-10-30-repository-production-gate-1ad78a6.md).
+Neither repository run is installed-host certification or closes host-level
+P0 gates.
 
 ## Executive Summary
 
