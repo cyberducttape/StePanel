@@ -1,5 +1,24 @@
 # Production-readiness progress
 
+## Current change — typed Composer operation execution (2026-10-29)
+
+- Composer install now validates one strict JSON command at queue admission and
+  worker execution. The queued worker rechecks site ownership and current
+  `site:deploy` scope, verifies that the path names the same site, obtains the
+  site's mutation lease, invokes the existing bounded privileged helper, saves
+  the operation result, and audits success through a shared service.
+- The synchronous handler route remains compatible and uses the same service;
+  status reads remain unchanged. Worker execution no longer needs to replay the
+  Composer HTTP handler.
+- Added regression coverage for malformed, trailing, and unknown request data,
+  plus typed durable-executor registration and rejection without an authorized
+  principal.
+- Verification passed: focused Composer and site-operation Go tests; full
+  `make check` (artifact check, vet, all Go packages); JavaScript syntax check,
+  frontend unit tests (17/17), and `git diff --check`.
+- M0e in `DEVELOPMENT_PLAN.md` tracks remaining replay routes. Production
+  readiness is still NO-GO until the host certification gates close.
+
 ## Current change — evidence-backed site diagnostics (2026-10-29)
 
 - Extended the per-site diagnostics snapshot with measured host filesystem byte

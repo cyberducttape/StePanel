@@ -54,6 +54,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   Worker execution revalidates current site ownership and deploy scope; caller
   supplied document roots and lifecycle state are discarded. Regression
   coverage verifies typed execution without HTTP handler replay.
+- Composer installs now use a typed durable worker executor and a shared
+  lifecycle service. Admission and execution reject unknown/trailing request
+  data; the worker rechecks current site ownership and deploy scope, validates
+  the canonical site target, acquires the site mutation lock, runs the same
+  bounded helper operation, persists its result, and records the audit event
+  without replaying the HTTP handler.
 
 - Site-operation jobs now use bounded operation-specific deadlines: restore
   work receives the full helper allowance plus cleanup reserve, and offsite

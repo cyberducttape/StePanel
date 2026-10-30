@@ -88,8 +88,10 @@ request.
   the route handler. Node tooling and Python deployment currently satisfy this
   criterion individually.
 - Migrate each remaining route in focused changes, preserving audit, lock,
-  validation, retry, and recovery contracts. Remove the replay fallback only
-  after every registered route has a tested typed service.
+  validation, retry, and recovery contracts. Node tooling, Python deployment,
+  and Composer install now use typed worker services. Remaining routes still
+  replay handlers; remove the fallback only after every registered route has a
+  tested typed service.
 - Installed Apache runtime tests from allowed and denied sources are required
   before reporting effective IP enforcement as verified.
 
@@ -125,8 +127,8 @@ exports both preview and final evidence as JSON and Markdown.
 
 ### M0d — Evidence-backed site incident diagnosis (P1)
 
-**Status:** Implemented locally; focused Go and frontend checks pass. Full
-`make check` and hosted exact-source CI remain to be run.
+**Status:** Implemented and locally verified. Exact-source hosted CI remains
+outstanding.
 
 Correlate PHP-FPM saturation and historical pressure, systemd memory/task
 limits, host byte/inode capacity, database-engine connectivity, TLS metadata
@@ -149,6 +151,25 @@ unverified where they cannot establish application-level behavior.
   preserves existing PHP-FPM saturation evidence.
 - Focused Go tests, JavaScript syntax/unit checks, and `make check` pass; each
   rendered alert includes a diagnosis, supporting evidence, and safe action.
+
+### M0e — Continue typed durable operation extraction (P1)
+
+**Status:** In progress. Node tooling, Python deployment, and Composer install
+have typed worker executors; the remaining durable site-operation routes still
+replay HTTP handlers.
+
+**Acceptance criteria**
+
+- Every migrated route uses the same domain service for HTTP and worker entry,
+  repeats current authorization at execution, and validates the typed command
+  at admission and execution.
+- Worker code does not synthesize HTTP requests for migrated routes; tests
+  verify lock, audit, state-persistence, cancellation, and stale-token behavior
+  remain correct.
+- The handler-replay fallback is removed only once all registered routes have
+  equivalent services and regression coverage.
+- Focused Go tests and `make check` pass for each extraction; host-level
+  certification remains a separate gate.
 
 ### M1 — Complete installed-host failure recovery (P0)
 

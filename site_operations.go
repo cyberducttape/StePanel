@@ -108,7 +108,7 @@ var siteOperationRoutes = map[string]siteOperationRoute{
 	"release.pipeline":          {handler: func(a *App) http.HandlerFunc { return a.releasePipeline }, site: siteFromBody, scope: "site:deploy"},
 	"runner.build":              {handler: func(a *App) http.HandlerFunc { return a.runnerBuild }, site: siteFromBody, scope: "site:deploy"},
 	"git.deploy":                {handler: func(a *App) http.HandlerFunc { return a.gitDeploy }, site: siteFromBody, scope: "deploy:write"},
-	"composer.install":          {handler: func(a *App) http.HandlerFunc { return a.composer }, site: siteFromPath("/api/composer/"), scope: "site:deploy"},
+	"composer.install":          {handler: func(a *App) http.HandlerFunc { return a.composer }, validate: validateComposerInstallPayload, execute: executeComposerInstallCommand, site: siteFromPath("/api/composer/"), scope: "site:deploy"},
 	"node.tooling":              {handler: func(a *App) http.HandlerFunc { return a.nodeTooling }, validate: validateNodeToolingPayload, execute: executeNodeToolingCommand, site: siteFromBody, scope: "site:deploy"},
 	"python.deploy":             {handler: func(a *App) http.HandlerFunc { return a.pythonDeploy }, validate: validatePythonAppPayload, execute: executePythonDeploymentCommand, site: siteFromBody, scope: "deploy:write"},
 	"staging.create":            {handler: func(a *App) http.HandlerFunc { return a.stagingCreate }, site: siteFromBody, scope: "site:deploy", timeout: siteOperationTimeoutStaging},

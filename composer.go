@@ -1,9 +1,12 @@
 package stepanel
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -26,6 +29,48 @@ type ComposerStore struct {
 	mu     sync.RWMutex
 	path   string
 	latest map[string]ComposerOperation
+}
+
+type composerInstallRequest struct {
+	Development        bool `json:"development"`
+	OptimizeAutoloader bool `json:"optimize_autoloader"`
+}
+
+func decodeComposerInstall(body []byte) (composerInstallRequest, error) {
+	if len(body) > 2048 {
+		return composerInstallRequest{}, errors.New("Composer request is too large")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	var input composerInstallRequest
+	if err := decoder.Decode(&input); err != nil {
+		return composerInstallRequest{}, err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return composerInstallRequest{}, errors.New("request body must contain one JSON value")
+	}
+	return input, nil
+}
+
+func validateComposerInstallPayload(body []byte) error {
+	_, err := decodeComposerInstall(body)
+	return err
+}
+
+type composerOperationFailure struct {
+	status  int
+	message string
+}
+
+func (e *composerOperationFailure) Error() string { return e.message }
+
+func composerFailureStatus(err error) int {
+	var failure *composerOperationFailure
+	if errors.As(err, &failure) {
+		return failure.status
+	}
+	return http.StatusBadGateway
 }
 
 func OpenComposerStore(path string) (*ComposerStore, error) {
@@ -135,34 +180,81 @@ func (a *App) composer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "composer.json is required", 422)
 		return
 	}
-	var input struct {
-		Development        bool `json:"development"`
-		OptimizeAutoloader bool `json:"optimize_autoloader"`
-	}
-	if err := decodeJSON(w, r, 2048, &input); err != nil {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 2048))
+	if err != nil {
 		http.Error(w, "invalid JSON", 400)
 		return
 	}
-	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)
-	if lockErr != nil {
-		http.Error(w, "Composer operation is busy", http.StatusConflict)
+	input, err := decodeComposerInstall(body)
+	if err != nil {
+		http.Error(w, "invalid Composer request", http.StatusUnprocessableEntity)
 		return
 	}
-	defer releaseUnlock()
+	op, err := a.applyComposerInstall(r.Context(), a.Auth.AuditActor(r), access, input)
+	if err != nil {
+		http.Error(w, err.Error(), composerFailureStatus(err))
+		return
+	}
+	writeJSON(w, 202, op)
+}
+
+// executeComposerInstallCommand is the durable worker adapter. It repeats
+// request validation and current tenant/scope authorization, then invokes the
+// same operation service as the HTTP adapter without replaying the route.
+func executeComposerInstallCommand(a *App, ctx context.Context, command siteOperationCommand, principal siteOperationPrincipal) ([]byte, error) {
+	input, err := decodeComposerInstall(command.Body)
+	if err != nil || command.Site == "" {
+		return nil, errors.New("invalid Composer install command")
+	}
+	parts := strings.Split(strings.Trim(strings.TrimPrefix(command.Path, "/api/composer/"), "/"), "/")
+	if len(parts) != 2 || safeUser(parts[0]) != command.Site || parts[1] != "install" {
+		return nil, errors.New("invalid Composer install target")
+	}
+	access, err := a.authorizeDurableSiteJob(command.Site, principal.Actor, false)
+	if err != nil {
+		return nil, fmt.Errorf("Composer authorization: %w", err)
+	}
+	if !a.durableSiteOperationScopeAllowed(principal, "site:deploy") {
+		return nil, errors.New("Composer authorization: required site:deploy permission is no longer active")
+	}
+	op, err := a.applyComposerInstall(ctx, principal.Actor, access, input)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(op)
+}
+
+func (a *App) applyComposerInstall(ctx context.Context, actor string, access SiteCapability, input composerInstallRequest) (ComposerOperation, error) {
+	if err := ctx.Err(); err != nil {
+		return ComposerOperation{}, &composerOperationFailure{http.StatusConflict, "Composer operation was cancelled before it started"}
+	}
+	site := access.Site()
+	root, err := siteDocRoot(a.Config, site)
+	if err != nil {
+		return ComposerOperation{}, &composerOperationFailure{http.StatusUnprocessableEntity, "invalid site root"}
+	}
+	if info, err := os.Stat(filepath.Join(root, "composer.json")); err != nil || info.IsDir() {
+		return ComposerOperation{}, &composerOperationFailure{http.StatusUnprocessableEntity, "composer.json is required"}
+	}
+	operationCtx, release, err := a.acquireSiteMutationLockContext(ctx, site)
+	if err != nil {
+		return ComposerOperation{}, &composerOperationFailure{http.StatusConflict, "Composer operation is busy"}
+	}
+	defer release()
+	if err := operationCtx.Err(); err != nil {
+		return ComposerOperation{}, &composerOperationFailure{http.StatusConflict, "Composer operation cancelled because the mutation lock was lost"}
+	}
 	started := time.Now()
-	var installErr error
 	if a.Config.Production {
-		installErr = runTypedAppOperation(operationCtx, a.Config, rootbroker.AppRequest{Action: "composer-install", Site: site, Root: root, Development: input.Development, OptimizeAutoloader: input.OptimizeAutoloader})
+		err = runTypedAppOperation(operationCtx, a.Config, rootbroker.AppRequest{Action: "composer-install", Site: site, Root: root, Development: input.Development, OptimizeAutoloader: input.OptimizeAutoloader})
 	} else {
-		installErr = runHelperCommandWithTimeout(operationCtx, a.Config, helperPackageBuildTimeout, a.Config.AppCtl, "composer-install", site, root, boolString(input.Development), boolString(input.OptimizeAutoloader))
+		err = runHelperCommandWithTimeout(operationCtx, a.Config, helperPackageBuildTimeout, a.Config.AppCtl, "composer-install", site, root, boolString(input.Development), boolString(input.OptimizeAutoloader))
 	}
-	if err := installErr; err != nil {
-		http.Error(w, "Composer install failed", 502)
-		return
+	if err != nil {
+		return ComposerOperation{}, &composerOperationFailure{http.StatusBadGateway, "Composer install failed"}
 	}
 	if err := operationCtx.Err(); err != nil {
-		http.Error(w, "Composer operation cancelled because the mutation lock was lost", http.StatusConflict)
-		return
+		return ComposerOperation{}, &composerOperationFailure{http.StatusConflict, "Composer operation cancelled because the mutation lock was lost"}
 	}
 	command := "composer install --no-interaction --no-progress --no-scripts --no-plugins"
 	if !input.Development {
@@ -173,9 +265,8 @@ func (a *App) composer(w http.ResponseWriter, r *http.Request) {
 	}
 	op := ComposerOperation{Site: site, Command: command, Completed: time.Now().UTC(), DurationMS: time.Since(started).Milliseconds(), Commit: gitHead(root)}
 	if err := a.Composer.save(access, op); err != nil {
-		http.Error(w, "Composer succeeded but operation state could not be saved", 503)
-		return
+		return ComposerOperation{}, &composerOperationFailure{http.StatusServiceUnavailable, "Composer succeeded but operation state could not be saved"}
 	}
-	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "composer.install", site, command)
-	writeJSON(w, 202, op)
+	TelemetryAudit(a.Config.AuditLog, actor, "composer.install", site, command)
+	return op, nil
 }
