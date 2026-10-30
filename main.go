@@ -76,6 +76,8 @@ type App struct {
 	databaseInventoryMu      sync.Mutex
 	databaseInventoryCache   []DatabaseResource
 	databaseInventoryAt      time.Time
+	wordpressDBProbeMu       sync.Mutex
+	wordpressDBProbeCache    map[string]siteWordPressDBProbe
 	fpmStatusMu              sync.Mutex
 	fpmStatusCache           map[string]fpmStatusCacheEntry
 	gitActivationMu          sync.Mutex

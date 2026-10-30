@@ -1,5 +1,26 @@
 # Production-readiness progress
 
+## Current change — per-site WordPress database health (2026-10-29)
+
+- Added an application-level database probe using StePanel's closed, read-only
+  WP-CLI `db check` operation. Production calls execute through the broker as
+  the site identity; development uses the same restricted argument builder.
+- The probe runs only when a regular `wp-config.php` is present, has a 10-second
+  request bound, and caches results for 20 seconds (maximum 256 sites) to avoid
+  bootstrapping WordPress on every dashboard refresh. It records a timestamp,
+  separates passed/failed/unknown/not-applicable, and withholds raw helper
+  output while identifying common connection/auth/database failure classes.
+- The incident panel now distinguishes host engine reachability from the
+  application's configured WordPress credentials and surfaces each result
+  with evidence and a safe next action.
+- Focused tests passed for success, bounded caching, failure redaction,
+  non-WordPress classification, and filesystem status. One initial test reused
+  a cached not-applicable result after creating `wp-config.php`; the fixture
+  was corrected to use a separate WordPress site. Validation passed: focused
+  race test, full `make check`, JavaScript syntax, frontend unit tests (17/17),
+  and `git diff --check`. The full Go race suite also passed on the immediately
+  preceding typed-worker revision (453.4s).
+
 ## Current change — typed durable Composer and runner execution (2026-10-29)
 
 - Composer install now validates one strict JSON command at queue admission and
@@ -43,9 +64,10 @@
   `node --check web/static/sites.js` passed; frontend unit tests passed (17/17);
   and `git diff --check` passed. The first JavaScript syntax run caught a
   quoting error in the new message, which was corrected before the passing run.
-- This does not establish live HTTPS behavior for Caddy, application database
-  login, or a complete restore. Those remain explicit unknowns without a
-  configured application-level probe.
+- The new WP-CLI probe checks WordPress's configured database connection as
+  the site identity and withholds raw helper output. Non-WordPress applications
+  report not applicable; their credentials, live HTTPS behavior for Caddy, and
+  a complete restore remain unverified by this check.
 
 **Updated:** 2026-10-30
 **Published base:** `ffb9e02419dd8c8ae3218bde60cbdd993349bb6c`  

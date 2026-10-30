@@ -143,7 +143,9 @@ unverified where they cannot establish application-level behavior.
   backup, and configured database filesystems, and explicitly identify low
   headroom or unavailable probes.
 - Database connectivity is based on a completed restricted engine query and is
-  clearly distinguished from application credential verification.
+  clearly distinguished from a per-site WP-CLI check using the site's
+  configured credentials; the latter runs as that site identity and is bounded
+  and briefly cached.
 - Failed certificate issuance jobs and enabled backup schedules with repeated
   failure or a recovery point older than twice the interval appear as findings
   with timestamps and measured evidence.

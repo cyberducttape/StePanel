@@ -2,6 +2,7 @@ package stepanel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -24,6 +25,16 @@ type siteTLSDiagnostic struct {
 	DaysLeft        int       `json:"days_left,omitempty"`
 	Detail          string    `json:"detail,omitempty"`
 }
+
+type siteWordPressDBProbe struct {
+	Status      string    `json:"status"`
+	CollectedAt time.Time `json:"collected_at"`
+	Detail      string    `json:"detail"`
+	expiresAt   time.Time
+}
+
+const wordpressDBProbeTimeout = 10 * time.Second
+const wordpressDBProbeCacheTTL = 20 * time.Second
 
 // siteDiagnostics correlates host facts scoped to one authorized site. It is
 // read-only and deliberately reports unknown where the host cannot establish
@@ -95,6 +106,7 @@ func (a *App) siteDiagnostics(w http.ResponseWriter, r *http.Request) {
 		connection["detail"] = "The restricted host diagnostic query completed successfully. This verifies host-to-engine connectivity, not the site's application credentials or query behavior."
 	}
 	result["database_connectivity"] = connection
+	result["application_database_connectivity"] = a.siteWordPressDatabaseCheck(r.Context(), site)
 
 	if a.Schedules != nil {
 		a.Schedules.mu.Lock()
@@ -148,6 +160,90 @@ func (a *App) siteDiagnostics(w http.ResponseWriter, r *http.Request) {
 	}
 	result["tls"] = tlsChecks
 	writeJSON(w, http.StatusOK, result)
+}
+
+// siteWordPressDatabaseCheck verifies the configured application's database
+// connection with the existing restricted WP-CLI action. It runs as the site
+// identity through the root broker and is cached briefly to keep dashboard
+// refreshes from repeatedly bootstrapping WordPress.
+func (a *App) siteWordPressDatabaseCheck(parent context.Context, site string) siteWordPressDBProbe {
+	now := time.Now().UTC()
+	a.wordpressDBProbeMu.Lock()
+	if cached, ok := a.wordpressDBProbeCache[site]; ok && now.Before(cached.expiresAt) {
+		a.wordpressDBProbeMu.Unlock()
+		return cached
+	}
+	a.wordpressDBProbeMu.Unlock()
+
+	probe := siteWordPressDBProbe{Status: "unknown", CollectedAt: now, Detail: "The application's database connection could not be verified."}
+	root, err := existingManagedDocRoot(a.Config, site)
+	if err != nil {
+		probe.Detail = "WordPress configuration could not be safely inspected; no application database claim is made."
+	} else if _, err := existingRegularEntry(root, "wp-config.php"); errors.Is(err, os.ErrNotExist) {
+		probe.Status = "not_applicable"
+		probe.Detail = "No regular wp-config.php was found; the application-specific database check does not apply."
+	} else if err != nil {
+		probe.Detail = "wp-config.php could not be verified as a regular file; no application database probe was run."
+	} else if a.Config.WPCLI == "" {
+		probe.Detail = "WordPress is present, but WP-CLI is not configured for a credential-safe database check."
+	} else if !commandAvailable(a.Config.WPCLI) {
+		probe.Detail = "WordPress is present, but the configured WP-CLI executable is unavailable."
+	} else {
+		ctx, cancel := context.WithTimeout(parent, wordpressDBProbeTimeout)
+		_, err := runWordPress(ctx, a.Config, rootbroker.WordPressRequest{Action: "db-check", Site: site})
+		cancel()
+		if err == nil {
+			probe.Status = "connected"
+			probe.Detail = "WP-CLI db check succeeded using this site's configured WordPress database credentials; this proves connectivity and a successful table check at the sample time."
+		} else if parent.Err() == nil {
+			probe.Status = "failed"
+			probe.Detail = classifyWordPressDBCheckFailure(err)
+		}
+	}
+	if parent.Err() != nil {
+		probe.Detail = "The application database probe was cancelled with the diagnostics request."
+		return probe
+	}
+	probe.expiresAt = now.Add(wordpressDBProbeCacheTTL)
+	a.wordpressDBProbeMu.Lock()
+	if a.wordpressDBProbeCache == nil {
+		a.wordpressDBProbeCache = make(map[string]siteWordPressDBProbe)
+	}
+	for cachedSite, cached := range a.wordpressDBProbeCache {
+		if !now.Before(cached.expiresAt) {
+			delete(a.wordpressDBProbeCache, cachedSite)
+		}
+	}
+	if len(a.wordpressDBProbeCache) >= 256 {
+		oldestSite := ""
+		var oldest time.Time
+		for cachedSite, cached := range a.wordpressDBProbeCache {
+			if oldestSite == "" || cached.CollectedAt.Before(oldest) {
+				oldestSite, oldest = cachedSite, cached.CollectedAt
+			}
+		}
+		delete(a.wordpressDBProbeCache, oldestSite)
+	}
+	a.wordpressDBProbeCache[site] = probe
+	a.wordpressDBProbeMu.Unlock()
+	return probe
+}
+
+func classifyWordPressDBCheckFailure(err error) string {
+	if err == nil {
+		return "WP-CLI db check failed; raw helper output is withheld from this diagnostic."
+	}
+	message := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(message, "access denied"), strings.Contains(message, "authentication failed"), strings.Contains(message, "password authentication failed"):
+		return "WP-CLI db check failed with a database authentication error. Verify the site's managed database username and password through the credential rotation workflow; raw output is withheld."
+	case strings.Contains(message, "connection refused"), strings.Contains(message, "could not connect"), strings.Contains(message, "can't connect"), strings.Contains(message, "connection timed out"):
+		return "WP-CLI db check could not connect to the configured database host. Verify database service availability and the host/socket setting; raw output is withheld."
+	case strings.Contains(message, "unknown database"), strings.Contains(message, "does not exist"):
+		return "WP-CLI db check reports that the configured database is missing. Verify database ownership and restore state; raw output is withheld."
+	default:
+		return "WP-CLI db check returned a failure while using this site's configured credentials. Review the authorized job and site logs for details; raw helper output is withheld here."
+	}
 }
 
 type filesystemCapacity struct {

@@ -10,11 +10,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Per-site incident diagnostics now include measured host filesystem byte and
   inode headroom, restricted database-engine connectivity results, backup
-  schedule success/failure age, and failed certificate issuance jobs. The site
-  overview correlates these with PHP-FPM saturation, systemd memory/task-limit
-  pressure, quota estimates, TLS metadata, logs, and recovery evidence. Findings
-  include measured values and explain what each probe does not prove; failed or
-  unavailable probes are shown as failures or unknown rather than green.
+  schedule success/failure age, failed certificate issuance jobs, and a
+  credential-safe WordPress `wp db check` that runs as the site identity. The
+  site overview correlates these with PHP-FPM saturation, systemd memory/task
+  pressure, quota estimates, TLS metadata, logs, and recovery evidence.
+  Findings include measured values and explain what each probe does not prove;
+  failed or unavailable probes are shown as failures or unknown rather than
+  green.
 - Expanded cPanel migration preflight with provisional domain/document-root
   mapping, SQL dump source-version checks against the configured destination,
   Maildir layout/message inventory, and an explicit DNS/mail/TLS cutover
