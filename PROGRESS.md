@@ -1,5 +1,20 @@
 # Production-readiness progress
 
+## Evidence-backed Prometheus alert descriptions — 2026-10-30
+
+- Updated existing Prometheus alerts to include observed metric values and
+  triggering thresholds/windows, relevant diagnostic evidence, and a safe
+  operator action. Site-specific findings are already correlated in the site
+  incident view; continuous per-site metric collection is not claimed here.
+- Updated rendered alert expectations for queue delay and backup overdue.
+  `promtool check rules observability/alerts.yml` passed with 25 rules;
+  `promtool test rules observability/alerts_test.yml` passed; `git diff --check`
+  passed. After recording this slice, `make check` also passed on the complete
+  local source, including generated API artifact validation, `go vet ./...`,
+  and the serialized `go test ./...` suite (about 70 seconds).
+- This documentation and alert-text change does not certify Prometheus
+  delivery, PHP-FPM host saturation monitoring, or production host readiness.
+
 ## Exact-source repository production gate — 2026-10-30
 
 - `make production-gate` passed on `1ad78a62593ef0ee25ef19b452d366a70ba583de`

@@ -9,7 +9,7 @@ groups:
           severity: critical
         annotations:
           summary: StePanel target is unavailable
-          description: Prometheus cannot scrape the StePanel metrics endpoint for five minutes.
+          description: Prometheus reports up={{ $value }} for this target, meaning its last scrape failed; the condition persisted for five minutes. Check the panel process, /metrics listener, scrape target, and the Prometheus target error.
 
       # The ratio uses the real request rate. With no traffic the division is
       # NaN and the rule is simply not satisfied; it is not clamped, which
@@ -30,7 +30,7 @@ groups:
           severity: warning
         annotations:
           summary: StePanel HTTP error rate is elevated
-          description: More than five percent of StePanel requests returned 5xx responses for ten minutes.
+          description: The observed StePanel 5xx request ratio is {{ $value | humanizePercentage }}, above the 5% threshold for ten minutes. Check recent request logs, readiness, and the failing route distribution.
 
       # Below the ratio rule's sample volume, alert on an absolute count, so a
       # low-traffic panel where most requests fail is still noticed.
@@ -44,7 +44,7 @@ groups:
           severity: warning
         annotations:
           summary: StePanel is returning server errors at low traffic
-          description: At least three StePanel requests returned 5xx responses in fifteen minutes while traffic was too low for the error-rate alert.
+          description: "{{ $value }} StePanel requests returned 5xx responses in fifteen minutes while request volume was below the ratio-alert threshold. Inspect request logs and group failures by route and status."
 
       - alert: StePanelSQLiteBusy
         expr: increase(stepanel_sqlite_busy_errors_total{job="stepanel"}[10m]) > 0
@@ -53,7 +53,7 @@ groups:
           severity: warning
         annotations:
           summary: StePanel SQLite contention was observed
-          description: Durable state paths encountered SQLite busy or locked errors; inspect control-plane contention and worker concurrency.
+          description: "{{ $value }} SQLite busy or locked error(s) occurred in ten minutes. Inspect transaction duration, panel/worker write contention, and WAL checkpoint activity."
 
       - alert: StePanelJobInventoryUnavailable
         expr: stepanel_jobs_inventory_errors{job="stepanel"} > 0
@@ -62,7 +62,7 @@ groups:
           severity: warning
         annotations:
           summary: StePanel could not read durable job inventory
-          description: Job queue metrics are unavailable; inspect control-plane SQLite health and the panel-worker database connection before trusting job status views.
+          description: The durable job inventory reports {{ $value }} read error(s); job status metrics may be incomplete. Check control-plane SQLite health and panel/worker database connectivity before trusting queue views.
 
       - alert: StePanelDeadLetterJobs
         expr: stepanel_jobs_dead_letter{job="stepanel"} > 0
@@ -71,16 +71,16 @@ groups:
           severity: critical
         annotations:
           summary: StePanel has jobs requiring operator review
-          description: One or more durable jobs exhausted retries; inspect the job record and recovery state, then explicitly retry, resolve, or archive it.
+          description: "{{ $value }} durable job(s) exhausted retries and require operator review. Inspect each job's error, affected resource, and recovery state before explicitly retrying, resolving, or archiving it."
 
       - alert: StePanelQueueWaitTooLong
-        expr: stepanel_jobs_queued{job="stepanel"} > 0 and stepanel_jobs_oldest_queued_age_seconds{job="stepanel"} > 900
+        expr: stepanel_jobs_oldest_queued_age_seconds{job="stepanel"} > 900 and stepanel_jobs_queued{job="stepanel"} > 0
         for: 10m
         labels:
           severity: warning
         annotations:
           summary: StePanel jobs are waiting unusually long
-          description: The oldest durable queued job has waited more than fifteen minutes; inspect worker availability, admission limits, and owner-level queue blocking.
+          description: The oldest durable queued job has waited {{ $value | humanizeDuration }}, above the fifteen-minute threshold, while the alert condition confirms at least one queued job exists. Check worker availability, admission limits, and earlier work blocking the same owner.
 
       - alert: StePanelControlPlaneDatabaseNearLimit
         expr: stepanel_control_plane_database_limit_ratio{job="stepanel"} > 0.80
@@ -89,7 +89,7 @@ groups:
           severity: warning
         annotations:
           summary: StePanel control-plane database is nearing its configured limit
-          description: SQLite logical page allocation is above 80 percent of the fixed 10 GiB limit; inspect job and outbox retention and plan maintenance before writes are refused.
+          description: SQLite logical page allocation is {{ $value | humanizePercentage }} of the configured 10 GiB limit, above the 80% threshold. Review database growth, retained jobs/outboxes, and maintenance capacity before writes are refused.
 
       - alert: StePanelCapacityLedgerUnavailable
         expr: stepanel_capacity_reservations_up{job="stepanel"} == 0
@@ -98,25 +98,25 @@ groups:
           severity: critical
         annotations:
           summary: Durable storage admission telemetry is unavailable
-          description: The capacity reservation ledger could not be read; verify control-plane SQLite health and that storage-consuming operations are failing closed.
+          description: The capacity reservation ledger health metric is {{ $value }} (0 means unavailable). Verify control-plane SQLite health and confirm storage-consuming operations are refusing admission when reservations cannot be checked.
 
       - alert: StePanelAuditOutboxBacklog
-        expr: stepanel_audit_outbox_pending{job="stepanel"} > 0 and stepanel_audit_outbox_oldest_pending_age_seconds{job="stepanel"} > 300
+        expr: stepanel_audit_outbox_oldest_pending_age_seconds{job="stepanel"} > 300 and stepanel_audit_outbox_pending{job="stepanel"} > 0
         for: 5m
         labels:
           severity: critical
         annotations:
           summary: Durable audit events are not reaching the signed audit log
-          description: The oldest unpublished audit event is more than five minutes old; inspect audit-log permissions, disk capacity, and the audit outbox.
+          description: The oldest unpublished audit event is {{ $value | humanizeDuration }} old, above five minutes. Check signed audit-log permissions, disk/inode capacity, and publication errors in the audit outbox.
 
       - alert: StePanelNotificationOutboxBacklog
-        expr: stepanel_operator_notifications_pending{job="stepanel"} > 0 and stepanel_operator_notifications_oldest_pending_age_seconds{job="stepanel"} > 900
+        expr: stepanel_operator_notifications_oldest_pending_age_seconds{job="stepanel"} > 900 and stepanel_operator_notifications_pending{job="stepanel"} > 0
         for: 5m
         labels:
           severity: warning
         annotations:
           summary: Operator notifications are accumulating
-          description: At least one required alert delivery has remained pending for more than fifteen minutes; inspect destination health and notification outbox metrics.
+          description: A required operator notification has remained pending for {{ $value | humanizeDuration }}, above fifteen minutes. Check the affected channel's destination, retry/error state, and notification outbox.
 
       - alert: StePanelReadinessCheckFailed
         expr: stepanel_readiness_check_ready{job="stepanel"} == 0
@@ -125,7 +125,7 @@ groups:
           severity: critical
         annotations:
           summary: A StePanel readiness check is failing
-          description: A durable control-plane readiness check has remained failed for five minutes; inspect /readyz before making changes.
+          description: A durable readiness check reports {{ $value }} (0 means failed) for five minutes. Inspect /readyz component results and address the named failed dependency before making changes.
 
       - alert: StePanelDurableStateError
         expr: |
@@ -137,7 +137,7 @@ groups:
           severity: critical
         annotations:
           summary: StePanel durable state error detected
-          description: A persistence or corruption error was recorded; inspect readiness, the audit log, and the recovery spool before replaying work.
+          description: "{{ $labels.category }} state errors increased by {{ $value }} in ten minutes. Inspect readiness, audit records, and the recovery spool before replaying work."
 
       - alert: StePanelTemporaryStateErrors
         expr: increase(stepanel_state_errors_total{job="stepanel",category="temporary"}[10m]) >= 5
@@ -146,7 +146,7 @@ groups:
           severity: warning
         annotations:
           summary: StePanel temporary state errors are recurring
-          description: At least five retryable state errors occurred in ten minutes; inspect SQLite contention, helper health, and worker capacity.
+          description: "{{ $value }} retryable state errors occurred in ten minutes, meeting the five-error threshold. Inspect SQLite contention, helper health, and worker capacity."
 
   - name: stepanel-restore-operations
     interval: 30s
@@ -158,7 +158,7 @@ groups:
           severity: warning
         annotations:
           summary: StePanel restore jobs are failing
-          description: At least one restore failed in the last fifteen minutes; inspect the audit log and job error.
+          description: "{{ $value }} restore job failure(s) were recorded in fifteen minutes. Inspect the affected durable job, recovery journal, and audit record before retrying."
 
       - alert: StePanelRestoreJobsStuck
         expr: stepanel_restore_jobs_active{job="stepanel"} > 0
@@ -167,7 +167,7 @@ groups:
           severity: warning
         annotations:
           summary: StePanel restore job has been active too long
-          description: A restore job has remained active for two hours; inspect worker and storage health.
+          description: "{{ $value }} restore job(s) remain active beyond the two-hour threshold. Check worker lease/heartbeat, transfer progress, storage pressure, and recovery state before intervening."
 
   - name: stepanel-database-operations
     interval: 30s
@@ -179,7 +179,7 @@ groups:
           severity: warning
         annotations:
           summary: Database diagnostics are unavailable
-          description: The restricted helper could not collect database health for ten minutes; verify the engine, local socket, and helper configuration.
+          description: Database diagnostic availability is {{ $value }} (0 means the restricted helper did not return measurements) for ten minutes. Verify database service state, local socket, and helper configuration.
 
       - alert: StePanelDatabaseSessionsBlocked
         expr: stepanel_database_blocked_sessions{job="stepanel"} > 0
@@ -188,7 +188,7 @@ groups:
           severity: warning
         annotations:
           summary: Database sessions are blocked
-          description: One or more database sessions have remained blocked for five minutes; inspect the session inventory and lock chain with an engine-native client.
+          description: "{{ $value }} database session(s) are blocked, above zero for five minutes. Inspect session IDs and the blocking lock chain with an engine-native client."
 
       - alert: StePanelDatabaseLongTransactions
         expr: stepanel_database_long_transactions{job="stepanel"} > 0
@@ -197,7 +197,7 @@ groups:
           severity: warning
         annotations:
           summary: Long database transactions detected
-          description: Transactions older than five minutes have persisted for ten minutes and may delay vacuum, purge, DDL, or backups.
+          description: "{{ $value }} database transaction(s) older than five minutes persisted for ten minutes. Inspect transaction age and owner; long transactions can delay purge, DDL, and backups."
 
       - alert: StePanelBackupOverdue
         expr: stepanel_backup_last_success_age_seconds{job="stepanel"} - stepanel_backup_interval_seconds{job="stepanel"} > 3600
@@ -206,7 +206,7 @@ groups:
           severity: critical
         annotations:
           summary: Scheduled backup for {{ $labels.site }} is overdue
-          description: The last successful backup of {{ $labels.site }} is more than an hour past its schedule ({{ $value | humanizeDuration }} late). Inspect the site's latest backup job error and its operator notification.
+          description: The last successful backup for {{ $labels.site }} is {{ $value | humanizeDuration }} beyond its configured interval plus one-hour grace period. Inspect its last success/attempt timestamps and latest backup job error; verify free bytes/inodes and offsite transfer status before retrying.
 
       - alert: StePanelScheduledBackupFailures
         expr: stepanel_backup_consecutive_failures_by_site{job="stepanel"} > 0
@@ -233,7 +233,7 @@ groups:
           severity: warning
         annotations:
           summary: Application recovery proof inventory is unavailable
-          description: StePanel could not read durable application-level recovery evidence. Check control-plane database health and recovery-store migrations.
+          description: Recovery-proof inventory availability is {{ $value }} (0 means durable proof evidence could not be read). Check control-plane database health and recovery-store migrations.
 
       - alert: StePanelApplicationRecoveryProofMissing
         expr: stepanel_recovery_rehearsal_max_age_seconds{job="stepanel"} > 0 and on(site) stepanel_recovery_application_proof_present{job="stepanel"} == 0
@@ -242,7 +242,7 @@ groups:
           severity: critical
         annotations:
           summary: No application-level recovery proof for {{ $labels.site }}
-          description: This scheduled site has no current passing application-level restore proof; none may exist, or its latest application rehearsal may have failed. Archive integrity checks do not prove that the application starts. Inspect the latest rehearsal job and run a successful application proof.
+          description: The configured recovery-proof inventory has a rehearsal age for {{ $labels.site }}, but its application-proof-present metric is 0. No passing application-level restore proof is recorded (archive checks alone do not prove startup). Inspect the latest rehearsal result and run a successful application proof.
 
       - alert: StePanelApplicationRecoveryProofStale
         expr: (stepanel_recovery_application_proof_age_seconds{job="stepanel"} > on(site) stepanel_recovery_rehearsal_max_age_seconds{job="stepanel"}) and on(site) (stepanel_recovery_rehearsal_max_age_seconds{job="stepanel"} > 0)
@@ -251,4 +251,4 @@ groups:
           severity: critical
         annotations:
           summary: Application recovery proof is stale for {{ $labels.site }}
-          description: The latest successful application-level restore proof exceeds the configured freshness window. Run a full application recovery rehearsal and inspect its job result.
+          description: The latest successful application-level restore proof is {{ $value | humanizeDuration }}, older than the configured freshness window. Run a full application recovery rehearsal and inspect its job result.

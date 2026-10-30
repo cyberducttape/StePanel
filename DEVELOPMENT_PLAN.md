@@ -161,6 +161,15 @@ and the modified browser journey pass locally, as do `make check` and the
 focused disposable Chromium journey. Hosted exact-source CI remains the next
 verification step.
 
+Prometheus alert descriptions now report their evaluated values and triggering
+thresholds/windows, point to relevant job, readiness, database, storage, or
+outbox evidence, and suggest a safe next action. Rule syntax and rendered
+annotation tests pass with promtool. The site incident view combines PHP-FPM
+worker-memory/saturation evidence, database probes, byte/inode pressure,
+certificate renewal history, backup freshness, and resource enforcement. These
+per-site checks are snapshot-based; continuous Prometheus series for every one
+of those signals remain an instrumentation gap.
+
 Correlate PHP-FPM saturation and historical pressure, systemd memory/task
 limits, host byte/inode capacity, database-engine connectivity, TLS metadata
 and failed certificate issuance jobs, scheduled-backup failures/staleness,

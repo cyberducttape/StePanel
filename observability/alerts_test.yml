@@ -37,7 +37,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: StePanel control-plane database is nearing its configured limit
-              description: SQLite logical page allocation is above 80 percent of the fixed 10 GiB limit; inspect job and outbox retention and plan maintenance before writes are refused.
+              description: SQLite logical page allocation is 90% of the configured 10 GiB limit, above the 80% threshold. Review database growth, retained jobs/outboxes, and maintenance capacity before writes are refused.
       - eval_time: 20m
         alertname: StePanelCapacityLedgerUnavailable
         exp_alerts:
@@ -46,7 +46,7 @@ tests:
               severity: critical
             exp_annotations:
               summary: Durable storage admission telemetry is unavailable
-              description: The capacity reservation ledger could not be read; verify control-plane SQLite health and that storage-consuming operations are failing closed.
+              description: The capacity reservation ledger health metric is 0 (0 means unavailable). Verify control-plane SQLite health and confirm storage-consuming operations are refusing admission when reservations cannot be checked.
       - eval_time: 20m
         alertname: StePanelAuditOutboxBacklog
         exp_alerts:
@@ -55,7 +55,7 @@ tests:
               severity: critical
             exp_annotations:
               summary: Durable audit events are not reaching the signed audit log
-              description: The oldest unpublished audit event is more than five minutes old; inspect audit-log permissions, disk capacity, and the audit outbox.
+              description: The oldest unpublished audit event is 6m 40s old, above five minutes. Check signed audit-log permissions, disk/inode capacity, and publication errors in the audit outbox.
       - eval_time: 20m
         alertname: StePanelNotificationOutboxBacklog
         exp_alerts:
@@ -64,7 +64,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: Operator notifications are accumulating
-              description: At least one required alert delivery has remained pending for more than fifteen minutes; inspect destination health and notification outbox metrics.
+              description: A required operator notification has remained pending for 16m 40s, above fifteen minutes. Check the affected channel's destination, retry/error state, and notification outbox.
       - eval_time: 20m
         alertname: StePanelJobInventoryUnavailable
         exp_alerts:
@@ -73,7 +73,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: StePanel could not read durable job inventory
-              description: Job queue metrics are unavailable; inspect control-plane SQLite health and the panel-worker database connection before trusting job status views.
+              description: The durable job inventory reports 1 read error(s); job status metrics may be incomplete. Check control-plane SQLite health and panel/worker database connectivity before trusting queue views.
       - eval_time: 20m
         alertname: StePanelDeadLetterJobs
         exp_alerts:
@@ -82,7 +82,7 @@ tests:
               severity: critical
             exp_annotations:
               summary: StePanel has jobs requiring operator review
-              description: One or more durable jobs exhausted retries; inspect the job record and recovery state, then explicitly retry, resolve, or archive it.
+              description: 1 durable job(s) exhausted retries and require operator review. Inspect each job's error, affected resource, and recovery state before explicitly retrying, resolving, or archiving it.
       - eval_time: 20m
         alertname: StePanelQueueWaitTooLong
         exp_alerts:
@@ -91,7 +91,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: StePanel jobs are waiting unusually long
-              description: The oldest durable queued job has waited more than fifteen minutes; inspect worker availability, admission limits, and owner-level queue blocking.
+              description: The oldest durable queued job has waited 16m 40s, above the fifteen-minute threshold, while the alert condition confirms at least one queued job exists. Check worker availability, admission limits, and earlier work blocking the same owner.
 
   # 100 requests per minute with 10 percent failing: the ratio rule fires.
   - interval: 1m
@@ -108,7 +108,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: StePanel HTTP error rate is elevated
-              description: More than five percent of StePanel requests returned 5xx responses for ten minutes.
+              description: The observed StePanel 5xx request ratio is 10%, above the 5% threshold for ten minutes. Check recent request logs, readiness, and the failing route distribution.
       - eval_time: 20m
         alertname: StePanelHTTP5xxLowTraffic
         exp_alerts: []
@@ -142,7 +142,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: StePanel is returning server errors at low traffic
-              description: At least three StePanel requests returned 5xx responses in fifteen minutes while traffic was too low for the error-rate alert.
+              description: 6.428571428571429 StePanel requests returned 5xx responses in fifteen minutes while request volume was below the ratio-alert threshold. Inspect request logs and group failures by route and status.
       - eval_time: 25m
         alertname: StePanelHTTP5xxRateHigh
         exp_alerts: []
@@ -182,7 +182,7 @@ tests:
               severity: critical
             exp_annotations:
               summary: Scheduled backup for late is overdue
-              description: The last successful backup of late is more than an hour past its schedule (1h 20m 0s late). Inspect the site's latest backup job error and its operator notification.
+              description: The last successful backup for late is 1h 20m 0s beyond its configured interval plus one-hour grace period. Inspect its last success/attempt timestamps and latest backup job error; verify free bytes/inodes and offsite transfer status before retrying.
 
   - interval: 1m
     input_series:

@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+
+- Prometheus alert descriptions now include the observed metric value and
+  threshold or sample window, identify the diagnostic evidence to inspect, and
+  give a safe next step. Rendered-rule tests cover the queue-delay and backup-
+  overdue evidence. `make check`, `promtool check rules`, and `promtool test
+  rules` passed locally.
+
 ### Added
 
 - Site incident findings now identify whether filesystem pressure is caused by
