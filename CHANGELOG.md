@@ -34,6 +34,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   claimed domain and alerts on failed/dead-lettered issuance or unavailable
   history. Existing database connectivity, filesystem byte/inode pressure,
   backup staleness/failures, and recovery-proof alerts remain evidence-bearing.
+- Database diagnostic alerts now include a bounded failure cause (such as
+  connection refusal, authentication failure, or timeout) and the probe
+  timestamp metric; arbitrary helper output is never used as a label.
 - Added regression tests for the certificate evidence metrics, per-site runtime
   metric rendering, and restricted counters-only broker requests.
 - The local KVM install harness now rejects install runs with less than 2 GiB

@@ -14,12 +14,15 @@
   diagnostics/connectivity, byte and inode pressure, backup freshness/failure,
   and application recovery-proof freshness. Alert annotations state the
   triggering evidence and safe next diagnostic action.
-- Full `make check` passed (API artifact validation, `go vet ./...`, and all
-  Go packages). Focused Prometheus rule validation and rendered alert tests
-  passed (39 rules). Focused Go and broker regressions passed; a targeted race
-  run is the remaining local check before commit. This verifies code and rule
-  behavior, not Prometheus delivery, live host capacity, or alert routing;
-  those certification gates remain open.
+- Follow-up review found that the database alert was generic despite existing
+  cause classification. It now exports a bounded failure reason and sample
+  timestamp, distinguishing authentication rejection from connection refusal
+  without leaking raw helper output.
+- Full `make check` passed on the final source for this slice (API artifact
+  validation, `go vet ./...`, and all Go packages). Focused Go tests and a
+  targeted race run passed; Prometheus 3.5.0 validated and rendered all 39
+  rules and alert tests. This verifies code and rule behavior, not live alert
+  delivery or host capacity; those certification gates remain open.
 
 ## KVM install attempt classified and preflight hardened — 2026-10-30
 

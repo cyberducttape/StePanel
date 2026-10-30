@@ -216,13 +216,13 @@ groups:
     interval: 30s
     rules:
       - alert: StePanelDatabaseDiagnosticsDown
-        expr: stepanel_database_diagnostics_up{job="stepanel"} == 0
+        expr: stepanel_database_diagnostics_up{job="stepanel",reason!="none"} == 0
         for: 10m
         labels:
           severity: warning
         annotations:
           summary: Database diagnostics are unavailable
-          description: Database diagnostic availability is {{ $value }} (0 means the restricted helper did not return measurements) for ten minutes. Verify database service state, local socket, and helper configuration.
+          description: "The restricted {{ $labels.engine }} diagnostics query failed with reason={{ $labels.reason }} (availability={{ $value }}; 0 means no measurements). Check stepanel_database_diagnostics_sample_timestamp_seconds for the observation time. For connection_refused, check service/listener; for authentication, verify helper credentials/grants; for socket_unavailable or helper_unavailable, inspect the configured socket/package. Raw command output is intentionally withheld."
 
       - alert: StePanelDatabaseSessionsBlocked
         expr: stepanel_database_blocked_sessions{job="stepanel"} > 0

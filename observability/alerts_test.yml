@@ -24,6 +24,10 @@ tests:
         values: '1+0x30'
       - series: 'stepanel_certificate_renewal_latest_job_timestamp_seconds{job="stepanel",domain="example.test",state="failed"}'
         values: '1793385600+0x30'
+      - series: 'stepanel_database_diagnostics_up{job="stepanel",engine="mariadb",reason="authentication"}'
+        values: '0+0x30'
+      - series: 'stepanel_database_diagnostics_sample_timestamp_seconds{job="stepanel",engine="mariadb"}'
+        values: '1793385600+0x30'
       - series: 'stepanel_site_fpm_listen_queue{job="stepanel",site="busy",php_version="8.3"}'
         values: '3+0x30'
       - series: 'stepanel_site_fpm_active_workers{job="stepanel",site="busy",php_version="8.3"}'
@@ -47,6 +51,17 @@ tests:
       - series: 'stepanel_site_resource_tasks_max{job="stepanel",site="tasks-full"}'
         values: '20+0x30'
     alert_rule_test:
+      - eval_time: 20m
+        alertname: StePanelDatabaseDiagnosticsDown
+        exp_alerts:
+          - exp_labels:
+              job: stepanel
+              engine: mariadb
+              reason: authentication
+              severity: warning
+            exp_annotations:
+              summary: Database diagnostics are unavailable
+              description: The restricted mariadb diagnostics query failed with reason=authentication (availability=0; 0 means no measurements). Check stepanel_database_diagnostics_sample_timestamp_seconds for the observation time. For connection_refused, check service/listener; for authentication, verify helper credentials/grants; for socket_unavailable or helper_unavailable, inspect the configured socket/package. Raw command output is intentionally withheld.
       - eval_time: 20m
         alertname: StePanelCertificateRenewalFailed
         exp_alerts:

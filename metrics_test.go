@@ -386,3 +386,27 @@ func TestCertificateRenewalMetricsExposeLatestDurableFailureEvidence(t *testing.
 		t.Fatalf("unavailable durable evidence was not reported:\n%s", unavailable.String())
 	}
 }
+
+func TestDatabaseMetricsExposeBoundedFailureCauseAndSampleTime(t *testing.T) {
+	collected := time.Unix(1793385600, 0).UTC()
+	var output strings.Builder
+	writeDatabaseMetrics(&output, DatabaseDiagnostics{
+		Engine: "mariadb", Collected: collected,
+		FailureCode: "authentication", Detail: "secret output must not become a metric label",
+	})
+	text := output.String()
+	for _, want := range []string{
+		`stepanel_database_diagnostics_up{engine="mariadb",reason="authentication"} 0`,
+		`stepanel_database_diagnostics_sample_timestamp_seconds{engine="mariadb"} 1793385600`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("database metrics missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "secret output") {
+		t.Fatalf("raw database diagnostic detail leaked into metrics:\n%s", text)
+	}
+	if got := databaseDiagnosticsMetricReason(`authentication",raw="injected`); got != "unknown" {
+		t.Fatalf("unbounded database failure reason = %q", got)
+	}
+}

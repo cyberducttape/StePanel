@@ -400,12 +400,24 @@ func writeCapacityReservationMetrics(w io.Writer, db *sql.DB) {
 
 func writeDatabaseMetrics(w io.Writer, diagnostics DatabaseDiagnostics) {
 	up := 0
+	reason := databaseDiagnosticsMetricReason(diagnostics.FailureCode)
 	if diagnostics.Available {
 		up = 1
+		reason = "none"
 	}
-	_, _ = fmt.Fprintf(w, "# HELP stepanel_database_diagnostics_up Database diagnostics collection succeeded\n# TYPE stepanel_database_diagnostics_up gauge\nstepanel_database_diagnostics_up{engine=%q} %d\n", diagnostics.Engine, up)
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_database_diagnostics_up Database diagnostics collection succeeded\n# TYPE stepanel_database_diagnostics_up gauge\nstepanel_database_diagnostics_up{engine=%q,reason=%q} %d\n", diagnostics.Engine, reason, up)
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_database_diagnostics_sample_timestamp_seconds Time of the latest restricted database diagnostics query\n# TYPE stepanel_database_diagnostics_sample_timestamp_seconds gauge\nstepanel_database_diagnostics_sample_timestamp_seconds{engine=%q} %d\n", diagnostics.Engine, diagnostics.Collected.Unix())
 	for _, name := range []string{"connections", "active_connections", "long_transactions", "blocked_sessions", "deadlocks", "database_bytes"} {
 		_, _ = fmt.Fprintf(w, "# TYPE stepanel_database_%s gauge\nstepanel_database_%s{engine=%q} %d\n", name, name, diagnostics.Engine, diagnostics.Values[name])
+	}
+}
+
+func databaseDiagnosticsMetricReason(code string) string {
+	switch code {
+	case "timeout", "cancelled", "connection_refused", "authentication", "socket_unavailable", "helper_unavailable", "probe_failed":
+		return code
+	default:
+		return "unknown"
 	}
 }
 
