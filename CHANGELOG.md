@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Recorded the exact source and active state of the expanded Rocky Linux 9
+  installed-host recovery matrix. Its results remain uncredited until the
+  harness completes and the full artifacts are reviewed; this single run does
+  not close the repeated recovery or power-loss gates.
+
 - Site incident alerts now promote measured site-tree byte and inode usage at
   90% of the configured account allowance, with critical severity at or above
   the allowance. They state the shared-account measurement limits. PHP-FPM
