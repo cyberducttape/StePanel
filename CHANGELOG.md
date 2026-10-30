@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Recorded the full repository production-gate pass for exact source
+  `1ad78a6`, including coverage, race, recovery drills, benchmarks, and mixed
+  load. The evidence documents inactive local project-quota enforcement and
+  keeps installed-host, power-loss, and production-capacity gates open.
 - Session validation now distinguishes an invalid or revoked session from a
   durable session-store error. Authenticated requests receive HTTP 503 with a
   diagnostic log entry when SQLite cannot verify a session, instead of a

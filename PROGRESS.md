@@ -1,5 +1,20 @@
 # Production-readiness progress
 
+## Exact-source repository production gate — 2026-10-30
+
+- `make production-gate` passed on `1ad78a62593ef0ee25ef19b452d366a70ba583de`
+  using Go 1.26.10. Results include 57.9% total coverage, all package floors,
+  race tests, four recovery drills, control-plane benchmarks, synthetic
+  200-site mixed load, docs, quota-contract checks, action pins, dashboard and
+  asset validation, and Bash syntax. The run exposed that local XFS project
+  quota enforcement was off, ext4 project quotas were not enabled, and the
+  tested Btrfs mode is unsupported; the passing contract test does not certify
+  actual quota enforcement.
+- Full report: [`2026-10-30-repository-production-gate-1ad78a6.md`](docs/lab-results/2026-10-30-repository-production-gate-1ad78a6.md).
+  This is software-gate evidence only. Installed-host ENOSPC, physical power
+  loss, repeated recovery cohort, clean-host application restoration, live
+  notification delivery, and capacity certification remain open.
+
 ## Session-store outages are no longer reported as bad credentials — 2026-10-30
 
 - Added `Registry.CheckValid` to distinguish an absent/revoked session from a
