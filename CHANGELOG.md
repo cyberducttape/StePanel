@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Recorded a passing repository production gate for source `9015370`, including
+  full race tests, coverage thresholds, recovery drills, benchmarks, mixed
+  load, documentation, quota-state, workflow pin, asset, and shell checks.
+  Host-level ENOSPC and power-loss recovery, distro certification, and a
+  sustained capacity envelope remain external release gates.
+
 - Per-site incident diagnostics now include measured host filesystem byte and
   inode headroom, restricted database-engine connectivity results, backup
   schedule success/failure age, failed certificate issuance jobs, and a

@@ -1,5 +1,20 @@
 # Production-readiness progress
 
+## Repository production gate — 2026-10-29
+
+- Tested source: `9015370` (`test: assert evidence in site incident alerts`).
+- `make production-gate` passed, including `go vet ./...`, coverage thresholds
+  (57.8% overall), the full serialized race suite (root package 405.6s),
+  repository recovery drills, control-plane benchmarks, mixed-load test,
+  documentation/reference checks, quota-state contract checks, Action pin
+  checks, asset validation, and shell syntax checks.
+- Mixed-load evidence: 200 sites, 180 requests, four readers and 20 backup
+  jobs; p95 request latency 23.5ms, maximum 34.9ms in this synthetic run.
+- These results establish repository-level validation only. The gate itself
+  reports real-host ENOSPC, physical power-loss, supported-distro, screenshot,
+  and load-capacity evidence as external gates. No production-readiness gate
+  is claimed closed by this run.
+
 ## Current change — per-site WordPress database health (2026-10-29)
 
 - Added an application-level database probe using StePanel's closed, read-only
