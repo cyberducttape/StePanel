@@ -688,7 +688,7 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 		result.Domain = req.WordPress.Domain
 		result.Database = wordpressDatabaseName(req.Site)
 		result.HTTPS = httpsState
-		backup, err := CreateSiteBackupContext(operationCtx, a.Config, access, true)
+		backup, err := createSiteBackupContext(operationCtx, a.Config, access, true, a.capacityLedger())
 		if err != nil {
 			return nil, fmt.Errorf("create the initial verified WordPress recovery point: %w", err)
 		}
