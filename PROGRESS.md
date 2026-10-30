@@ -4,7 +4,8 @@
 **Published base:** `ffb9e02419dd8c8ae3218bde60cbdd993349bb6c`  
 **Verified local commits:**
 `2d2e2cda02022b49aad0fbb44b89fdc6a6585fb8`,
-`3d2131293818867388a9f71bd5ba90dbc722edf8`
+`3d2131293818867388a9f71bd5ba90dbc722edf8`,
+`24f8bee2524ef8dd0ee2cf7643189b2d45b78eba`
 **Decision:** **NO-GO** for production; see [`docs/V1_PRODUCTION_GATES.md`](docs/V1_PRODUCTION_GATES.md).
 
 ## Completed in this work period
@@ -28,6 +29,12 @@
   partial SQL import cleanup (164s), interrupted transaction recovery (1s),
   configuration rollback (2s), and pending runtime reconciliation (1s).
   These are synthetic repository-level drills, not installed-host certification.
+- Ran `make production-gate` on source `24f8bee`: coverage floors, race tests,
+  recovery drills, benchmarks, mixed HTTP load, documentation, quota contracts,
+  action pins, assets, and shell syntax all passed. Aggregate coverage was
+  57.6%; the synthetic 200-site load had 28.6 ms p95 latency and completed 20
+  backup jobs. Detailed results and scope limits are in
+  [`docs/lab-results/2026-10-30-repository-production-gate-24f8bee.md`](docs/lab-results/2026-10-30-repository-production-gate-24f8bee.md).
 - Ran `make release-check`, `bash scripts/check-action-pins.sh`,
   `node --check tests/e2e/critical-navigation.spec.js`, and `git diff --check`;
   all passed.
@@ -53,6 +60,8 @@
 - `CHANGELOG.md`: record the corrected browser regression assertion.
 - `DEVELOPMENT_PLAN.md`: prioritized milestones and objective acceptance
   criteria for all open production gates.
+- `docs/lab-results/2026-10-30-repository-production-gate-24f8bee.md`: exact
+  source and measurements for the repository production gate.
 - `PROGRESS.md`: this evidence and next-step record.
 
 The E2E fix is committed locally as `2d2e2cd`; the plan/progress documents are
@@ -70,9 +79,10 @@ reconciliation as partial or open. Existing passing code tests and historical
 QEMU runs do not close those gates.
 
 The documented Rocky Linux KVM lab cannot run on this workstation: `/dev/kvm`
-is not accessible to the current user, and available memory is below the lab's
-4 GiB guest plus 2 GiB host-reserve requirement. No host certification was
-claimed or attempted.
+is `root:kvm` mode `0660` and the current user is not in the `kvm` group;
+noninteractive sudo is unavailable. Memory currently meets the guest plus
+reserve requirement, but there is no cached guest image and Docker/Podman are
+not installed. No host certification was claimed or attempted.
 
 ## Next steps
 
