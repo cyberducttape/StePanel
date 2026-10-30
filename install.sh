@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+# Name the failing command for an unexpected exit; set -e otherwise stops the
+# preflight silently. The rollback trap replaces this once it is armed.
+trap 'printf "install.sh: line %s: command exited with status %s: %s\n" "$LINENO" "$?" "$BASH_COMMAND" >&2' ERR
 
 if [[ $EUID -ne 0 ]]; then echo "Run as root: sudo ./install.sh" >&2; exit 1; fi
 
@@ -354,7 +357,9 @@ if [[ "$DB_ENGINE" == postgresql && "$PKG" == apt ]]; then db_plan_package=postg
 if [[ "$PKG" == apt ]]; then
   db_installed_version=$(dpkg-query -W -f='${Version}' "$db_plan_package" 2>/dev/null || true)
   db_installed_version=${db_installed_version:-not-installed}
-  db_candidate_version=$(apt-cache policy "$db_plan_package" 2>/dev/null | awk '$1 == "Candidate:" {print $2; exit}')
+  # Informational only: a failed lookup (or apt-cache SIGPIPE when awk exits
+  # early) must not abort the install, matching the dnf branch below.
+  db_candidate_version=$(apt-cache policy "$db_plan_package" 2>/dev/null | awk '$1 == "Candidate:" {print $2; exit}' || true)
 else
   db_installed_version=$(rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}' "$db_plan_package" 2>/dev/null || true)
   db_installed_version=${db_installed_version:-not-installed}
