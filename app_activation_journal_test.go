@@ -1,6 +1,7 @@
 package stepanel
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -228,6 +229,58 @@ func TestFailedAppActivationCompensationRemovesJournalAndRestoresSidecar(t *test
 	for _, entry := range entries {
 		if strings.HasPrefix(entry.Name(), ".activation-") {
 			t.Fatalf("compensated activation journal was left behind: %s", entry.Name())
+		}
+	}
+}
+
+func TestCanceledAppActivationStillAttemptsBoundedRuntimeCompensation(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{WebRoot: filepath.Join(root, "web"), AppRoot: filepath.Join(root, "apps"), AppCtl: filepath.Join(root, "appctl")}
+	public := filepath.Join(cfg.WebRoot, "sites", "demo", "public")
+	if err := os.MkdirAll(public, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(cfg.AppRoot, 0750); err != nil {
+		t.Fatal(err)
+	}
+	runtimeState := filepath.Join(root, "runtime-version")
+	script := "#!/bin/sh\nif [ \"$1\" = apply ]; then printf '%s\\n' \"$3\" > '" + runtimeState + "'; fi\n"
+	if err := os.WriteFile(cfg.AppCtl, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	previous := AppManifest{Site: "demo", Domain: "old.example.test", Version: "22.1.0", Port: 3000, Root: public, State: "running"}
+	previousBytes, err := json.MarshalIndent(previous, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousBytes = append(previousBytes, '\n')
+	previousBackup := []byte(`{"site":"demo","domain":"older.example.test"}`)
+	target := AppManifest{Site: "demo", Domain: "new.example.test", Version: "22.2.0", Port: 3001, Root: public, State: "running"}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = activateAppManifest(ctx, cfg, target, previousBytes, &previous, previousBackup, true)
+	var activationErr *appActivationFailure
+	if !errors.As(err, &activationErr) || !errors.Is(activationErr.Cause, context.Canceled) || activationErr.RecoveryErr != nil {
+		t.Fatalf("activation error = %#v, want canceled activation with successful compensation", err)
+	}
+	if got, readErr := os.ReadFile(runtimeState); readErr != nil || strings.TrimSpace(string(got)) != previous.Version {
+		t.Fatalf("runtime version = %q, %v; want compensated version %s", got, readErr, previous.Version)
+	}
+	manifest, readErr := os.ReadFile(filepath.Join(cfg.AppRoot, "demo.json"))
+	if readErr != nil || string(manifest) != string(previousBytes) {
+		t.Fatalf("manifest after cancellation = %q, %v; want previous generation", manifest, readErr)
+	}
+	backup, readErr := os.ReadFile(filepath.Join(cfg.AppRoot, "demo.json.bak"))
+	if readErr != nil || string(backup) != string(previousBackup) {
+		t.Fatalf("backup manifest after cancellation = %q, %v; want previous sidecar", backup, readErr)
+	}
+	entries, readErr := os.ReadDir(cfg.AppRoot)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".activation-") {
+			t.Fatalf("canceled activation journal remains after successful compensation: %s", entry.Name())
 		}
 	}
 }

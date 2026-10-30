@@ -1,5 +1,18 @@
 # Production-readiness progress
 
+## App activation compensation survives request cancellation — 2026-10-30
+
+- App activation and app-state transitions now run compensation in a bounded
+  context detached from the canceled operation context. Context values,
+  including fencing tokens, are preserved; a lost lease is still rejected by
+  the root broker. A failed restore leaves the activation journal in place.
+- Added a regression that starts with an already-canceled context and proves
+  the previous runtime version, current manifest, and rollback sidecar are
+  restored and the journal is removed only after successful compensation.
+- Focused cancellation regression and full `make check` passed, including API
+  artifact validation, `go vet ./...`, and the serialized `go test ./...`
+  suite. Host certification remains separate.
+
 ## Installed-host smoke completed — 2026-10-30
 
 - GitHub Actions installed-host run

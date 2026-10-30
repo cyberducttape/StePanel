@@ -23,6 +23,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Application activation compensation now uses its own bounded context after
+  the initiating request is canceled. It preserves fencing values, allowing
+  the broker to restore the prior runtime when the mutation lease remains
+  valid; a regression test verifies runtime and both manifests converge.
 - Site incident findings now identify whether filesystem pressure is caused by
   low free bytes, low free inodes, or both, with timestamped capacity values.
   Database connectivity failures now include a bounded cause such as timeout,

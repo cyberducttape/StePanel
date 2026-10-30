@@ -189,6 +189,16 @@ func (e *appActivationFailure) Error() string {
 
 func (e *appActivationFailure) Unwrap() error { return e.Cause }
 
+// compensateAppActivation must outlive cancellation of the operation being
+// compensated. Preserve the context values (including the mutation fencing
+// token), but give restoration its own bounded deadline. The broker still
+// rejects the compensation if the lease has actually been lost.
+func compensateAppActivation(ctx context.Context, cfg Config, journal *appActivationJournal) error {
+	recoveryCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), helperServiceLifecycleTimeout)
+	defer cancel()
+	return restoreAppActivation(cfg, recoveryCtx, journal)
+}
+
 // activateAppManifest journals both runtime activation and manifest/rollback
 // metadata publication. The committed state is durable before journal cleanup,
 // so startup can distinguish a completed activation from work to compensate.
@@ -214,7 +224,7 @@ func activateAppManifest(ctx context.Context, cfg Config, target AppManifest, pr
 		return false, err
 	}
 	compensate := func(cause error) (bool, error) {
-		recoveryErr := restoreAppActivation(cfg, ctx, journal)
+		recoveryErr := compensateAppActivation(ctx, cfg, journal)
 		return false, &appActivationFailure{Cause: cause, RecoveryErr: recoveryErr}
 	}
 	if err := ctx.Err(); err != nil {
@@ -516,7 +526,7 @@ func applyAppStateTransition(ctx context.Context, cfg Config, target AppManifest
 		return false, err
 	}
 	compensate := func(cause error) (bool, error) {
-		recoveryErr := restoreAppActivation(cfg, ctx, journal)
+		recoveryErr := compensateAppActivation(ctx, cfg, journal)
 		return false, &appActivationFailure{Cause: cause, RecoveryErr: recoveryErr}
 	}
 	if err := ctx.Err(); err != nil {

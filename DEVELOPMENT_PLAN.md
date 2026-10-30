@@ -252,6 +252,29 @@ and authenticated HTTP requests surface store failures as 503.
 - Registry and HTTP regression tests pass, including a closed-database case;
   `make check` and exact-source CI pass.
 
+### M0g — Complete app activation compensation after cancellation (P1)
+
+**Status:** Implemented locally; full local check passed. Exact-source hosted
+CI remains pending.
+
+When app activation fails or is canceled after host mutation may have begun,
+compensation uses a separate bounded context while preserving the mutation
+fencing values. This lets the prior service generation be restored when its
+lease is still valid; the broker refuses compensation if fencing has been
+lost. Failed compensation leaves the durable activation journal for startup
+recovery.
+
+**Acceptance criteria**
+
+- A canceled activation still attempts prior-runtime restoration under a
+  bounded context, restores the prior current and rollback manifests, and
+  removes its journal only after compensation succeeds.
+- If the fencing lease has been lost or compensation fails, the journal
+  remains available for deterministic recovery and the operation does not
+  report successful rollback.
+- Focused cancellation/recovery tests and `make check` pass. This is software
+  regression evidence, not host-power-loss certification.
+
 ### M1 — Complete installed-host failure recovery (P0)
 
 **Status:** Open. Exact-source hosted AlmaLinux 9/Caddy/MariaDB run
