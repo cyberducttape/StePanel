@@ -105,11 +105,11 @@ func (a *App) buildSiteRecovery(ctx context.Context, access SiteCapability) (sit
 	if len(backups) > 0 {
 		newest := backups[0]
 		name := filepath.Base(newest.Path)
-		in.LatestBackup = &recovery.BackupFacts{Name: name, CreatedAt: newest.CreatedAt, Signed: newest.ManifestSigned, Encrypted: newest.Encrypted, Consistency: newest.Consistency}
+		in.LatestBackup = &recovery.BackupFacts{Name: name, CreatedAt: newest.CreatedAt, VerifiedAt: newest.VerifiedAt, Signed: newest.ManifestSigned, Encrypted: newest.Encrypted, Consistency: newest.Consistency}
 		if a.Config.OffsiteTarget != "" {
 			in.Offsite.Configured = true
 			if a.BackupIndex != nil {
-				in.Offsite.Tracked, in.Offsite.UploadedAt, err = a.BackupIndex.OffsiteBackupState(a.Config.OffsiteTarget, site, name)
+				in.Offsite.Tracked, in.Offsite.UploadedAt, in.Offsite.RestoreVerifiedAt, err = a.BackupIndex.OffsiteBackupEvidence(a.Config.OffsiteTarget, site, name)
 				if err != nil {
 					return siteRecoveryResponse{}, fmt.Errorf("read offsite state: %w", err)
 				}

@@ -27,6 +27,7 @@ const (
 type BackupFacts struct {
 	Name        string
 	CreatedAt   time.Time
+	VerifiedAt  time.Time
 	Signed      bool
 	Encrypted   bool
 	Consistency string
@@ -36,8 +37,9 @@ type BackupFacts struct {
 type OffsiteFacts struct {
 	Configured bool
 	// Tracked is false for backups taken before offsite tracking existed.
-	Tracked    bool
-	UploadedAt *time.Time
+	Tracked           bool
+	UploadedAt        *time.Time
+	RestoreVerifiedAt *time.Time
 }
 
 // Policy sets the ages beyond which evidence is considered stale. A zero
@@ -61,6 +63,7 @@ type Inputs struct {
 type BackupStatus struct {
 	Name       string    `json:"name"`
 	CreatedAt  time.Time `json:"created_at"`
+	VerifiedAt time.Time `json:"verified_at"`
 	AgeSeconds int64     `json:"age_seconds"`
 	Integrity  string    `json:"integrity"`
 	Encrypted  bool      `json:"encrypted"`
@@ -68,8 +71,9 @@ type BackupStatus struct {
 
 type OffsiteStatus struct {
 	// State is verified, pending, untracked, or not_configured.
-	State      string     `json:"state"`
-	UploadedAt *time.Time `json:"uploaded_at,omitempty"`
+	State             string     `json:"state"`
+	UploadedAt        *time.Time `json:"uploaded_at,omitempty"`
+	RestoreVerifiedAt *time.Time `json:"restore_verified_at,omitempty"`
 }
 
 type RehearsalStatus struct {
@@ -169,6 +173,7 @@ func Assess(in Inputs) Status {
 	default:
 		s.Offsite.State = "pending"
 	}
+	s.Offsite.RestoreVerifiedAt = in.Offsite.RestoreVerifiedAt
 
 	if in.LatestBackup == nil {
 		s.Confidence = ConfidenceNoBackup
@@ -185,7 +190,7 @@ func Assess(in Inputs) Status {
 	if !in.LatestBackup.Signed {
 		integrity = "unsigned"
 	}
-	s.LastBackup = &BackupStatus{Name: in.LatestBackup.Name, CreatedAt: in.LatestBackup.CreatedAt, AgeSeconds: int64(backupAge.Seconds()), Integrity: integrity, Encrypted: in.LatestBackup.Encrypted}
+	s.LastBackup = &BackupStatus{Name: in.LatestBackup.Name, CreatedAt: in.LatestBackup.CreatedAt, VerifiedAt: in.LatestBackup.VerifiedAt, AgeSeconds: int64(backupAge.Seconds()), Integrity: integrity, Encrypted: in.LatestBackup.Encrypted}
 	s.RecoveryPointAgeSeconds = int64(backupAge.Seconds())
 	if s.Offsite.State == "verified" {
 		s.Checks[3] = EvidenceCheck{Name: "offsite", Status: "pass", Detail: "The newest backup has a confirmed offsite copy."}
@@ -238,9 +243,11 @@ func Assess(in Inputs) Status {
 	if s.Offsite.State == "pending" {
 		degrade("Newest backup has no confirmed offsite copy.")
 	}
-	if in.LatestPassed != nil && in.LatestPassed.Backup != in.LatestBackup.Name && in.LatestPassed.BackupCreatedAt.Before(in.LatestBackup.CreatedAt) {
-		// Informational: the pipeline is proven, but not on the newest data.
-		s.Reasons = append(s.Reasons, fmt.Sprintf("Newest backup %s has not been rehearsed yet; the proof is from %s.", in.LatestBackup.Name, in.LatestPassed.Backup))
+	if in.LatestPassed != nil && in.LatestPassed.Backup != in.LatestBackup.Name {
+		// A previous recovery point passing does not prove that the current
+		// newest backup can be restored. Degrade the aggregate status so the
+		// dashboard cannot show a green recovery badge for untested data.
+		degrade(fmt.Sprintf("Newest backup %s has not been rehearsed yet; the last proven recovery point is %s.", in.LatestBackup.Name, in.LatestPassed.Backup))
 	}
 	return s
 }

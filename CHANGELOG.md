@@ -15,6 +15,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   error-log excerpts, and deployment history appear alongside the steps. The
   workflow labels application HTTP health and Caddy TLS handshakes unverified
   where no live probe ran. New WordPress sites open directly into this guide.
+- Recovery status now identifies the newest validated backup, the latest
+  restore attempt, and the exact passing recovery point and proof level. It
+  reports whether that newest backup passed a restore rehearsal, shows confirmed
+  offsite upload and successful remote-restore timestamps, and states that an
+  upload record is not a live availability probe or application-health proof.
+  A passing rehearsal of an older backup now degrades the recovery badge when
+  a newer backup remains untested.
 - The database-administrator security check now reports configuration
   detection separately from effective access enforcement. A readable managed
   Apache configuration is no longer treated as proof of an IP restriction;

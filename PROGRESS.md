@@ -55,6 +55,24 @@
 
 ## Current local work
 
+- Expanded backup recovery status into an explicit evidence report. It names the
+  latest validated backup and its verification time, last rehearsal attempt,
+  exact passing recovery point/proof level, confirmed offsite upload, and last
+  successful files/database restore from that offsite copy. The UI states that
+  upload records do not prove live remote reachability, and that archive-level
+  restore does not prove database import or application health. Recovery
+  confidence is now degraded when a newer backup has not itself passed a
+  rehearsal, even if an older recovery point passed.
+- Added Go regression coverage for offsite upload/restore timestamps and
+  current-backup confidence, plus browser cases for both failed-newest/older-
+  proven and passing-newest/offsite-present states. Final evidence: `make
+  check` passed (API artifact check, `go vet ./...`, all Go packages; root
+  package 71.403s); focused race tests passed; JavaScript unit tests passed
+  (17/17); the fresh browser suite passed (20 passed, 1 optional auth test
+  skipped), including Axe on recovery status; `make build`, syntax checks, and
+  `git diff --check` passed. These checks do not establish a real offsite
+  provider restore or installed-host application recovery.
+
 - Added the first per-site guided lifecycle workflow. It links existing import
   and create flows, validation, deploy history, TLS troubleshooting, backup
   proof/rehearsals, staging clone/promotion, and administrator retirement
@@ -183,8 +201,8 @@ not installed. No host certification was claimed or attempted.
 
 ## Next steps
 
-1. Push the verified UI commit to the authorized SSH origin and require
-   exact-source CI, CodeQL, documentation, and release-evidence success.
+1. Commit and push this recovery-evidence change, then require exact-source CI,
+   CodeQL, documentation, and release-evidence success.
 2. Obtain a suitably provisioned disposable KVM host/runner; execute the
    remaining Gate 5 matrix and retain reviewed evidence.
 3. Continue with application restore, operational notification, capacity,

@@ -218,11 +218,11 @@ func TestAssessRules(t *testing.T) {
 			old := rehearsal("demo", "b2", OutcomePassed, base.Add(-720*time.Hour))
 			in.LatestRehearsal, in.LatestPassed = &old, &old
 		}, ConfidenceVerified, ""},
-		{"newest backup not rehearsed is informational", func(in *Inputs) {
+		{"newest backup without a matching rehearsal degrades confidence", func(in *Inputs) {
 			older := rehearsal("demo", "b1", OutcomePassed, base.Add(-time.Hour))
 			older.BackupCreatedAt = base.Add(-30 * time.Hour)
 			in.LatestRehearsal, in.LatestPassed = &older, &older
-		}, ConfidenceVerified, "has not been rehearsed yet"},
+		}, ConfidenceDegraded, "has not been rehearsed yet"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

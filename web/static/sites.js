@@ -1133,7 +1133,7 @@
     no_backup: ['No backup', 'danger'],
   };
   const offsiteLabels = {
-    verified: 'Uploaded',
+    verified: 'Upload confirmed',
     pending: 'Not yet uploaded',
     untracked: 'Not tracked',
     not_configured: 'Not configured',
@@ -1202,17 +1202,40 @@
     const last = status.last_backup;
     const latest = status.last_rehearsal;
     const passed = status.last_passed_rehearsal;
+    const passingProofMatchesLatest = Boolean(last && passed && passed.backup === last.name);
+    const latestAttemptMatchesLatest = Boolean(last && latest && latest.backup === last.name);
+    let restoreability = 'Unknown — no passing restore test is recorded.';
+    let restoreabilityDetail = 'The presence of a backup does not prove it can be restored.';
+    if (passingProofMatchesLatest) {
+      restoreability = passed.level === 'application'
+        ? 'Yes — application recovery passed'
+        : 'Yes — archive recovery passed';
+      restoreabilityDetail = `${last.name} passed ${passed.level || 'archive'}-level recovery on ${ctx.formatAge(passed.at)}. ${passed.level_description || ''}`;
+      if (latestAttemptMatchesLatest && latest.outcome === 'failed') {
+        restoreabilityDetail += ` A later attempt failed: ${latest.error || 'failure details unavailable'}.`;
+      }
+    } else if (latestAttemptMatchesLatest && latest.outcome === 'failed') {
+      restoreability = 'Not proven — latest restore test failed';
+      restoreabilityDetail = `${last.name}: ${latest.error || 'failure details unavailable'}`;
+    } else if (passed) {
+      restoreability = 'Newest backup is untested';
+      restoreabilityDetail = `The newest backup is ${last?.name || 'unavailable'}; the most recent proven recovery point is ${passed.backup} (${passed.level || 'archive'} level).`;
+    }
     const facts = [
-      ['Last backup', last ? ctx.formatAge(last.created_at) : 'None',
-        last ? `${last.integrity === 'verified' ? 'Signed manifest' : 'Unsigned manifest'}${last.encrypted ? ' · encrypted' : ''}` : 'Take a backup to make this site recoverable'],
+      ['Last successful backup', last ? ctx.formatAge(last.verified_at || last.created_at) : 'None',
+        last ? `${last.name} · ${last.integrity === 'verified' ? 'signed' : 'unsigned manifest'} · archive verified${last.encrypted ? ' · encrypted' : ''}` : 'No validated backup is available'],
+      ['Can this backup be restored?', last ? restoreability : 'No — no successful backup', restoreabilityDetail],
       ['Offsite copy', offsiteLabels[status.offsite.state] || status.offsite.state,
-        status.offsite.uploaded_at ? `Uploaded ${ctx.formatAge(status.offsite.uploaded_at)}` : ''],
+        status.offsite.uploaded_at ? `Uploaded ${ctx.formatAge(status.offsite.uploaded_at)}; remote access is not being probed live.` : 'No confirmed upload for this backup.',
+      ],
+      ['Last successful remote restore', status.offsite.restore_verified_at ? ctx.formatAge(status.offsite.restore_verified_at) : 'Not recorded',
+        status.offsite.restore_verified_at ? 'A files or database restore completed from the offsite copy; this does not by itself prove application health.' : 'No successful restore from this offsite copy is recorded.'],
       ['Last restore rehearsal', latest ? ctx.formatAge(latest.at) : 'Never',
-        latest ? `${latest.outcome === 'passed' ? 'Passed' : 'Failed'} · ${latest.trigger} · ${latest.backup}` : 'Use “Rehearse restore” on a backup below'],
+        latest ? `${latest.outcome === 'passed' ? 'Passed' : 'Failed'} · ${latest.trigger} · ${latest.backup} · ${latest.level || 'level unavailable'}` : 'Use “Rehearse restore” on a backup below'],
       ['Measured recovery time', passed ? formatDuration(status.measured_recovery_ms) : '—',
         passed ? (passed.level === 'application' && status.last_backup?.name === passed.backup ? 'Application proof for the newest backup' : passed.level === 'application' ? 'Proof was for a different backup' : 'Archive-only rehearsal; full-site time unknown') : 'No passing rehearsal yet'],
-      ['Recovery point', last ? ctx.formatAge(last.created_at) : '—',
-        'Changes made after the newest backup would be lost'],
+      ['Proven recovery point', passed ? passed.backup : 'None proven',
+        passed ? `${passed.level || 'archive'}-level recovery passed ${ctx.formatAge(passed.at)}. ${passed.level_description || ''}${last && passed.backup !== last.name ? ` Newest backup ${last.name} is not covered by this proof.` : ''}` : 'No backup has passed a restore rehearsal.'],
       ['Encryption key', status.encryption_key === 'healthy' ? 'Proven' : 'Not proven',
         status.encryption_key === 'healthy' ? 'A rehearsal decrypted an encrypted backup' : 'No encrypted backup has been rehearsed'],
     ];

@@ -154,22 +154,35 @@ func (idx *BackupIndex) MarkOffsiteRestoreVerified(target, site, backup string, 
 // and when its upload completed. Backups taken before offsite tracking
 // existed are reported as untracked rather than as missing.
 func (idx *BackupIndex) OffsiteBackupState(target, site, backup string) (tracked bool, uploadedAt *time.Time, err error) {
+	tracked, uploadedAt, _, err = idx.OffsiteBackupEvidence(target, site, backup)
+	return tracked, uploadedAt, err
+}
+
+// OffsiteBackupEvidence reports upload and successful remote-restore evidence
+// for one backup. A recorded restore means the requested files or database
+// restore completed using the downloaded remote object; it does not prove the
+// whole application was healthy afterward.
+func (idx *BackupIndex) OffsiteBackupEvidence(target, site, backup string) (tracked bool, uploadedAt, restoreVerifiedAt *time.Time, err error) {
 	if idx == nil || idx.db == nil {
-		return false, nil, errors.New("backup index is unavailable")
+		return false, nil, nil, errors.New("backup index is unavailable")
 	}
-	var uploaded sql.NullInt64
-	err = idx.db.QueryRow(`SELECT uploaded_at FROM offsite_backup_state WHERE target_hash=? AND site=? AND backup_name=?`, offsiteTargetHash(target), site, backup).Scan(&uploaded)
+	var uploaded, restored sql.NullInt64
+	err = idx.db.QueryRow(`SELECT uploaded_at,restore_verified_at FROM offsite_backup_state WHERE target_hash=? AND site=? AND backup_name=?`, offsiteTargetHash(target), site, backup).Scan(&uploaded, &restored)
 	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil, nil
+		return false, nil, nil, nil
 	}
 	if err != nil {
-		return false, nil, err
+		return false, nil, nil, err
 	}
 	if uploaded.Valid {
 		t := time.Unix(0, uploaded.Int64).UTC()
 		uploadedAt = &t
 	}
-	return true, uploadedAt, nil
+	if restored.Valid {
+		t := time.Unix(0, restored.Int64).UTC()
+		restoreVerifiedAt = &t
+	}
+	return true, uploadedAt, restoreVerifiedAt, nil
 }
 
 func (idx *BackupIndex) OffsiteSummary(target string) (OffsiteBackupSummary, error) {

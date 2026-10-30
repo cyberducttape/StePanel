@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cyberducttape/StePanel/internal/metadata"
 	"github.com/cyberducttape/StePanel/internal/recovery"
 )
 
@@ -101,6 +102,38 @@ func TestRecoveryStatusBeforeAnyRehearsal(t *testing.T) {
 	}
 	if !status.AutomaticRehearsalsEnabled || status.RehearsalIntervalHours != 24 {
 		t.Fatalf("policy fields = %+v", status)
+	}
+}
+
+func TestRecoveryStatusShowsExactBackupAndOffsiteRestoreEvidence(t *testing.T) {
+	f := newRecoveryFixture(t)
+	index, err := metadata.NewBackupIndex(f.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.app.BackupIndex = index
+	f.app.Config.OffsiteTarget = "s3:bucket/backups"
+	created := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	uploaded := created.Add(time.Minute)
+	remoteRestore := created.Add(2 * time.Minute)
+	if err := index.TrackOffsiteBackup(f.app.Config.OffsiteTarget, "account", f.backup, created); err != nil {
+		t.Fatal(err)
+	}
+	if err := index.MarkOffsiteUploaded(f.app.Config.OffsiteTarget, "account", f.backup, uploaded); err != nil {
+		t.Fatal(err)
+	}
+	if err := index.MarkOffsiteRestoreVerified(f.app.Config.OffsiteTarget, "account", f.backup, remoteRestore); err != nil {
+		t.Fatal(err)
+	}
+	status := f.status(t)
+	if status.Offsite.State != "verified" || status.Offsite.UploadedAt == nil || !status.Offsite.UploadedAt.Equal(uploaded) {
+		t.Fatalf("offsite upload evidence = %+v", status.Offsite)
+	}
+	if status.Offsite.RestoreVerifiedAt == nil || !status.Offsite.RestoreVerifiedAt.Equal(remoteRestore) {
+		t.Fatalf("offsite restore evidence = %+v", status.Offsite)
+	}
+	if status.LastBackup == nil || status.LastBackup.VerifiedAt.IsZero() {
+		t.Fatalf("last successful backup lacks validation time: %+v", status.LastBackup)
 	}
 }
 

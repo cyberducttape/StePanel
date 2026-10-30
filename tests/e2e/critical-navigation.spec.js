@@ -293,7 +293,7 @@ test('site backups tab shows a failing restore rehearsal and what it proves', as
       confidence: 'failing',
       summary: 'The most recent restore rehearsal failed; recovery from this site\'s backups is not proven.',
       reasons: ['Rehearsal of nightly-backup failed: extract verified backup: unexpected EOF'],
-      last_backup: { name: 'nightly-backup', created_at: now, age_seconds: 60, integrity: 'verified', encrypted: true },
+      last_backup: { name: 'nightly-backup', created_at: now, verified_at: now, age_seconds: 60, integrity: 'verified', encrypted: true },
       offsite: { state: 'pending' },
       last_rehearsal: { at: now, backup: 'nightly-backup', outcome: 'failed', trigger: 'scheduled', level: 'archive', level_description: 'Backup signature verified, archive decrypted and extracted, files and database dumps recovered. Database import and application start are not yet rehearsed.', duration_ms: 1200, error: 'unexpected EOF' },
       last_passed_rehearsal: { at: now, backup: 'older-backup', outcome: 'passed', trigger: 'manual', level: 'archive', level_description: 'Backup signature verified, archive decrypted and extracted, files and database dumps recovered. Database import and application start are not yet rehearsed.', duration_ms: 77000 },
@@ -313,6 +313,15 @@ test('site backups tab shows a failing restore rehearsal and what it proves', as
   await page.getByRole('tab', { name: 'Backups' }).click();
   const panel = page.getByRole('region', { name: 'Recovery status' });
   await expect(panel).toContainText('Failing');
+  await expect(panel).toContainText('Last successful backup');
+  await expect(panel).toContainText('nightly-backup · signed · archive verified · encrypted');
+  await expect(panel).toContainText('Can this backup be restored?');
+  await expect(panel).toContainText('Not proven — latest restore test failed');
+  await expect(panel).toContainText('Proven recovery point');
+  await expect(panel).toContainText('older-backup');
+  await expect(panel).toContainText('Newest backup nightly-backup is not covered by this proof.');
+  await expect(panel).toContainText('Last successful remote restore');
+  await expect(panel).toContainText('Not recorded');
   await expect(panel.getByRole('list', { name: 'Recovery findings' })).toContainText('unexpected EOF');
   await expect(panel).toContainText('1m 17s');
   await expect(panel).toContainText('Not yet uploaded');
@@ -320,4 +329,45 @@ test('site backups tab shows a failing restore rehearsal and what it proves', as
   await expect(panel).toContainText('at most every 24h');
   const result = await new AxeBuilder({ page }).include('section.recovery-status').analyze();
   expect(result.violations.map((violation) => `${violation.id}: ${violation.help}`)).toEqual([]);
+});
+
+test('recovery status identifies a successfully rehearsed point and remote copy limits', async ({ page }) => {
+  const now = new Date().toISOString();
+  const site = { site: 'e2e-recovered', routes: [], applications: [], database_count: 1 };
+  await page.route('**/api/sites/overview', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sites: [site] }) }));
+  await page.route('**/api/sites/overview/e2e-recovered', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(site) }));
+  await page.route('**/api/backups?site=*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ backups: [] }) }));
+  await page.route('**/api/sites/recovery/e2e-recovered', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      site: site.site,
+      confidence: 'verified',
+      summary: 'Backup was recovered in an archive rehearsal.',
+      reasons: [],
+      last_backup: { name: 'latest-good', created_at: now, verified_at: now, age_seconds: 1, integrity: 'verified', encrypted: true },
+      offsite: { state: 'verified', uploaded_at: now, restore_verified_at: now },
+      last_rehearsal: { at: now, backup: 'latest-good', outcome: 'passed', trigger: 'scheduled', level: 'archive', level_description: 'Files and database dumps were extracted and validated. Database import and application health were not tested.', duration_ms: 42000 },
+      last_passed_rehearsal: { at: now, backup: 'latest-good', outcome: 'passed', trigger: 'scheduled', level: 'archive', level_description: 'Files and database dumps were extracted and validated. Database import and application health were not tested.', duration_ms: 42000 },
+      measured_recovery_ms: 42000,
+      recovery_point_age_seconds: 1,
+      encryption_key: 'healthy',
+      history: [],
+      rehearsal_interval_hours: 24,
+      automatic_rehearsals_enabled: true,
+      scheduled_backups: true,
+    }),
+  }));
+  await page.reload();
+  await page.getByRole('link', { name: 'Sites', exact: true }).click();
+  await page.getByRole('button', { name: /Manage site/ }).click();
+  await page.getByRole('tab', { name: 'Backups' }).click();
+  const panel = page.getByRole('region', { name: 'Recovery status' });
+  await expect(panel).toContainText('Yes — archive recovery passed');
+  await expect(panel).toContainText('Proven recovery point');
+  await expect(panel).toContainText('latest-good');
+  await expect(panel).toContainText('Upload confirmed');
+  await expect(panel).toContainText('remote access is not being probed live');
+  await expect(panel).toContainText('Last successful remote restore');
+  await expect(panel).toContainText('does not by itself prove application health');
 });

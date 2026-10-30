@@ -234,6 +234,14 @@ rehearsals, staging clone/promotion, logs, PHP-FPM diagnostics, and the
 administrator termination preview. New site creation opens the guide after
 the creation job completes.
 
+Recovery status identifies the most recent archive-validated backup, the last
+restore attempt, the exact backup and evidence level of the last passing
+rehearsal, and per-backup offsite upload/restore records. It explicitly avoids
+equating an upload record with current remote reachability or application
+health. A green recovery confidence state requires proof for the current
+newest backup; evidence only for an older backup is degraded and identifies
+the exact older recovery point.
+
 Acceptance criteria:
 
 - Each step links to the existing authorized workflow and does not bypass its
@@ -244,7 +252,9 @@ Acceptance criteria:
 - WordPress WP-CLI status and PHP-FPM/log evidence render with authorization
   checks and bounded API reads.
 - The browser regression covers steps, evidence limits, WordPress status,
-  logs, and staging navigation; UI unit tests and accessibility E2E pass.
+  logs, staging navigation, and both passing and failing recovery evidence;
+  backend recovery-status tests verify the exact offsite timestamps and UI
+  accessibility E2E passes.
 - This UI does not close the independent installed-host, application recovery,
   or capacity certification gates above.
 
