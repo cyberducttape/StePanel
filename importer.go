@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
@@ -625,7 +624,7 @@ func (a *App) handleArchiveInspectionJob(ctx context.Context, job *Job) ([]byte,
 // validSiteName checks if a site name is valid (matches standard site helpers: 1-32 chars)
 func validSiteName(name string) bool {
 	// Must match standard site identity constraints (same as stepanel-appctl)
-	matched, _ := regexp.MatchString(`^[a-z0-9_-]{1,32}$`, name)
+	matched := siteNamePattern.MatchString(name)
 	// Proof sites are created only by the recovery proof, which recovery may
 	// remove by name; no other workflow may claim the prefix.
 	return matched && !isRecoveryProofSiteName(name)
