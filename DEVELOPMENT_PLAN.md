@@ -19,15 +19,22 @@ as the account user and stops after 5,001 source entries; the root-owned
 temporary listing file is removed. Broker output has a 2 MiB cap, list calls
 have a 10-second timeout, and read-only requests serialize per tenant. Local
 focused Go, shell, Python syntax, documentation, and 10,000-entry bounded
-enumeration checks pass. Exact-source installed-host CI evidence is pending.
+enumeration checks pass. All operations now resolve components relative to
+an opened document-root descriptor, and the installed-host smoke interposes
+symlink swaps before reads, writes, mkdir, rename, delete, and listing. Local
+embedded-helper confinement checks pass; exact-source installed-host CI
+evidence is pending.
 
 **Acceptance criteria**
 
 - A real installed-host directory with 10,000 entries returns at most 5,001
   helper records, a truncated result, and completes within 10 seconds.
 - No full directory listing is materialized in a root-owned temporary file.
+- Reads and mutations remain rooted at opened directory descriptors even
+  when a tenant swaps a checked path component for a symlink.
 - Per-tenant concurrent file reads/listings serialize across distinct sites.
-- Focused Go tests, ShellCheck, Bash syntax, and exact-source CI pass.
+- Focused Go tests, ShellCheck, Bash syntax, adversarial installed-host smoke,
+  and exact-source CI pass.
 
 ### M0n — Remove psql client-command execution from PostgreSQL restores (P0)
 

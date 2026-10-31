@@ -73,6 +73,59 @@ printf 'x' | refused write "$site" "$account" escape/stepanel-smoke
 "$filectl" delete "$site" "$account" escape
 [[ -d /etc && ! -L $docroot/escape ]] || fail 'deleting a link did not remove only the link'
 
+# Interpose a symlink swap after helper validation but immediately before the
+# site-user process starts. The helper must resolve every component from its
+# opened document-root descriptor, so none of these requests may reach the
+# account-owned sibling directory outside public_html.
+race_bin=$(mktemp -d)
+outside="/home/$account/filectl-race-outside"
+install -d -m 0750 -o "$account" -g "$web_group" "$outside"
+printf 'outside-sentinel' >"$outside/secret"
+printf 'delete-sentinel' >"$outside/victim"
+printf 'rename-sentinel' >"$outside/rename-source"
+install -d -m 0750 -o "$account" -g "$web_group" "$docroot/race"
+printf 'inside-sentinel' >"$docroot/race/secret"
+printf 'inside-delete' >"$docroot/race/victim"
+printf 'inside-rename' >"$docroot/race/rename-source"
+cat >"$race_bin/runuser" <<'SH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ -n ${STEPANEL_FILECTL_SWAP_PATH:-} && ! -e ${STEPANEL_FILECTL_SWAP_MARKER:-} ]]; then
+  mv -- "$STEPANEL_FILECTL_SWAP_PATH" "$STEPANEL_FILECTL_SWAP_PATH.saved"
+  ln -s ../filectl-race-outside "$STEPANEL_FILECTL_SWAP_PATH"
+  : >"$STEPANEL_FILECTL_SWAP_MARKER"
+fi
+exec /usr/sbin/runuser "$@"
+SH
+chmod 0755 "$race_bin/runuser"
+
+assert_swap_refused() {
+  local marker="$race_bin/swapped"
+  if PATH="$race_bin:/usr/sbin:/usr/bin:/bin" \
+    STEPANEL_FILECTL_SWAP_PATH="$docroot/race" \
+    STEPANEL_FILECTL_SWAP_MARKER="$marker" \
+    "$filectl" "$@" </dev/null >/dev/null 2>&1; then
+    fail "symlink swap escaped document root: $*"
+  fi
+  [[ -L $docroot/race && -d $docroot/race.saved ]] || fail "swap interposer did not run: $*"
+  rm -- "$docroot/race"
+  mv -- "$docroot/race.saved" "$docroot/race"
+  rm -f -- "$marker"
+}
+
+assert_swap_refused read "$site" "$account" race/secret
+[[ $(cat "$outside/secret") == outside-sentinel ]] || fail 'raced read changed outside fixture'
+assert_swap_refused write "$site" "$account" race/new-file
+[[ ! -e $outside/new-file ]] || fail 'raced upload escaped document root'
+assert_swap_refused mkdir "$site" "$account" race/new-directory
+[[ ! -e $outside/new-directory ]] || fail 'raced mkdir escaped document root'
+assert_swap_refused delete "$site" "$account" race/victim
+[[ $(cat "$outside/victim") == delete-sentinel ]] || fail 'raced delete escaped document root'
+assert_swap_refused rename "$site" "$account" race/rename-source race/rename-destination
+[[ $(cat "$outside/rename-source") == rename-sentinel && ! -e $outside/rename-destination ]] || fail 'raced rename escaped document root'
+assert_swap_refused list "$site" "$account" race
+rm -rf -- "$race_bin"
+
 # The account user cannot reach another account's or root's files even
 # without the helper's checks, because every operation runs as that user.
 if runuser -u "$account" -- cat /etc/shadow >/dev/null 2>&1; then fail 'account user can read /etc/shadow'; fi

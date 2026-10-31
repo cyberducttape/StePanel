@@ -1151,3 +1151,21 @@ does not close a current-source or power-loss gate.
   is still running without a reported failure. It is not counted as passed yet.
   Repeated recovery, physical power loss, production capacity, and other P0
   certification gates remain open.
+
+## Descriptor-rooted file-manager operations — 2026-10-31
+
+- Replaced pathname preflight checks followed by pathname-based file-manager
+  operations with a single embedded Python helper that opens the site's
+  document root and traverses each component using directory descriptors and
+  `O_NOFOLLOW`. Reads, listing, atomic upload publication, directory creation,
+  no-replace rename, and recursive deletion stay bound to opened descriptors.
+- Extended the installed-host smoke with a `runuser` interposer that swaps a
+  checked directory for a symlink immediately before the site-user operation.
+  It exercises list/read/write/mkdir/rename/delete and verifies sibling files
+  remain unchanged. The smoke cannot run on this development host because it
+  requires the installed root broker, account-management helper, and managed
+  system account.
+- Local validation passed: Bash syntax, ShellCheck, embedded Python compile,
+  `git diff --check`, and a temporary-directory runtime check covering normal
+  operations plus symlink confinement. Exact-source installed-host CI is
+  pending; no host certification is claimed.

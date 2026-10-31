@@ -67,174 +67,312 @@ as_user() {
   runuser -u "$user" -- env -i HOME="$site_home" PATH=/usr/bin:/bin LANG=C.UTF-8 "$@"
 }
 
-# no_link_components REL: no existing component of REL below the document
-# root is a symbolic link, so nothing escapes the root or the account.
-no_link_components() {
-  local rel=$1 current=$public_root component
-  [[ $rel == . ]] && return 0
-  local IFS=/
-  for component in $rel; do
-    current="$current/$component"
-    if [[ -L $current ]]; then
-      echo "refusing to follow the symbolic link ${current#"$public_root"/}" >&2
-      return 1
-    fi
-    [[ -e $current ]] || return 0
-  done
-}
-
-target="$public_root/$relative"
-[[ $relative == . ]] && target=$public_root
-if [[ $action == delete ]]; then
-  # Deleting a stray link removes only the link, which sealing requires.
-  no_link_components "$(dirname -- "$relative")"
-else
-  no_link_components "$relative"
+destination_relative=.
+if [[ $action == rename ]]; then
+  destination_relative=$5
+  valid_relative "$destination_relative" && [[ -n $destination_relative && $destination_relative != . ]] || { echo 'invalid destination path' >&2; exit 1; }
+  [[ $relative != . ]] || { echo 'cannot rename the document root' >&2; exit 1; }
 fi
+[[ $action != delete || $relative != . ]] || { echo 'cannot delete the document root' >&2; exit 1; }
+[[ $action != write || $relative != . ]] || { echo 'cannot write the document root' >&2; exit 1; }
 
-case $action in
-  list)
-    [[ -d $target ]] || { echo 'not a directory' >&2; exit 1; }
-    # Enumerate at most max_entries directory entries as the tenant user and
-    # stream records directly to the broker. Do not let root materialize an
-    # attacker-sized listing in /tmp before enforcing the response limit.
-    # One reserved record reports truncation if control-character names were
-    # skipped while the bounded source-entry budget was reached.
-    as_user python3 - "$target" "$max_entries" <<'PY'
+# Keep every lookup and subsequent operation relative to an opened document
+# root and parent directory descriptor. O_NOFOLLOW is applied at each path
+# component; the final operation never reopens a checked absolute pathname.
+filectl_python=$(cat <<'PY'
+import ctypes
+import errno
 import os
+import secrets
 import stat
 import sys
 import unicodedata
 
-directory = sys.argv[1]
-limit = int(sys.argv[2]) + 1  # one extra source entry signals truncation
-fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-truncated = False
-scanned = 0
-emitted = 0
-try:
-    with os.scandir(fd) as entries:
-        for entry in entries:
-            scanned += 1
-            if scanned >= limit:
-                truncated = True
-                break
-            name = entry.name
-            if any(unicodedata.category(char) == "Cc" for char in name):
-                continue
-            try:
-                info = entry.stat(follow_symlinks=False)
-            except OSError:
-                continue
-            mode = info.st_mode
-            if stat.S_ISDIR(mode):
-                kind = "d"
-            elif stat.S_ISREG(mode):
-                kind = "f"
-            elif stat.S_ISLNK(mode):
-                kind = "l"
-            elif stat.S_ISFIFO(mode):
-                kind = "p"
-            elif stat.S_ISSOCK(mode):
-                kind = "s"
-            elif stat.S_ISBLK(mode):
-                kind = "b"
-            elif stat.S_ISCHR(mode):
-                kind = "c"
-            else:
-                kind = "?"
-            record = (
-                f"{kind}\t{info.st_size}\t{stat.S_IMODE(mode):o}\t"
-                f"{info.st_mtime:.6f}\t"
-            ).encode("ascii") + os.fsencode(name) + b"\n"
-            sys.stdout.buffer.write(record)
-            emitted += 1
-        else:
-            truncated = False
-finally:
-    os.close(fd)
+class Refused(Exception):
+    pass
 
-if truncated and emitted <= int(sys.argv[2]):
-    sys.stdout.buffer.write(b"!\t0\t0\t0\t<truncated>\n")
-PY
-    ;;
-  read)
-    [[ -f $target ]] || { echo 'not a regular file' >&2; exit 1; }
-    size=$(stat -c %s -- "$target")
-    (( size <= max_read_bytes )) || { echo "file is larger than $max_read_bytes bytes" >&2; exit 1; }
-    # Read one sentinel byte beyond the stat-based admission check so a file
-    # that grows between stat and open is rejected by the broker, not silently
-    # returned as a valid truncated read.
-    as_user head -c "$(( max_read_bytes + 1 ))" -- "$target"
-    ;;
-  write)
-    [[ $relative != . ]] || { echo 'cannot write the document root' >&2; exit 1; }
-    parent=$(dirname -- "$target")
-    [[ -d $parent ]] || { echo 'parent directory does not exist' >&2; exit 1; }
-    [[ ! -e $target || -f $target ]] || { echo 'not a regular file' >&2; exit 1; }
-    # The temporary file is created by the account user beside the target,
-    # so the rename is atomic and the bytes count against the account quota.
-    temp=$(as_user mktemp -- "$parent/.stepanel-upload-XXXXXXXX")
-    trap 'as_user rm -f -- "$temp"' EXIT
-    # shellcheck disable=SC2016 # $1 expands in the account user's shell
-    head -c "$(( max_write_bytes + 1 ))" | as_user sh -c 'cat > "$1"' sh "$temp"
-    (( $(stat -c %s -- "$temp") <= max_write_bytes )) || { echo "file is larger than $max_write_bytes bytes" >&2; exit 1; }
-    if [[ -f $target ]]; then
-      # Keep the existing file's permissions.
-      as_user chmod --reference="$target" -- "$temp"
-    else
-      as_user chmod 0640 -- "$temp"
-    fi
-    # Persist the completed temporary file before publishing it. Run the
-    # descriptor operations as the site account; these paths are tenant
-    # writable and must never be opened by the privileged shell for syncing.
-    as_user python3 - "$temp" <<'PY'
-import os, sys
-import stat
-fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+class DurabilityUncertain(Exception):
+    pass
+
+def components(value):
+    if value in ("", "."):
+        return []
+    if value.startswith("/") or value.endswith("/") or "//" in value or len(value.encode()) > 4096:
+        raise Refused("invalid path")
+    result = value.split("/")
+    for part in result:
+        if part in ("", ".", "..") or len(os.fsencode(part)) > 255 or any(unicodedata.category(c) == "Cc" for c in part):
+            raise Refused("invalid path")
+    return result
+
+def open_directory(parent, name):
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    try:
+        return os.open(name, flags, dir_fd=parent)
+    except OSError as exc:
+        if exc.errno in (errno.ELOOP, errno.ENOTDIR):
+            raise Refused("refusing to follow a symbolic link or non-directory path component") from None
+        raise
+
+def open_relative_directory(rootfd, parts):
+    current = os.dup(rootfd)
+    try:
+        for part in parts:
+            child = open_directory(current, part)
+            os.close(current)
+            current = child
+        return current
+    except BaseException:
+        os.close(current)
+        raise
+
+def parent_and_leaf(rootfd, parts):
+    if not parts:
+        raise Refused("operation cannot target the document root")
+    return open_relative_directory(rootfd, parts[:-1]), parts[-1]
+
+def lstat_at(parentfd, name):
+    try:
+        return os.stat(name, dir_fd=parentfd, follow_symlinks=False)
+    except FileNotFoundError:
+        return None
+
+def require_regular(info):
+    if info is None or not stat.S_ISREG(info.st_mode):
+        if info is not None and stat.S_ISLNK(info.st_mode):
+            raise Refused("refusing to follow a symbolic link")
+        raise Refused("not a regular file")
+
+def list_directory(rootfd, parts, max_entries):
+    fd = open_relative_directory(rootfd, parts)
+    limit = max_entries + 1
+    scanned = 0
+    emitted = 0
+    truncated = False
+    try:
+        with os.scandir(fd) as entries:
+            for entry in entries:
+                scanned += 1
+                if scanned >= limit:
+                    truncated = True
+                    break
+                name = entry.name
+                if any(unicodedata.category(c) == "Cc" for c in name):
+                    continue
+                try:
+                    info = entry.stat(follow_symlinks=False)
+                except OSError:
+                    continue
+                mode = info.st_mode
+                if stat.S_ISDIR(mode):
+                    kind = "d"
+                elif stat.S_ISREG(mode):
+                    kind = "f"
+                elif stat.S_ISLNK(mode):
+                    kind = "l"
+                elif stat.S_ISFIFO(mode):
+                    kind = "p"
+                elif stat.S_ISSOCK(mode):
+                    kind = "s"
+                elif stat.S_ISBLK(mode):
+                    kind = "b"
+                elif stat.S_ISCHR(mode):
+                    kind = "c"
+                else:
+                    kind = "?"
+                record = (f"{kind}\t{info.st_size}\t{stat.S_IMODE(mode):o}\t{info.st_mtime:.6f}\t").encode("ascii") + os.fsencode(name) + b"\n"
+                sys.stdout.buffer.write(record)
+                emitted += 1
+    finally:
+        os.close(fd)
+    if truncated and emitted <= max_entries:
+        sys.stdout.buffer.write(b"!\t0\t0\t0\t<truncated>\n")
+
+def read_file(rootfd, parts, max_bytes):
+    parent, leaf = parent_and_leaf(rootfd, parts)
+    try:
+        flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+        try:
+            fd = os.open(leaf, flags, dir_fd=parent)
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                raise Refused("refusing to follow a symbolic link") from None
+            raise
+        try:
+            info = os.fstat(fd)
+            require_regular(info)
+            if info.st_size > max_bytes:
+                raise Refused(f"file is larger than {max_bytes} bytes")
+            data = bytearray()
+            while len(data) <= max_bytes:
+                chunk = os.read(fd, min(65536, max_bytes + 1 - len(data)))
+                if not chunk:
+                    break
+                data.extend(chunk)
+            if len(data) > max_bytes:
+                raise Refused(f"file is larger than {max_bytes} bytes")
+            sys.stdout.buffer.write(data)
+        finally:
+            os.close(fd)
+    finally:
+        os.close(parent)
+
+def write_file(rootfd, parts, max_bytes):
+    parent, leaf = parent_and_leaf(rootfd, parts)
+    temp = ".stepanel-upload-" + secrets.token_hex(12)
+    created = False
+    published = False
+    try:
+        old = lstat_at(parent, leaf)
+        if old is not None:
+            require_regular(old)
+            mode = stat.S_IMODE(old.st_mode)
+        else:
+            mode = 0o640
+        fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=parent)
+        created = True
+        total = 0
+        try:
+            while total <= max_bytes:
+                chunk = sys.stdin.buffer.read(min(65536, max_bytes + 1 - total))
+                if not chunk:
+                    break
+                if total + len(chunk) > max_bytes:
+                    raise Refused(f"file is larger than {max_bytes} bytes")
+                view = memoryview(chunk)
+                while view:
+                    count = os.write(fd, view)
+                    view = view[count:]
+                total += len(chunk)
+            os.fchmod(fd, mode)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(temp, leaf, src_dir_fd=parent, dst_dir_fd=parent)
+        published = True
+        try:
+            os.fsync(parent)
+        except OSError as exc:
+            raise DurabilityUncertain("replacement is visible but parent directory durability is uncertain") from exc
+    finally:
+        if created and not published:
+            try:
+                os.unlink(temp, dir_fd=parent)
+            except FileNotFoundError:
+                pass
+        os.close(parent)
+
+def rename_noreplace(srcfd, src, dstfd, dst):
+    libc = ctypes.CDLL(None, use_errno=True)
+    renameat2 = getattr(libc, "renameat2", None)
+    if renameat2 is None:
+        raise Refused("atomic no-replace rename is unavailable")
+    renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    renameat2.restype = ctypes.c_int
+    result = renameat2(srcfd, os.fsencode(src), dstfd, os.fsencode(dst), 1)  # RENAME_NOREPLACE
+    if result != 0:
+        error = ctypes.get_errno()
+        if error == errno.EEXIST:
+            raise Refused("destination already exists")
+        if error in (errno.ELOOP, errno.ENOTDIR):
+            raise Refused("refusing to follow a symbolic link or non-directory path component")
+        raise OSError(error, os.strerror(error))
+
+def remove_entry(parentfd, name, root_device):
+    info = lstat_at(parentfd, name)
+    if info is None:
+        raise Refused("path does not exist")
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+        os.unlink(name, dir_fd=parentfd)
+        return
+    if info.st_dev != root_device:
+        raise Refused("refusing to delete across a filesystem boundary")
+    childfd = open_directory(parentfd, name)
+    try:
+        opened = os.fstat(childfd)
+        if opened.st_dev != info.st_dev or opened.st_ino != info.st_ino:
+            raise Refused("path changed during delete")
+        with os.scandir(childfd) as entries:
+            for entry in entries:
+                remove_entry(childfd, entry.name, root_device)
+    finally:
+        os.close(childfd)
+    os.rmdir(name, dir_fd=parentfd)
+
+def mkdir(rootfd, parts):
+    parent, leaf = parent_and_leaf(rootfd, parts)
+    try:
+        try:
+            os.mkdir(leaf, 0o750, dir_fd=parent)
+        except FileExistsError:
+            raise Refused("path already exists") from None
+        child = open_directory(parent, leaf)
+        try:
+            os.fchmod(child, 0o750)
+        finally:
+            os.close(child)
+    finally:
+        os.close(parent)
+
+def rename(rootfd, source, destination):
+    if destination[:len(source)] == source and len(destination) > len(source) and destination[len(source)] == "/":
+        raise Refused("cannot move a directory into itself")
+    src_parent, src_leaf = parent_and_leaf(rootfd, source)
+    dst_parent = None
+    try:
+        dst_parent, dst_leaf = parent_and_leaf(rootfd, destination)
+        src_info = lstat_at(src_parent, src_leaf)
+        if src_info is None:
+            raise Refused("path does not exist")
+        if stat.S_ISLNK(src_info.st_mode):
+            raise Refused("refusing to rename a symbolic link")
+        if lstat_at(dst_parent, dst_leaf) is not None:
+            raise Refused("destination already exists")
+        rename_noreplace(src_parent, src_leaf, dst_parent, dst_leaf)
+    finally:
+        if dst_parent is not None:
+            os.close(dst_parent)
+        os.close(src_parent)
+
+def main():
+    action, root_path, relative, destination = sys.argv[1:5]
+    max_read, max_write, max_entries = map(int, sys.argv[5:8])
+    parts = components(relative)
+    dest_parts = components(destination) if action == "rename" else []
+    rootfd = os.open(root_path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        if action == "list":
+            list_directory(rootfd, parts, max_entries)
+        elif action == "read":
+            read_file(rootfd, parts, max_read)
+        elif action == "write":
+            write_file(rootfd, parts, max_write)
+        elif action == "mkdir":
+            mkdir(rootfd, parts)
+        elif action == "rename":
+            rename(rootfd, parts, dest_parts)
+        elif action == "delete":
+            parent, leaf = parent_and_leaf(rootfd, parts)
+            try:
+                remove_entry(parent, leaf, os.fstat(rootfd).st_dev)
+            finally:
+                os.close(parent)
+        else:
+            raise Refused("unsupported file operation")
+    finally:
+        os.close(rootfd)
+
 try:
-    if not stat.S_ISREG(os.fstat(fd).st_mode):
-        raise SystemExit("upload staging path is not a regular file")
-    os.fsync(fd)
-finally:
-    os.close(fd)
+    main()
+except Refused as exc:
+    print(str(exc), file=sys.stderr)
+    sys.exit(1)
+except DurabilityUncertain as exc:
+    print(str(exc), file=sys.stderr)
+    sys.exit(1)
+except OSError as exc:
+    print(exc.strerror or "file operation failed", file=sys.stderr)
+    sys.exit(1)
 PY
-    as_user mv -fT -- "$temp" "$target"
-    # A successful rename is not crash durable until its parent directory is
-    # synchronized. Report an indeterminate publication if directory fsync
-    # fails: the new file may already be visible.
-    as_user python3 - "$parent" <<'PY' || { echo 'replacement is visible but parent directory durability is uncertain' >&2; exit 1; }
-import os, sys
-import stat
-fd = os.open(sys.argv[1], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_NONBLOCK)
-try:
-    if not stat.S_ISDIR(os.fstat(fd).st_mode):
-        raise SystemExit("upload parent is not a directory")
-    os.fsync(fd)
-finally:
-    os.close(fd)
-PY
-    trap - EXIT
-    ;;
-  mkdir)
-    [[ ! -e $target ]] || { echo 'path already exists' >&2; exit 1; }
-    as_user mkdir -m 0750 -- "$target"
-    ;;
-  rename)
-    [[ $relative != . ]] || { echo 'cannot rename the document root' >&2; exit 1; }
-    destination_relative=$5
-    valid_relative "$destination_relative" && [[ -n $destination_relative && $destination_relative != . ]] || { echo 'invalid destination path' >&2; exit 1; }
-    no_link_components "$destination_relative"
-    destination="$public_root/$destination_relative"
-    [[ -e $target ]] || { echo 'path does not exist' >&2; exit 1; }
-    [[ ! -e $destination && ! -L $destination ]] || { echo 'destination already exists' >&2; exit 1; }
-    [[ -d $(dirname -- "$destination") ]] || { echo 'destination directory does not exist' >&2; exit 1; }
-    [[ $destination != "$target"/* ]] || { echo 'cannot move a directory into itself' >&2; exit 1; }
-    as_user mv -nT -- "$target" "$destination"
-    ;;
-  delete)
-    [[ $relative != . ]] || { echo 'cannot delete the document root' >&2; exit 1; }
-    [[ -e $target || -L $target ]] || { echo 'path does not exist' >&2; exit 1; }
-    as_user rm -rf --one-file-system -- "$target"
-    ;;
-esac
+)
+as_user python3 -c "$filectl_python" "$action" "$public_root" "$relative" "$destination_relative" "$max_read_bytes" "$max_write_bytes" "$max_entries"

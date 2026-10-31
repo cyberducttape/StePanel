@@ -87,7 +87,12 @@ mutation lock, and is recorded in the account's audit trail
   are created with mode 0640 and new folders with 0750.
 - Renames never replace an existing file. Deleting a folder deletes
   everything in it.
-- Paths outside the document root, `..`, and symbolic links are refused.
+- Paths outside the document root, `..`, and symbolic-link traversal are
+  refused. Deleting a symbolic link removes only the link itself. The
+  installed helper opens the document root and resolves each path component
+  relative to directory descriptors with no-follow flags, so swapping a
+  directory for a symbolic link cannot redirect an operation between
+  validation and use.
 - Websites from before hosting accounts (in `/var/www/sites`) are not
   available in the file manager.
 
