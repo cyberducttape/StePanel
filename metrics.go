@@ -286,9 +286,11 @@ func writeAuditOutboxMetrics(w io.Writer, store *auditOutboxStore) {
 		var oldest sql.NullInt64
 		if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*), MIN(created_at) FROM audit_outbox WHERE delivered_at IS NULL`).Scan(&pending, &oldest); err == nil {
 			up = 1
-			if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM security_audit_operations WHERE state='pending'`).Scan(&unresolved); err != nil {
+			count, err := store.unresolvedSecurityAuditOperations(ctx, time.Now().UTC())
+			if err != nil {
 				up = 0
 			}
+			unresolved = count
 			if oldest.Valid {
 				oldestAge = int64(time.Since(time.Unix(0, oldest.Int64)).Seconds())
 				if oldestAge < 0 {
@@ -300,7 +302,7 @@ func writeAuditOutboxMetrics(w io.Writer, store *auditOutboxStore) {
 	_, _ = fmt.Fprintf(w, "# HELP stepanel_audit_outbox_up Whether audit outbox status was read\n# TYPE stepanel_audit_outbox_up gauge\nstepanel_audit_outbox_up %d\n", up)
 	_, _ = fmt.Fprintf(w, "# HELP stepanel_audit_outbox_pending Undelivered durable audit events\n# TYPE stepanel_audit_outbox_pending gauge\nstepanel_audit_outbox_pending %d\n", pending)
 	_, _ = fmt.Fprintf(w, "# HELP stepanel_audit_outbox_oldest_pending_age_seconds Age of the oldest unpublished audit event\n# TYPE stepanel_audit_outbox_oldest_pending_age_seconds gauge\nstepanel_audit_outbox_oldest_pending_age_seconds %d\n", oldestAge)
-	_, _ = fmt.Fprintf(w, "# HELP stepanel_security_audit_outcomes_unresolved Security operations whose terminal audit outcome needs reconciliation\n# TYPE stepanel_security_audit_outcomes_unresolved gauge\nstepanel_security_audit_outcomes_unresolved %d\n", unresolved)
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_security_audit_outcomes_unresolved Security operations whose outcome write failed or that stayed pending past the longest operation bound; in-flight operations are excluded\n# TYPE stepanel_security_audit_outcomes_unresolved gauge\nstepanel_security_audit_outcomes_unresolved %d\n", unresolved)
 }
 
 // writeAuditWriterMetrics exposes audit append latency so contention on the

@@ -23,11 +23,16 @@ func (a *App) securityAuditReconciliation(w http.ResponseWriter, r *http.Request
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"operations": items, "limit": 100})
 	case http.MethodPost:
+		if !a.Auth.CSRF(r) {
+			http.Error(w, "invalid CSRF token", http.StatusForbidden)
+			return
+		}
 		var input struct {
 			OperationID string `json:"operation_id"`
 			Evidence    string `json:"evidence"`
 		}
 		if err := decodeJSON(w, r, 4096, &input); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
 		if len(input.OperationID) != 32 {

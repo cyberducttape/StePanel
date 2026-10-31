@@ -1,6 +1,7 @@
 package stepanel
 
 import (
+	"database/sql"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -102,5 +103,43 @@ func TestCSRFProtectionUsesRealBearerAuthentication(t *testing.T) {
 	invalid.Header.Set("Authorization", "Bearer invalid-token")
 	if got := serveLogout(t, auth, invalid).Code; got != http.StatusUnauthorized {
 		t.Fatalf("invalid bearer status = %d, want %d", got, http.StatusUnauthorized)
+	}
+}
+
+// TestSecurityAuditReconciliationRequiresCSRF covers an administrator-only
+// mutation: Require does not check CSRF, so the handler must.
+func TestSecurityAuditReconciliationRequiresCSRF(t *testing.T) {
+	db, err := sql.Open("sqlite", "file:security-audit-csrf?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	outbox, err := newAuditOutboxStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := defaultAuditOutbox
+	defaultAuditOutbox = outbox
+	t.Cleanup(func() { defaultAuditOutbox = previous })
+	auth, cookies := newCSRFTestAuth(t)
+	app := &App{Auth: auth}
+	serve := func(body, token string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, "/api/security/audit/reconciliation", strings.NewReader(body))
+		for _, cookie := range cookies {
+			request.AddCookie(cookie)
+		}
+		if token != "" {
+			request.Header.Set("X-CSRF-Token", token)
+		}
+		response := httptest.NewRecorder()
+		auth.RequireAdministrator(http.HandlerFunc(app.securityAuditReconciliation)).ServeHTTP(response, request)
+		return response
+	}
+	valid := `{"operation_id":"0123456789abcdef0123456789abcdef","evidence":"checked"}`
+	if got := serve(valid, "").Code; got != http.StatusForbidden {
+		t.Fatalf("reconciliation without CSRF token: status %d, want 403", got)
+	}
+	if got := serve("{", csrfCookie(cookies)).Code; got != http.StatusBadRequest {
+		t.Fatalf("malformed JSON with CSRF token: status %d, want 400", got)
 	}
 }

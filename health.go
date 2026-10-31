@@ -241,10 +241,10 @@ func operationalChecks(cfg Config, jobs *Jobs) map[string]ReadinessCheck {
 		} else {
 			checks["audit_outbox"] = ReadinessCheck{Ready: true}
 		}
-		if pending, err := defaultAuditOutbox.pendingSecurityAuditOperations(context.Background()); err != nil {
+		if unresolved, err := defaultAuditOutbox.unresolvedSecurityAuditOperations(context.Background(), time.Now().UTC()); err != nil {
 			checks["security_audit_outcomes"] = ReadinessCheck{Ready: false, Detail: fmt.Sprintf("security audit reconciliation state unavailable: %v", err)}
-		} else if pending > 0 {
-			checks["security_audit_outcomes"] = ReadinessCheck{Ready: false, Detail: fmt.Sprintf("%d security operation(s) have no durable terminal audit outcome; inspect operation IDs in security_audit_operations before retrying any mutation", pending)}
+		} else if unresolved > 0 {
+			checks["security_audit_outcomes"] = ReadinessCheck{Ready: false, Detail: fmt.Sprintf("%d security operation(s) have no durable terminal audit outcome (outcome write failed, or pending longer than %s); inspect /api/security/audit/reconciliation before retrying any mutation", unresolved, securityAuditOrphanAge)}
 		} else {
 			checks["security_audit_outcomes"] = ReadinessCheck{Ready: true}
 		}

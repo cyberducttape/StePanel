@@ -126,6 +126,7 @@ func (s *SecurityAudit) outcome(action, detail string) error {
 	}
 	if err != nil {
 		log.Printf("[CRITICAL] security audit outcome %s for %s/%s was not recorded (intent is on record): %v", action, s.actor, s.target, err)
+		defaultAuditOutbox.recordOutcomeFailure(s.operationID)
 	}
 	return err
 }

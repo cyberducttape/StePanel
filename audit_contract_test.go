@@ -174,7 +174,7 @@ func TestSecurityAuditOutcomeFailureRemainsReconciliationWork(t *testing.T) {
 	if state != "pending" {
 		t.Fatalf("operation state = %q after failed outcome write; want pending for reconciliation", state)
 	}
-	if pending, err := outbox.pendingSecurityAuditOperations(context.Background()); err != nil || pending != 1 {
+	if pending, err := outbox.unresolvedSecurityAuditOperations(context.Background(), time.Now().UTC()); err != nil || pending != 1 {
 		t.Fatalf("unresolved security audit count = %d, %v; want 1", pending, err)
 	}
 	if check := operationalChecks(Config{}, nil)["security_audit_outcomes"]; check.Ready || !strings.Contains(check.Detail, intent.operationID) && !strings.Contains(check.Detail, "1 security operation") {
@@ -209,7 +209,7 @@ func TestSecurityAuditIntentAndOutcomeCommitTogether(t *testing.T) {
 	if state != "completed" || action != "site.created" {
 		t.Fatalf("operation outcome = %q/%q", state, action)
 	}
-	if pending, err := outbox.pendingSecurityAuditOperations(context.Background()); err != nil || pending != 0 {
+	if pending, err := outbox.unresolvedSecurityAuditOperations(context.Background(), time.Now().UTC().Add(securityAuditOrphanAge+time.Hour)); err != nil || pending != 0 {
 		t.Fatalf("unresolved count = %d, %v; want 0", pending, err)
 	}
 	var linked int
@@ -263,7 +263,7 @@ func TestSecurityAuditReconciliationEndpointClosesRecordWithoutReplay(t *testing
 	if state != "reconciled" || action != "security.audit.operation.reconciled" || actor != "admin" {
 		t.Fatalf("reconciled record = state %q, action %q, actor %q", state, action, actor)
 	}
-	if pending, err := outbox.pendingSecurityAuditOperations(context.Background()); err != nil || pending != 0 {
+	if pending, err := outbox.unresolvedSecurityAuditOperations(context.Background(), time.Now().UTC().Add(securityAuditOrphanAge+time.Hour)); err != nil || pending != 0 {
 		t.Fatalf("pending after reconciliation = %d, %v", pending, err)
 	}
 }
@@ -348,5 +348,49 @@ func TestAuditCallsDoNotUseTheConfiguredAdminAsActor(t *testing.T) {
 		if match := call.Find(source); match != nil {
 			t.Errorf("%s: audit actor is the configured administrator, not the requester: %s", name, match)
 		}
+	}
+}
+
+// TestInFlightSecurityOperationIsNotUnresolved keeps long-running audited
+// work (backups, restores, promotions) from failing readiness or paging while
+// it runs, and still reports work orphaned past the operation bound.
+func TestInFlightSecurityOperationIsNotUnresolved(t *testing.T) {
+	db, err := sql.Open("sqlite", "file:security-audit-inflight?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	outbox, err := newAuditOutboxStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := defaultAuditOutbox
+	defaultAuditOutbox = outbox
+	t.Cleanup(func() { defaultAuditOutbox = previous })
+	intent, err := BeginSecurityAudit("", "admin", "backup.restored", "shop", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if n, err := outbox.unresolvedSecurityAuditOperations(context.Background(), now); err != nil || n != 0 {
+		t.Fatalf("in-flight operation counted as unresolved: %d, %v", n, err)
+	}
+	if check := operationalChecks(Config{}, nil)["security_audit_outcomes"]; !check.Ready {
+		t.Fatalf("in-flight operation failed readiness: %#v", check)
+	}
+	if err := outbox.reconcileSecurityAuditOperation(context.Background(), "", intent.operationID, "admin", "looked fine"); err == nil {
+		t.Fatal("reconciled an operation that may still be running")
+	}
+	if n, err := outbox.unresolvedSecurityAuditOperations(context.Background(), now.Add(securityAuditOrphanAge+time.Minute)); err != nil || n != 1 {
+		t.Fatalf("operation pending past the bound = %d unresolved, %v; want 1", n, err)
+	}
+	if _, err := db.Exec(`UPDATE security_audit_operations SET started_at=? WHERE operation_id=?`, now.Add(-securityAuditOrphanAge-time.Minute).UnixNano(), intent.operationID); err != nil {
+		t.Fatal(err)
+	}
+	if err := outbox.reconcileSecurityAuditOperation(context.Background(), "", intent.operationID, "admin", "host state verified"); err != nil {
+		t.Fatalf("could not reconcile an orphaned operation: %v", err)
+	}
+	if err := intent.Completed("late"); err == nil {
+		t.Fatal("a reconciled operation accepted a later outcome")
 	}
 }

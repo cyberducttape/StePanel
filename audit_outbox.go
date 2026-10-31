@@ -9,12 +9,22 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	h "github.com/cyberducttape/StePanel/internal/helper"
 )
 
 const (
 	auditOutboxRetention            = 90 * 24 * time.Hour
 	auditOutboxPruneBatch           = 500
 	securityAuditOperationRetention = 90 * 24 * time.Hour
+	// securityAuditOrphanAge is how long a pending security operation may run
+	// before its fate is treated as unknown: the longest bounded host
+	// operation (h.BackupRestoreTimeout) plus lock waits. Younger pending rows
+	// are normal in-flight work and must not fail readiness or page anyone.
+	securityAuditOrphanAge = h.BackupRestoreTimeout + time.Hour
+	// maxTrackedAuditOutcomeFailures bounds the in-memory record of outcome
+	// writes this process knows failed.
+	maxTrackedAuditOutcomeFailures = 1024
 )
 
 // auditOutboxStore makes the mutation-to-audit boundary durable. The signed
@@ -24,6 +34,62 @@ const (
 type auditOutboxStore struct {
 	db *sql.DB
 	mu sync.Mutex
+	// failedOutcomes holds operation IDs whose terminal outcome write failed
+	// in this process. They are unresolved immediately, without waiting for
+	// securityAuditOrphanAge; the database may be the thing that failed, so
+	// this cannot be recorded there.
+	failedMu       sync.Mutex
+	failedOutcomes map[string]struct{}
+}
+
+// recordOutcomeFailure marks an operation whose outcome write failed.
+func (o *auditOutboxStore) recordOutcomeFailure(id string) {
+	if o == nil || id == "" {
+		return
+	}
+	o.failedMu.Lock()
+	defer o.failedMu.Unlock()
+	if o.failedOutcomes == nil {
+		o.failedOutcomes = make(map[string]struct{})
+	}
+	if len(o.failedOutcomes) < maxTrackedAuditOutcomeFailures {
+		o.failedOutcomes[id] = struct{}{}
+	}
+}
+
+// unresolvedSecurityAuditOperations counts pending operations that need an
+// operator: those whose outcome write failed in this process, and those
+// pending longer than securityAuditOrphanAge (including work orphaned by a
+// crash or restart). In-flight operations are not counted.
+func (o *auditOutboxStore) unresolvedSecurityAuditOperations(ctx context.Context, now time.Time) (int, error) {
+	var stale int
+	cutoff := now.Add(-securityAuditOrphanAge).UnixNano()
+	if err := o.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM security_audit_operations WHERE state='pending' AND started_at < ?`, cutoff).Scan(&stale); err != nil {
+		return 0, err
+	}
+	o.failedMu.Lock()
+	failed := make([]string, 0, len(o.failedOutcomes))
+	for id := range o.failedOutcomes {
+		failed = append(failed, id)
+	}
+	o.failedMu.Unlock()
+	recent := 0
+	for _, id := range failed {
+		var startedAt int64
+		err := o.db.QueryRowContext(ctx, `SELECT started_at FROM security_audit_operations WHERE operation_id=? AND state='pending'`, id).Scan(&startedAt)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			// Completed by a retry or reconciled: no longer unresolved.
+			o.failedMu.Lock()
+			delete(o.failedOutcomes, id)
+			o.failedMu.Unlock()
+		case err != nil:
+			return 0, err
+		case startedAt >= cutoff:
+			recent++ // older rows are already in the stale count
+		}
+	}
+	return stale + recent, nil
 }
 
 var defaultAuditOutbox *auditOutboxStore
@@ -150,12 +216,6 @@ func (o *auditOutboxStore) completeSecurityAudit(ctx context.Context, auditLog, 
 	return nil
 }
 
-func (o *auditOutboxStore) pendingSecurityAuditOperations(ctx context.Context) (int, error) {
-	var count int
-	err := o.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM security_audit_operations WHERE state='pending'`).Scan(&count)
-	return count, err
-}
-
 type pendingSecurityAuditOperation struct {
 	ID        string `json:"operation_id"`
 	Actor     string `json:"actor"`
@@ -192,7 +252,17 @@ func (o *auditOutboxStore) reconcileSecurityAuditOperation(ctx context.Context, 
 	if id == "" || actor == "" || strings.TrimSpace(detail) == "" {
 		return errors.New("operation ID, operator, and reconciliation evidence are required")
 	}
-	now := time.Now().UTC().UnixNano()
+	now := time.Now().UTC()
+	o.failedMu.Lock()
+	_, knownFailed := o.failedOutcomes[id]
+	o.failedMu.Unlock()
+	// A young pending operation may still be running; reconciling it would
+	// make its real outcome write fail. Allow it only when this process
+	// already knows the outcome write failed.
+	cutoff := now.Add(-securityAuditOrphanAge).UnixNano()
+	if knownFailed {
+		cutoff = now.UnixNano() + 1
+	}
 	tx, err := o.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -200,7 +270,7 @@ func (o *auditOutboxStore) reconcileSecurityAuditOperation(ctx context.Context, 
 	defer tx.Rollback()
 	result, err := tx.ExecContext(ctx, `UPDATE security_audit_operations SET state='reconciled',
 		outcome_action='security.audit.operation.reconciled', outcome_detail=?, finished_at=?
-		WHERE operation_id=? AND state='pending'`, detail, now, id)
+		WHERE operation_id=? AND state='pending' AND started_at < ?`, detail, now.UnixNano(), id, cutoff)
 	if err != nil {
 		return fmt.Errorf("record security audit reconciliation: %w", err)
 	}
@@ -209,15 +279,18 @@ func (o *auditOutboxStore) reconcileSecurityAuditOperation(ctx context.Context, 
 		return err
 	}
 	if changed != 1 {
-		return errors.New("security audit operation is not pending or was already reconciled")
+		return fmt.Errorf("security audit operation is not pending, was already reconciled, or may still be running (pending for less than %s)", securityAuditOrphanAge)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO audit_outbox(actor, action, target, detail, created_at)
-		VALUES (?, 'security.audit.operation.reconciled', ?, ?, ?)`, actor, id, securityAuditOperationDetail(id, detail), now); err != nil {
+		VALUES (?, 'security.audit.operation.reconciled', ?, ?, ?)`, actor, id, securityAuditOperationDetail(id, detail), now.UnixNano()); err != nil {
 		return fmt.Errorf("persist security audit reconciliation event: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit security audit reconciliation: %w", err)
 	}
+	o.failedMu.Lock()
+	delete(o.failedOutcomes, id)
+	o.failedMu.Unlock()
 	if err := o.flush(ctx, auditLog); err != nil {
 		log.Printf("[ERROR] security audit reconciliation publication deferred for %s: %v", id, err)
 	}

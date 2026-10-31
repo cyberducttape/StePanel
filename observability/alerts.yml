@@ -159,7 +159,7 @@ groups:
           severity: critical
         annotations:
           summary: A host operation has no durable terminal audit outcome
-          description: "{{ $value }} security operation(s) remain pending in security_audit_operations. Inspect /api/security/audit/reconciliation and compare the recorded operation ID, actor, target, host state, and job history. Record evidence-based reconciliation; do not rerun the mutation solely to obtain an audit event."
+          description: "{{ $value }} security operation(s) have no durable terminal audit outcome: the outcome write failed, or the operation stayed pending past the three-hour operation bound (in-flight operations are not counted). Inspect /api/security/audit/reconciliation and compare the recorded operation ID, actor, target, host state, and job history. Record evidence-based reconciliation; do not rerun the mutation solely to obtain an audit event."
 
       - alert: StePanelNotificationOutboxBacklog
         expr: stepanel_operator_notifications_oldest_pending_age_seconds{job="stepanel"} > 900 and stepanel_operator_notifications_pending{job="stepanel"} > 0
