@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Security
 
+- Production startup now rejects audit-checkpoint publication unless a dedicated
+  checkpoint-signing key is configured; the nonproduction compatibility
+  fallback to the audit-chain key remains available.
 - Audit appends now compare the log's size and modification time against a
   signed checkpoint, fully validate every event and chain link whenever the
   file changes, and repeat full-chain validation at least every 15 minutes

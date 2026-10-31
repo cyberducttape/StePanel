@@ -71,6 +71,25 @@ func TestValidateConfigChecksCheckpointKeyIndependenceAndKeyringPath(t *testing.
 	}
 }
 
+func TestValidateConfigProductionRequiresDedicatedAuditCheckpointKey(t *testing.T) {
+	t.Setenv("STEPANEL_ENV", "production")
+	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("a", 64))
+	t.Setenv("STEPANEL_SESSION_SECRET", strings.Repeat("s", 64))
+	t.Setenv("STEPANEL_AUDIT_CHECKPOINT_TARGET", "s3:audit-evidence/checkpoints")
+	t.Setenv("STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY", "")
+
+	cfg := LoadConfig()
+	cfg.Production = true
+	if err := ValidateConfig(cfg); err == nil || !strings.Contains(err.Error(), "requires an independent STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY") {
+		t.Fatalf("production checkpoint fallback was not rejected: %v", err)
+	}
+
+	t.Setenv("STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY", strings.Repeat("c", 64))
+	if err := ValidateConfig(cfg); err != nil && strings.Contains(err.Error(), "requires an independent STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY") {
+		t.Fatalf("dedicated production checkpoint key was rejected: %v", err)
+	}
+}
+
 func TestValidateConfigRejectsNonRegularCredentialFile(t *testing.T) {
 	cfg := LoadConfig()
 	cfg.DBPasswordFile = t.TempDir()

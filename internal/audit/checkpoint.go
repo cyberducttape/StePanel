@@ -274,8 +274,9 @@ func isRootOwned(info os.FileInfo) bool {
 }
 
 // CheckpointSigningKey returns the dedicated checkpoint key when configured.
-// The audit-chain key is retained as a compatibility fallback for existing
-// installations; deployments should configure the independent key explicitly.
+// Nonproduction compatibility callers may fall back to the audit-chain key;
+// ValidateConfig requires a dedicated key before production publication can
+// be enabled.
 func CheckpointSigningKey() (string, error) {
 	if key := os.Getenv("STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY"); key != "" {
 		if len(key) < 32 || strings.ContainsAny(key, "\x00\r\n") {

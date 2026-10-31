@@ -455,6 +455,9 @@ func ValidateConfig(c Config) error {
 		if !auditCheckpointKeyIDPattern.MatchString(c.AuditCheckpointKeyID) {
 			problems = append(problems, errors.New("STEPANEL_AUDIT_CHECKPOINT_KEY_ID must be 1-64 alphanumeric, dot, underscore, or hyphen characters"))
 		}
+		if c.Production && os.Getenv("STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY") == "" {
+			problems = append(problems, errors.New("production audit checkpoint publication requires an independent STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY"))
+		}
 	}
 	if c.AuditCheckpointKeyringDir != "" && (!filepath.IsAbs(c.AuditCheckpointKeyringDir) || strings.ContainsAny(c.AuditCheckpointKeyringDir, "\x00\r\n")) {
 		problems = append(problems, errors.New("STEPANEL_AUDIT_CHECKPOINT_KEYRING_DIR must be an absolute path without control characters"))

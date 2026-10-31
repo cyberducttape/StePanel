@@ -12,6 +12,21 @@ successful one-off smoke does not close a host-certification gate.
 
 ## Milestones
 
+### M0q — Require independent signing key for production audit checkpoints (P1)
+
+**Status:** Implemented; focused configuration and checkpoint tests and full
+`make check` pass. Exact-source CI remains pending.
+
+**Acceptance criteria**
+
+- Production configuration with an audit-checkpoint target fails validation
+  when `STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY` is absent.
+- A dedicated key must satisfy existing size, character, and key-independence
+  checks; valid production configuration passes this specific guard.
+- Nonproduction fallback behavior remains covered for compatibility.
+- Documentation distinguishes the nonproduction fallback from production
+  requirements; full checks and exact-source CI pass.
+
 ### M0p — Detect altered audit history before appending (P1)
 
 **Status:** Implemented; audit package tests, the audit race test, and full

@@ -1,5 +1,17 @@
 # Production-readiness progress
 
+## Independent audit-checkpoint signing key — 2026-10-31
+
+- Production config validation now refuses an audit checkpoint destination
+  without `STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY`. The existing key-length and
+  independence checks remain active; fallback to the chain key is available
+  only in nonproduction compatibility use.
+- Added production configuration regression coverage for missing and dedicated
+  keys. Focused config and audit checkpoint tests and `make check` pass.
+- This protects key separation in StePanel configuration; the checkpoint key
+  remains process-accessible and should be moved to a separate KMS/HSM identity
+  for stronger compromise isolation.
+
 ## Audit-chain append integrity — 2026-10-31
 
 - The signed audit-state cache now records the validated log size and nanosecond
