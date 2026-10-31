@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Security
 
+- Audit appends now compare the log's size and modification time against a
+  signed checkpoint, fully validate every event and chain link whenever the
+  file changes, and repeat full-chain validation at least every 15 minutes
+  during active writes. Same-size edits are refused before a later event can
+  extend the chain.
 - cPanel archive inspection and extraction independently cap archives at
   50,000 entries, 64 MiB of retained path bookkeeping, and 128 path components.
   Restore admission includes a 4 KiB per unique filesystem object estimate,

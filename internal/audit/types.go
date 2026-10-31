@@ -27,8 +27,10 @@ type state struct {
 	// LastValidatedSize is an optimization hint. It is authenticated by
 	// CacheSignature, but deliberately excluded from Signature so releases
 	// that predate this hint can still verify state written by newer releases.
-	LastValidatedSize int64  `json:"last_validated_size,omitempty"`
-	CacheSignature    string `json:"cache_signature,omitempty"`
+	LastValidatedSize      int64  `json:"last_validated_size,omitempty"`
+	LastValidatedModTimeNS int64  `json:"last_validated_mtime_ns,omitempty"`
+	LastFullVerifyTimeNS   int64  `json:"last_full_verify_time_ns,omitempty"`
+	CacheSignature         string `json:"cache_signature,omitempty"`
 }
 
 type Logger interface {

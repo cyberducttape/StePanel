@@ -1,5 +1,20 @@
 # Production-readiness progress
 
+## Audit-chain append integrity — 2026-10-31
+
+- The signed audit-state cache now records the validated log size and nanosecond
+  modification time. An append fully checks every event HMAC and adjacent chain
+  link when either changes, and performs a full check at least every 15 minutes
+  while writes continue. Old cache records safely fall back to full checking.
+- Added a regression that edits one byte in a middle event, keeps the JSONL
+  length unchanged, and verifies the next append fails without extending the
+  tampered log. `go test ./internal/audit -count=1`, `go test -race
+  ./internal/audit -count=1`, and `make check` pass.
+- Limitation: periodic append-triggered checks do not establish off-host
+  immutability or prove resistance to an attacker able to rewrite both file
+  contents and filesystem metadata. Independently administered signed
+  checkpoints remain necessary for that threat model.
+
 ## Bounded cPanel archive resources — 2026-10-31
 
 - Inspection and extraction independently enforce 50,000 tar headers, 64 MiB

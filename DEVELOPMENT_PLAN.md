@@ -12,6 +12,23 @@ successful one-off smoke does not close a host-certification gate.
 
 ## Milestones
 
+### M0p — Detect altered audit history before appending (P1)
+
+**Status:** Implemented; audit package tests, the audit race test, and full
+`make check` pass. Exact-source hosted CI remains pending.
+
+**Acceptance criteria**
+
+- Signed append-cache metadata binds log size and modification time; any
+  mismatch forces verification of every event HMAC and chain link before the
+  append proceeds.
+- Full-chain validation repeats at least every 15 minutes during active writes.
+- A same-size middle-record edit is rejected by the next append, which leaves
+  the altered log unchanged and does not append a new event.
+- Existing signed state/cache formats safely fall back to full validation.
+- Audit package tests, full repository checks, and exact-source CI pass. This
+  does not replace independently administered off-host audit checkpoints.
+
 ### M0o — Bound customer file-manager directory enumeration (P1)
 
 **Status:** Implemented locally. `stepanel-filectl` streams directory entries

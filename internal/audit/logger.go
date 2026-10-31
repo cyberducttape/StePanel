@@ -21,6 +21,7 @@ import (
 const maxAuditLogBytes int64 = 256 << 20
 const AuditKeyPath = "/etc/stepanel-audit.key"
 const emptyAuditLockStaleAfter = time.Second
+const fullAuditVerifyInterval = 15 * time.Minute
 
 var mu sync.Mutex
 
@@ -166,14 +167,24 @@ func (l *defaultLogger) appendEvent(actor, action, target, detail string) error 
 	}
 
 	info, statErr := auditStat(l.path)
-	if statErr == nil && s.LastValidatedSize == info.Size() && s.LastValidatedSize > 0 {
+	checkpointMatches := statErr == nil && s.LastValidatedSize == info.Size() && s.LastValidatedSize > 0 &&
+		s.LastValidatedModTimeNS == info.ModTime().UnixNano()
+	fullVerificationDue := s.LastFullVerifyTimeNS <= 0 ||
+		time.Since(time.Unix(0, s.LastFullVerifyTimeNS)) >= fullAuditVerifyInterval
+	if checkpointMatches && !fullVerificationDue {
 	} else {
 		s, err = l.reconcileTail(s)
 		if err != nil {
 			return err
 		}
+		s.LastFullVerifyTimeNS = time.Now().UTC().UnixNano()
+		s.LastValidatedSize = 0
+		s.LastValidatedModTimeNS = 0
 		if info, statErr := auditStat(l.path); statErr == nil {
 			s.LastValidatedSize = info.Size()
+			s.LastValidatedModTimeNS = info.ModTime().UnixNano()
+		} else if !errors.Is(statErr, os.ErrNotExist) {
+			return statErr
 		}
 	}
 
@@ -222,18 +233,22 @@ func (l *defaultLogger) appendEvent(actor, action, target, detail string) error 
 	}
 
 	finalSize := int64(0)
+	finalModTimeNS := int64(0)
 	if info, statErr := os.Stat(l.path); statErr == nil {
 		finalSize = info.Size()
+		finalModTimeNS = info.ModTime().UnixNano()
 	}
 
 	return l.writeState(statePath, state{
-		Version:           1,
-		Sequence:          event.Sequence,
-		Hash:              event.Hash,
-		FirstSequence:     s.FirstSequence,
-		FirstPreviousHash: s.FirstPreviousHash,
-		KeyCheck:          s.KeyCheck,
-		LastValidatedSize: finalSize,
+		Version:                1,
+		Sequence:               event.Sequence,
+		Hash:                   event.Hash,
+		FirstSequence:          s.FirstSequence,
+		FirstPreviousHash:      s.FirstPreviousHash,
+		KeyCheck:               s.KeyCheck,
+		LastValidatedSize:      finalSize,
+		LastValidatedModTimeNS: finalModTimeNS,
+		LastFullVerifyTimeNS:   s.LastFullVerifyTimeNS,
 	})
 }
 
@@ -456,19 +471,31 @@ func (l *defaultLogger) reconcileTail(s state) (state, error) {
 	defer file.Close()
 
 	var first, last Event
+	var previous *Event
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 4096), 1<<20)
 
 	for scanner.Scan() {
-		if err := json.Unmarshal(scanner.Bytes(), &last); err != nil {
+		var event Event
+		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
 			return s, errors.New("audit log contains an invalid event")
 		}
-		if err := validateEvent(last); err != nil {
+		if err := validateEvent(event); err != nil {
 			return s, err
 		}
-		if first.Sequence == 0 {
-			first = last
+		expected, hashErr := hashEvent(event)
+		if hashErr != nil || !hmac.Equal([]byte(expected), []byte(event.Hash)) {
+			return s, fmt.Errorf("audit event %d has an invalid signature", event.Sequence)
 		}
+		if previous != nil && (event.Sequence != previous.Sequence+1 || event.PreviousHash != previous.Hash) {
+			return s, fmt.Errorf("audit chain breaks at event %d", event.Sequence)
+		}
+		if first.Sequence == 0 {
+			first = event
+		}
+		last = event
+		eventCopy := event
+		previous = &eventCopy
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -494,20 +521,10 @@ func (l *defaultLogger) reconcileTail(s state) (state, error) {
 		if last.Sequence > 0 && last.Hash != s.Hash {
 			return s, errors.New("audit log tail does not match chain state")
 		}
-		if last.Sequence > 0 {
-			expected, err := hashEvent(last)
-			if err != nil || !hmac.Equal([]byte(expected), []byte(last.Hash)) {
-				return s, errors.New("audit log tail has an invalid signature")
-			}
-		}
 		return s, nil
 	}
 
 	if last.Sequence == s.Sequence+1 && last.PreviousHash == s.Hash {
-		expected, err := hashEvent(last)
-		if err != nil || !hmac.Equal([]byte(expected), []byte(last.Hash)) {
-			return s, errors.New("uncommitted audit tail has an invalid signature")
-		}
 		return state{
 			Version:           1,
 			Sequence:          last.Sequence,
@@ -550,11 +567,14 @@ func (l *defaultLogger) loadState(path string) (state, error) {
 	}
 	if s.LastValidatedSize > 0 {
 		cacheSignature, cacheErr := signCacheState(s)
-		if cacheErr != nil || !hmac.Equal([]byte(s.CacheSignature), []byte(cacheSignature)) {
+		if cacheErr != nil || !hmac.Equal([]byte(s.CacheSignature), []byte(cacheSignature)) ||
+			s.LastValidatedModTimeNS <= 0 || s.LastFullVerifyTimeNS <= 0 {
 			// The cache is only an optimization. A missing or stale cache
 			// signature must force a full chain reconciliation, never make the
 			// signed audit state fail open.
 			s.LastValidatedSize = 0
+			s.LastValidatedModTimeNS = 0
+			s.LastFullVerifyTimeNS = 0
 			s.CacheSignature = ""
 		}
 	}
@@ -571,6 +591,8 @@ func (l *defaultLogger) writeState(path string, s state) error {
 		}
 	} else {
 		s.CacheSignature = ""
+		s.LastValidatedModTimeNS = 0
+		s.LastFullVerifyTimeNS = 0
 	}
 	s.Signature, err = signState(s)
 	if err != nil {
@@ -720,6 +742,8 @@ func signState(s state) (string, error) {
 	// format. The cache hint is separately authenticated below so an older
 	// binary can still verify and recover from a failed upgrade.
 	s.LastValidatedSize = 0
+	s.LastValidatedModTimeNS = 0
+	s.LastFullVerifyTimeNS = 0
 	s.CacheSignature = ""
 	s.Signature = ""
 	data, err := json.Marshal(s)
@@ -745,6 +769,8 @@ func signCacheState(s state) (string, error) {
 		FirstPreviousHash string `json:"first_previous_hash"`
 		KeyCheck          string `json:"key_check"`
 		Size              int64  `json:"size"`
+		ModTimeNS         int64  `json:"mod_time_ns,omitempty"`
+		FullVerifyTimeNS  int64  `json:"full_verify_time_ns,omitempty"`
 	}{
 		Version:           s.Version,
 		Sequence:          s.Sequence,
@@ -753,6 +779,8 @@ func signCacheState(s state) (string, error) {
 		FirstPreviousHash: s.FirstPreviousHash,
 		KeyCheck:          s.KeyCheck,
 		Size:              s.LastValidatedSize,
+		ModTimeNS:         s.LastValidatedModTimeNS,
+		FullVerifyTimeNS:  s.LastFullVerifyTimeNS,
 	})
 	if err != nil {
 		return "", err

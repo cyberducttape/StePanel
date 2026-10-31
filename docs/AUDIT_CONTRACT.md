@@ -7,6 +7,14 @@ is visible at the call site because each class has its own API
 
 ## Class A: security ledger events
 
+Before extending the signed JSONL chain, the writer checks its authenticated
+size/modification-time checkpoint. A changed file triggers validation of every
+event signature and chain link; active append traffic also forces a complete
+validation at least every 15 minutes. This detects ordinary same-size edits
+before a later event is appended. Local checkpoints do not replace the
+independently administered remote signed checkpoints described in the
+production gates.
+
 These are high-impact operations: they grant or change access, expose or
 change credentials, destroy data, or change the code or configuration a site
 serves.

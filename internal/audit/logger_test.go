@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -90,6 +91,49 @@ func TestLoggerWritesVerifiesAndFiltersSignedEvents(t *testing.T) {
 	logger.Events(resp, req)
 	if resp.Code != http.StatusOK {
 		t.Fatalf("rolling limit status = %d", resp.Code)
+	}
+}
+
+func TestAppendRefusesSameSizeTamperedMiddleAuditEvent(t *testing.T) {
+	logger, _ := newTestLogger(t)
+	ctx := context.Background()
+	for _, action := range []string{"site.create", "site.update", "site.delete"} {
+		if err := logger.LogAs(ctx, "admin", action, "site-a", "record"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	before, err := os.ReadFile(logger.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := logger.Verify(logger.path); err != nil {
+		t.Fatalf("valid initial chain: %v", err)
+	}
+	mutated := bytes.Replace(before, []byte(`"action":"site.update"`), []byte(`"action":"site.updatf"`), 1)
+	if len(mutated) != len(before) || bytes.Equal(mutated, before) {
+		t.Fatal("test mutation did not change exactly one byte while preserving file size")
+	}
+	if err := os.WriteFile(logger.path, mutated, 0600); err != nil {
+		t.Fatal(err)
+	}
+	future := time.Now().Add(time.Minute)
+	if err := os.Chtimes(logger.path, future, future); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := logger.LogAs(ctx, "admin", "site.restore", "site-a", "must be refused"); err == nil {
+		t.Fatal("append succeeded after same-size middle-record tampering")
+	}
+	after, err := os.ReadFile(logger.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, mutated) {
+		t.Fatal("tampered audit history was modified by a subsequent append")
+	}
+	if err := logger.Verify(logger.path); err == nil {
+		t.Fatal("full verification accepted the tampered chain")
 	}
 }
 
@@ -436,12 +480,14 @@ func TestAuditStateCacheHintPreservesLegacySignatureCompatibility(t *testing.T) 
 		t.Fatal(err)
 	}
 	stateWithCache := state{
-		Version:           1,
-		Sequence:          1,
-		Hash:              strings.Repeat("a", 64),
-		FirstSequence:     1,
-		KeyCheck:          keyCheck,
-		LastValidatedSize: 123,
+		Version:                1,
+		Sequence:               1,
+		Hash:                   strings.Repeat("a", 64),
+		FirstSequence:          1,
+		KeyCheck:               keyCheck,
+		LastValidatedSize:      123,
+		LastValidatedModTimeNS: time.Now().UnixNano(),
+		LastFullVerifyTimeNS:   time.Now().UnixNano(),
 	}
 	if err := logger.writeState(filepath.Join(root, "cached.state"), stateWithCache); err != nil {
 		t.Fatal(err)
