@@ -250,7 +250,8 @@ func TestAuditOutboxMetricsExposePendingAge(t *testing.T) {
 	if err := store.persist(t.Context(), "operator", "site.update", "example", "test"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO security_audit_operations(operation_id, actor, action, target, intent_detail, started_at, state) VALUES ('0123456789abcdef0123456789abcdef', 'operator', 'site.update', 'example', '', ?, 'pending')`, time.Now().UnixNano()); err != nil {
+	// One operation orphaned past the bound counts; one still in flight does not.
+	if _, err := db.Exec(`INSERT INTO security_audit_operations(operation_id, actor, action, target, intent_detail, started_at, state) VALUES ('0123456789abcdef0123456789abcdef', 'operator', 'site.update', 'example', '', ?, 'pending'), ('fedcba9876543210fedcba9876543210', 'operator', 'backup.restored', 'example', '', ?, 'pending')`, time.Now().Add(-securityAuditOrphanAge-time.Minute).UnixNano(), time.Now().UnixNano()); err != nil {
 		t.Fatal(err)
 	}
 	var output strings.Builder
