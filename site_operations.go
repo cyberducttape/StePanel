@@ -254,7 +254,7 @@ func (a *App) handleSiteOperationJob(ctx context.Context, item Job) ([]byte, err
 	}
 	// Mark the operation started, so a worker that dies mid-operation leaves
 	// a record that the next claim recognizes as interrupted.
-	if err := a.Jobs.UpdateClaim(item.ID, item.LeaseOwner, 1); err != nil {
+	if err := a.Jobs.UpdateClaim(item.ID, item.LeaseToken, 1); err != nil {
 		return nil, fmt.Errorf("record operation start: %w", err)
 	}
 	operationCtx, cancel := context.WithTimeout(ctx, deadline)

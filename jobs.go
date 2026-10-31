@@ -127,6 +127,7 @@ type Job struct {
 	Progress             int                  `json:"progress,omitempty"`
 	Cancel               bool                 `json:"cancel_requested,omitempty"`
 	LeaseOwner           string               `json:"-"`
+	LeaseToken           string               `json:"-"`
 	LeaseExpires         *time.Time           `json:"-"`
 }
 
@@ -265,6 +266,10 @@ func (j *Jobs) Claim(id, owner string) (Job, bool, error) {
 	}
 	now := time.Now().UTC()
 	expires := now.Add(j.leaseDuration())
+	leaseToken, err := randomSecret()
+	if err != nil {
+		return Job{}, false, fmt.Errorf("create durable job lease token: %w", err)
+	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	item, ok := j.items[id]
@@ -274,8 +279,9 @@ func (j *Jobs) Claim(id, owner string) (Job, bool, error) {
 	previous := *item
 	item.State = "running"
 	item.LeaseOwner = owner
+	item.LeaseToken = leaseToken
 	item.LeaseExpires = &expires
-	result, err := j.db.Exec(`UPDATE jobs SET state='running', lease_owner=?, lease_expires_at=?, updated_at=unixepoch() WHERE id=? AND state='queued'`, owner, expires.UnixNano(), id)
+	result, err := j.db.Exec(`UPDATE jobs SET state='running', lease_owner=?, lease_token=?, lease_expires_at=?, updated_at=unixepoch() WHERE id=? AND state='queued'`, owner, leaseToken, expires.UnixNano(), id)
 	if err != nil {
 		*item = previous
 		return Job{}, false, err
@@ -330,16 +336,16 @@ func (j *Jobs) persistDurableItem(item *Job) error {
 	if err != nil {
 		return err
 	}
-	_, err = j.db.Exec(`INSERT INTO jobs (id, kind, operation_key, idempotency_expires_at, state, owner, started_at, finished_at, payload, lease_owner, lease_expires_at, next_attempt_at, cancel_requested, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch()) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, operation_key=excluded.operation_key, idempotency_expires_at=excluded.idempotency_expires_at, state=excluded.state, owner=excluded.owner, started_at=excluded.started_at, finished_at=excluded.finished_at, payload=excluded.payload, lease_owner=excluded.lease_owner, lease_expires_at=excluded.lease_expires_at, next_attempt_at=excluded.next_attempt_at, cancel_requested=excluded.cancel_requested, updated_at=excluded.updated_at`, item.ID, item.Kind, item.OperationKey, nullableTimeNano(item.IdempotencyExpiresAt), item.State, item.User, item.StartedAt.UnixNano(), finished, data, nullString(item.LeaseOwner), leaseExpires, nextAttempt, boolInt(item.Cancel))
+	_, err = j.db.Exec(`INSERT INTO jobs (id, kind, operation_key, idempotency_expires_at, state, owner, started_at, finished_at, payload, lease_owner, lease_token, lease_expires_at, next_attempt_at, cancel_requested, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch()) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, operation_key=excluded.operation_key, idempotency_expires_at=excluded.idempotency_expires_at, state=excluded.state, owner=excluded.owner, started_at=excluded.started_at, finished_at=excluded.finished_at, payload=excluded.payload, lease_owner=excluded.lease_owner, lease_token=excluded.lease_token, lease_expires_at=excluded.lease_expires_at, next_attempt_at=excluded.next_attempt_at, cancel_requested=excluded.cancel_requested, updated_at=excluded.updated_at`, item.ID, item.Kind, item.OperationKey, nullableTimeNano(item.IdempotencyExpiresAt), item.State, item.User, item.StartedAt.UnixNano(), finished, data, nullString(item.LeaseOwner), nullString(item.LeaseToken), leaseExpires, nextAttempt, boolInt(item.Cancel))
 	return err
 }
 
-func (j *Jobs) persistDurableItemCAS(item *Job, expectedOwner string) error {
+func (j *Jobs) persistDurableItemCAS(item *Job, expectedLeaseToken string) error {
 	data, finished, leaseExpires, nextAttempt, err := j.encodeDurableItem(item)
 	if err != nil {
 		return err
 	}
-	result, err := j.db.Exec(`UPDATE jobs SET kind=?, operation_key=?, idempotency_expires_at=?, state=?, owner=?, started_at=?, finished_at=?, payload=?, lease_owner=?, lease_expires_at=?, next_attempt_at=?, cancel_requested=?, updated_at=unixepoch() WHERE id=? AND state='running' AND lease_owner=?`, item.Kind, item.OperationKey, nullableTimeNano(item.IdempotencyExpiresAt), item.State, item.User, item.StartedAt.UnixNano(), finished, data, nullString(item.LeaseOwner), leaseExpires, nextAttempt, boolInt(item.Cancel), item.ID, expectedOwner)
+	result, err := j.db.Exec(`UPDATE jobs SET kind=?, operation_key=?, idempotency_expires_at=?, state=?, owner=?, started_at=?, finished_at=?, payload=?, lease_owner=?, lease_token=?, lease_expires_at=?, next_attempt_at=?, cancel_requested=?, updated_at=unixepoch() WHERE id=? AND state='running' AND lease_token=? AND lease_expires_at > ?`, item.Kind, item.OperationKey, nullableTimeNano(item.IdempotencyExpiresAt), item.State, item.User, item.StartedAt.UnixNano(), finished, data, nullString(item.LeaseOwner), nullString(item.LeaseToken), leaseExpires, nextAttempt, boolInt(item.Cancel), item.ID, expectedLeaseToken, time.Now().UTC().UnixNano())
 	if err != nil {
 		return err
 	}
@@ -361,20 +367,20 @@ func nullableTimeNano(value *time.Time) any {
 }
 
 // Renew extends a worker lease. Expired leases cannot be renewed.
-func (j *Jobs) Renew(id, owner string) (bool, error) {
-	if j.db == nil || id == "" || owner == "" {
+func (j *Jobs) Renew(id, leaseToken string) (bool, error) {
+	if j.db == nil || id == "" || leaseToken == "" {
 		return false, errors.New("durable job renewal requires a job ID and owner")
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	item, ok := j.items[id]
-	if !ok || item == nil || item.State != "running" || item.LeaseOwner != owner || item.LeaseExpires == nil || time.Now().UTC().After(*item.LeaseExpires) {
+	if !ok || item == nil || item.State != "running" || item.LeaseToken != leaseToken || item.LeaseExpires == nil || time.Now().UTC().After(*item.LeaseExpires) {
 		return false, nil
 	}
 	previous := *item
 	expires := time.Now().UTC().Add(j.leaseDuration())
 	item.LeaseExpires = &expires
-	if err := j.persistDurableItemCAS(item, owner); err != nil {
+	if err := j.persistDurableItemCAS(item, leaseToken); err != nil {
 		*item = previous
 		return false, err
 	}
@@ -443,7 +449,7 @@ func (j *Jobs) RequeueExpired() (int, error) {
 			j.mu.Unlock()
 			return 0, err
 		}
-		result, err := tx.Exec(`UPDATE jobs SET state='dead-letter', finished_at=?, payload=?, lease_owner=NULL, lease_expires_at=NULL, next_attempt_at=NULL, updated_at=unixepoch() WHERE id=? AND state='running' AND lease_owner=? AND lease_expires_at <= ?`, finished.UnixNano(), raw, record.id, record.owner, now.UnixNano())
+		result, err := tx.Exec(`UPDATE jobs SET state='dead-letter', finished_at=?, payload=?, lease_owner=NULL, lease_token=NULL, lease_expires_at=NULL, next_attempt_at=NULL, updated_at=unixepoch() WHERE id=? AND state='running' AND lease_owner=? AND lease_expires_at <= ?`, finished.UnixNano(), raw, record.id, record.owner, now.UnixNano())
 		if err != nil {
 			_ = tx.Rollback()
 			j.mu.Unlock()
@@ -453,7 +459,7 @@ func (j *Jobs) RequeueExpired() (int, error) {
 			record.id = ""
 		}
 	}
-	result, err := tx.Exec(`UPDATE jobs SET state='queued', lease_owner=NULL, lease_expires_at=NULL, updated_at=unixepoch() WHERE state='running' AND kind<>'cloud.action' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?`, now.UnixNano())
+	result, err := tx.Exec(`UPDATE jobs SET state='queued', lease_owner=NULL, lease_token=NULL, lease_expires_at=NULL, updated_at=unixepoch() WHERE state='running' AND kind<>'cloud.action' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?`, now.UnixNano())
 	if err != nil {
 		_ = tx.Rollback()
 		j.mu.Unlock()
@@ -470,6 +476,7 @@ func (j *Jobs) RequeueExpired() (int, error) {
 		if item != nil && item.State == "running" && item.Kind != "cloud.action" && item.LeaseExpires != nil && !item.LeaseExpires.After(now) {
 			item.State = "queued"
 			item.LeaseOwner = ""
+			item.LeaseToken = ""
 			item.LeaseExpires = nil
 			published = append(published, *item)
 		}
@@ -483,6 +490,7 @@ func (j *Jobs) RequeueExpired() (int, error) {
 			item.State = "dead-letter"
 			item.Error = uncertainError
 			item.LeaseOwner = ""
+			item.LeaseToken = ""
 			item.LeaseExpires = nil
 			item.FinishedAt = &finished
 			published = append(published, *item)
@@ -499,21 +507,22 @@ func (j *Jobs) RequeueExpired() (int, error) {
 	return changed, nil
 }
 
-func (j *Jobs) finishClaim(id, owner string, apply func(*Job)) error {
-	if j.db == nil || id == "" || owner == "" {
+func (j *Jobs) finishClaim(id, leaseToken string, apply func(*Job)) error {
+	if j.db == nil || id == "" || leaseToken == "" {
 		return errors.New("durable job completion requires a job ID and owner")
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	item, ok := j.items[id]
-	if !ok || item == nil || item.State != "running" || item.LeaseOwner != owner {
+	if !ok || item == nil || item.State != "running" || item.LeaseToken != leaseToken {
 		return errJobLeaseNotHeld
 	}
 	previous := *item
 	apply(item)
 	item.LeaseOwner = ""
+	item.LeaseToken = ""
 	item.LeaseExpires = nil
-	if err := j.persistDurableItemCAS(item, owner); err != nil {
+	if err := j.persistDurableItemCAS(item, leaseToken); err != nil {
 		*item = previous
 		return err
 	}
@@ -759,7 +768,7 @@ func (j *Jobs) ClaimNext(owner string, kinds ...string) (Job, bool, error) {
 		if encoded, marshalErr := json.Marshal(&persisted); marshalErr == nil {
 			payload = encoded
 		}
-		if _, err := tx.Exec(`UPDATE jobs SET state='dead-letter', finished_at=?, payload=?, lease_owner=NULL, lease_expires_at=NULL, next_attempt_at=NULL, updated_at=unixepoch() WHERE id=? AND state='queued'`, finished.UnixNano(), payload, id); err != nil {
+		if _, err := tx.Exec(`UPDATE jobs SET state='dead-letter', finished_at=?, payload=?, lease_owner=NULL, lease_token=NULL, lease_expires_at=NULL, next_attempt_at=NULL, updated_at=unixepoch() WHERE id=? AND state='queued'`, finished.UnixNano(), payload, id); err != nil {
 			return Job{}, false, err
 		}
 		if err := tx.Commit(); err != nil {
@@ -775,8 +784,12 @@ func (j *Jobs) ClaimNext(owner string, kinds ...string) (Job, bool, error) {
 		}
 		return Job{}, false, nil
 	}
+	leaseToken, err := randomSecret()
+	if err != nil {
+		return Job{}, false, fmt.Errorf("create durable job lease token: %w", err)
+	}
 	expires := time.Now().UTC().Add(j.leaseDuration())
-	result, err := tx.Exec(`UPDATE jobs SET state='running', lease_owner=?, lease_expires_at=?, updated_at=unixepoch() WHERE id=? AND state='queued'`, owner, expires.UnixNano(), id)
+	result, err := tx.Exec(`UPDATE jobs SET state='running', lease_owner=?, lease_token=?, lease_expires_at=?, updated_at=unixepoch() WHERE id=? AND state='queued'`, owner, leaseToken, expires.UnixNano(), id)
 	if err != nil {
 		return Job{}, false, err
 	}
@@ -788,6 +801,7 @@ func (j *Jobs) ClaimNext(owner string, kinds ...string) (Job, bool, error) {
 	}
 	item.State = "running"
 	item.LeaseOwner = owner
+	item.LeaseToken = leaseToken
 	item.LeaseExpires = &expires
 	j.mu.Lock()
 	j.items[id] = &item
@@ -818,22 +832,22 @@ func isNonRetryableJobError(err error) bool {
 
 // FailClaim records a worker failure and schedules bounded exponential retry.
 // Jobs that exhaust MaxAttempts become dead-letter records for operator review.
-func (j *Jobs) FailClaim(id, owner, message string) error {
-	return j.failClaim(id, owner, message, true)
+func (j *Jobs) FailClaim(id, leaseToken, message string) error {
+	return j.failClaim(id, leaseToken, message, true)
 }
 
-func (j *Jobs) failClaim(id, owner, message string, retry bool) error {
-	return j.failClaimWithOutput(id, owner, message, retry, nil)
+func (j *Jobs) failClaim(id, leaseToken, message string, retry bool) error {
+	return j.failClaimWithOutput(id, leaseToken, message, retry, nil)
 }
 
-func (j *Jobs) failClaimWithOutput(id, owner, message string, retry bool, output []byte) error {
-	if j.db == nil || id == "" || owner == "" {
+func (j *Jobs) failClaimWithOutput(id, leaseToken, message string, retry bool, output []byte) error {
+	if j.db == nil || id == "" || leaseToken == "" {
 		return errors.New("durable failure requires a job ID and owner")
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	item, ok := j.items[id]
-	if !ok || item == nil || item.State != "running" || item.LeaseOwner != owner {
+	if !ok || item == nil || item.State != "running" || item.LeaseToken != leaseToken {
 		return errJobLeaseNotHeld
 	}
 	previous := *item
@@ -843,6 +857,7 @@ func (j *Jobs) failClaimWithOutput(id, owner, message string, retry bool, output
 	item.Attempts++
 	item.Error = strings.TrimSpace(message)
 	item.LeaseOwner = ""
+	item.LeaseToken = ""
 	item.LeaseExpires = nil
 	if !retry || item.MaxAttempts > 0 && item.Attempts >= item.MaxAttempts {
 		item.State = "dead-letter"
@@ -854,7 +869,7 @@ func (j *Jobs) failClaimWithOutput(id, owner, message string, retry bool, output
 		next := time.Now().UTC().Add(time.Duration(seconds) * time.Second)
 		item.NextAttempt = &next
 	}
-	if err := j.persistDurableItemCAS(item, owner); err != nil {
+	if err := j.persistDurableItemCAS(item, leaseToken); err != nil {
 		*item = previous
 		return err
 	}
@@ -863,8 +878,8 @@ func (j *Jobs) failClaimWithOutput(id, owner, message string, retry bool, output
 }
 
 // UpdateClaim persists worker progress without changing ownership.
-func (j *Jobs) UpdateClaim(id, owner string, progress int) error {
-	if j.db == nil || id == "" || owner == "" {
+func (j *Jobs) UpdateClaim(id, leaseToken string, progress int) error {
+	if j.db == nil || id == "" || leaseToken == "" {
 		return errors.New("durable progress requires a job ID and owner")
 	}
 	if progress < 0 {
@@ -876,12 +891,12 @@ func (j *Jobs) UpdateClaim(id, owner string, progress int) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	item, ok := j.items[id]
-	if !ok || item == nil || item.State != "running" || item.LeaseOwner != owner {
+	if !ok || item == nil || item.State != "running" || item.LeaseToken != leaseToken {
 		return errJobLeaseNotHeld
 	}
 	previous := *item
 	item.Progress = progress
-	if err := j.persistDurableItemCAS(item, owner); err != nil {
+	if err := j.persistDurableItemCAS(item, leaseToken); err != nil {
 		*item = previous
 		return err
 	}
@@ -892,19 +907,19 @@ func (j *Jobs) UpdateClaim(id, owner string, progress int) error {
 // UpdateClaimPayload persists replay-safe workflow state while a durable job
 // is running. This is used when a workflow has completed an expensive local
 // phase and must retry only a later remote phase.
-func (j *Jobs) UpdateClaimPayload(id, owner string, payload []byte) error {
-	if j.db == nil || id == "" || owner == "" {
+func (j *Jobs) UpdateClaimPayload(id, leaseToken string, payload []byte) error {
+	if j.db == nil || id == "" || leaseToken == "" {
 		return errors.New("durable payload update requires a job ID and owner")
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	item, ok := j.items[id]
-	if !ok || item == nil || item.State != "running" || item.LeaseOwner != owner {
+	if !ok || item == nil || item.State != "running" || item.LeaseToken != leaseToken {
 		return errJobLeaseNotHeld
 	}
 	previous := append([]byte(nil), item.Payload...)
 	item.Payload = append([]byte(nil), payload...)
-	if err := j.persistDurableItemCAS(item, owner); err != nil {
+	if err := j.persistDurableItemCAS(item, leaseToken); err != nil {
 		item.Payload = previous
 		return err
 	}
@@ -1003,7 +1018,7 @@ func (j *Jobs) RequeueDeadLetter(id string) error {
 	if err != nil {
 		return err
 	}
-	result, err := j.db.Exec(`UPDATE jobs SET kind=?, operation_key=?, state=?, owner=?, started_at=?, finished_at=?, payload=?, lease_owner=NULL, lease_expires_at=NULL, next_attempt_at=NULL, cancel_requested=0, updated_at=unixepoch() WHERE id=? AND state='dead-letter'`, item.Kind, item.OperationKey, item.State, item.User, item.StartedAt.UnixNano(), finished, data, id)
+	result, err := j.db.Exec(`UPDATE jobs SET kind=?, operation_key=?, state=?, owner=?, started_at=?, finished_at=?, payload=?, lease_owner=NULL, lease_token=NULL, lease_expires_at=NULL, next_attempt_at=NULL, cancel_requested=0, updated_at=unixepoch() WHERE id=? AND state='dead-letter'`, item.Kind, item.OperationKey, item.State, item.User, item.StartedAt.UnixNano(), finished, data, id)
 	if err != nil {
 		return err
 	}
@@ -1266,7 +1281,7 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 				return fmt.Errorf("verify cancellation state for job %s: %w", item.ID, cancelErr)
 			}
 			if cancelRequested {
-				if err := j.finishClaim(item.ID, owner, func(job *Job) {
+				if err := j.finishClaim(item.ID, item.LeaseToken, func(job *Job) {
 					job.State = "cancelled"
 					now := time.Now().UTC()
 					job.FinishedAt = &now
@@ -1299,7 +1314,7 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 				return handler(handlerCtx, item)
 			}()
 			if err != nil {
-				if failErr := j.failClaimWithOutput(item.ID, owner, err.Error(), !isNonRetryableJobError(err), output); failErr != nil {
+				if failErr := j.failClaimWithOutput(item.ID, item.LeaseToken, err.Error(), !isNonRetryableJobError(err), output); failErr != nil {
 					heartbeat.mu.Lock()
 					delete(heartbeat.currentJobs, item.ID)
 					heartbeat.mu.Unlock()
@@ -1313,7 +1328,7 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-			} else if err := j.finishClaim(item.ID, owner, func(job *Job) {
+			} else if err := j.finishClaim(item.ID, item.LeaseToken, func(job *Job) {
 				job.State = "completed"
 				job.Progress = 100
 				job.Output = append([]byte(nil), output...)
@@ -1392,7 +1407,7 @@ func (j *Jobs) RunWorkerPool(ctx context.Context, owner string, kinds []string, 
 // finishes. A worker that loses the lease is logged and must not silently
 // assume another worker will preserve its side effects.
 func (j *Jobs) maintainLease(item *Job) func() {
-	if j.db == nil || item == nil || item.LeaseOwner == "" {
+	if j.db == nil || item == nil || item.LeaseToken == "" {
 		return func() {}
 	}
 	stop := make(chan struct{})
@@ -1416,7 +1431,7 @@ func (j *Jobs) maintainLease(item *Job) func() {
 				return
 			}
 		}
-	}(item.LeaseOwner, item.ID)
+	}(item.LeaseToken, item.ID)
 	return func() {
 		close(stop)
 		<-done
@@ -1427,7 +1442,7 @@ func (j *Jobs) maintainLease(item *Job) func() {
 // context as soon as renewal fails or ownership is lost. Continuing a handler
 // after that boundary could let two workers perform the same side effect.
 func (j *Jobs) maintainLeaseContext(parent context.Context, item *Job) (context.Context, func()) {
-	if j.db == nil || item == nil || item.LeaseOwner == "" {
+	if j.db == nil || item == nil || item.LeaseToken == "" {
 		return parent, func() {}
 	}
 	ctx, cancel := context.WithCancel(parent)
@@ -1458,7 +1473,7 @@ func (j *Jobs) maintainLeaseContext(parent context.Context, item *Job) (context.
 				return
 			}
 		}
-	}(item.LeaseOwner, item.ID)
+	}(item.LeaseToken, item.ID)
 	return ctx, func() {
 		close(stop)
 		<-done
@@ -1919,21 +1934,27 @@ func newJobsWithDB(db *sql.DB, limits ...int) *Jobs {
 
 func (j *Jobs) load() error {
 	if j.db != nil {
-		rows, err := j.db.Query(`SELECT state, payload, lease_owner, lease_expires_at, next_attempt_at, cancel_requested FROM jobs WHERE state IN ('queued','running','dead-letter') OR id IN (SELECT id FROM jobs WHERE state IN ('completed','failed','cancelled') ORDER BY finished_at DESC, id DESC LIMIT ?) ORDER BY started_at, id`, durableTerminalJobCacheLimit)
+		rows, err := j.db.Query(`SELECT state, payload, lease_owner, lease_token, lease_expires_at, next_attempt_at, cancel_requested FROM jobs WHERE state IN ('queued','running','dead-letter') OR id IN (SELECT id FROM jobs WHERE state IN ('completed','failed','cancelled') ORDER BY finished_at DESC, id DESC LIMIT ?) ORDER BY started_at, id`, durableTerminalJobCacheLimit)
 		if err != nil {
 			return fmt.Errorf("read durable job state: %w", err)
 		}
 		defer rows.Close()
 		now := time.Now().UTC()
 		reconciled := false
+		type orphanedJobLease struct {
+			id        string
+			token     sql.NullString
+			expiresAt sql.NullInt64
+		}
+		var orphaned []orphanedJobLease
 		for rows.Next() {
 			var state string
 			var data []byte
-			var leaseOwner sql.NullString
+			var leaseOwner, leaseToken sql.NullString
 			var leaseExpires sql.NullInt64
 			var nextAttempt sql.NullInt64
 			var cancelRequested int
-			if err := rows.Scan(&state, &data, &leaseOwner, &leaseExpires, &nextAttempt, &cancelRequested); err != nil {
+			if err := rows.Scan(&state, &data, &leaseOwner, &leaseToken, &leaseExpires, &nextAttempt, &cancelRequested); err != nil {
 				return fmt.Errorf("read durable job row: %w", err)
 			}
 			if len(data) > maxJobStateBytes {
@@ -1960,6 +1981,9 @@ func (j *Jobs) load() error {
 			if leaseOwner.Valid {
 				item.LeaseOwner = leaseOwner.String
 			}
+			if leaseToken.Valid {
+				item.LeaseToken = leaseToken.String
+			}
 			if leaseExpires.Valid {
 				expires := time.Unix(0, leaseExpires.Int64).UTC()
 				item.LeaseExpires = &expires
@@ -1970,9 +1994,12 @@ func (j *Jobs) load() error {
 			}
 			item.Cancel = cancelRequested != 0 || item.Cancel
 			if item.State == "running" && item.LeaseOwner == "" {
+				orphaned = append(orphaned, orphanedJobLease{id: item.ID, token: leaseToken, expiresAt: leaseExpires})
 				item.State = "failed"
 				item.Error = "interrupted by an unclean shutdown; verify restore rollback and destination integrity"
 				item.FinishedAt = &now
+				item.LeaseToken = ""
+				item.LeaseExpires = nil
 				reconciled = true
 			}
 			copy := item
@@ -1982,8 +2009,33 @@ func (j *Jobs) load() error {
 			return fmt.Errorf("iterate durable job state: %w", err)
 		}
 		if reconciled {
-			if err := j.persistLocked(); err != nil {
-				return fmt.Errorf("persist reconciled durable job state: %w", err)
+			if err := rows.Close(); err != nil {
+				return fmt.Errorf("close durable job rows before reconciliation: %w", err)
+			}
+			for _, orphan := range orphaned {
+				item := j.items[orphan.id]
+				data, _, _, _, err := j.encodeDurableItem(item)
+				if err != nil {
+					return fmt.Errorf("encode interrupted durable job %s: %w", orphan.id, err)
+				}
+				var expectedToken, expectedExpiry any
+				if orphan.token.Valid {
+					expectedToken = orphan.token.String
+				}
+				if orphan.expiresAt.Valid {
+					expectedExpiry = orphan.expiresAt.Int64
+				}
+				result, err := j.db.Exec(`UPDATE jobs SET state='failed', finished_at=?, payload=?, lease_owner=NULL, lease_token=NULL, lease_expires_at=NULL, updated_at=unixepoch() WHERE id=? AND state='running' AND (lease_owner IS NULL OR lease_owner='') AND lease_token IS ? AND lease_expires_at IS ?`, now.UnixNano(), data, orphan.id, expectedToken, expectedExpiry)
+				if err != nil {
+					return fmt.Errorf("reconcile interrupted durable job %s: %w", orphan.id, err)
+				}
+				updated, err := result.RowsAffected()
+				if err != nil {
+					return fmt.Errorf("confirm interrupted durable job %s reconciliation: %w", orphan.id, err)
+				}
+				if updated != 1 {
+					return fmt.Errorf("durable job %s changed during startup reconciliation; refusing stale state", orphan.id)
+				}
 			}
 		}
 		return nil
@@ -2078,7 +2130,7 @@ func (j *Jobs) persistLocked() error {
 			if item.NextAttempt != nil {
 				nextAttempt = item.NextAttempt.UnixNano()
 			}
-			if _, err := tx.Exec(`INSERT INTO jobs (id, kind, operation_key, idempotency_expires_at, state, owner, started_at, finished_at, payload, lease_owner, lease_expires_at, next_attempt_at, cancel_requested, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch()) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, operation_key=excluded.operation_key, idempotency_expires_at=excluded.idempotency_expires_at, state=excluded.state, owner=excluded.owner, started_at=excluded.started_at, finished_at=excluded.finished_at, payload=excluded.payload, lease_owner=excluded.lease_owner, lease_expires_at=excluded.lease_expires_at, next_attempt_at=excluded.next_attempt_at, cancel_requested=excluded.cancel_requested, updated_at=excluded.updated_at`, item.ID, item.Kind, item.OperationKey, nullableTimeNano(item.IdempotencyExpiresAt), item.State, item.User, item.StartedAt.UnixNano(), finished, data, nullString(item.LeaseOwner), leaseExpires, nextAttempt, boolInt(item.Cancel)); err != nil {
+			if _, err := tx.Exec(`INSERT INTO jobs (id, kind, operation_key, idempotency_expires_at, state, owner, started_at, finished_at, payload, lease_owner, lease_token, lease_expires_at, next_attempt_at, cancel_requested, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch()) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, operation_key=excluded.operation_key, idempotency_expires_at=excluded.idempotency_expires_at, state=excluded.state, owner=excluded.owner, started_at=excluded.started_at, finished_at=excluded.finished_at, payload=excluded.payload, lease_owner=excluded.lease_owner, lease_token=excluded.lease_token, lease_expires_at=excluded.lease_expires_at, next_attempt_at=excluded.next_attempt_at, cancel_requested=excluded.cancel_requested, updated_at=excluded.updated_at`, item.ID, item.Kind, item.OperationKey, nullableTimeNano(item.IdempotencyExpiresAt), item.State, item.User, item.StartedAt.UnixNano(), finished, data, nullString(item.LeaseOwner), nullString(item.LeaseToken), leaseExpires, nextAttempt, boolInt(item.Cancel)); err != nil {
 				return rollback(fmt.Errorf("write durable job %s: %w", item.ID, err))
 			}
 		}
@@ -2167,6 +2219,10 @@ func (j *Jobs) add(item *Job) error {
 			return fmt.Errorf("create job lease owner: %w", err)
 		}
 		item.LeaseOwner = "local-" + owner
+		item.LeaseToken, err = randomSecret()
+		if err != nil {
+			return fmt.Errorf("create job lease token: %w", err)
+		}
 		expires := time.Now().UTC().Add(j.leaseDuration())
 		item.LeaseExpires = &expires
 	}
@@ -2191,12 +2247,14 @@ func (j *Jobs) complete(item *Job) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	previousLeaseOwner := item.LeaseOwner
+	previousLeaseToken := item.LeaseToken
 	previousLeaseExpires := item.LeaseExpires
 	item.LeaseOwner = ""
+	item.LeaseToken = ""
 	item.LeaseExpires = nil
 	var err error
 	if j.db != nil {
-		err = j.persistDurableItem(item)
+		err = j.persistDurableItemCAS(item, previousLeaseToken)
 	} else {
 		err = j.persistLocked()
 	}
@@ -2209,6 +2267,7 @@ func (j *Jobs) complete(item *Job) {
 		item.State = "running"
 		item.FinishedAt = nil
 		item.LeaseOwner = previousLeaseOwner
+		item.LeaseToken = previousLeaseToken
 		item.LeaseExpires = previousLeaseExpires
 		item.Output = nil
 		item.Result = nil
@@ -2276,17 +2335,17 @@ func (j *Jobs) loadDurableJob(id string) (Job, bool, error) {
 	}
 	var state string
 	var data []byte
-	var leaseOwner sql.NullString
+	var leaseOwner, leaseToken sql.NullString
 	var leaseExpires, nextAttempt sql.NullInt64
 	var cancelRequested int
-	err := j.db.QueryRow(`SELECT `+durableJobColumns+` FROM jobs WHERE id = ?`, id).Scan(&state, &data, &leaseOwner, &leaseExpires, &nextAttempt, &cancelRequested)
+	err := j.db.QueryRow(`SELECT `+durableJobColumns+` FROM jobs WHERE id = ?`, id).Scan(&state, &data, &leaseOwner, &leaseToken, &leaseExpires, &nextAttempt, &cancelRequested)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Job{}, false, nil
 	}
 	if err != nil {
 		return Job{}, false, err
 	}
-	item, err := j.decodeDurableJob(state, data, leaseOwner, leaseExpires, nextAttempt, cancelRequested)
+	item, err := j.decodeDurableJob(state, data, leaseOwner, leaseToken, leaseExpires, nextAttempt, cancelRequested)
 	if err != nil {
 		return Job{}, false, err
 	}
@@ -2294,7 +2353,7 @@ func (j *Jobs) loadDurableJob(id string) (Job, bool, error) {
 }
 
 // durableJobColumns are the columns decodeDurableJob consumes, in order.
-const durableJobColumns = `state, payload, lease_owner, lease_expires_at, next_attempt_at, cancel_requested`
+const durableJobColumns = `state, payload, lease_owner, lease_token, lease_expires_at, next_attempt_at, cancel_requested`
 
 const (
 	maxActivePayloads = 10_000
@@ -2304,7 +2363,7 @@ const (
 	maxOwnerActivePayloads = maxActivePayloads
 )
 
-func (j *Jobs) decodeDurableJob(state string, data []byte, leaseOwner sql.NullString, leaseExpires, nextAttempt sql.NullInt64, cancelRequested int) (Job, error) {
+func (j *Jobs) decodeDurableJob(state string, data []byte, leaseOwner, leaseToken sql.NullString, leaseExpires, nextAttempt sql.NullInt64, cancelRequested int) (Job, error) {
 	var persisted persistedJob
 	if err := json.Unmarshal(data, &persisted); err != nil {
 		return Job{}, err
@@ -2319,6 +2378,9 @@ func (j *Jobs) decodeDurableJob(state string, data []byte, leaseOwner sql.NullSt
 	item.Payload = opened
 	if leaseOwner.Valid {
 		item.LeaseOwner = leaseOwner.String
+	}
+	if leaseToken.Valid {
+		item.LeaseToken = leaseToken.String
 	}
 	if leaseExpires.Valid {
 		expires := time.Unix(0, leaseExpires.Int64).UTC()
@@ -2366,16 +2428,16 @@ func (j *Jobs) activePayloads(predicate string, args []any, limit int) ([]json.R
 	for rows.Next() {
 		var id, state string
 		var data []byte
-		var leaseOwner sql.NullString
+		var leaseOwner, leaseToken sql.NullString
 		var leaseExpires, nextAttempt sql.NullInt64
 		var cancelRequested int
-		if err := rows.Scan(&id, &state, &data, &leaseOwner, &leaseExpires, &nextAttempt, &cancelRequested); err != nil {
+		if err := rows.Scan(&id, &state, &data, &leaseOwner, &leaseToken, &leaseExpires, &nextAttempt, &cancelRequested); err != nil {
 			return nil, fmt.Errorf("list active jobs: %w", err)
 		}
 		if len(payloads) == limit {
 			return nil, fmt.Errorf("active job payload query exceeds its %d-job safety limit", limit)
 		}
-		item, err := j.decodeDurableJob(state, data, leaseOwner, leaseExpires, nextAttempt, cancelRequested)
+		item, err := j.decodeDurableJob(state, data, leaseOwner, leaseToken, leaseExpires, nextAttempt, cancelRequested)
 		if err != nil {
 			return nil, fmt.Errorf("load active job %s: %w", id, err)
 		}
@@ -2526,13 +2588,13 @@ func (j *Jobs) listDurable(limit int, includeOutput bool) ([]Job, error) {
 	for rows.Next() {
 		var id, state string
 		var data []byte
-		var leaseOwner sql.NullString
+		var leaseOwner, leaseToken sql.NullString
 		var leaseExpires, nextAttempt sql.NullInt64
 		var cancelRequested int
-		if err := rows.Scan(&id, &state, &data, &leaseOwner, &leaseExpires, &nextAttempt, &cancelRequested); err != nil {
+		if err := rows.Scan(&id, &state, &data, &leaseOwner, &leaseToken, &leaseExpires, &nextAttempt, &cancelRequested); err != nil {
 			return nil, fmt.Errorf("list durable jobs: %w", err)
 		}
-		item, err := j.decodeDurableJob(state, data, leaseOwner, leaseExpires, nextAttempt, cancelRequested)
+		item, err := j.decodeDurableJob(state, data, leaseOwner, leaseToken, leaseExpires, nextAttempt, cancelRequested)
 		if err != nil {
 			// As before, a single undecodable row is omitted rather than
 			// hiding every other job from the Job Center.
@@ -2665,7 +2727,7 @@ func (j *Jobs) LatestForOwnersSummaries(kind string, owners []string) ([]Job, er
 	}
 	placeholders := strings.TrimRight(strings.Repeat("?,", len(clean)), ",")
 	query := `SELECT id, ` + durableJobColumns + ` FROM (
-		SELECT id, state, payload, lease_owner, lease_expires_at, next_attempt_at, cancel_requested,
+		SELECT id, state, payload, lease_owner, lease_token, lease_expires_at, next_attempt_at, cancel_requested,
 			ROW_NUMBER() OVER (PARTITION BY owner ORDER BY started_at DESC, id DESC) AS owner_rank
 		FROM jobs WHERE kind = ? AND owner IN (` + placeholders + `)
 	) WHERE owner_rank = 1 ORDER BY id`
@@ -2683,13 +2745,13 @@ func (j *Jobs) LatestForOwnersSummaries(kind string, owners []string) ([]Job, er
 	for rows.Next() {
 		var id, state string
 		var data []byte
-		var leaseOwner sql.NullString
+		var leaseOwner, leaseToken sql.NullString
 		var leaseExpires, nextAttempt sql.NullInt64
 		var cancelRequested int
-		if err := rows.Scan(&id, &state, &data, &leaseOwner, &leaseExpires, &nextAttempt, &cancelRequested); err != nil {
+		if err := rows.Scan(&id, &state, &data, &leaseOwner, &leaseToken, &leaseExpires, &nextAttempt, &cancelRequested); err != nil {
 			return nil, fmt.Errorf("scan latest jobs for owners: %w", err)
 		}
-		item, err := j.decodeDurableJob(state, data, leaseOwner, leaseExpires, nextAttempt, cancelRequested)
+		item, err := j.decodeDurableJob(state, data, leaseOwner, leaseToken, leaseExpires, nextAttempt, cancelRequested)
 		if err != nil {
 			return nil, fmt.Errorf("decode latest job %s: %w", id, err)
 		}
@@ -2753,13 +2815,13 @@ func (j *Jobs) listForOwners(limit int, owners []string, includeOutput bool) ([]
 	for rows.Next() {
 		var id, state string
 		var data []byte
-		var leaseOwner sql.NullString
+		var leaseOwner, leaseToken sql.NullString
 		var leaseExpires, nextAttempt sql.NullInt64
 		var cancelRequested int
-		if err := rows.Scan(&id, &state, &data, &leaseOwner, &leaseExpires, &nextAttempt, &cancelRequested); err != nil {
+		if err := rows.Scan(&id, &state, &data, &leaseOwner, &leaseToken, &leaseExpires, &nextAttempt, &cancelRequested); err != nil {
 			return nil, fmt.Errorf("scan jobs for owners: %w", err)
 		}
-		item, err := j.decodeDurableJob(state, data, leaseOwner, leaseExpires, nextAttempt, cancelRequested)
+		item, err := j.decodeDurableJob(state, data, leaseOwner, leaseToken, leaseExpires, nextAttempt, cancelRequested)
 		if err != nil {
 			continue
 		}
@@ -2799,13 +2861,13 @@ func (j *Jobs) ListActiveForSite(site string) ([]Job, error) {
 	for rows.Next() {
 		var id, state string
 		var data []byte
-		var leaseOwner sql.NullString
+		var leaseOwner, leaseToken sql.NullString
 		var leaseExpires, nextAttempt sql.NullInt64
 		var cancelRequested int
-		if err := rows.Scan(&id, &state, &data, &leaseOwner, &leaseExpires, &nextAttempt, &cancelRequested); err != nil {
+		if err := rows.Scan(&id, &state, &data, &leaseOwner, &leaseToken, &leaseExpires, &nextAttempt, &cancelRequested); err != nil {
 			return nil, fmt.Errorf("list active jobs for site %s: %w", site, err)
 		}
-		item, err := j.decodeDurableJob(state, data, leaseOwner, leaseExpires, nextAttempt, cancelRequested)
+		item, err := j.decodeDurableJob(state, data, leaseOwner, leaseToken, leaseExpires, nextAttempt, cancelRequested)
 		if err != nil {
 			return nil, fmt.Errorf("decode active job %s: %w", id, err)
 		}

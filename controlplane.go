@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     finished_at INTEGER,
     payload BLOB NOT NULL,
     lease_owner TEXT,
+    lease_token TEXT,
     lease_expires_at INTEGER,
     next_attempt_at INTEGER,
     cancel_requested INTEGER NOT NULL DEFAULT 0,
@@ -465,6 +466,12 @@ CREATE INDEX recovery_rehearsals_application_proof_idx ON recovery_rehearsals(si
 	migration.NewMigration(25, "index attempted application recovery proofs", func(tx *sql.Tx) error {
 		_, err := tx.Exec(`DROP INDEX IF EXISTS recovery_rehearsals_application_proof_idx;
 CREATE INDEX recovery_rehearsals_application_proof_idx ON recovery_rehearsals(site, application_attempted, started_at DESC, id DESC);`)
+		return err
+	}),
+	migration.NewMigrationWithCheck(26, "add per-claim durable job fencing tokens", func(tx *sql.Tx) (bool, error) {
+		return controlPlaneColumnExists(tx, "jobs", "lease_token")
+	}, func(tx *sql.Tx) error {
+		_, err := tx.Exec(`ALTER TABLE jobs ADD COLUMN lease_token TEXT`)
 		return err
 	}),
 }

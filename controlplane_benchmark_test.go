@@ -162,7 +162,7 @@ func BenchmarkControlPlaneFiftyBackupRestoreJobs(b *testing.B) {
 			if err != nil || !ok {
 				b.Fatalf("claim %d: ok=%v err=%v", i, ok, err)
 			}
-			if err := jobs.finishClaim(job.ID, "benchmark-worker", func(item *Job) {
+			if err := jobs.finishClaim(job.ID, job.LeaseToken, func(item *Job) {
 				item.State = "completed"
 				item.Output = []byte(`{"ok":true}`)
 			}); err != nil {

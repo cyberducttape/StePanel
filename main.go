@@ -1290,7 +1290,7 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 			if marshalErr != nil {
 				return nil, fmt.Errorf("encode reusable backup state: %w", marshalErr)
 			}
-			if updateErr := a.Jobs.UpdateClaimPayload(item.ID, item.LeaseOwner, payload); updateErr != nil {
+			if updateErr := a.Jobs.UpdateClaimPayload(item.ID, item.LeaseToken, payload); updateErr != nil {
 				return nil, fmt.Errorf("persist reusable backup state: %w", updateErr)
 			}
 		}

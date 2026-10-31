@@ -339,7 +339,7 @@ func persistAWSSnapshotID(jobs *Jobs, item Job, request *durableCloudRequest, sn
 	if err != nil {
 		return err
 	}
-	return jobs.UpdateClaimPayload(item.ID, item.LeaseOwner, checkpoint)
+	return jobs.UpdateClaimPayload(item.ID, item.LeaseToken, checkpoint)
 }
 
 func (a *App) cloudInventory(w http.ResponseWriter, _ *http.Request) {

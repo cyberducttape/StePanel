@@ -1,5 +1,37 @@
 # Production-readiness progress
 
+## Per-claim job lease fencing — 2026-10-31
+
+- Added a random, per-claim fencing token to durable jobs and a schema migration
+  for existing control-plane databases. The token is separate from the worker
+  name and is omitted from JSON/API output.
+- Claim renewals, progress and payload checkpoints, failure transitions, and
+  completion now use a SQLite compare-and-swap requiring the same token and an
+  unexpired lease. The generic completion helper now uses the same fenced
+  transition instead of an unconditional upsert.
+- Added regressions proving expired claims cannot finish before or after a
+  replacement claim, including replacement by the same worker ID. Added a
+  separate test for the generic completion helper and updated claim tests and
+  benchmark call sites to use claim tokens.
+- Verification: focused durable-job suite passed; focused job race tests,
+  `internal/rootbroker` race tests, and `internal/operations` race tests passed.
+  Final `make check` passed (API artifact check, shell contracts, `go vet`, and
+  all Go packages). `GOMAXPROCS=2 go test -p 1 -timeout 10m ./... -count=3`
+  passed all packages in 226.5 seconds for the root package. The full
+  `GOMAXPROCS=1 go test -race -p 1 -timeout 15m ./...` passed all packages in
+  427.1 seconds for the root package. After those full runs, startup
+  reconciliation was changed to update only orphaned lease rows with a
+  compare-and-swap rather than rewriting the entire in-memory job cache; the
+  regression, focused race tests, and final `make check` passed on that later
+  source. The full repeat and race suites were not rerun after this narrow
+  reconciliation change. Exact-source hosted CI has not yet run.
+- Remaining limits: this prevents stale workers from committing SQLite job
+  state, but cannot roll back an external mutation already performed after a
+  lease was lost. Operation-specific idempotency, explicit
+  `committing`/`reconciliation_required` states, complete per-operation crash
+  journals, and independent signed audit-checkpoint replication remain open
+  under M0f in `DEVELOPMENT_PLAN.md`. Production remains **NO-GO**.
+
 ## Broker-side tenant check for privileged file operations — 2026-10-30
 
 - The sealed site capability now carries the durable tenant owner alongside

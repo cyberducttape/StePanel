@@ -442,7 +442,7 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) ([]byte, err
 	}, stagingDir, func(importJob *importer.ImportJob) {
 		// Persist progress on the durable job instead of accumulating an
 		// unbounded in-memory history that is never read by the UI.
-		if err := a.Jobs.UpdateClaim(job.ID, job.LeaseOwner, importJob.Progress); err != nil {
+		if err := a.Jobs.UpdateClaim(job.ID, job.LeaseToken, importJob.Progress); err != nil {
 			TelemetryAudit(a.Config.AuditLog, actor, "archive.import.progress-persist-failed", req.SiteName, err.Error())
 		}
 	})

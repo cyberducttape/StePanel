@@ -235,10 +235,10 @@ func TestDurableJobLeaseLifecycle(t *testing.T) {
 	if err != nil || !ok || claimed.State != "running" {
 		t.Fatalf("claim = %+v, %v, %v", claimed, ok, err)
 	}
-	if renewed, err := j.Renew(item.ID, "worker-a"); err != nil || !renewed {
+	if renewed, err := j.Renew(item.ID, claimed.LeaseToken); err != nil || !renewed {
 		t.Fatalf("renew = %v, %v", renewed, err)
 	}
-	if err := j.finishClaim(item.ID, "worker-a", func(job *Job) {
+	if err := j.finishClaim(item.ID, claimed.LeaseToken, func(job *Job) {
 		job.State = "completed"
 		now := time.Now().UTC()
 		job.FinishedAt = &now
@@ -247,6 +247,130 @@ func TestDurableJobLeaseLifecycle(t *testing.T) {
 	}
 	if got, ok := j.Get(item.ID); !ok || got.State != "completed" {
 		t.Fatalf("completed job = %+v, %v", got, ok)
+	}
+}
+
+func TestExpiredLeaseCannotCommitBeforeOrAfterSameWorkerReclaim(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	firstWorker := newJobsWithDB(db, 1)
+	job, err := firstWorker.Enqueue("site.restore", "site-a", "restore-1", []byte(`{"site":"site-a"}`), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldClaim, ok, err := firstWorker.Claim(job.ID, "worker-reused")
+	if err != nil || !ok || oldClaim.LeaseToken == "" {
+		t.Fatalf("initial claim = %#v, ok=%v, err=%v", oldClaim, ok, err)
+	}
+
+	if _, err := db.Exec(`UPDATE jobs SET lease_expires_at=? WHERE id=?`, time.Now().UTC().Add(-time.Second).UnixNano(), job.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := firstWorker.finishClaim(job.ID, oldClaim.LeaseToken, func(item *Job) {
+		item.State = "completed"
+	}); !errors.Is(err, errJobLeaseNotHeld) {
+		t.Fatalf("expired claim completion = %v, want errJobLeaseNotHeld", err)
+	}
+	var state string
+	if err := db.QueryRow(`SELECT state FROM jobs WHERE id=?`, job.ID).Scan(&state); err != nil || state != "running" {
+		t.Fatalf("state after expired completion = %q, err=%v; want running", state, err)
+	}
+
+	secondWorker := newJobsWithDB(db, 1)
+	if _, err := secondWorker.RequeueExpired(); err != nil {
+		t.Fatal(err)
+	}
+	newClaim, ok, err := secondWorker.ClaimNext("worker-reused", "site.restore")
+	if err != nil || !ok || newClaim.LeaseToken == "" || newClaim.LeaseToken == oldClaim.LeaseToken {
+		t.Fatalf("replacement claim = %#v, ok=%v, err=%v; claim token must rotate even when owner string is reused", newClaim, ok, err)
+	}
+	if err := firstWorker.finishClaim(job.ID, oldClaim.LeaseToken, func(item *Job) {
+		item.State = "completed"
+	}); !errors.Is(err, errJobLeaseNotHeld) {
+		t.Fatalf("stale completion after reclaim = %v, want errJobLeaseNotHeld", err)
+	}
+	if err := secondWorker.finishClaim(job.ID, newClaim.LeaseToken, func(item *Job) {
+		item.State = "completed"
+		finished := time.Now().UTC()
+		item.FinishedAt = &finished
+	}); err != nil {
+		t.Fatalf("current lease completion = %v", err)
+	}
+}
+
+func TestDurableCompletionHelperCannotCommitExpiredLease(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jobs := newJobsWithDB(db, 1)
+	queued, err := jobs.Enqueue("site.delete", "site-a", "delete-1", []byte(`{"site":"site-a"}`), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, ok, err := jobs.Claim(queued.ID, "worker-a")
+	if err != nil || !ok {
+		t.Fatalf("claim = %#v, ok=%v, err=%v", claim, ok, err)
+	}
+	if _, err := db.Exec(`UPDATE jobs SET lease_expires_at=? WHERE id=?`, time.Now().UTC().Add(-time.Second).UnixNano(), queued.ID); err != nil {
+		t.Fatal(err)
+	}
+	claim.State = "completed"
+	finished := time.Now().UTC()
+	claim.FinishedAt = &finished
+	jobs.complete(&claim)
+	var state string
+	if err := db.QueryRow(`SELECT state FROM jobs WHERE id=?`, queued.ID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "running" {
+		t.Fatalf("durable state after stale completion helper = %q, want running", state)
+	}
+}
+
+func TestStartupLeaseRecoveryUpdatesOnlyOrphanedJob(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	producer := newJobsWithDB(db, 2)
+	active, err := producer.Enqueue("site.operation", "site-active", "active-op", nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orphan, err := producer.Enqueue("site.operation", "site-orphan", "orphan-op", nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	activeClaim, ok, err := producer.Claim(active.ID, "live-worker")
+	if err != nil || !ok {
+		t.Fatalf("active claim = %#v, ok=%v, err=%v", activeClaim, ok, err)
+	}
+	if _, ok, err := producer.Claim(orphan.ID, "crashed-worker"); err != nil || !ok {
+		t.Fatalf("orphan claim = %v, %v", ok, err)
+	}
+	if _, err := db.Exec(`UPDATE jobs SET lease_owner=NULL, lease_token=NULL, lease_expires_at=NULL WHERE id=?`, orphan.ID); err != nil {
+		t.Fatal(err)
+	}
+	triggerSQL := `CREATE TRIGGER protect_live_job BEFORE UPDATE ON jobs WHEN OLD.id = '` + strings.ReplaceAll(active.ID, "'", "''") + `' BEGIN SELECT RAISE(ABORT, 'live claim must not be rewritten'); END`
+	if _, err := db.Exec(triggerSQL); err != nil {
+		t.Fatal(err)
+	}
+	restarted := newJobsWithDB(db, 2)
+	if err := restarted.load(); err != nil {
+		t.Fatalf("startup reconciliation rewrote unrelated live job: %v", err)
+	}
+	if got, ok := restarted.Get(active.ID); !ok || got.State != "running" || got.LeaseToken != activeClaim.LeaseToken {
+		t.Fatalf("unrelated active job after reconciliation = %#v, found=%v", got, ok)
+	}
+	if got, ok := restarted.Get(orphan.ID); !ok || got.State != "failed" || got.LeaseToken != "" {
+		t.Fatalf("orphaned job after reconciliation = %#v, found=%v", got, ok)
 	}
 }
 
@@ -549,11 +673,11 @@ func TestDurableBackupRetryReusesPersistedLocalArchive(t *testing.T) {
 		_ = jobs.Close()
 		t.Fatal(err)
 	}
-	if err := jobs.UpdateClaimPayload(queued.ID, "worker-a", archivePayload); err != nil {
+	if err := jobs.UpdateClaimPayload(queued.ID, first.LeaseToken, archivePayload); err != nil {
 		_ = jobs.Close()
 		t.Fatalf("persist completed local archive before remote upload: %v", err)
 	}
-	if err := jobs.FailClaim(queued.ID, "worker-a", "offsite destination unavailable"); err != nil {
+	if err := jobs.FailClaim(queued.ID, first.LeaseToken, "offsite destination unavailable"); err != nil {
 		_ = jobs.Close()
 		t.Fatalf("record transient offsite failure: %v", err)
 	}
@@ -686,7 +810,7 @@ func TestDurableIdempotencyExpiryIsTimestampBasedAndRestartSafe(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("claim expiring job = %v, %v", ok, err)
 	}
-	if err := restarted.finishClaim(claimed.ID, "expiry-test-worker", func(item *Job) {
+	if err := restarted.finishClaim(claimed.ID, claimed.LeaseToken, func(item *Job) {
 		item.State = "completed"
 		finished := time.Now().UTC()
 		item.FinishedAt = &finished
@@ -753,7 +877,7 @@ func TestLegacyCloudJobOwnerIsNamespacedBeforeNewClaims(t *testing.T) {
 	if _, claimed, err := jobs.ClaimNext("owner-migration-worker", "cloud.action"); err != nil || claimed {
 		t.Fatalf("same instance was not serialized behind the legacy attempt: claimed=%v err=%v", claimed, err)
 	}
-	if err := jobs.finishClaim(first.ID, "owner-migration-worker", func(item *Job) {
+	if err := jobs.finishClaim(first.ID, first.LeaseToken, func(item *Job) {
 		item.State = "completed"
 		finished := time.Now().UTC()
 		item.FinishedAt = &finished
@@ -847,13 +971,13 @@ func TestDurableQueueClaimRetryAndDeadLetter(t *testing.T) {
 	if err != nil || !ok || claimed.ID != queued.ID {
 		t.Fatalf("claim next = %#v, %v, %v", claimed, ok, err)
 	}
-	if err := j2.UpdateClaim(claimed.ID, "worker-a", 45); err != nil {
+	if err := j2.UpdateClaim(claimed.ID, claimed.LeaseToken, 45); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok, err := j2.ClaimNext("worker-b", "test.operation"); err != nil || ok {
 		t.Fatalf("same-owner job was claimed concurrently: ok=%v err=%v", ok, err)
 	}
-	if err := j2.FailClaim(claimed.ID, "worker-a", "temporary failure"); err != nil {
+	if err := j2.FailClaim(claimed.ID, claimed.LeaseToken, "temporary failure"); err != nil {
 		t.Fatal(err)
 	}
 	retried, ok, err := j2.ClaimNext("worker-b", "test.operation")
@@ -871,7 +995,7 @@ func TestDurableQueueClaimRetryAndDeadLetter(t *testing.T) {
 	if err != nil || !ok || retried.Attempts != 1 {
 		t.Fatalf("retry claim = %#v, %v, %v", retried, ok, err)
 	}
-	if err := j2.FailClaim(retried.ID, "worker-b", "permanent failure"); err != nil {
+	if err := j2.FailClaim(retried.ID, retried.LeaseToken, "permanent failure"); err != nil {
 		t.Fatal(err)
 	}
 	if got, ok := j2.Get(queued.ID); !ok || got.State != "dead-letter" || got.Attempts != 2 {
@@ -881,7 +1005,7 @@ func TestDurableQueueClaimRetryAndDeadLetter(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("second job was lost during another worker update: ok=%v err=%v", ok, err)
 	}
-	if err := j2.finishClaim(secondClaim.ID, "worker-c", func(job *Job) { job.State = "completed" }); err != nil {
+	if err := j2.finishClaim(secondClaim.ID, secondClaim.LeaseToken, func(job *Job) { job.State = "completed" }); err != nil {
 		t.Fatal(err)
 	}
 	if err := j2.RequeueDeadLetter(queued.ID); err != nil {
@@ -909,7 +1033,7 @@ func TestDurableFailureRetainsPartialHandlerOutput(t *testing.T) {
 		t.Fatalf("claim = %#v, ok=%v, err=%v", claimed, ok, err)
 	}
 	partial := []byte(`{"user":"site","components":[{"category":"databases","source":"wpdb","disposition":"failed"}]}`)
-	if err := jobs.failClaimWithOutput(queued.ID, "worker", "migration failed", false, partial); err != nil {
+	if err := jobs.failClaimWithOutput(queued.ID, claimed.LeaseToken, "migration failed", false, partial); err != nil {
 		t.Fatal(err)
 	}
 	got, ok, err := jobs.GetWithError(queued.ID)
@@ -1014,7 +1138,7 @@ func TestDurableJobCleanupRetainsDeadLettersAcrossRestart(t *testing.T) {
 	if err != nil || !ok || claimed.ID != queued.ID {
 		t.Fatalf("claim = %#v, %v, %v", claimed, ok, err)
 	}
-	if err := jobs.FailClaim(claimed.ID, "worker-a", "needs operator reconciliation"); err != nil {
+	if err := jobs.FailClaim(claimed.ID, claimed.LeaseToken, "needs operator reconciliation"); err != nil {
 		t.Fatal(err)
 	}
 	var state string
@@ -1193,7 +1317,7 @@ func TestDurableWorkerStopsWhenClaimIsTakenOver(t *testing.T) {
 
 	// Simulate a replacement worker fencing the original claim while the
 	// original handler is still running.
-	if _, err := db.Exec(`UPDATE jobs SET lease_owner = ?, lease_expires_at = ? WHERE id = ?`, "replacement-worker", time.Now().UTC().Add(time.Minute).UnixNano(), queued.ID); err != nil {
+	if _, err := db.Exec(`UPDATE jobs SET lease_owner = ?, lease_token = ?, lease_expires_at = ? WHERE id = ?`, "replacement-worker", "replacement-claim-token", time.Now().UTC().Add(time.Minute).UnixNano(), queued.ID); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -1773,7 +1897,7 @@ func TestDurableClaimTransitionRestoresMemoryOnPersistenceFailure(t *testing.T) 
 		t.Fatalf("claim = %#v, %v, %v", claimed, ok, err)
 	}
 	db.Close()
-	if err := jobs.finishClaim(item.ID, "worker-a", func(job *Job) { job.State = "completed" }); err == nil {
+	if err := jobs.finishClaim(item.ID, claimed.LeaseToken, func(job *Job) { job.State = "completed" }); err == nil {
 		t.Fatal("finishClaim unexpectedly succeeded after database close")
 	}
 	if _, ok, err := jobs.GetWithError(item.ID); ok || err == nil {

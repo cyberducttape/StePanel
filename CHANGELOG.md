@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Security
 
+- Durable job claims now receive unique random fencing tokens. Worker progress,
+  checkpoint, renewal, failure, and completion writes compare-and-swap against
+  the active token and unexpired lease, so an expired claim cannot commit even
+  when the replacement reuses the same worker ID.
 - Authentication can be disabled only when `STEPANEL_ENV=development` and the
   configured listener is loopback. Production startup now rejects missing
   administrator credentials before the HTTP service is assembled.
