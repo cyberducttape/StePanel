@@ -132,7 +132,13 @@ func (b *Broker) handleFilesRequest(ctx context.Context, req *FilesRequest) (*Re
 		}
 		cmd.Stdin = staged
 	}
-	stdout, stderr, err := stepanelhelper.RunCappedSeparate(ctx, cmd, sitefiles.MaxReadBytes+1, maxBrokerCommandOutput)
+	stdoutLimit := maxBrokerCommandOutput
+	if req.Action == "list" {
+		stdoutLimit = sitefiles.MaxListingBytes + 1
+	} else if req.Action == "read" {
+		stdoutLimit = sitefiles.MaxReadBytes + 1
+	}
+	stdout, stderr, err := stepanelhelper.RunCappedSeparate(ctx, cmd, stdoutLimit, maxBrokerCommandOutput)
 	if err != nil {
 		return &Response{OK: false, Error: fmt.Sprintf("files %s failed: %s", req.Action, filesHelperError(err, stderr))}, nil
 	}

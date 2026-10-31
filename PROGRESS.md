@@ -1,5 +1,18 @@
 # Production-readiness progress
 
+## Bounded tenant file listings — 2026-10-31
+
+- Removed the root-owned full-list temporary file from `stepanel-filectl`.
+  Directory enumeration now runs as the site account through an `O_NOFOLLOW`
+  directory descriptor, reads no more than 5,001 entries, streams output under
+  a 2 MiB broker cap, and has a 10-second deadline. The broker serializes
+  read-only file requests per tenant across sites.
+- Added parser coverage for explicit truncated-source markers and an installed
+  host smoke that lists a 10,000-entry directory, asserting the 5,001-record
+  output bound and 10-second deadline. Local Go package tests, Bash syntax,
+  ShellCheck, Python syntax, a 10,000-entry bounded-output fixture, and docs
+  reference checks pass. The installed-host smoke has not yet run locally.
+
 ## PostgreSQL restore interpreter boundary — 2026-10-31
 
 - PostgreSQL backups are now emitted as custom-format `pg_dump` archives and

@@ -32,6 +32,23 @@ printf 'body{}' | "$filectl" write "$site" "$account" assets/site.css
 [[ $("$filectl" read "$site" "$account" assets/site.css) == 'body{}' ]] || fail 'read returned different bytes'
 "$filectl" list "$site" "$account" assets | grep -Fq $'\tsite.css' || fail 'listing does not show the written file'
 
+# Directory enumeration is capped at the source, not after materializing a
+# root-owned temporary listing. A directory twice the advertised limit must
+# produce only the bounded 5,001-record helper response within its deadline.
+"$filectl" mkdir "$site" "$account" large-list
+runuser -u "$account" -- python3 - "$docroot/large-list" <<'PY'
+import os
+import sys
+root = sys.argv[1]
+for index in range(10000):
+    fd = os.open(os.path.join(root, f"entry-{index:05d}"), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    os.close(fd)
+PY
+large_listing=$(timeout 10 "$filectl" list "$site" "$account" large-list) || fail 'large directory listing exceeded its execution deadline'
+large_listing_lines=$(printf '%s\n' "$large_listing" | wc -l)
+[[ $large_listing_lines -eq 5001 ]] || fail "large listing emitted $large_listing_lines records, want the 5,001-record truncation bound"
+(( ${#large_listing} < 2 * 1024 * 1024 )) || fail 'large listing exceeded the bounded output budget'
+
 # A replaced file keeps its permissions.
 chmod 0604 "$docroot/assets/site.css"
 printf 'main{}' | "$filectl" write "$site" "$account" assets/site.css

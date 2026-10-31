@@ -49,6 +49,7 @@ func TestRequestTimeoutCoversPanelTimeoutClasses(t *testing.T) {
 		{"node tool", &Request{RequestType: "app", App: &AppRequest{Action: "node-tool"}}, 15 * time.Minute},
 		{"worker restart typed", &Request{RequestType: "worker", Worker: &WorkerRequest{Action: "restart"}}, 60 * time.Second},
 		{"proxy apply", &Request{RequestType: "proxy", Proxy: &ProxyRequest{Action: "apply"}}, 30 * time.Second},
+		{"file listing", &Request{RequestType: "files", Files: &FilesRequest{Action: "list"}}, 10 * time.Second},
 	}
 	for _, tc := range cases {
 		if got := RequestTimeout(tc.req); got != tc.want {

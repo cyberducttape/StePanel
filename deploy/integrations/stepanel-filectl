@@ -95,20 +95,68 @@ fi
 case $action in
   list)
     [[ -d $target ]] || { echo 'not a directory' >&2; exit 1; }
-    # type size mode mtime name, one entry per line, at most max_entries+1
-    # so the caller can tell the listing was truncated.
-    # NUL-terminated so a name cannot forge an entry; names with control
-    # characters are skipped because they cannot be shown or addressed.
-    listing="$(mktemp)"
-    trap 'rm -f -- "$listing"' EXIT
-    as_user find -P "$target" -mindepth 1 -maxdepth 1 -printf '%y\t%s\t%m\t%T@\t%f\0' >"$listing"
-    count=0
-    while IFS= read -r -d '' entry; do
-      name=${entry#*$'\t'*$'\t'*$'\t'*$'\t'}
-      [[ ! $name =~ [[:cntrl:]] ]] || continue
-      (( ++count <= max_entries + 1 )) || break
-      printf '%s\n' "$entry"
-    done <"$listing"
+    # Enumerate at most max_entries directory entries as the tenant user and
+    # stream records directly to the broker. Do not let root materialize an
+    # attacker-sized listing in /tmp before enforcing the response limit.
+    # One reserved record reports truncation if control-character names were
+    # skipped while the bounded source-entry budget was reached.
+    as_user python3 - "$target" "$max_entries" <<'PY'
+import os
+import stat
+import sys
+import unicodedata
+
+directory = sys.argv[1]
+limit = int(sys.argv[2]) + 1  # one extra source entry signals truncation
+fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+truncated = False
+scanned = 0
+emitted = 0
+try:
+    with os.scandir(fd) as entries:
+        for entry in entries:
+            scanned += 1
+            if scanned >= limit:
+                truncated = True
+                break
+            name = entry.name
+            if any(unicodedata.category(char) == "Cc" for char in name):
+                continue
+            try:
+                info = entry.stat(follow_symlinks=False)
+            except OSError:
+                continue
+            mode = info.st_mode
+            if stat.S_ISDIR(mode):
+                kind = "d"
+            elif stat.S_ISREG(mode):
+                kind = "f"
+            elif stat.S_ISLNK(mode):
+                kind = "l"
+            elif stat.S_ISFIFO(mode):
+                kind = "p"
+            elif stat.S_ISSOCK(mode):
+                kind = "s"
+            elif stat.S_ISBLK(mode):
+                kind = "b"
+            elif stat.S_ISCHR(mode):
+                kind = "c"
+            else:
+                kind = "?"
+            record = (
+                f"{kind}\t{info.st_size}\t{stat.S_IMODE(mode):o}\t"
+                f"{info.st_mtime:.6f}\t"
+            ).encode("ascii") + os.fsencode(name) + b"\n"
+            sys.stdout.buffer.write(record)
+            emitted += 1
+        else:
+            truncated = False
+finally:
+    os.close(fd)
+
+if truncated and emitted <= int(sys.argv[2]):
+    sys.stdout.buffer.write(b"!\t0\t0\t0\t<truncated>\n")
+PY
     ;;
   read)
     [[ -f $target ]] || { echo 'not a regular file' >&2; exit 1; }

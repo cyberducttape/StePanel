@@ -20,11 +20,12 @@ import (
 
 // Limits shared with deploy/integrations/stepanel-filectl.
 const (
-	MaxReadBytes  = 2 << 20
-	MaxWriteBytes = 4 << 20
-	MaxEntries    = 5000
-	maxPathBytes  = 4096
-	maxNameBytes  = 255
+	MaxReadBytes    = 2 << 20
+	MaxWriteBytes   = 4 << 20
+	MaxEntries      = 5000
+	MaxListingBytes = 2 << 20
+	maxPathBytes    = 4096
+	maxNameBytes    = 255
 )
 
 // ErrNotFound reports a path that does not exist.
@@ -131,6 +132,13 @@ func ParseListing(path string, output []byte) (Listing, error) {
 			continue
 		}
 		fields := strings.SplitN(line, "\t", 5)
+		isTruncationMarker := len(fields) == 5 &&
+			fields[0] == "!" && fields[1] == "0" && fields[2] == "0" &&
+			fields[3] == "0" && fields[4] == "<truncated>"
+		if isTruncationMarker {
+			listing.Truncated = true
+			break
+		}
 		if len(fields) != 5 || fields[4] == "" || strings.Contains(fields[4], "/") {
 			return Listing{}, fmt.Errorf("malformed listing line %q", line)
 		}

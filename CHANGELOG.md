@@ -104,6 +104,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- File-manager directory listings no longer spool a complete tenant-controlled
+  directory to a root-owned temporary file. Enumeration now stops at the
+  5,001st source entry, streams at most 2 MiB of results, runs with the site
+  account, and uses a per-tenant concurrency lock and 10-second deadline. The
+  installed-host smoke covers 10,000-entry directories.
 - Installer now emits audit-checkpoint key and keyring settings once in the
   generated service environment instead of also preserving duplicate entries.
   It clears the checkpoint signing key from its exported environment after

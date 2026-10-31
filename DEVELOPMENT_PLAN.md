@@ -12,6 +12,23 @@ successful one-off smoke does not close a host-certification gate.
 
 ## Milestones
 
+### M0o — Bound customer file-manager directory enumeration (P1)
+
+**Status:** Implemented locally. `stepanel-filectl` streams directory entries
+as the account user and stops after 5,001 source entries; the root-owned
+temporary listing file is removed. Broker output has a 2 MiB cap, list calls
+have a 10-second timeout, and read-only requests serialize per tenant. Local
+focused Go, shell, Python syntax, documentation, and 10,000-entry bounded
+enumeration checks pass. Exact-source installed-host CI evidence is pending.
+
+**Acceptance criteria**
+
+- A real installed-host directory with 10,000 entries returns at most 5,001
+  helper records, a truncated result, and completes within 10 seconds.
+- No full directory listing is materialized in a root-owned temporary file.
+- Per-tenant concurrent file reads/listings serialize across distinct sites.
+- Focused Go tests, ShellCheck, Bash syntax, and exact-source CI pass.
+
 ### M0n — Remove psql client-command execution from PostgreSQL restores (P0)
 
 **Status:** Implemented; the prior source passed local full Go tests and vet,

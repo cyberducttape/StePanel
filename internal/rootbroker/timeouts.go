@@ -15,6 +15,7 @@ const defaultRequestTimeout = stepanelhelper.ConfigMutationTimeout
 // rollback, leaving half-applied host state (for example a recursive chown
 // cut off part-way through a large site).
 const (
+	timeoutListing   = 10 * time.Second
 	timeoutConfig    = stepanelhelper.ConfigMutationTimeout    // 30s: config writes and reads
 	timeoutLifecycle = stepanelhelper.ServiceLifecycleTimeout  // 60s: service start/stop/restart
 	timeoutBuild     = stepanelhelper.PackageBuildTimeout      // 15m: dependency installs
@@ -69,7 +70,7 @@ var typedTimeouts = map[string]map[string]time.Duration{
 		"quota-clear": timeoutConfig, "place": timeoutConfig, "unplace": timeoutLifecycle,
 	},
 	"files": {
-		"list": timeoutConfig, "read": timeoutConfig, "write": timeoutConfig,
+		"list": timeoutListing, "read": timeoutConfig, "write": timeoutConfig,
 		"mkdir": timeoutConfig, "rename": timeoutConfig, "delete": timeoutLifecycle,
 	},
 	"git": {

@@ -80,6 +80,9 @@ mutation lock, and is recorded in the account's audit trail
 
 - Open files up to 2 MiB in the editor; save or upload files up to 4 MiB.
   Use SFTP for larger files.
+- Directory views return at most 5,000 entries and identify truncated results.
+  Enumeration is capped while reading the directory, with a short deadline
+  and per-tenant concurrency limit.
 - Saving replaces the file atomically and keeps its permissions; new files
   are created with mode 0640 and new folders with 0750.
 - Renames never replace an existing file. Deleting a folder deletes

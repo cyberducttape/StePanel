@@ -53,6 +53,10 @@ func TestParseListing(t *testing.T) {
 	if listing, err := ParseListing("", []byte(many.String())); err != nil || !listing.Truncated || len(listing.Entries) != MaxEntries {
 		t.Fatalf("over-long listing: truncated=%v entries=%d err=%v", listing.Truncated, len(listing.Entries), err)
 	}
+	marker := []byte("f\t1\t644\t1\tvisible\n!\t0\t0\t0\t<truncated>\n")
+	if listing, err := ParseListing("", marker); err != nil || !listing.Truncated || len(listing.Entries) != 1 {
+		t.Fatalf("source-limited listing marker: truncated=%v entries=%d err=%v", listing.Truncated, len(listing.Entries), err)
+	}
 }
 
 func newLocal(t *testing.T) (Local, string) {

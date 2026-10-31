@@ -148,11 +148,11 @@ func requestLockKeys(req *Request) []string {
 			add("dbctl", "engine")
 		}
 	case "files":
-		// Reads run as the account user and change nothing, so they do not
-		// queue behind the site's mutations (a seal can take hours); changes
-		// serialize with them.
+		// Read-only enumeration is serialized per tenant, including across
+		// distinct sites, so one account cannot fan out concurrent directory
+		// walks. It does not queue behind site mutations such as a long seal.
 		if filesReadOnlyActions[req.Files.Action] {
-			add("files-read", req.Files.Site)
+			add("files-read-tenant", req.Files.TenantID)
 		} else {
 			add("site", req.Files.Site)
 		}
