@@ -100,8 +100,11 @@ func VerifyCheckpoint(checkpoint Checkpoint, keyring map[string]string) error {
 	if _, err := hex.DecodeString(checkpoint.FinalHash); err != nil {
 		return errors.New("audit checkpoint final hash is invalid")
 	}
-	if !checkpointKeyIDPattern.MatchString(checkpoint.KeyID) || checkpoint.OperationID == "" || len(checkpoint.OperationID) > 256 || strings.ContainsAny(checkpoint.OperationID, "\r\n\x00") {
+	if !checkpointKeyIDPattern.MatchString(checkpoint.KeyID) || strings.TrimSpace(checkpoint.OperationID) == "" || len(checkpoint.OperationID) > 256 || strings.ContainsAny(checkpoint.OperationID, "\r\n\x00") {
 		return errors.New("audit checkpoint key ID or operation ID is invalid")
+	}
+	if len(checkpoint.Signature) != sha256.Size*2 {
+		return errors.New("audit checkpoint signature has an invalid length")
 	}
 	if _, err := time.Parse(time.RFC3339Nano, checkpoint.Timestamp); err != nil {
 		return errors.New("audit checkpoint timestamp is invalid")

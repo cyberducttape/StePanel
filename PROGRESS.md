@@ -12,6 +12,11 @@
   `go test -race ./internal/audit`, and `go vet ./internal/audit` passed.
 - Added `FuzzNormalizeName` to the scheduled fuzz workflow; a 60-second local
   run passed 1.94 million executions with no failure.
+- Hosted CI on `53593d7` passed browser E2E, CodeQL, documentation, and release
+  evidence, but failed the enforced audit-package coverage floor (94.1% vs
+  95%). Added checkpoint invalid-field and identity rejection cases; package
+  coverage is now 95.2%, and the exact coverage gate passes locally. Full
+  `make check` and a clean hosted run for this follow-up are still pending.
 - This is a format/verification primitive only. It is not yet scheduled or
   journaled as a durable job, not published to independent storage, and has no
   verified remote acknowledgement or production key-rotation policy. M0l stays
