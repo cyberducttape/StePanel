@@ -83,6 +83,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Consolidated duplicate M0l sections in the production-readiness plan while
+  retaining the still-open destructive-operation idempotency, journaling, and
+  crash-recovery acceptance criteria.
 - Prometheus alerts for database probe failures, PHP-FPM queue saturation,
   filesystem byte/inode pressure, certificate issuance failures, and overdue
   backups now state the observed condition, name the supporting metrics or

@@ -14,7 +14,8 @@
 - Installer and runtime configuration propagate the optional key/keyring
   settings; installation docs describe root ownership, service-group read
   access, permissions, and the checkpoint-only rotation procedure. Removed a
-  duplicate, stale M0l section from `DEVELOPMENT_PLAN.md`.
+  duplicate M0l section from `DEVELOPMENT_PLAN.md` and retained its open
+  destructive-operation idempotency, journal, and crash-test criteria.
 - `make check` passes, including API artifacts, shell contracts, `go vet ./...`,
   and the complete Go suite. Audit-package coverage is 95.0%, its race suite and
   the root checkpoint/config race tests pass, as do `bash -n install.sh`, the

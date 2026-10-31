@@ -72,6 +72,13 @@ supported. The exact source
 smoke also passed one install/recovery run. The smoke did not configure an
 audit-checkpoint remote or exercise remote publication.
 
+Durable fencing prevents stale workers from committing SQLite job state, but
+does not undo an external mutation performed after lease loss. Operation-
+specific idempotency, explicit committing/reconciliation-required states,
+prepare/apply/verify/recover journals at irreversible host boundaries, and
+repeatable SIGKILL recovery evidence remain open. These criteria were retained
+when duplicate M0l sections were consolidated.
+
 Configure `STEPANEL_AUDIT_CHECKPOINT_TARGET` to send checkpoints to a distinct
 rclone destination. Use a separately administered storage account and
 append/read-only policy where the provider supports it. The implementation
@@ -94,6 +101,12 @@ open.
   tests prove old and current checkpoint signatures remain verifiable after
   rotation. A disposable remote-storage test must still prove provider append
   restrictions and retention behavior.
+- Destructive operations require stable, operation-specific idempotency;
+  distinct operations are never silently coalesced.
+- Each destructive workflow has a durable state machine and restart-safe
+  journal, with operator-intervention state for ambiguous external effects.
+- Crash drills kill workers at irreversible boundaries and prove stale workers
+  cannot commit or repeat unverified side effects.
 - Exact-source CI, including race tests, coverage, release evidence, and
   installed-host validation, passes before this implementation is certified.
 
