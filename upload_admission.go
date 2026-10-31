@@ -1089,15 +1089,14 @@ func databaseDataDir(cfg Config) string {
 // staged: the inspected expanded tree in the import root, the site-manager
 // staging tree, and -- when databases are restored into a local server --
 // their growth in its data directory, on top of in-progress reservations.
-func (a *App) checkCPMoveCapacity(expandedBytes, databaseBytes int64, restoreDatabases bool) error {
-	if expandedBytes < 0 || databaseBytes < 0 {
-		return errors.New("invalid cpmove size estimate")
+func (a *App) checkCPMoveCapacity(expandedBytes, databaseBytes int64, restoreDatabases bool, pathObjects ...int) error {
+	objects := 0
+	if len(pathObjects) > 0 {
+		objects = pathObjects[0]
 	}
-	demands := stagedArchiveDemands(a.Config, uint64(expandedBytes))
-	if dir := databaseDataDir(a.Config); restoreDatabases && databaseBytes > 0 && dir != "" {
-		// A restored dump can occupy about twice its size in the data
-		// directory once indexes and logs are counted.
-		demands = append(demands, capacityDemand{Path: dir, Bytes: saturatingAdd(uint64(databaseBytes), uint64(databaseBytes))})
+	demands, err := cpmoveCapacityDemands(a.Config, expandedBytes, databaseBytes, restoreDatabases, objects)
+	if err != nil {
+		return err
 	}
 	return a.capacityLedger().check(a.Config, "cpmove", demands)
 }

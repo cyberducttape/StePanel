@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"os"
@@ -15,6 +16,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/archivesafe"
 )
 
 func TestVerifyCPMoveUploadRejectsSameSizeMutation(t *testing.T) {
@@ -310,8 +313,125 @@ func TestInspectCPMoveEscapesArchiveDisplayName(t *testing.T) {
 	}
 }
 
+func TestInspectCPMoveRejectsTooManyZeroByteEntries(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "many-empty.tar.gz")
+	if err := writeEmptyTarEntries(path, maxCPMoveEntries+1); err != nil {
+		t.Fatal(err)
+	}
+	archive, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archive.Size() > 2<<20 {
+		t.Fatalf("zero-byte archive unexpectedly large: %d bytes", archive.Size())
+	}
+	file, header := openMultipartArchive(t, path, "cpmove-account.tar.gz")
+	defer file.Close()
+	if _, err := InspectCPMove(file, header); err == nil || !strings.Contains(err.Error(), "more than") {
+		t.Fatalf("inspection error = %v, want entry-limit error", err)
+	}
+}
+
+func TestCPMoveExtractionEnforcesIndependentEntryAndPathLimits(t *testing.T) {
+	root := t.TempDir()
+	archive := filepath.Join(root, "small.tar.gz")
+	if err := writeEmptyTarEntries(archive, 3); err != nil {
+		t.Fatal(err)
+	}
+	stage := filepath.Join(root, "stage")
+	if err := os.Mkdir(stage, 0700); err != nil {
+		t.Fatal(err)
+	}
+	input, err := os.Open(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = extractCPMoveArchiveReaderContext(context.Background(), input, stage, "", archivesafe.ExtractorLimits{
+		MaxEntries: 2,
+	}, nil)
+	_ = input.Close()
+	if err == nil || !strings.Contains(err.Error(), "entry limit") {
+		t.Fatalf("extractor error = %v, want independent entry-limit error", err)
+	}
+	entries, err := os.ReadDir(filepath.Join(stage, "cpmove-account", "homedir", "public_html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("extracted %d entries before limit, want exactly 2", len(entries))
+	}
+
+	deepStage := filepath.Join(root, "deep-stage")
+	if err := os.Mkdir(deepStage, 0700); err != nil {
+		t.Fatal(err)
+	}
+	deep := strings.TrimSuffix(strings.Repeat("d/", maxCPMovePathComponents+1), "/") + "/file"
+	deepArchive := filepath.Join(root, "deep.tar.gz")
+	if err := writeTarHeaders(deepArchive, []tar.Header{{Name: deep, Typeflag: tar.TypeReg, Mode: 0600}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	deepInput, err := os.Open(deepArchive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = extractCPMoveArchiveReaderContext(context.Background(), deepInput, deepStage, "", archivesafe.ExtractorLimits{
+		MaxPathComponents: maxCPMovePathComponents,
+	}, nil)
+	_ = deepInput.Close()
+	if err == nil || !strings.Contains(err.Error(), "components") {
+		t.Fatalf("deep-path extraction error = %v, want component-limit error", err)
+	}
+}
+
+func TestCPMoveStagingBytesIncludesPerObjectOverhead(t *testing.T) {
+	got, err := cpmoveStagingBytes(100, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := uint64(100) + 3*maxCPMoveFilesystemObjectBytes
+	if got != want {
+		t.Fatalf("staging estimate = %d, want %d", got, want)
+	}
+	if _, err := cpmoveStagingBytes(-1, 0); err == nil {
+		t.Fatal("negative expanded size was accepted")
+	}
+}
+
+func writeEmptyTarEntries(path string, count int) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	gz := gzip.NewWriter(file)
+	tarWriter := tar.NewWriter(gz)
+	for i := 0; i < count; i++ {
+		header := &tar.Header{
+			Name:     fmt.Sprintf("cpmove-account/homedir/public_html/empty-%06d", i),
+			Typeflag: tar.TypeReg,
+			Mode:     0600,
+			Size:     0,
+		}
+		if err := tarWriter.WriteHeader(header); err != nil {
+			_ = file.Close()
+			return err
+		}
+	}
+	if err := tarWriter.Close(); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := gz.Close(); err != nil {
+		_ = file.Close()
+		return err
+	}
+	return file.Close()
+}
+
 func TestRestoreCPMoveHandlesTopLevelCPanelRoot(t *testing.T) {
 	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "sites"), 0700); err != nil {
+		t.Fatal(err)
+	}
 	archive := makeTarGz(t, map[string]string{
 		"cpmove-account/homedir/public_html/index.html": "restored",
 	})
@@ -342,6 +462,9 @@ func TestRestoreCPMoveHandlesTopLevelCPanelRoot(t *testing.T) {
 func TestRestoreCPMoveProcessDeathAfterActivationIsRecoverable(t *testing.T) {
 	if os.Getenv("STEPANEL_CPMOVE_KILL_CHILD") == "1" {
 		root := os.Getenv("STEPANEL_CPMOVE_KILL_ROOT")
+		if err := os.MkdirAll(filepath.Join(root, "sites"), 0700); err != nil {
+			t.Fatal(err)
+		}
 		archive := makeTarGz(t, map[string]string{
 			"cpmove-account/homedir/public_html/index.html": "interrupted",
 		})
@@ -357,6 +480,9 @@ func TestRestoreCPMoveProcessDeathAfterActivationIsRecoverable(t *testing.T) {
 	}
 
 	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "sites"), 0700); err != nil {
+		t.Fatal(err)
+	}
 	child := exec.Command(os.Args[0], "-test.run=TestRestoreCPMoveProcessDeathAfterActivationIsRecoverable", "-test.v")
 	child.Env = append(os.Environ(),
 		"STEPANEL_CPMOVE_KILL_CHILD=1",

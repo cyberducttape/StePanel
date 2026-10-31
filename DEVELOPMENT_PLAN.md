@@ -117,6 +117,23 @@ single-iteration host checks do not close repeated host-failure certification.
   release-evidence checks complete successfully. Any failed job is diagnosed
   from its log/trace and fixed before starting another milestone.
 
+### M0e — Bounded cPanel archive resource admission (P1)
+
+**Status:** Implemented; focused regressions, `go vet ./...`, the full Go test
+suite, and `make check` pass. Exact-source hosted CI remains pending.
+
+**Acceptance criteria**
+
+- cPanel inspection and extraction independently reject more than 50,000 tar
+  headers, 64 MiB of retained path bookkeeping, or paths deeper than 128
+  components.
+- Admission reserves expanded payload bytes plus 4 KiB per unique filesystem
+  object; malformed or overflowing estimates fail closed.
+- Tests cover compressed empty-file floods, independent extraction limits,
+  path depth, metadata limits, and capacity estimates.
+- Focused and repository Go checks pass; host quota/inode certification is
+  tracked separately and is not inferred from unit tests.
+
 ### M0l — Durable job fencing and independently verifiable audit evidence (P0)
 
 **Status:** Durable per-claim job fencing and the signed checkpoint format are

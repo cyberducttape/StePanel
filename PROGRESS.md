@@ -1,5 +1,18 @@
 # Production-readiness progress
 
+## Bounded cPanel archive resources — 2026-10-31
+
+- Inspection and extraction independently enforce 50,000 tar headers, 64 MiB
+  of retained path bookkeeping, and 128 path components. Capacity reservations
+  include 4 KiB per unique extracted path object in addition to expanded bytes.
+- Added regressions using a gzip archive with 50,001 empty files, independent
+  extraction entry/path limits, metadata-budget rejection, and per-object
+  capacity accounting. `go vet ./...`, focused regressions, the full
+  `GOMAXPROCS=2 go test -p 1 -timeout 10m ./...` suite, and `make check` pass.
+- Limitation: the per-object filesystem-overhead allowance is an admission
+  estimate. It does not replace a quota-controlled staging filesystem or
+  establish host inode-exhaustion behavior.
+
 ## Bounded tenant file listings — 2026-10-31
 
 - Removed the root-owned full-list temporary file from `stepanel-filectl`.

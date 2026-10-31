@@ -172,53 +172,84 @@ func NewPathSet() *PathSet {
 // Claim normalizes name and records it as kind. It returns the normalized
 // path ("." for the archive root, which only a directory may name).
 func (p *PathSet) Claim(name string, kind Kind) (string, error) {
-	clean, err := NormalizeName(name)
+	clean, _, _, err := p.ClaimWithStats(name, kind)
+	return clean, err
+}
+
+// ClaimWithStats normalizes and records name and reports the number of new
+// filesystem objects and a conservative byte estimate for newly retained
+// path metadata. The estimate includes each map key plus fixed per-entry
+// bookkeeping overhead, and is suitable for bounded archive admission.
+func (p *PathSet) ClaimWithStats(name string, kind Kind) (clean string, objects int, metadataBytes int64, err error) {
+	clean, err = NormalizeName(name)
 	if err != nil {
-		return "", err
+		return "", 0, 0, err
 	}
 	if clean == "." {
 		if kind != Directory {
-			return "", fmt.Errorf("entry %q names the archive root as a file", name)
+			return "", 0, 0, fmt.Errorf("entry %q names the archive root as a file", name)
 		}
-		return clean, nil
+		return clean, 0, 0, nil
 	}
 	// Every ancestor must be (or become) a directory. A recorded directory's
 	// own ancestors were checked when it was recorded.
 	for dir := path.Dir(clean); dir != "."; dir = path.Dir(dir) {
 		existing := p.kinds[dir]
 		if existing == File {
-			return "", fmt.Errorf("entry %q is inside %q, which the archive already created as a file", name, dir)
+			return "", objects, metadataBytes, fmt.Errorf("entry %q is inside %q, which the archive already created as a file", name, dir)
 		}
 		if existing == Directory {
 			break
 		}
 		p.kinds[dir] = Directory
+		objects++
+		metadataBytes += int64(len(dir)) + 64
 	}
 	switch existing := p.kinds[clean]; {
 	case existing == 0:
 		p.kinds[clean] = kind
+		objects++
+		metadataBytes += int64(len(clean)) + 64
 	case existing == Directory && kind == Directory:
 	default:
-		return "", fmt.Errorf("entry %q collides with an earlier %s at %q", name, existing, clean)
+		return "", objects, metadataBytes, fmt.Errorf("entry %q collides with an earlier %s at %q", name, existing, clean)
 	}
-	return clean, nil
+	return clean, objects, metadataBytes, nil
+}
+
+// ExtractorLimits bounds archive entries and retained path metadata. Zero
+// values leave the corresponding limit disabled.
+type ExtractorLimits struct {
+	MaxEntries           int
+	MaxPathMetadataBytes int64
+	MaxPathComponents    int
 }
 
 // Extractor writes entries beneath one directory.
 type Extractor struct {
-	root  *os.Root
-	paths *PathSet
+	root              *os.Root
+	paths             *PathSet
+	limits            ExtractorLimits
+	entries           int
+	pathMetadataBytes int64
+	archiveObjects    int
 	// ParentMode is the mode of directories created implicitly as parents.
 	ParentMode os.FileMode
 }
 
 // OpenExtractor confines extraction to dir, which must exist.
 func OpenExtractor(dir string) (*Extractor, error) {
+	return OpenExtractorWithLimits(dir, ExtractorLimits{})
+}
+
+// OpenExtractorWithLimits confines extraction to dir and applies additional
+// independent count and path-metadata limits while each entry is claimed.
+func OpenExtractorWithLimits(dir string, limits ExtractorLimits) (*Extractor, error) {
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return nil, fmt.Errorf("open extraction root: %w", err)
 	}
-	return &Extractor{root: root, paths: NewPathSet(), ParentMode: 0o700}, nil
+	return &Extractor{root: root, paths: NewPathSet(), limits: limits, ParentMode: 0o700}, nil
 }
 
 // Close releases the directory handle.
@@ -229,13 +260,45 @@ func (x *Extractor) Close() error {
 // Reserve claims a path that the archive must not produce (for example the
 // staged upload itself, when it lives in the destination).
 func (x *Extractor) Reserve(name string) error {
-	_, err := x.paths.Claim(name, File)
+	_, err := x.claim(name, File, false)
 	return err
+}
+
+func (x *Extractor) claim(name string, kind Kind, archiveEntry bool) (string, error) {
+	if archiveEntry && x.limits.MaxEntries > 0 && x.entries >= x.limits.MaxEntries {
+		return "", fmt.Errorf("archive entry limit exceeded (%d)", x.limits.MaxEntries)
+	}
+	clean, objects, metadata, err := x.paths.ClaimWithStats(name, kind)
+	if err != nil {
+		return "", err
+	}
+	components := 0
+	if clean != "." {
+		components = strings.Count(clean, "/") + 1
+	}
+	if x.limits.MaxPathComponents > 0 && components > x.limits.MaxPathComponents {
+		return "", fmt.Errorf("archive path has too many components (%d; limit %d)", components, x.limits.MaxPathComponents)
+	}
+	if x.limits.MaxPathMetadataBytes > 0 && metadata > x.limits.MaxPathMetadataBytes-x.pathMetadataBytes {
+		return "", fmt.Errorf("archive path metadata limit exceeded (%d bytes)", x.limits.MaxPathMetadataBytes)
+	}
+	if archiveEntry {
+		x.entries++
+		x.archiveObjects += objects
+	}
+	x.pathMetadataBytes += metadata
+	return clean, nil
+}
+
+// CreatedObjects reports the number of unique archive paths claimed as
+// filesystem objects so far, including implicit parent directories.
+func (x *Extractor) CreatedObjects() int {
+	return x.archiveObjects
 }
 
 // Dir creates a directory entry with the permission bits of mode.
 func (x *Extractor) Dir(name string, mode os.FileMode) (string, error) {
-	clean, err := x.paths.Claim(name, Directory)
+	clean, err := x.claim(name, Directory, true)
 	if err != nil {
 		return "", err
 	}
@@ -277,7 +340,7 @@ func (x *Extractor) File(name string, mode os.FileMode, src io.Reader, size int6
 	if size < 0 {
 		return "", 0, fmt.Errorf("entry %q has a negative size", name)
 	}
-	clean, err := x.paths.Claim(name, File)
+	clean, err := x.claim(name, File, true)
 	if err != nil {
 		return "", 0, err
 	}

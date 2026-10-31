@@ -1052,17 +1052,17 @@ func (a *App) inspect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Whether databases will be restored is chosen at import; check them then.
-	if err := a.checkCPMoveCapacity(info.ExpandedBytes, info.DatabaseBytes, false); err != nil {
+	if err := a.checkCPMoveCapacity(info.ExpandedBytes, info.DatabaseBytes, false, info.pathObjects); err != nil {
 		_ = os.Remove(archivePath)
 		http.Error(w, "insufficient free space for archive inspection", http.StatusInsufficientStorage)
 		return
 	}
-	if required, _, err := cpmoveRequiredFreeBytes(a.Config, written, info.ExpandedBytes); err == nil {
+	if required, _, err := cpmoveRequiredFreeBytes(a.Config, written, info.ExpandedBytes, info.pathObjects); err == nil {
 		info.RequiredFreeBytes = int64(required)
 	}
 	info.UploadID = uploadID
 	owner := a.Auth.UsernameForRequest(r)
-	metadata := cpmoveUpload{ID: uploadID, Path: archivePath, Filename: staged.Filename, Size: written, ExpandedBytes: info.ExpandedBytes, DatabaseBytes: info.DatabaseBytes, SHA256: staged.SHA256, Owner: owner, CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().UTC().Add(24 * time.Hour)}
+	metadata := cpmoveUpload{ID: uploadID, Path: archivePath, Filename: staged.Filename, Size: written, ExpandedBytes: info.ExpandedBytes, DatabaseBytes: info.DatabaseBytes, PathObjects: info.pathObjects, SHA256: staged.SHA256, Owner: owner, CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().UTC().Add(24 * time.Hour)}
 	metadataBytes, marshalErr := json.Marshal(metadata)
 	metadataErr := marshalErr
 	if metadataErr == nil && owner != "" {
@@ -1153,7 +1153,7 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 			_ = os.Remove(cpmoveUploadMetadataPath(a.Config.ImportRoot, request.UploadID))
 		}
 	}()
-	if err := a.checkCPMoveCapacity(upload.ExpandedBytes, upload.DatabaseBytes, request.RestoreDBs); err != nil {
+	if err := a.checkCPMoveCapacity(upload.ExpandedBytes, upload.DatabaseBytes, request.RestoreDBs, upload.PathObjects); err != nil {
 		return nil, err
 	}
 	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, request.User)
@@ -1525,7 +1525,7 @@ func (a *App) importBackup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "upload is missing, expired, or belongs to another operator", http.StatusNotFound)
 		return
 	}
-	if err := a.checkCPMoveCapacity(upload.ExpandedBytes, upload.DatabaseBytes, databaseRestore); err != nil {
+	if err := a.checkCPMoveCapacity(upload.ExpandedBytes, upload.DatabaseBytes, databaseRestore, upload.PathObjects); err != nil {
 		http.Error(w, "insufficient free space for archive restore", http.StatusInsufficientStorage)
 		return
 	}

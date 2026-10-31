@@ -50,6 +50,23 @@ func TestSniffDecidesFromContent(t *testing.T) {
 	}
 }
 
+func TestExtractorLimitsBoundMetadataBeforeCreatingNextPath(t *testing.T) {
+	dir := t.TempDir()
+	x, err := OpenExtractorWithLimits(dir, ExtractorLimits{
+		MaxPathMetadataBytes: 8,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer x.Close()
+	if _, _, err := x.File("a", 0600, strings.NewReader("x"), 1); err == nil {
+		t.Fatal("entry exceeding the metadata budget was accepted")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "a")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("over-budget path was created: stat error = %v", err)
+	}
+}
+
 func TestNormalizeName(t *testing.T) {
 	for in, want := range map[string]string{
 		"a/b.php":      "a/b.php",

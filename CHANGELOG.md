@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Security
+
+- cPanel archive inspection and extraction independently cap archives at
+  50,000 entries, 64 MiB of retained path bookkeeping, and 128 path components.
+  Restore admission includes a 4 KiB per unique filesystem object estimate,
+  limiting inode/metadata under-accounting from zero-byte files. Regression
+  tests cover compressed empty-file floods and extraction limits.
+
 ### Changed
 
 - Refreshed the README and screenshot gallery with dark-theme captures and

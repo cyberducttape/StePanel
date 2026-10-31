@@ -87,6 +87,14 @@ export STEPANEL_MAX_UPLOAD_BYTES=$((20 * 1024 * 1024 * 1024))
 
 ### Archive Entry Limits
 
+cPanel restore applies a hard maximum of 50,000 tar headers, 64 MiB of
+normalized-path bookkeeping, and 128 path components. The configured generic
+archive entry limit may lower this cPanel limit but cannot raise it. Capacity
+admission includes a 4 KiB per unique path object estimate for empty-file and
+directory metadata overhead. Operators should still isolate import staging on
+a quota-controlled filesystem; the estimate is admission control, not an inode
+quota.
+
 ```bash
 # Default: 1 million entries max
 export STEPANEL_MAX_ARCHIVE_ENTRIES=1000000

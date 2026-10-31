@@ -321,17 +321,20 @@ func rootBrokerHealthCheck() ReadinessCheck {
 	return ReadinessCheck{Ready: true, Detail: "root broker accepted a non-mutating health probe"}
 }
 
-func cpmoveRequiredFreeBytes(cfg Config, archiveBytes, expandedBytes int64) (total, remaining uint64, err error) {
+func cpmoveRequiredFreeBytes(cfg Config, archiveBytes, expandedBytes int64, pathObjects int) (total, remaining uint64, err error) {
 	if archiveBytes < 0 || expandedBytes < 0 {
 		return 0, 0, fmt.Errorf("invalid cpmove size estimate")
 	}
 	reserve := uint64(cfg.MinFreeBytes)
 	archive := uint64(archiveBytes)
-	expanded := uint64(expandedBytes)
-	if expanded > (^uint64(0)-reserve)/2 || archive > ^uint64(0)-reserve-2*expanded {
+	staged, err := cpmoveStagingBytes(expandedBytes, pathObjects)
+	if err != nil {
+		return 0, 0, err
+	}
+	if staged > (^uint64(0)-reserve)/2 || archive > ^uint64(0)-reserve-2*staged {
 		return 0, 0, fmt.Errorf("cpmove capacity estimate overflow")
 	}
-	return archive + 2*expanded + reserve, 2*expanded + reserve, nil
+	return archive + 2*staged + reserve, 2*staged + reserve, nil
 }
 
 // auditReadiness reports the latest audit append. Failures the writer has

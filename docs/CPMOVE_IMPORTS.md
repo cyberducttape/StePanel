@@ -90,3 +90,15 @@ directories inside `.tar.gz` archives, with or without a top-level
 and staged mailbox data are restored or preserved. Symlinks, device nodes,
 unusual cPanel metadata, DNS zones, and account-level quotas are not restored
 automatically.
+
+## Archive resource limits
+
+Inspection and extraction independently enforce a maximum of 50,000 tar
+headers, 64 MiB of retained normalized-path bookkeeping, and 128 path
+components. A lower `STEPANEL_MAX_ARCHIVE_ENTRIES` value lowers the cPanel
+header limit; increasing that setting cannot raise the cPanel-specific ceiling.
+
+Restore capacity admission includes a 4 KiB estimate for every unique extracted
+file or directory, in addition to expanded payload bytes. This accounts for
+empty-file and directory metadata/inode pressure, but it is not a substitute
+for filesystem quotas or a dedicated staging filesystem.

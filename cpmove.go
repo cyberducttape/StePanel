@@ -49,6 +49,7 @@ type CPMoveInfo struct {
 	MailboxValidation      []MigrationMailboxValidation `json:"mailbox_validation,omitempty"`
 	DomainInventoryStatus  string                       `json:"domain_inventory_status"`
 	DomainInventoryDetails string                       `json:"domain_inventory_details,omitempty"`
+	pathObjects            int
 }
 
 // CPMoveInspectionResponse contains bounded archive metadata for the import
@@ -308,6 +309,10 @@ func humanBytes(n int64) string {
 }
 
 const maxCPMoveExpandedBytes int64 = 80 << 30
+const maxCPMoveEntries = 50_000
+const maxCPMovePathMetadataBytes int64 = 64 << 20
+const maxCPMovePathComponents = 128
+const maxCPMoveFilesystemObjectBytes uint64 = 4 << 10
 const maxCPMoveUploadMetadataBytes = 16 << 10
 const maxCPMoveCronFileBytes = 1 << 20
 const maxCPMoveCronInventoryBytes = 8 << 20
@@ -331,10 +336,49 @@ type cpmoveUpload struct {
 	Size          int64     `json:"size"`
 	ExpandedBytes int64     `json:"expanded_bytes"`
 	DatabaseBytes int64     `json:"database_bytes"`
+	PathObjects   int       `json:"path_objects,omitempty"`
 	SHA256        string    `json:"sha256"`
 	Owner         string    `json:"owner"`
 	CreatedAt     time.Time `json:"created_at"`
 	ExpiresAt     time.Time `json:"expires_at"`
+}
+
+func cpmoveExtractorLimits(maxEntries int) archivesafe.ExtractorLimits {
+	limit := maxCPMoveEntries
+	if maxEntries > 0 && maxEntries < limit {
+		limit = maxEntries
+	}
+	return archivesafe.ExtractorLimits{
+		MaxEntries:           limit,
+		MaxPathMetadataBytes: maxCPMovePathMetadataBytes,
+		MaxPathComponents:    maxCPMovePathComponents,
+	}
+}
+
+func cpmoveStagingBytes(expandedBytes int64, pathObjects int) (uint64, error) {
+	if expandedBytes < 0 || pathObjects < 0 || pathObjects > maxCPMoveEntries*maxCPMovePathComponents {
+		return 0, errors.New("invalid cPanel archive staging estimate")
+	}
+	objects := uint64(pathObjects)
+	if objects > (^uint64(0)-uint64(expandedBytes))/maxCPMoveFilesystemObjectBytes {
+		return 0, errors.New("cPanel archive staging estimate overflow")
+	}
+	return uint64(expandedBytes) + objects*maxCPMoveFilesystemObjectBytes, nil
+}
+
+func cpmoveCapacityDemands(cfg Config, expandedBytes, databaseBytes int64, restoreDatabases bool, pathObjects int) ([]capacityDemand, error) {
+	if databaseBytes < 0 {
+		return nil, errors.New("invalid cPanel database size estimate")
+	}
+	stagingBytes, err := cpmoveStagingBytes(expandedBytes, pathObjects)
+	if err != nil {
+		return nil, err
+	}
+	demands := stagedArchiveDemands(cfg, stagingBytes)
+	if dir := databaseDataDir(cfg); restoreDatabases && databaseBytes > 0 && dir != "" {
+		demands = append(demands, capacityDemand{Path: dir, Bytes: saturatingAdd(uint64(databaseBytes), uint64(databaseBytes))})
+	}
+	return demands, nil
 }
 
 func cpmoveUploadPath(root, id string) string {
@@ -553,7 +597,7 @@ type ImportedDomain struct {
 }
 
 func InspectCPMove(file multipart.File, header *multipart.FileHeader) (CPMoveInfo, error) {
-	return inspectCPMove(file, header, 1000000)
+	return inspectCPMove(file, header, maxCPMoveEntries)
 }
 
 func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries int) (CPMoveInfo, error) {
@@ -586,6 +630,8 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 	userdataIncomplete := false
 	var cronInventoryBytes int64
 	paths := archivesafe.NewPathSet()
+	limits := cpmoveExtractorLimits(maxEntries)
+	var pathMetadataBytes int64
 	var total int64
 	for {
 		h, err := tr.Next()
@@ -595,6 +641,10 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 		if err != nil {
 			return info, errors.New("backup tar stream is damaged")
 		}
+		if info.Entries >= limits.MaxEntries {
+			return info, fmt.Errorf("archive contains more than %d entries", limits.MaxEntries)
+		}
+		info.Entries++
 		if h.Size < 0 || h.Size > 2<<30 || total > maxCPMoveExpandedBytes-h.Size {
 			return info, errors.New("archive contents exceed the 80 GiB inspection limit")
 		}
@@ -608,13 +658,26 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 		if kindErr != nil {
 			return info, fmt.Errorf("unsupported archive entry type: %w", kindErr)
 		}
-		if _, claimErr := paths.Claim(h.Name, kind); claimErr != nil {
+		cleanName, nameErr := archivesafe.NormalizeName(h.Name)
+		if nameErr != nil {
+			return info, fmt.Errorf("unsafe archive path: %w", nameErr)
+		}
+		components := 0
+		if cleanName != "." {
+			components = strings.Count(cleanName, "/") + 1
+		}
+		if components > limits.MaxPathComponents {
+			return info, fmt.Errorf("archive path has too many components (limit %d)", limits.MaxPathComponents)
+		}
+		_, newObjects, metadataBytes, claimErr := paths.ClaimWithStats(h.Name, kind)
+		if claimErr != nil {
 			return info, fmt.Errorf("unsafe archive path: %w", claimErr)
 		}
-		info.Entries++
-		if maxEntries > 0 && info.Entries > maxEntries {
-			return info, errors.New("archive contains too many entries")
+		if metadataBytes > limits.MaxPathMetadataBytes-pathMetadataBytes {
+			return info, fmt.Errorf("archive path metadata exceeds the %d-byte limit", limits.MaxPathMetadataBytes)
 		}
+		pathMetadataBytes += metadataBytes
+		info.pathObjects += newObjects
 		entry := normalizeCPMovePath(h.Name)
 		name := entry.Path
 		if info.User == "" && entry.User != "" {
@@ -983,7 +1046,7 @@ func RestoreCPMoveContext(ctx context.Context, cfg Config, file multipart.File, 
 	if err := temp.Close(); err != nil {
 		return ImportResult{}, err
 	}
-	return restoreCPMoveArchiveContext(ctx, cfg, tempPath, header, site, databases, ledgers...)
+	return restoreCPMoveArchiveContext(ctx, cfg, tempPath, header, site, databases, ledger)
 }
 
 type cpmoveContextLimitReader struct {
@@ -1061,6 +1124,27 @@ func restoreCPMoveArchiveContextWithApp(ctx context.Context, cfg Config, archive
 		input.Close()
 		return ImportResult{}, err
 	}
+	ledger := (*capacityLedger)(nil)
+	if len(ledgers) > 0 {
+		ledger = ledgers[0]
+	}
+	if app != nil {
+		ledger = app.capacityLedger()
+	}
+	if ledger == nil {
+		ledger = &capacityLedger{}
+	}
+	demands, err := cpmoveCapacityDemands(cfg, archiveInfo.ExpandedBytes, archiveInfo.DatabaseBytes, databases, archiveInfo.pathObjects)
+	if err != nil {
+		input.Close()
+		return ImportResult{}, err
+	}
+	stageReservation, err := ledger.reserve(cfg, "cPanel restore staging", cfg.ImportRoot, demands)
+	if err != nil {
+		input.Close()
+		return ImportResult{}, err
+	}
+	defer stageReservation.release()
 	randomID, err := randomSecret()
 	if err != nil {
 		input.Close()
@@ -1078,7 +1162,7 @@ func restoreCPMoveArchiveContextWithApp(ctx context.Context, cfg Config, archive
 			log.Printf("release cPanel import stage lease for %s: %v", id, err)
 		}
 	}()
-	if err = extractArchiveReaderContext(ctx, input, stage, archive); err != nil {
+	if err = extractCPMoveArchiveReaderContext(ctx, input, stage, archive, cpmoveExtractorLimits(cfg.MaxEntries), stageReservation); err != nil {
 		_ = input.Close()
 		return ImportResult{}, err
 	}
@@ -1735,12 +1819,20 @@ func extractArchiveContext(ctx context.Context, archive, destination string) err
 // destination through internal/archivesafe: entries cannot escape it,
 // collide with one another, or overwrite anything already there.
 func extractArchiveReaderContext(ctx context.Context, input io.Reader, destination, archivePath string) error {
+	return extractArchiveReaderContextWithLimits(ctx, input, destination, archivePath, archivesafe.ExtractorLimits{}, 20<<30, nil)
+}
+
+func extractCPMoveArchiveReaderContext(ctx context.Context, input io.Reader, destination, archivePath string, limits archivesafe.ExtractorLimits, reservation *capacityReservation) error {
+	return extractArchiveReaderContextWithLimits(ctx, input, destination, archivePath, limits, maxCPMoveExpandedBytes, reservation)
+}
+
+func extractArchiveReaderContextWithLimits(ctx context.Context, input io.Reader, destination, archivePath string, limits archivesafe.ExtractorLimits, maxExpandedBytes int64, reservation *capacityReservation) error {
 	gz, err := gzip.NewReader(input)
 	if err != nil {
 		return err
 	}
 	defer gz.Close()
-	extractor, err := archivesafe.OpenExtractor(destination)
+	extractor, err := archivesafe.OpenExtractorWithLimits(destination, limits)
 	if err != nil {
 		return err
 	}
@@ -1756,7 +1848,8 @@ func extractArchiveReaderContext(ctx context.Context, input io.Reader, destinati
 		}
 	}
 	tr := tar.NewReader(gz)
-	var total int64
+	var expandedHeaders int64
+	var consumed uint64
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -1768,6 +1861,10 @@ func extractArchiveReaderContext(ctx context.Context, input io.Reader, destinati
 		if err != nil {
 			return err
 		}
+		if h.Size < 0 || h.Size > 2<<30 || expandedHeaders > maxExpandedBytes-h.Size {
+			return errors.New("archive contents exceed the extraction limit")
+		}
+		expandedHeaders += h.Size
 		if !safeArchivePath(h.Name) {
 			return errors.New("unsafe archive path")
 		}
@@ -1781,19 +1878,29 @@ func extractArchiveReaderContext(ctx context.Context, input io.Reader, destinati
 			return fmt.Errorf("unsupported archive entry type: %w", err)
 		}
 		if kind == archivesafe.Directory {
+			before := extractor.CreatedObjects()
 			if _, err := extractor.Dir(h.Name, 0o700); err != nil {
 				return fmt.Errorf("unsafe archive path: %w", err)
 			}
+			if reservation != nil {
+				consumed += uint64(extractor.CreatedObjects()-before) * maxCPMoveFilesystemObjectBytes
+				if err := reservation.consume(int64(consumed)); err != nil {
+					return fmt.Errorf("update cPanel restore capacity reservation: %w", err)
+				}
+			}
 			continue
 		}
-		if h.Size < 0 || h.Size > 2<<30 || total+h.Size > 20<<30 {
-			return errors.New("archive contents exceed the 20 GiB extraction limit")
-		}
+		before := extractor.CreatedObjects()
 		_, written, err := extractor.File(h.Name, 0o600, tr, h.Size)
 		if err != nil {
 			return fmt.Errorf("unsafe archive path: %w", err)
 		}
-		total += written
+		if reservation != nil {
+			consumed += uint64(written) + uint64(extractor.CreatedObjects()-before)*maxCPMoveFilesystemObjectBytes
+			if err := reservation.consume(int64(consumed)); err != nil {
+				return fmt.Errorf("update cPanel restore capacity reservation: %w", err)
+			}
+		}
 	}
 }
 
