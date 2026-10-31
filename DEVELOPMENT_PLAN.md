@@ -23,7 +23,8 @@ enumeration checks pass. All operations now resolve components relative to
 an opened document-root descriptor, and the installed-host smoke interposes
 symlink swaps before reads, writes, mkdir, rename, delete, and listing. Local
 embedded-helper confinement checks pass; exact-source installed-host CI
-evidence is pending.
+evidence is pending. The first host run caught and fixed a setgid inheritance
+regression in new directories; the amended mode now preserves parent setgid.
 
 **Acceptance criteria**
 

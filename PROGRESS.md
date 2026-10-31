@@ -1167,5 +1167,8 @@ does not close a current-source or power-loss gate.
   system account.
 - Local validation passed: Bash syntax, ShellCheck, embedded Python compile,
   `git diff --check`, and a temporary-directory runtime check covering normal
-  operations plus symlink confinement. Exact-source installed-host CI is
-  pending; no host certification is claimed.
+  operations, symlink confinement, and setgid group inheritance. The first
+  installed-host run exposed a setgid-bit regression in new directories; this
+  was corrected before the host smoke reached its symlink-swap cases. The
+  corrected exact-source host and full CI reruns are pending; no host
+  certification is claimed from the failed first run.

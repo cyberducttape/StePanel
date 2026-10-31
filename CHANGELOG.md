@@ -32,6 +32,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   operation boundary instead of relying on a separate pathname check. The
   installed-host smoke interposes symlink swaps across list/read/write/mkdir/
   rename/delete operations and verifies they cannot reach a sibling path.
+  Newly created directories preserve the parent setgid bit so uploaded files
+  continue to inherit the configured web-server group.
 - PostgreSQL database backups now use `pg_dump` custom archives and restore
   through `pg_restore`; the privileged helper rejects plain SQL scripts,
   avoiding psql meta-command execution such as `\!`, `\copy`, and `\o`.
