@@ -30,7 +30,7 @@ cd "$repo_root"
 
 for i in "${!patterns[@]}"; do
   start=$(date +%s)
-  if GOCACHE=${GOCACHE:-/tmp/stepanel-go-cache} GOMAXPROCS=${GOMAXPROCS:-1} GOFLAGS="${GOFLAGS:--p=1}" go test -timeout "${TEST_TIMEOUT:-10m}" -run "${patterns[$i]}" -count=1 ./ >"$tmp" 2>&1; then
+  if GOMAXPROCS=${GOMAXPROCS:-1} GOFLAGS="${GOFLAGS:--p=1}" go test -timeout "${TEST_TIMEOUT:-10m}" -run "${patterns[$i]}" -count=1 ./ >"$tmp" 2>&1; then
     result=PASS
   else
     result=FAIL

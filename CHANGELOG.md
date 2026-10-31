@@ -14,6 +14,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   covered; scheduled off-host publication and acknowledgement remain open.
 - Added a `FuzzNormalizeName` archive-path property target to the scheduled
   fuzz workflow, checking canonicalization idempotence and path bounds.
+- Added a scheduled/manual reliability workflow that repeats the complete Go
+  suite three times and runs isolated crash-recovery drills with explicit
+  test and workflow timeouts.
+- Recovery-drill test invocations now reuse the configured Go build cache,
+  avoiding a cold rebuild of the large root package for each scenario.
 - Durable job claims now receive unique random fencing tokens. Worker progress,
   checkpoint, renewal, failure, and completion writes compare-and-swap against
   the active token and unexpired lease, so an expired claim cannot commit even

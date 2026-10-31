@@ -36,6 +36,16 @@ This closes M0 exact-source validation only; production recovery gates remain
 open. A separate Rocky 9 KVM host-recovery run on source `b650992` is active;
 its result is not included in this CI status.
 
+Most recent exact-source verification is `d5fe183f51e5ccbea51434a5ea8620c17a47fea3`:
+CI integration [41179096619](https://github.com/cyberducttape/StePanel/actions/runs/41179096619),
+CodeQL [41179096643](https://github.com/cyberducttape/StePanel/actions/runs/41179096643),
+documentation [41179096618](https://github.com/cyberducttape/StePanel/actions/runs/41179096618),
+and release evidence [41179959544](https://github.com/cyberducttape/StePanel/actions/runs/41179959544)
+passed. CI includes coverage floors, full Go tests, full race tests, recovery
+drills, tmpfs ENOSPC, database integration, deployment validation, and UI E2E.
+This establishes code-level CI on that source; the installed-host and repeated
+failure certification gates remain separate.
+
 - [x] Correct the Playwright quota-headroom expectation to match the UI's
   account-scoped upper-bound wording; exact-source browser E2E passed in
   [41157044343](https://github.com/cyberducttape/StePanel/actions/runs/41157044343).
@@ -412,11 +422,10 @@ remains in effect; it must not be extended without a compatibility review.
 
 ### M0k — Fence every durable job claim through commit (P0)
 
-**Status:** Implemented and locally verified on 2026-10-31. `make check`,
-the full repeated suite, and the full race suite passed during this change. A
-later startup-reconciliation CAS refinement also passed `make check` and its
-focused race tests. Obtain exact-source hosted CI before closing this
-milestone.
+**Status:** Complete on exact source `d5fe183` (2026-10-31). `make check`,
+three repeated full-suite runs, audit/root-broker/operations race tests, the
+full hosted race suite, and hosted CI/CodeQL passed. The startup-reconciliation
+CAS refinement is included in that exact-source validation.
 
 Each claim receives a fresh random lease token distinct from the diagnostic
 worker ID. Progress updates, payload checkpoints, lease renewal, success and

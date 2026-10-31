@@ -15,8 +15,24 @@
 - Hosted CI on `53593d7` passed browser E2E, CodeQL, documentation, and release
   evidence, but failed the enforced audit-package coverage floor (94.1% vs
   95%). Added checkpoint invalid-field and identity rejection cases; package
-  coverage is now 95.2%, and the exact coverage gate passes locally. Full
-  `make check` and a clean hosted run for this follow-up are still pending.
+  coverage is now 95.2%, and the exact coverage gate passes locally. `make
+  check` passed on the follow-up source. Exact source `d5fe183` then passed CI
+  [41179096619](https://github.com/cyberducttape/StePanel/actions/runs/41179096619),
+  CodeQL [41179096643](https://github.com/cyberducttape/StePanel/actions/runs/41179096643),
+  documentation [41179096618](https://github.com/cyberducttape/StePanel/actions/runs/41179096618),
+  and release evidence [41179959544](https://github.com/cyberducttape/StePanel/actions/runs/41179959544).
+  CI's coverage, full Go, race, recovery, tmpfs ENOSPC, database, deployment,
+  and UI checks all passed. The initial coverage failure is resolved.
+- Added a scheduled/manual reliability workflow for `go test ./... -count=3`
+  and the isolated recovery-drill script, each with explicit test limits. Its
+  first hosted execution is pending; the existing PR integration already runs
+  the full race suite and separate recovery and ENOSPC steps. The workflow
+  passes the action-pin and release-tree checks locally.
+- Local exercise of the scheduled commands passed: the three-repeat full suite
+  passed all packages (root package 225.7 s). All four recovery-drill groups
+  passed; using the pre-existing Go cache reduced the first drill from 150 s
+  to 2 s, with the remaining drills at 2–3 s. Removed the script's forced cold
+  `/tmp` cache so CI and operators reuse their configured Go build cache.
 - This is a format/verification primitive only. It is not yet scheduled or
   journaled as a durable job, not published to independent storage, and has no
   verified remote acknowledgement or production key-rotation policy. M0l stays

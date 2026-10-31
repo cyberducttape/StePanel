@@ -1,0 +1,32 @@
+name: Reliability repetition
+
+on:
+  schedule:
+    - cron: '17 6 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stepanel-reliability-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  repeat-and-recover:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: 2
+      GOFLAGS: -p=1
+      TEST_TIMEOUT: 10m
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.10'
+          cache: true
+      - name: Repeat complete Go suite
+        run: go test -timeout 15m ./... -count=3
+      - name: Run isolated crash-recovery drills
+        run: bash deploy/lab/run-recovery-drills.sh "$RUNNER_TEMP/stepanel-recovery-drills.md"
