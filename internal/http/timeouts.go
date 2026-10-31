@@ -50,7 +50,7 @@ var ServiceOperationPaths = []string{
 // IsUploadPath reports whether path receives a large archive upload. Uploads
 // keep the server-wide read timeout and their own idle-body guard.
 func IsUploadPath(path string) bool {
-	return startsWith(path, "/api/cpmove/") || startsWith(path, "/api/wpress/") || startsWith(path, "/api/backup/import")
+	return startsWith(path, "/api/cpmove/") || startsWith(path, "/api/wpress/")
 }
 
 // IsServiceOperationPath reports whether path is a synchronous service action.
@@ -134,7 +134,8 @@ func (tc TimeoutConfiguration) ApplyToServer(srv *http.Server) {
 //     the ceiling only bounds slow but active transfers
 //
 // DOWNLOADS (5m write):
-//   - Backup downloads and exports; also the server-wide WriteTimeout
+//   - The server-wide WriteTimeout; no route currently streams a large
+//     download, so no path selects this class
 //
 // SERVICE OPERATIONS (3m):
 //   - Synchronous service actions: the helper's 60-second lifecycle bound
@@ -154,10 +155,6 @@ func (tc TimeoutConfiguration) Middleware() func(http.Handler) http.Handler {
 			case IsUploadPath(r.URL.Path):
 				// Uploads need long timeouts
 				timeout = tc.UploadRead
-			case startsWith(r.URL.Path, "/api/backup/download") ||
-				startsWith(r.URL.Path, "/api/export"):
-				// Downloads need long write timeouts
-				timeout = tc.DownloadWrite
 			case IsServiceOperationPath(r.URL.Path):
 				// The server-wide write timeout would end the response before
 				// the work finishes; extend it for this request only.
@@ -165,8 +162,7 @@ func (tc TimeoutConfiguration) Middleware() func(http.Handler) http.Handler {
 				if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(timeout + time.Minute)); err != nil && !errors.Is(err, http.ErrNotSupported) {
 					log.Printf("extend write deadline for %s: %v", r.URL.Path, err)
 				}
-			case startsWith(r.URL.Path, "/api/jobs/") ||
-				startsWith(r.URL.Path, "/api/activity"):
+			case startsWith(r.URL.Path, "/api/jobs/"):
 				// Activity polling
 				timeout = tc.LongPoll
 			default:
