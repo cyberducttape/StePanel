@@ -5,7 +5,8 @@ from a running control plane with synthetic data by
 [`scripts/capture-screenshots.sh`](../scripts/capture-screenshots.sh), which
 records the commit, version, browser, and capture time in
 [`assets/screenshots/metadata.txt`](assets/screenshots/metadata.txt).
-The preview set uses the Retro 80s Neon appearance pack.
+The preview set uses StePanel's clean light appearance for clear text and
+consistent color contrast.
 
 ## Operator overview
 

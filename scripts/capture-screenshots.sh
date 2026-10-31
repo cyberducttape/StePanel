@@ -59,7 +59,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$DEMO_ROOT"/{imports,backups,www,mail,nvm,proxy,vhosts,apps,quarantine,recovery,bin}
+mkdir -p "$DEMO_ROOT"/{imports,backups,www,home,mail,nvm,proxy,vhosts,apps,quarantine,recovery,bin}
 printf '#!/bin/sh\nexit 0\n' > "$DEMO_ROOT/bin/noop-helper"
 # The demo vhost helper records a route file with the name the real helper
 # uses, so domains appear exactly as StePanel discovers them on a host.
@@ -83,6 +83,7 @@ env -i PATH="$PATH" HOME="$DEMO_ROOT" \
   STEPANEL_LISTEN="127.0.0.1:$PORT" \
   STEPANEL_IMPORT_ROOT="$DEMO_ROOT/imports" \
   STEPANEL_WEB_ROOT="$DEMO_ROOT/www" \
+  STEPANEL_HOME_ROOT="$DEMO_ROOT/home" \
   STEPANEL_BACKUP_ROOT="$DEMO_ROOT/backups" \
   STEPANEL_MAIL_ROOT="$DEMO_ROOT/mail" \
   STEPANEL_NVM_DIR="$DEMO_ROOT/nvm" \
@@ -120,7 +121,7 @@ node "$REPO_ROOT/scripts/capture-screenshots.js"
   printf 'version: %s\n' "$(git -C "$REPO_ROOT" describe --tags --match 'v*' --always --dirty 2>/dev/null || printf unknown)"
   printf 'captured_at_utc: %s\n' "$(date -u +%FT%TZ)"
   printf 'browser: Playwright %s\n' "${PLAYWRIGHT_CHANNEL:-chromium}"
-  printf 'theme: retro-neon (WayExpand-inspired)\n'
+  printf 'theme: StePanel Light (default appearance)\n'
   printf 'data: synthetic sites, .example domains, backups, and one customer account seeded through the API\n'
   printf 'host: disposable development control plane; root helpers replaced by stand-ins (vhost helper writes route files only; application and site isolation helpers are no-ops)\n'
 } > "$OUT_DIR/metadata.txt"

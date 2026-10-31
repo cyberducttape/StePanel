@@ -28,7 +28,7 @@ const routes = [['northwind', 'northwind.example'], ['northwind', 'www.northwind
 const customer = { username: 'northwind-team', password: 'Northwind-Demo-Password-2026!', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', plan: 'professional', sites: ['northwind'] };
 const desktop = { width: 1440, height: 900 };
 const mobile = { width: 390, height: 844 };
-const retroNeonPreferences = { theme: 'retro-neon', dark: true, scale: 100 };
+const previewPreferences = { theme: 'default', dark: false, scale: 100 };
 
 function base32Decode(text) {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -79,13 +79,18 @@ async function expectStatus(result, allowed, what) {
 }
 
 async function waitForJob(page, id) {
-  for (let i = 0; i < 120; i++) {
+  const deadline = Date.now() + 120000;
+  let lastJob;
+  while (Date.now() < deadline) {
     const job = await expectStatus(await call(page, 'GET', '/api/jobs/' + encodeURIComponent(id)), [200], 'job ' + id);
+    lastJob = job;
     if (job.state === 'completed') return job;
-    if (job.state === 'failed' || job.state === 'dead') throw new Error(`job ${id} ${job.state}: ${JSON.stringify(job)}`);
-    await page.waitForTimeout(250);
+    if (job.state === 'failed' || job.state === 'dead' || job.state === 'dead-letter') {
+      throw new Error(`job ${id} ${job.state}: ${job.error || JSON.stringify(job)}`);
+    }
+    await page.waitForTimeout(500);
   }
-  throw new Error(`job ${id} did not finish`);
+  throw new Error(`job ${id} did not finish within 120s; last state: ${JSON.stringify(lastJob)}`);
 }
 
 async function seed(page) {
@@ -94,7 +99,14 @@ async function seed(page) {
     await waitForJob(page, job.job_id);
   }
   for (const [site, domain] of routes) {
-    await expectStatus(await call(page, 'POST', '/api/sites/deploy', { site, domain }), [200, 201, 202], `route ${domain}`);
+    const desired = { site, domain };
+    const preview = await expectStatus(await call(page, 'POST', '/api/sites/deploy', desired), [200], `preview route ${domain}`);
+    if (!preview.preview_token) throw new Error(`preview route ${domain}: response did not include a preview token`);
+    await expectStatus(
+      await call(page, 'POST', '/api/sites/deploy', { ...desired, preview_token: preview.preview_token }),
+      [202],
+      `apply route ${domain}`,
+    );
   }
   for (const site of ['northwind', 'acme-shop', 'northwind']) {
     const job = await expectStatus(await call(page, 'POST', '/api/backups', { site, include_databases: false }), [202], 'backup ' + site);
@@ -150,10 +162,10 @@ async function capture(page, name) {
   fs.mkdirSync(outDir, { recursive: true });
   const browser = await chromium.launch(process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {});
   try {
-    const context = await browser.newContext({ viewport: desktop, deviceScaleFactor: 2, colorScheme: 'dark' });
+    const context = await browser.newContext({ viewport: desktop, deviceScaleFactor: 1.5, colorScheme: 'light' });
     await context.addInitScript((preferences) => {
       window.localStorage.setItem('stepanel.appearance.v1', JSON.stringify(preferences));
-    }, retroNeonPreferences);
+    }, previewPreferences);
     const page = await context.newPage();
 
     await page.goto(base + '/login');
@@ -164,6 +176,10 @@ async function capture(page, name) {
 
     await page.goto(base + '/');
     await settle(page);
+    const domainCount = (await page.locator('#domainCount').textContent()).trim();
+    if (domainCount !== String(routes.length)) {
+      throw new Error(`operator overview shows ${domainCount} domains; expected ${routes.length}`);
+    }
     await capture(page, 'operator-overview');
 
     await show(page, '#sites');
@@ -184,22 +200,26 @@ async function capture(page, name) {
     // Use the responsive viewport without mobile device emulation. The
     // latter can produce zero-size text in headless browser builds while the
     // CSS breakpoint layout remains fully representative at this width.
-    const phone = await browser.newContext({ viewport: mobile, deviceScaleFactor: 3, colorScheme: 'dark' });
+    const phone = await browser.newContext({ viewport: mobile, deviceScaleFactor: 2, colorScheme: 'light' });
     await phone.addInitScript((preferences) => {
       window.localStorage.setItem('stepanel.appearance.v1', JSON.stringify(preferences));
-    }, retroNeonPreferences);
+    }, previewPreferences);
     const phonePage = await phone.newPage();
     await signIn(phonePage, admin);
     await settle(phonePage);
     await capture(phonePage, 'operator-overview-mobile');
 
-    const tenant = await browser.newContext({ viewport: desktop, deviceScaleFactor: 2, colorScheme: 'dark' });
+    const tenant = await browser.newContext({ viewport: desktop, deviceScaleFactor: 1.5, colorScheme: 'light' });
     await tenant.addInitScript((preferences) => {
       window.localStorage.setItem('stepanel.appearance.v1', JSON.stringify(preferences));
-    }, retroNeonPreferences);
+    }, previewPreferences);
     const tenantPage = await tenant.newPage();
     await signIn(tenantPage, { username: customer.username, password: customer.password, code: totp(customer.totp) });
     await settle(tenantPage);
+    const siteList = await tenantPage.locator('#panelSiteList').innerText();
+    if (!siteList.includes('public_html') || siteList.includes('/tmp/') || siteList.includes('/home/')) {
+      throw new Error(`customer website list has an unexpected document-root display: ${siteList}`);
+    }
     await capture(tenantPage, 'customer-overview');
   } finally {
     await browser.close();

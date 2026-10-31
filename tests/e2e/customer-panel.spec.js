@@ -104,7 +104,8 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   // Home: the account and its websites, with no operator navigation.
   await expect(page.getByRole('heading', { name: `Welcome back, ${testCustomer.username}` })).toBeVisible();
   await expect(page.locator('#panelHome')).toHaveText(`/home/${testCustomer.username}`);
-  await expect(page.locator('#panelSiteList')).toContainText(`/home/${testCustomer.username}/public_html`);
+  await expect(page.locator('#panelSiteList')).toContainText('public_html');
+  await expect(page.locator('#panelSiteList')).not.toContainText(`/home/${testCustomer.username}/public_html`);
   await expect(page.getByRole('link', { name: 'Customers' })).toHaveCount(0);
   await checkA11y(page);
 
@@ -125,6 +126,8 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   // Domains: connected domains and a link into the site's Domains tab.
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Domains & SSL' }).click();
   await expect(page.locator('#panelDomainRows')).toContainText('main.example.org');
+  await expect(page.locator('#panelDomainRows')).toContainText('public_html');
+  await expect(page.locator('#panelDomainRows')).not.toContainText(`/home/${testCustomer.username}/public_html`);
   await checkA11y(page);
 
   for (const [name, id] of [['Websites', '#websites'], ['Databases & backups', '#data'], ['PHP, cron & logs', '#runtime'], ['Account', '#account'], ['Activity', '#activity']]) {

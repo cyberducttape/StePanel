@@ -92,7 +92,7 @@
 
   const siteMeta = (site) => el('div', { className: 'item-meta' }, [
     el('strong', {}, [site.site, site.kind ? el('span', { className: 'panel-kind' }, kindLabel[site.kind] || site.kind) : null]),
-    el('small', { className: 'mono' }, site.doc_root),
+    el('small', { className: 'mono' }, site.directory || site.doc_root),
   ]);
 
   const renderSiteList = (container, actions, empty) => {
@@ -154,7 +154,7 @@
     rows.replaceChildren(...entries.map(({ site, domain }) => el('tr', {}, [
       el('td', {}, el('strong', {}, domain)),
       el('td', {}, site.site),
-      el('td', { className: 'mono' }, site.doc_root),
+      el('td', { className: 'mono' }, site.directory || site.doc_root),
       el('td', {}, el('div', { className: 'file-actions' }, [el('a', { href: `#site=${encodeURIComponent(site.site)}&tab=domains` }, 'Manage')])),
     ])));
   };
