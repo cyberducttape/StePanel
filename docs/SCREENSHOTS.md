@@ -5,8 +5,8 @@ from a running control plane with synthetic data by
 [`scripts/capture-screenshots.sh`](../scripts/capture-screenshots.sh), which
 records the commit, version, browser, and capture time in
 [`assets/screenshots/metadata.txt`](assets/screenshots/metadata.txt).
-The preview set uses StePanel's clean light appearance for clear text and
-consistent color contrast.
+The preview set uses StePanel's dark appearance with CyberDuctTape demo
+branding and `cyberducttape.com` domains.
 
 ## Operator overview
 
@@ -75,7 +75,7 @@ scripts/capture-screenshots.sh    # writes docs/assets/screenshots
 
 The script builds StePanel, starts a disposable control plane with throwaway
 secrets, and seeds it through the same API the dashboard uses: three sites,
-four domains on the reserved `.example` TLD, three backups, and one customer
+four `cyberducttape.com` domains, three backups, and one customer
 account. Everything on screen is server state. Because the demo host has no
 root broker, the root helpers are replaced by stand-ins. The vhost helper only
 writes the route file StePanel reads back, and the application and site

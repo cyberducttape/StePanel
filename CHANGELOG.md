@@ -8,10 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
-- Refreshed the README and screenshot gallery with clear, light-theme captures.
-  The screenshot seeder now uses the route preview/apply flow and verifies the
-  resulting domain count before capture. Customer website lists show their
-  site-relative document-root directory rather than a host filesystem path.
+- Refreshed the README and screenshot gallery with dark-theme captures and
+  CyberDuctTape demo branding on `cyberducttape.com`. The screenshot seeder
+  uses the route preview/apply flow and verifies the domain count. Customer
+  website lists show site-relative document-root directories instead of host
+  filesystem paths.
 
 ### Reliability
 

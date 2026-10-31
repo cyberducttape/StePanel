@@ -11,7 +11,7 @@ StePanel is an open-source server management panel written in Go. It installs Ca
 
 It is designed for people who want a small, understandable hosting control plane instead of a large opaque platform.
 
-![StePanel operator overview in the clean light appearance](docs/assets/screenshots/operator-overview.png)
+![StePanel operator overview in the dark appearance](docs/assets/screenshots/operator-overview.png)
 
 <table>
 <tr>
@@ -24,8 +24,8 @@ It is designed for people who want a small, understandable hosting control plane
 </tr>
 </table>
 
-The preview images use StePanel's clean light appearance. These are screenshots
-of the real UI, captured with synthetic demo data by
+The preview images use StePanel's dark appearance and CyberDuctTape demo
+branding. These are screenshots of the real UI, captured with synthetic data by
 [`scripts/capture-screenshots.sh`](scripts/capture-screenshots.sh). See
 [SCREENSHOTS.md](docs/SCREENSHOTS.md) for every view and how they are produced.
 

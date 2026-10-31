@@ -1,9 +1,9 @@
 StePanel UI screenshots
 
-commit: e0d939d
-version: v0.7.0-2014-ge0d939d-dirty
-captured_at_utc: 2026-10-31T15:57:16Z
+commit: 016d919
+version: v0.7.0-2015-g016d919-dirty
+captured_at_utc: 2026-10-31T16:05:08Z
 browser: Playwright chrome
-theme: StePanel Light (default appearance)
-data: synthetic sites, .example domains, backups, and one customer account seeded through the API
+theme: StePanel Dark (default appearance)
+data: synthetic CyberDuctTape sites, cyberducttape.com domains, backups, and one customer account seeded through the API
 host: disposable development control plane; root helpers replaced by stand-ins (vhost helper writes route files only; application and site isolation helpers are no-ops)

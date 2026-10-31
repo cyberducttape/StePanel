@@ -22,13 +22,13 @@ if (!base || !outDir || !admin.username || !admin.password) {
   process.exit(64);
 }
 
-// Synthetic demonstration data. Domains use the reserved .example TLD.
-const sites = ['northwind', 'acme-shop', 'field-notes'];
-const routes = [['northwind', 'northwind.example'], ['northwind', 'www.northwind.example'], ['acme-shop', 'shop.acme.example'], ['field-notes', 'notes.example']];
-const customer = { username: 'northwind-team', password: 'Northwind-Demo-Password-2026!', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', plan: 'professional', sites: ['northwind'] };
+// Synthetic demonstration data using the requested CyberDuctTape branding.
+const sites = ['cyberducttape', 'shop-cyberducttape', 'notes-cyberducttape'];
+const routes = [['cyberducttape', 'cyberducttape.com'], ['cyberducttape', 'www.cyberducttape.com'], ['shop-cyberducttape', 'shop.cyberducttape.com'], ['notes-cyberducttape', 'notes.cyberducttape.com']];
+const customer = { username: 'cyber-team', password: 'CyberDuctTape-Demo-Password-2026!', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', plan: 'professional', sites: ['cyberducttape'] };
 const desktop = { width: 1440, height: 900 };
 const mobile = { width: 390, height: 844 };
-const previewPreferences = { theme: 'default', dark: false, scale: 100 };
+const previewPreferences = { theme: 'default', dark: true, scale: 100 };
 
 function base32Decode(text) {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -108,7 +108,7 @@ async function seed(page) {
       `apply route ${domain}`,
     );
   }
-  for (const site of ['northwind', 'acme-shop', 'northwind']) {
+  for (const site of ['cyberducttape', 'shop-cyberducttape', 'cyberducttape']) {
     const job = await expectStatus(await call(page, 'POST', '/api/backups', { site, include_databases: false }), [202], 'backup ' + site);
     await waitForJob(page, job.job_id);
   }
@@ -185,11 +185,11 @@ async function capture(page, name) {
     await show(page, '#sites');
     await capture(page, 'sites');
 
-    await open(page, '/#site=northwind&tab=domains');
+    await open(page, '/#site=cyberducttape&tab=domains');
     await show(page, '#siteDetail');
     await capture(page, 'site-workspace');
 
-    await open(page, '/#site=northwind&tab=backups');
+    await open(page, '/#site=cyberducttape&tab=backups');
     await show(page, '#siteDetail');
     await capture(page, 'site-backups');
 
