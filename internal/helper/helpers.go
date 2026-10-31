@@ -216,8 +216,7 @@ func RunBoundedCommandLimit(ctx context.Context, cmd *exec.Cmd, limit int) ([]by
 		// Give wrappers time to stop transient cgroup units, then kill every
 		// remaining process in the helper group. Detached sessions still require
 		// cgroup containment.
-		terminateProcessGroup(cmd)
-		<-waitErr
+		terminateProcessGroup(cmd, waitErr)
 		captured := output.Bytes()
 		return captured, fmt.Errorf("%w: %s", ctx.Err(), string(captured))
 	}
@@ -236,13 +235,26 @@ func signalProcessGroup(cmd *exec.Cmd, signal syscall.Signal) error {
 	return nil
 }
 
-func terminateProcessGroup(cmd *exec.Cmd) {
+// terminateProcessGroup sends SIGTERM, waits for the command to exit for at
+// most processGroupShutdownGrace, then sends SIGKILL to whatever remains of
+// the group. It returns once Wait has finished, so a prompt exit is not
+// delayed by the full grace period.
+func terminateProcessGroup(cmd *exec.Cmd, waitErr <-chan error) {
 	if cmd == nil || cmd.Process == nil {
+		<-waitErr
 		return
 	}
 	_ = signalProcessGroup(cmd, unix.SIGTERM)
-	time.Sleep(processGroupShutdownGrace)
-	_ = signalProcessGroup(cmd, unix.SIGKILL)
+	timer := time.NewTimer(processGroupShutdownGrace)
+	defer timer.Stop()
+	select {
+	case <-waitErr:
+		// Descendants that ignored SIGTERM may still share the group.
+		_ = signalProcessGroup(cmd, unix.SIGKILL)
+	case <-timer.C:
+		_ = signalProcessGroup(cmd, unix.SIGKILL)
+		<-waitErr
+	}
 }
 
 func RunBoundedCommandInput(ctx context.Context, cmd *exec.Cmd, input io.Reader) ([]byte, error) {

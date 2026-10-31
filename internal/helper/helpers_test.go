@@ -375,3 +375,35 @@ func TestOpenRegularRejectsChangedOrNonRegularFiles(t *testing.T) {
 		t.Error("invalid flock unexpectedly succeeded")
 	}
 }
+
+func TestRunBoundedCommandKillsGroupThatIgnoresTERM(t *testing.T) {
+	ready := filepath.Join(t.TempDir(), "ready")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// trap "" TERM is inherited by the sleep children, so only SIGKILL ends them.
+	cmd := exec.CommandContext(ctx, "sh", "-c", `trap "" TERM; printf ready > "$1"; while :; do sleep .01; done`, "sh", ready)
+	done := make(chan error, 1)
+	go func() {
+		_, err := RunBoundedCommandLimit(ctx, cmd, 1024)
+		done <- err
+	}()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("command did not start")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancellation error = %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a process group ignoring SIGTERM was not killed after the grace period")
+	}
+}
