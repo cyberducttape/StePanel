@@ -28,6 +28,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   test and workflow timeouts.
 - Recovery-drill test invocations now reuse the configured Go build cache,
   avoiding a cold rebuild of the large root package for each scenario.
+- The full Go suite passed three consecutive local runs and the full race suite
+  passed on the current source; the archive-path fuzz target completed 819,437
+  executions in 60 seconds without a failure.
 - The independent checkpoint-key rotation source passed exact-code hosted
   integration, CodeQL, documentation, release evidence, and all six scheduled
   AlmaLinux, Rocky Linux, and Ubuntu installed-host combinations. Each passed

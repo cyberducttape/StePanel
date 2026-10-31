@@ -2,6 +2,17 @@
 
 ## Independent audit-checkpoint key rotation — 2026-10-31
 
+- Exact current commit `950837d19fd87760182c6ffe3907fb9d400b9c38` passes local
+  `go fmt ./...`, `go vet ./...`, the full Go suite three times, and the full
+  race suite. `FuzzNormalizeName` passed a 60-second run (819,437 executions);
+  focused race runs for `internal/rootbroker` and `internal/operations` also
+  pass. The exact-source release-evidence artifact is
+  [41192195978](https://github.com/cyberducttape/StePanel/actions/runs/41192195978).
+  The 20-repeat installed-host cohort
+  [41191938794](https://github.com/cyberducttape/StePanel/actions/runs/41191938794)
+  is now running its first six-host repetition; it has not completed and does
+  not yet count toward the repeated-recovery gate.
+
 - After the single-host smoke below, the scheduled exact-code six-host matrix
   [41189484718](https://github.com/cyberducttape/StePanel/actions/runs/41189484718)
   passed all Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 combinations with
