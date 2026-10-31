@@ -124,7 +124,7 @@ groups:
           severity: critical
         annotations:
           summary: Free disk space is below 10% for {{ $labels.role }} storage
-          description: "Only {{ $value | humanizePercentage }} of filesystem bytes remain for the {{ $labels.role }} storage role, below the 10% threshold for ten minutes. Check the filesystem's available/total byte metrics, identify large consumers, and expand or free space using the host runbook before starting imports or restores."
+          description: "Only {{ $value | humanizePercentage }} of bytes remain on the {{ $labels.role }} filesystem, below the 10% threshold for ten minutes. Evidence is stepanel_host_filesystem_available_bytes divided by stepanel_host_filesystem_total_bytes for this role. Identify large consumers and use the storage runbook to safely free or add capacity before admitting imports or restores."
 
       - alert: StePanelFilesystemInodesLow
         expr: |
@@ -141,7 +141,7 @@ groups:
           severity: critical
         annotations:
           summary: Free inodes are below 10% for {{ $labels.role }} storage
-          description: "Only {{ $value | humanizePercentage }} of filesystem inodes remain for the {{ $labels.role }} storage role, below the 10% threshold for ten minutes. Check the available/total inode metrics and identify directories with excessive file counts; free or expand capacity using the host runbook before making changes."
+          description: "Only {{ $value | humanizePercentage }} of inodes remain on the {{ $labels.role }} filesystem, below the 10% threshold for ten minutes. Evidence is stepanel_host_filesystem_available_inodes divided by stepanel_host_filesystem_total_inodes for this role. Find directories with excessive file counts and use the storage runbook to safely free or add capacity before making changes."
 
       - alert: StePanelAuditOutboxBacklog
         expr: stepanel_audit_outbox_oldest_pending_age_seconds{job="stepanel"} > 300 and stepanel_audit_outbox_pending{job="stepanel"} > 0
@@ -222,7 +222,7 @@ groups:
           severity: warning
         annotations:
           summary: Database diagnostics are unavailable
-          description: "The restricted {{ $labels.engine }} diagnostics query failed with reason={{ $labels.reason }} (availability={{ $value }}; 0 means no measurements). Check stepanel_database_diagnostics_sample_timestamp_seconds for the observation time. For connection_refused, check service/listener; for authentication, verify helper credentials/grants; for socket_unavailable or helper_unavailable, inspect the configured socket/package. Raw command output is intentionally withheld."
+          description: "StePanel could not complete its restricted {{ $labels.engine }} connectivity/diagnostics query: reason={{ $labels.reason }}, availability={{ $value }} (0 means the probe failed). The evidence time is stepanel_database_diagnostics_sample_timestamp_seconds for engine={{ $labels.engine }}. For connection_refused, inspect the DB service/listener; for authentication, verify the restricted helper credentials/grants; for socket_unavailable or helper_unavailable, inspect the configured socket/client. Confirm with a fresh connection check before changing credentials. Raw command output is intentionally withheld."
 
       - alert: StePanelDatabaseSessionsBlocked
         expr: stepanel_database_blocked_sessions{job="stepanel"} > 0
@@ -297,7 +297,7 @@ groups:
           severity: critical
         annotations:
           summary: PHP-FPM is queuing requests for {{ $labels.site }} (PHP {{ $labels.php_version }})
-          description: "{{ $value }} request(s) are queued while active workers have reached max_children for {{ $labels.site }} PHP {{ $labels.php_version }}. Confirm active/max worker, queue, slow-request, and sample-time metrics; inspect slow requests and host memory headroom before changing worker limits."
+          description: "{{ $value }} PHP requests are queued for {{ $labels.site }} (PHP {{ $labels.php_version }}) while active workers equal the pool's max_children limit; this persisted for two minutes. Evidence is stepanel_site_fpm_listen_queue, stepanel_site_fpm_active_workers, stepanel_site_fpm_max_children, and the site's runtime sample timestamp. Inspect PHP-FPM slow-request evidence and host memory headroom, then validate a proposed worker change before applying it."
 
       - alert: StePanelSiteCgroupMemoryNearLimit
         expr: |
@@ -421,7 +421,7 @@ groups:
           severity: critical
         annotations:
           summary: Certificate issuance failed for {{ $labels.domain }}
-          description: "The latest durable certificate issuance job for {{ $labels.domain }} is {{ $labels.state }}; its recorded start time is Unix timestamp {{ printf \"%.0f\" $value }}. Open that domain's certificate job for the helper error, then verify DNS/HTTP validation, certificate lineage, and web-server reload before retrying."
+          description: "The latest durable certificate issuance job for {{ $labels.domain }} is {{ $labels.state }} (job timestamp {{ printf \"%.0f\" $value }}). This is durable job evidence, not merely a service-state check. Open the domain's job to read its recorded failure, then check DNS/HTTP challenge reachability, certificate lineage/expiry, and web-server reload evidence before retrying."
 
       - alert: StePanelBackupOverdue
         expr: stepanel_backup_last_success_age_seconds{job="stepanel"} - stepanel_backup_interval_seconds{job="stepanel"} > 3600
@@ -430,7 +430,7 @@ groups:
           severity: critical
         annotations:
           summary: Scheduled backup for {{ $labels.site }} is overdue
-          description: The last successful backup for {{ $labels.site }} is {{ $value | humanizeDuration }} beyond its configured interval plus one-hour grace period. Inspect its last success/attempt timestamps and latest backup job error; verify free bytes/inodes and offsite transfer status before retrying.
+          description: "The last successful scheduled backup for {{ $labels.site }} is {{ $value | humanizeDuration }} past its configured interval plus the one-hour grace period. Evidence is stepanel_backup_last_success_age_seconds and stepanel_backup_interval_seconds; also inspect stepanel_backup_last_attempt_age_seconds and the latest durable backup job error. Check free bytes/inodes and offsite transfer/verification status before retrying."
 
       - alert: StePanelScheduledBackupFailures
         expr: stepanel_backup_consecutive_failures_by_site{job="stepanel"} > 0

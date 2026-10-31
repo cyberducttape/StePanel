@@ -1,5 +1,20 @@
 # Production-readiness progress
 
+## Evidence-led operational alerts — 2026-10-30
+
+- Clarified fired-alert messages for PHP-FPM saturation, database connectivity
+  probe failures, low filesystem bytes/inodes, failed certificate issuance,
+  and stale scheduled backups. Messages include the observed value or failure
+  reason, the supporting metric/sample or durable job evidence, and a safe
+  next diagnostic action.
+- Updated Prometheus rendered-message expectations for each changed alert.
+- Verified both rule syntax and rendered alert tests with Prometheus 3.5.0
+  `promtool`: all 41 rules load and the complete alert test file passes.
+- This improves operator diagnosis; it does not prove external notification
+  delivery or application-level database connectivity for every site. Existing
+  database metrics report the managed engine diagnostic probe and should not
+  be interpreted as a per-application query/latency check.
+
 ## Audit fixes, failure-injection tests, and host evidence — 2026-10-30
 
 - Reconciled the plan's M0f/M0g statuses against the hosted run: CI integration
