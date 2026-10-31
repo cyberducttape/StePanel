@@ -853,7 +853,7 @@ func TestCreateSiteBackupIncludesManagedDatabaseDump(t *testing.T) {
 	}
 	found := false
 	for _, entry := range manifest.Entries {
-		if entry.Path == "databases/account_blog.sql" {
+		if entry.Path == "databases/account_blog.dump" {
 			found = true
 		}
 	}

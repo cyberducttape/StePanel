@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
-# Verify that stepanel-dbctl restore-dump on PostgreSQL replaces a database
-# exactly, leaves the restored objects owned by the site's role, and loads
-# the dump without superuser rights: a dump that resets its role, changes
-# session authorization, creates roles or databases, or runs programs is
-# refused and leaves the live database unchanged.
+# Verify custom-format PostgreSQL restores do not invoke psql's client
+# command interpreter, replace databases exactly, and preserve site ownership.
 set -Eeuo pipefail
 
 if [[ $EUID -ne 0 && -z ${STEPANEL_DBCTL_SMOKE_UNPRIVILEGED:-} ]]; then
@@ -29,6 +26,9 @@ db_user="pgr_$suffix"
 site="pgsmoke-$suffix"
 work=$(mktemp -d /tmp/stepanel-restore-pg-smoke.XXXXXX)
 chmod 0755 "$work"
+marker_shell=/tmp/stepanel-pg-shell-$suffix
+marker_copy=/tmp/stepanel-pg-copy-$suffix
+marker_output=/tmp/stepanel-pg-output-$suffix
 
 P() { runuser -u postgres -- psql --no-psqlrc --no-password --set ON_ERROR_STOP=1 --tuples-only --no-align "$@"; }
 # The site role creates the objects, as an application would.
@@ -39,6 +39,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 pass() { echo "ok: $*"; }
 
 cleanup() {
+  rm -f -- "$marker_shell" "$marker_copy" "$marker_output"
   P -c "DROP DATABASE IF EXISTS \"pgrvictim_$suffix\"" -c "DROP ROLE IF EXISTS \"pgrevil_$suffix\"" >/dev/null 2>&1 || true
   "$helper" reconcile >/dev/null 2>&1 || true
   "$helper" drop-managed "$db" "$db_user" >/dev/null 2>&1 || true
@@ -65,12 +66,12 @@ CREATE VIEW v_parent AS SELECT id, name FROM parent;
 INSERT INTO parent VALUES (1, 'a'), (2, 'b');
 INSERT INTO child VALUES (10, 1);
 SQL
-"$helper" dump "$db" > "$work/backup.sql"
+"$helper" dump "$db" > "$work/backup.dump"
 expected=$(snapshot)
 as_site -c "INSERT INTO parent VALUES (3, 'c')" -c 'DROP VIEW v_parent' -c 'CREATE TABLE extra (id INT)'
 [[ $(snapshot) != "$expected" ]] || fail 'changing the database did not change its snapshot'
 
-"$helper" restore-dump "$db" "$site" < "$work/backup.sql"
+"$helper" restore-dump "$db" "$site" < "$work/backup.dump"
 [[ $(snapshot) == "$expected" ]] || { diff <(printf '%s\n' "$expected") <(snapshot) | head -40 >&2; fail 'restored database differs from the backup'; }
 owners=$(P --dbname "$db" -c "SELECT DISTINCT pg_get_userbyid(relowner) FROM pg_class WHERE relnamespace IN (SELECT oid FROM pg_namespace WHERE nspname IN ('public', 'app'))")
 [[ $owners == "$db_user" ]] || fail "restored objects are owned by $owners, not $db_user"
@@ -78,35 +79,29 @@ as_site -c "INSERT INTO parent VALUES (5, 'e')" -c 'SELECT COUNT(*) FROM v_paren
 [[ $(P --dbname "$db" -c "SELECT COUNT(*) FROM audit WHERE msg = 'parent 5'") == 1 ]] || fail "the restored trigger did not fire for the site's role"
 pass "restore replaces the database exactly and the site's role owns and can use every object"
 
-"$helper" restore-dump "$db" "$site" < "$work/backup.sql"
+"$helper" restore-dump "$db" "$site" < "$work/backup.dump"
 before=$(snapshot)
 P -c "CREATE DATABASE \"pgrvictim_$suffix\"" > /dev/null
 attacks=(
-  "RESET ROLE; CREATE ROLE \"pgrevil_$suffix\" SUPERUSER LOGIN;"
-  'RESET ROLE; ALTER ROLE stepanel_dbload SUPERUSER;'
-  'SET SESSION AUTHORIZATION postgres; CREATE TABLE pwned (id INT);'
-  "RESET ROLE; DROP DATABASE \"pgrvictim_$suffix\";"
-  'RESET ROLE; CREATE DATABASE pgr_pwned;'
-  'RESET ROLE; GRANT pg_execute_server_program TO stepanel_dbload;'
-  "COPY (SELECT 1) TO PROGRAM 'touch $work/pwned';"
-  "\\! touch $work/pwned"
+  "\\! touch $marker_shell"
+  "\\copy (SELECT 1) TO PROGRAM 'touch $marker_copy'"
+  "\\o $marker_output
+SELECT 'this must never be written by psql';
+\\o"
 )
 for attack in "${attacks[@]}"; do
   if printf 'CREATE TABLE innocent (id INT);\n%s\n' "$attack" | "$helper" restore-dump "$db" "$site" 2> "$work/error"; then
-    # psql runs a shell escape as the unprivileged loader, which cannot
-    # write to the root-owned work directory; every other attack must fail.
-    [[ $attack == '\!'* ]] || fail "a dump with an unsafe statement was restored: $attack"
-  else
-    grep -q 'the live database was not changed' "$work/error" || fail "an unsafe dump did not report an unchanged database: $attack: $(cat "$work/error")"
+    fail "a plain SQL script was accepted as a PostgreSQL restore archive: $attack"
   fi
-  # Unprivileged runs have no separate loader identity to check.
-  if [[ -e $work/pwned && -z ${STEPANEL_DBCTL_SMOKE_UNPRIVILEGED:-} ]]; then fail "an unsafe dump ran a program as $(stat -c %U "$work/pwned"): $attack"; fi
-  rm -f -- "$work/pwned"
-  "$helper" restore-dump "$db" "$site" < "$work/backup.sql"
+  grep -q 'plain SQL scripts are not accepted' "$work/error" || fail "a non-archive was not rejected at the restore boundary: $attack: $(cat "$work/error")"
+  for marker in "$marker_shell" "$marker_copy" "$marker_output"; do
+    [[ ! -e $marker ]] || fail "a psql client command created $marker"
+  done
+  "$helper" restore-dump "$db" "$site" < "$work/backup.dump"
 done
 [[ $(snapshot) == "$before" ]] || fail 'an unsafe dump changed the live database'
 [[ $(P -c "SELECT COUNT(*) FROM pg_roles WHERE rolname = 'pgrevil_$suffix' OR (rolname = 'stepanel_dbload' AND (rolsuper OR rolcreatedb OR rolcreaterole))") == 0 ]] || fail 'an unsafe dump created or widened a role'
 [[ $(P -c "SELECT COUNT(*) FROM pg_database WHERE datname IN ('pgrvictim_$suffix', 'pgr_pwned')") == 1 ]] || fail 'an unsafe dump created or dropped a database'
 [[ $(P -c "SELECT COUNT(*) FROM pg_auth_members WHERE member = (SELECT oid FROM pg_roles WHERE rolname = 'stepanel_dbload')") == 0 ]] || fail 'the loader keeps a role membership after restores'
-pass 'dumps that reset their role, take session authorization, create roles or databases, or run programs are refused unchanged'
+pass 'plain SQL and psql client commands (\\!, \\copy, \\o) are rejected without changing the live database'
 echo 'PostgreSQL database restore smoke passed'

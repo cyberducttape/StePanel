@@ -26,25 +26,29 @@ time. Independent tenant databases therefore do not wait behind an unrelated
 restore or credential operation, while the database engine still enforces
 its own catalog and transactional constraints.
 
-A managed database restore treats the dump as untrusted SQL. MySQL and
+PostgreSQL backups use the `pg_dump` custom archive format and restore with
+`pg_restore`. Plain SQL scripts are rejected because `psql` interprets
+client-side commands such as `\!`, `\copy`, and `\o`. Existing native
+PostgreSQL backups containing plain SQL must be recreated from the source
+database before their database can be restored.
+
+A managed database restore treats the dump as untrusted input. MySQL and
 MariaDB load it into the shadow database as a one-time account with
 privileges only on that shadow, so a dump cannot switch to another schema,
 create accounts, grant privileges or write files. The client runs in binary
 mode, which disables client commands such as `system`. The loader may set
 definers, so after the load every trigger, view, routine and event must be
 defined by the site's own account, or the restore is refused. PostgreSQL
-loads as the non-superuser login `stepanel_dbload`, which belongs to the
-database owner role only while loading. A `RESET ROLE` or `SET SESSION
-AUTHORIZATION` in the dump therefore returns to a role that cannot create
-roles or databases or run programs. A PostgreSQL database owned by
-`postgres` cannot be restored. A psql `\!` in a dump runs as the unprivileged
-`stepanel_dbload` system user. On a MySQL or MariaDB server with binary
+archives load as the non-superuser OS identity `stepanel_dbload`, using the
+site database owner role only during that restore. A PostgreSQL database
+owned by `postgres` cannot be restored. On a MySQL or MariaDB server with binary
 logging enabled, only administrators can create triggers and stored
 functions unless `log_bin_trust_function_creators=1`. Enable it to restore
 databases that contain them; otherwise their restore is refused and the
 helper names the setting. A refused dump leaves the live database
 unchanged. `deploy/lab/dbctl-restore-swap-smoke.sh` and
-`deploy/lab/dbctl-restore-pg-smoke.sh` check this against real servers in CI.
+`deploy/lab/dbctl-restore-pg-smoke.sh` check the protections against real
+servers in CI, including rejection of psql meta-command scripts.
 
 Passwords are accepted only on the provisioning or rotation request, streamed
 to the root helper over standard input, and never returned, logged, or added to

@@ -1,5 +1,22 @@
 # Production-readiness progress
 
+## PostgreSQL restore interpreter boundary — 2026-10-31
+
+- PostgreSQL backups are now emitted as custom-format `pg_dump` archives and
+  stored as `databases/<name>.dump`. The privileged restore helper uses
+  `pg_restore` under `stepanel_dbload` with the database-owner role and rejects
+  plain SQL scripts, preventing psql client commands from being interpreted.
+  The PostgreSQL installed-server smoke now attempts `\!`, `\copy`, and
+  `\o` payloads, verifies their marker files are absent, and verifies the
+  original database remains unchanged.
+- `GOMAXPROCS=2 go test -p 1 -timeout 10m ./...`, `go vet ./...`, Go
+  formatting, Bash syntax, ShellCheck, documentation reference/link checks,
+  and `git diff --check` passed locally. This workstation has no PostgreSQL
+  client/server, so the live PostgreSQL smoke remains dependent on CI.
+  Existing PostgreSQL plain-SQL backup archives are intentionally not accepted
+  for database restore; the source must be available to create a custom-format
+  backup. Exact-source hosted CI is pending for this change.
+
 ## Current validation update — 2026-10-31
 
 - Current code source is `77c355a1f04771cce316284d9323754d1cab9480` (the

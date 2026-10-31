@@ -41,7 +41,7 @@ func TestRestoreDatabaseIntoStagingContextInjectsProvisionFailure(t *testing.T) 
 	if err := os.MkdirAll(filepath.Join(stage, "databases"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(stage, "databases", "source.sql"), []byte("CREATE TABLE test (id INT);"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(stage, "databases", "source.dump"), []byte("CREATE TABLE test (id INT);"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("STEPANEL_FAIL_AT", "restore:provision")

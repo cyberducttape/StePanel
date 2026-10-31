@@ -461,7 +461,7 @@ func (a *App) rehearseBackupArchive(operationCtx context.Context, request durabl
 		return backupRehearsalResult{}, fmt.Errorf("validate extracted backup: %w", err)
 	}
 	for _, database := range manifest.Databases {
-		path, err := safePath(stage, "databases", database+".sql")
+		path, err := safePath(stage, "databases", database+".dump")
 		if err != nil {
 			return backupRehearsalResult{}, err
 		}
@@ -1017,7 +1017,7 @@ func restoreDatabaseIntoStagingContext(ctx context.Context, cfg Config, stage st
 	if !validManagedDatabaseIdentifier(input.Database, databaseNameLimit(cfg)) {
 		return false, errors.New("invalid staging database name")
 	}
-	dump, err := safePath(stage, "databases", input.Database+".sql")
+	dump, err := safePath(stage, "databases", input.Database+".dump")
 	if err != nil {
 		return false, err
 	}
@@ -1280,7 +1280,7 @@ func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, d
 	if err := ctx.Err(); err != nil {
 		return BackupRestoreResult{}, err
 	}
-	dump, err := safePath(stage, "databases", database+".sql")
+	dump, err := safePath(stage, "databases", database+".dump")
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}

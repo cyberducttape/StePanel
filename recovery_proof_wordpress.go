@@ -150,7 +150,8 @@ func planWordPressProof(cfg Config, stage string, databases []string) (wordpress
 		return fmt.Errorf("%w: %s", errRecoveryProofUnsupported, fmt.Sprintf(format, args...))
 	}
 	// cpmove extraction keeps the source layout (homedir/public_html and
-	// mysql/*.sql), while native backups use site/public and databases/*.sql.
+	// mysql/*.sql), while native backups use site/public and custom-format
+	// PostgreSQL archives under databases/*.dump (WordPress itself is MySQL).
 	public := firstExisting(filepath.Join(stage, "site", "public"), filepath.Join(stage, "homedir", "public_html"))
 	if public == "" {
 		return wordpressProofPlan{}, unsupported("the archive has no supported public document root")
@@ -201,7 +202,7 @@ func planWordPressProof(cfg Config, stage string, databases []string) (wordpress
 	if !found || !slices.Contains(databases, database) {
 		return wordpressProofPlan{}, unsupported("the backup does not include the database named by wp-config.php DB_NAME")
 	}
-	dump := firstExistingRegular(filepath.Join(stage, "databases", database+".sql"), filepath.Join(stage, "mysql", database+".sql"))
+	dump := firstExistingRegular(filepath.Join(stage, "databases", database+".dump"), filepath.Join(stage, "databases", database+".sql"), filepath.Join(stage, "mysql", database+".sql"))
 	if dump == "" {
 		return wordpressProofPlan{}, unsupported("the archive does not contain the WordPress database dump")
 	}

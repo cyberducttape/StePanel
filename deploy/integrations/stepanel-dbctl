@@ -516,7 +516,15 @@ restore_dump() {
     # The dump carries no ownership (pg_dump --no-owner), so it loads as
     # the database owner: objects the loader created would be unreadable
     # by the site's database role.
-    { printf 'SET ROLE "%s";\n' "$owner"; cat; } | runuser -u "$postgres_loader" -- psql --no-psqlrc --no-password --quiet --set ON_ERROR_STOP=1 --dbname "$restore_shadow" >/dev/null
+    # PostgreSQL SQL scripts are executable psql programs: meta-commands such
+    # as \\! and \\copy can launch local processes. Accept only pg_dump's
+    # custom archive format and restore it with pg_restore, which does not
+    # interpret psql meta-commands. The database owner role is granted only
+    # for this load and is selected explicitly by pg_restore.
+    if ! runuser -u "$postgres_loader" -- pg_restore --no-password --no-owner --no-privileges --exit-on-error --single-transaction --role="$owner" --dbname "$restore_shadow"; then
+      echo 'PostgreSQL restore requires a valid pg_dump custom-format archive; plain SQL scripts are not accepted' >&2
+      return 1
+    fi
     postgres_revoke_loader "$restore_shadow"
   else
     local loader password
@@ -777,7 +785,7 @@ case "$action" in
     finish_restores_for "$database"
     # The locks stay held until the dump client exits: a restore swap or
     # other DDL during a --single-transaction dump would corrupt it.
-    if [[ $engine == postgresql ]]; then runuser -u postgres -- pg_dump --no-password --format=plain --clean --if-exists --no-owner --no-privileges "$database"; else dump_client=mysqldump; command -v mariadb-dump >/dev/null 2>&1 && dump_client=mariadb-dump
+    if [[ $engine == postgresql ]]; then runuser -u postgres -- pg_dump --no-password --format=custom --no-owner --no-privileges "$database"; else dump_client=mysqldump; command -v mariadb-dump >/dev/null 2>&1 && dump_client=mariadb-dump
       # GTID statements would need SUPER to restore with the loader account.
       gtid=(); [[ $("$dump_client" --help 2>/dev/null) != *--set-gtid-purged* ]] || gtid=(--set-gtid-purged=OFF)
       "$dump_client" --no-defaults --protocol=socket --single-transaction --quick --routines --events --triggers --hex-blob "${gtid[@]}" "$database"; fi

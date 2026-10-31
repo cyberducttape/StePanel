@@ -20,7 +20,7 @@ func TestCanceledStagingDatabaseRestoreStillRunsCompensation(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(stage, "databases"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(stage, "databases", "source.sql"), []byte("CREATE TABLE fixture (id INT);\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(stage, "databases", "source.dump"), []byte("fixture custom archive"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	helper := filepath.Join(root, "dbctl")

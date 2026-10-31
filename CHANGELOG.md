@@ -27,6 +27,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Security
 
+- PostgreSQL database backups now use `pg_dump` custom archives and restore
+  through `pg_restore`; the privileged helper rejects plain SQL scripts,
+  avoiding psql meta-command execution such as `\!`, `\copy`, and `\o`.
+  The real-PostgreSQL CI smoke checks these directives and confirms rejected
+  input leaves the live database unchanged. Existing PostgreSQL plain-SQL
+  backups must be recreated before their database can be restored.
 - MySQL/MariaDB dump imports for cPanel, WordPress, and staged database
   restores now disable local client commands, use `--sandbox` when supported,
   ignore client option files, and run the importer as the unprivileged `mysql`

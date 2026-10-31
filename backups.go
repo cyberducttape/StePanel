@@ -338,7 +338,7 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 			}
 			// Database identifiers belong in the archive manifest, not in a
 			// filesystem path. Use a locally generated ordinal for staging.
-			dumpPath := filepath.Join(tempDir, fmt.Sprintf("database-%06d.sql", dbIndex))
+			dumpPath := filepath.Join(tempDir, fmt.Sprintf("database-%06d.dump", dbIndex))
 			predicted := dumpEstimates[database]
 			if predicted == 0 {
 				predicted = backupDatabaseReservation
@@ -368,7 +368,7 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 					return result, abortArchive(fmt.Errorf("release database dump %s capacity: %w", database, err))
 				}
 			}
-			if err := addBackupFileExpectedContext(ctx, tw, dumpPath, "databases/"+database+".sql", &uncompressedBytes, &manifest, nil); err != nil {
+			if err := addBackupFileExpectedContext(ctx, tw, dumpPath, "databases/"+database+".dump", &uncompressedBytes, &manifest, nil); err != nil {
 				return result, abortArchive(err)
 			}
 			if err := os.Remove(dumpPath); err != nil {
@@ -803,7 +803,7 @@ func createDatabaseSafetyBackupContext(ctx context.Context, cfg Config, database
 		return result, errors.New("production database safety backups require the durable capacity ledger")
 	}
 	// Keep externally sourced database identifiers out of staging paths.
-	dump := filepath.Join(temp, "database.sql")
+	dump := filepath.Join(temp, "database.dump")
 	if _, err := dumpManagedDatabaseContext(ctx, cfg, database, dump, reservation, backupDatabaseReservation); err != nil {
 		return result, err
 	}
@@ -811,7 +811,7 @@ func createDatabaseSafetyBackupContext(ctx context.Context, cfg Config, database
 	if err != nil {
 		return result, err
 	}
-	if err := writeSyncedFile(temp, "database.sql.sha256", []byte(result.SHA256+"  database.sql\n"), 0600); err != nil {
+	if err := writeSyncedFile(temp, "database.dump.sha256", []byte(result.SHA256+"  database.dump\n"), 0600); err != nil {
 		return result, err
 	}
 	if err := ctx.Err(); err != nil {
