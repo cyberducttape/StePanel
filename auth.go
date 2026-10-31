@@ -66,6 +66,21 @@ type totpReplayState struct {
 }
 
 func NewAuth(secureCookies bool) (Auth, error) {
+	auth, err := newAuth(secureCookies)
+	if err != nil || auth.Enabled {
+		return auth, err
+	}
+	listen := strings.TrimSpace(os.Getenv("STEPANEL_LISTEN"))
+	if listen == "" {
+		listen = "127.0.0.1:8080"
+	}
+	if os.Getenv("STEPANEL_ENV") != "development" || !loopbackListenAddress(listen) {
+		return Auth{}, errors.New("authentication may be disabled only with STEPANEL_ENV=development and a loopback listener")
+	}
+	return auth, nil
+}
+
+func newAuth(secureCookies bool) (Auth, error) {
 	username := os.Getenv("STEPANEL_ADMIN_USERNAME")
 	if username == "" {
 		username = "admin"
@@ -111,6 +126,34 @@ func NewAuth(secureCookies bool) (Auth, error) {
 		credentialKey = "password-digest:" + hex.EncodeToString(passwordDigest[:])
 	}
 	return Auth{Username: username, PasswordHash: hash, Secret: secret, credentialKey: credentialKey, credentialHash: hash, Enabled: true, SecureCookies: secureCookies, TOTPEnabled: len(totpSecret) > 0, totpSecret: totpSecret, totpReplay: &totpReplayState{lastCounter: make(map[string]uint64)}, loginLimiter: authpolicy.NewLimiterWithPolicy(loginClientAttemptLimit, loginAttemptWindow), loginAccountLimiter: authpolicy.NewLimiterWithPolicy(loginAccountAttemptLimit, loginAttemptWindow), recoveryLimiter: authpolicy.NewLimiter(), sessions: &sessionRegistry{inner: sessionstate.New("")}, apiTokenLimiter: newAPITokenRateLimiter()}, nil
+}
+
+// NewAuthForConfig is the startup-only constructor. Authentication may be
+// disabled solely for an explicitly selected development environment bound
+// to loopback. The Config comes from trusted process startup configuration;
+// request data must never be used to select this policy.
+func NewAuthForConfig(cfg Config) (Auth, error) {
+	secureCookies := secureCookieTransport(cfg)
+	if os.Getenv("STEPANEL_LAB_HTTP_COOKIES") == "1" {
+		secureCookies = false
+	}
+	auth, err := newAuth(secureCookies)
+	if err != nil {
+		return Auth{}, err
+	}
+	if auth.Enabled {
+		return auth, nil
+	}
+	if cfg.Production {
+		return Auth{}, errors.New("production authentication requires administrator credentials")
+	}
+	if os.Getenv("STEPANEL_ENV") != "development" {
+		return Auth{}, errors.New("authentication may be disabled only with STEPANEL_ENV=development")
+	}
+	if !loopbackListenAddress(cfg.Listen) {
+		return Auth{}, errors.New("unauthenticated development mode requires a loopback listener")
+	}
+	return auth, nil
 }
 
 func (a *Auth) ConfigureSessionStore(path string) error {

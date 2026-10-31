@@ -138,6 +138,136 @@ func TestOutboxEventIsDurableWhenPublicationIsDeferred(t *testing.T) {
 	}
 }
 
+func TestSecurityAuditOutcomeFailureRemainsReconciliationWork(t *testing.T) {
+	db, err := sql.Open("sqlite", "file:security-audit-reconcile?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	outbox, err := newAuditOutboxStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := defaultAuditOutbox
+	defaultAuditOutbox = outbox
+	t.Cleanup(func() { defaultAuditOutbox = previous })
+	intent, err := BeginSecurityAudit("", "admin", "site.deleted", "shop", "site_id=shop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mutationCount int
+	mutationCount++ // mutation is committed exactly once before audit completion
+	if _, err := db.Exec(`CREATE TRIGGER reject_terminal_audit BEFORE INSERT ON audit_outbox
+		WHEN NEW.action='site.deleted' BEGIN SELECT RAISE(ABORT, 'injected audit outage'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err := intent.Completed("deleted"); err == nil {
+		t.Fatal("Completed hid the failed durable outcome write")
+	}
+	if mutationCount != 1 {
+		t.Fatalf("audit failure caused mutation to be replayed: count=%d", mutationCount)
+	}
+	var state string
+	if err := db.QueryRow(`SELECT state FROM security_audit_operations WHERE operation_id=?`, intent.operationID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "pending" {
+		t.Fatalf("operation state = %q after failed outcome write; want pending for reconciliation", state)
+	}
+	if pending, err := outbox.pendingSecurityAuditOperations(context.Background()); err != nil || pending != 1 {
+		t.Fatalf("unresolved security audit count = %d, %v; want 1", pending, err)
+	}
+	if check := operationalChecks(Config{}, nil)["security_audit_outcomes"]; check.Ready || !strings.Contains(check.Detail, intent.operationID) && !strings.Contains(check.Detail, "1 security operation") {
+		t.Fatalf("operational health did not expose unresolved outcome: %#v", check)
+	}
+}
+
+func TestSecurityAuditIntentAndOutcomeCommitTogether(t *testing.T) {
+	db, err := sql.Open("sqlite", "file:security-audit-complete?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	outbox, err := newAuditOutboxStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := defaultAuditOutbox
+	defaultAuditOutbox = outbox
+	t.Cleanup(func() { defaultAuditOutbox = previous })
+	intent, err := BeginSecurityAudit("", "admin", "site.created", "shop", "domain=example.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := intent.Completed("verified"); err != nil {
+		t.Fatal(err)
+	}
+	var state, action string
+	if err := db.QueryRow(`SELECT state, outcome_action FROM security_audit_operations WHERE operation_id=?`, intent.operationID).Scan(&state, &action); err != nil {
+		t.Fatal(err)
+	}
+	if state != "completed" || action != "site.created" {
+		t.Fatalf("operation outcome = %q/%q", state, action)
+	}
+	if pending, err := outbox.pendingSecurityAuditOperations(context.Background()); err != nil || pending != 0 {
+		t.Fatalf("unresolved count = %d, %v; want 0", pending, err)
+	}
+	var linked int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_outbox WHERE detail LIKE ?`, "%operation_id="+intent.operationID+"%").Scan(&linked); err != nil || linked != 2 {
+		t.Fatalf("audit events linked to operation = %d, %v; want initiation and outcome", linked, err)
+	}
+}
+
+func TestSecurityAuditReconciliationEndpointClosesRecordWithoutReplay(t *testing.T) {
+	db, err := sql.Open("sqlite", "file:security-audit-endpoint?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	outbox, err := newAuditOutboxStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := defaultAuditOutbox
+	defaultAuditOutbox = outbox
+	t.Cleanup(func() { defaultAuditOutbox = previous })
+	intent, err := BeginSecurityAudit("", "admin", "database.restored", "shop", "database=shop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TRIGGER reject_restore_outcome BEFORE INSERT ON audit_outbox
+		WHEN NEW.action='database.restored' BEGIN SELECT RAISE(ABORT, 'injected audit outage'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err := intent.Completed("restore verified"); err == nil {
+		t.Fatal("injected terminal audit failure was not returned")
+	}
+	app := &App{Auth: Auth{Username: "admin"}}
+	list := httptest.NewRecorder()
+	app.securityAuditReconciliation(list, httptest.NewRequest(http.MethodGet, "/api/security/audit/reconciliation", nil))
+	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), intent.operationID) {
+		t.Fatalf("pending operation listing = %d %s", list.Code, list.Body.String())
+	}
+	body, _ := json.Marshal(map[string]string{"operation_id": intent.operationID, "evidence": "restore job verified; customer site responds successfully"})
+	request := httptest.NewRequest(http.MethodPost, "/api/security/audit/reconciliation", strings.NewReader(string(body)))
+	request = request.WithContext(context.WithValue(request.Context(), replayedIdentityKey{}, "admin"))
+	response := httptest.NewRecorder()
+	app.securityAuditReconciliation(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"mutation_replayed":false`) {
+		t.Fatalf("reconciliation response = %d %s", response.Code, response.Body.String())
+	}
+	var state, actor, action string
+	if err := db.QueryRow(`SELECT state, outcome_action, actor FROM security_audit_operations WHERE operation_id=?`, intent.operationID).Scan(&state, &action, &actor); err != nil {
+		t.Fatal(err)
+	}
+	if state != "reconciled" || action != "security.audit.operation.reconciled" || actor != "admin" {
+		t.Fatalf("reconciled record = state %q, action %q, actor %q", state, action, actor)
+	}
+	if pending, err := outbox.pendingSecurityAuditOperations(context.Background()); err != nil || pending != 0 {
+		t.Fatalf("pending after reconciliation = %d, %v", pending, err)
+	}
+}
+
 // A Class A grant must change nothing when its intent cannot be recorded.
 func TestCustomerTokenCreationIsRefusedWithoutAuditLedger(t *testing.T) {
 	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")

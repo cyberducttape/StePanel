@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Security
+
+- Authentication can be disabled only when `STEPANEL_ENV=development` and the
+  configured listener is loopback. Production startup now rejects missing
+  administrator credentials before the HTTP service is assembled.
+- Security audit intents now have durable operation IDs and SQLite state.
+  Terminal audit persistence errors are returned and leave an operator-visible
+  pending record; an administrator can reconcile it with evidence without
+  replaying the host mutation. Health, Prometheus metrics, and a critical alert
+  expose unresolved outcomes.
+
 ### Fixed
 
 - Site CPU quota utilization is now derived on real hosts: `systemctl show`
@@ -38,6 +49,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Testing
 
+- `make check` passes on the current local source, including OpenAPI artifact
+  validation, `go vet ./...`, and the complete serialized Go test suite. Focused
+  audit/auth race tests pass. Prometheus YAML parses, but `promtool` is not
+  installed locally, so rendered alert tests await hosted CI.
 - Exact-source CI passed on `711948d`: Go tests, race tests, repository
   recovery/ENOSPC drills, Prometheus alerts, static and dependency analysis,
   deployment checks, and browser E2E. CodeQL, documentation, and generated

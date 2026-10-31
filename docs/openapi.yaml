@@ -208,6 +208,31 @@ paths:
       summary: Security posture checks
       responses:
         '200': {description: Security checks}
+  /api/v1/security/audit/reconciliation:
+    get:
+      summary: List security operations that need terminal audit reconciliation
+      description: Returns pending operation IDs and targets. Inspect the host and job state before resolving; the reconciliation action never repeats the underlying mutation.
+      responses:
+        '200': {description: Pending security audit operations}
+        '503': {description: Durable reconciliation store unavailable}
+    post:
+      summary: Record evidence-based reconciliation of a security operation
+      description: Closes the audit reconciliation record only. It does not replay the original host mutation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [operation_id, evidence]
+              properties:
+                operation_id: {type: string, minLength: 32, maxLength: 32}
+                evidence: {type: string, minLength: 1, maxLength: 2048}
+      responses:
+        '200': {description: Reconciliation recorded; mutation_replayed is false}
+        '400': {description: Invalid operation ID or evidence}
+        '409': {description: Operation is no longer pending}
+        '503': {description: Durable reconciliation store unavailable}
   /api/v1/audit/events:
     get:
       summary: Query verified audit and deployment history

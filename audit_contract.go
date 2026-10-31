@@ -2,7 +2,10 @@ package stepanel
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -23,10 +26,11 @@ import (
 //	mutation
 //	intent.Completed(...) / intent.Failed(...)
 //
-// Once the intent is durable, a failure to record the outcome never reverses
-// or misreports the mutation: it is logged as critical, and the outbox keeps
-// retrying publication. The intent record alone shows that the operation was
-// attempted.
+// Once the intent is durable, terminal audit failures are returned to the
+// caller and leave a durable pending-operation row. Operators can reconcile
+// that row through the administrator endpoint; reconciliation never replays
+// the underlying mutation. Publication failures after a durable outbox commit
+// are retried separately and do not change the mutation result.
 //
 // Revocations are the one Class A exception to intent-first ordering.
 // Operations that only remove access (revoking API tokens or sessions,
@@ -65,47 +69,72 @@ func SecurityAuditRequired(auditLog, actor, action, target, detail string) error
 // SecurityAudit is a durably recorded Class A intent awaiting its outcome.
 type SecurityAudit struct {
 	auditLog, actor, action, target string
+	operationID                     string
 }
 
 // BeginSecurityAudit durably records "<action>.initiated" before a Class A
 // mutation. If it returns an error, nothing may be changed; handlers should
 // respond with refuseWithoutSecurityAudit.
 func BeginSecurityAudit(auditLog, actor, action, target, detail string) (*SecurityAudit, error) {
-	if err := SecurityAuditRequired(auditLog, actor, action+".initiated", target, detail); err != nil {
+	var idBytes [16]byte
+	if _, err := rand.Read(idBytes[:]); err != nil {
+		return nil, fmt.Errorf("create security audit operation ID: %w", err)
+	}
+	id := hex.EncodeToString(idBytes[:])
+	var err error
+	if defaultAuditOutbox != nil {
+		err = defaultAuditOutbox.beginSecurityAudit(context.Background(), auditLog, id, actor, action, target, detail)
+	} else {
+		err = SecurityAuditRequired(auditLog, actor, action+".initiated", target, securityAuditOperationDetail(id, detail))
+	}
+	if err != nil {
 		log.Printf("[CRITICAL] refusing %s for %s/%s: %v", action, actor, target, err)
 		return nil, errors.Join(errSecurityAuditUnavailable, err)
 	}
-	return &SecurityAudit{auditLog: auditLog, actor: actor, action: action, target: target}, nil
+	return &SecurityAudit{auditLog: auditLog, actor: actor, action: action, target: target, operationID: id}, nil
 }
 
 // Completed records the successful outcome as "<action>".
-func (s *SecurityAudit) Completed(detail string) {
-	s.outcome(s.action, detail)
+func (s *SecurityAudit) Completed(detail string) error {
+	return s.outcome(s.action, detail)
 }
 
 // Failed records the failed outcome as "<action>.failed".
-func (s *SecurityAudit) Failed(detail string) {
-	s.outcome(s.action+".failed", detail)
+func (s *SecurityAudit) Failed(detail string) error {
+	return s.outcome(s.action+".failed", detail)
 }
 
 // Finish records Completed(*outcome) if *outcome is non-empty and Failed
 // otherwise. Handlers with many exit paths defer it and set the outcome at
 // the point where the change takes effect.
-func (s *SecurityAudit) Finish(outcome *string, failure string) {
+func (s *SecurityAudit) Finish(outcome *string, failure string) error {
 	if *outcome != "" {
-		s.Completed(*outcome)
-		return
+		return s.Completed(*outcome)
 	}
-	s.Failed(failure)
+	return s.Failed(failure)
 }
 
-func (s *SecurityAudit) outcome(action, detail string) {
+func (s *SecurityAudit) outcome(action, detail string) error {
 	if s == nil {
-		return
+		return errors.New("missing security audit intent")
 	}
-	if err := SecurityAuditRequired(s.auditLog, s.actor, action, s.target, detail); err != nil {
+	var err error
+	if defaultAuditOutbox != nil {
+		err = defaultAuditOutbox.completeSecurityAudit(context.Background(), s.auditLog, s.operationID, s.actor, s.action, action, s.target, detail)
+	} else {
+		err = SecurityAuditRequired(s.auditLog, s.actor, action, s.target, securityAuditOperationDetail(s.operationID, detail))
+	}
+	if err != nil {
 		log.Printf("[CRITICAL] security audit outcome %s for %s/%s was not recorded (intent is on record): %v", action, s.actor, s.target, err)
 	}
+	return err
+}
+
+func securityAuditOperationDetail(id, detail string) string {
+	if detail == "" {
+		return "operation_id=" + id
+	}
+	return "operation_id=" + id + "; " + detail
 }
 
 // RevocationAudit records a completed access revocation as a Class A ledger

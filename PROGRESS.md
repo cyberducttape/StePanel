@@ -1,5 +1,33 @@
 # Production-readiness progress
 
+## Authentication and audit-outcome hardening — 2026-10-30
+
+- Centralized startup authentication policy. Missing credentials now stop
+  production startup before routes are assembled; unauthenticated operation
+  requires explicit `STEPANEL_ENV=development` and a loopback listener.
+- `BeginSecurityAudit` now creates a unique operation ID and atomically stores
+  both the initiation event and a pending operation record. `Completed`,
+  `Failed`, and `Finish` return persistence errors. Terminal event and state
+  transitions commit in one SQLite transaction; a failed write leaves the
+  operation pending and does not rerun its host mutation.
+- Added an administrator-only reconciliation API, evidence-required manual
+  closure, 90-day bounded retention for terminal operation records, operational
+  health visibility, a Prometheus gauge and critical alert, OpenAPI/API-guide
+  documentation, and auth/audit failure-injection regressions.
+- Verification: focused tests passed; focused race tests passed; `go vet
+  ./...` passed; `GOMAXPROCS=2 go test -p 1 -timeout 10m ./...` passed all
+  packages in 70.5 seconds; `make check` then passed on the final code,
+  including API artifact validation, vet, and all packages in 68.6 seconds.
+  The first full run exposed the new route missing from OpenAPI; the spec was
+  updated and its contract test now passes. A subprocess integration test
+  starts the actual `Main()` entry point with production mode and no
+  credentials and confirms it exits before service startup. Rule YAML parses
+  locally. `promtool` is unavailable in this shell, so rendered alert tests
+  remain for hosted CI; exact-source CI and CodeQL are also pending.
+- Production remains **NO-GO** pending the release gates in
+  `docs/V1_PRODUCTION_GATES.md`; this code change is not a production
+  certification.
+
 ## Exact-source CI restored — 2026-10-31
 
 - Code commit `711948d` is pushed to `main` as Stephan Loesevitz

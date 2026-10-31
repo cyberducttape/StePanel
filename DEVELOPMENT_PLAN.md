@@ -309,6 +309,30 @@ recovery.
 - Focused cancellation/recovery tests and `make check` pass. This is software
   regression evidence, not host-power-loss certification.
 
+### M0h — Fail closed on missing authentication and reconcile audit outcomes (P1)
+
+**Status:** Implemented; local full-suite and focused race verification passed.
+Exact-source hosted CI and the Prometheus rule renderer are still pending.
+
+Production authentication is validated from trusted startup configuration
+before route construction. Disabled authentication requires an explicit
+development environment and a loopback listener. Security-audit initiation is
+stored with a durable operation ID; outcome state and its terminal outbox event
+commit atomically. Failed outcome persistence leaves an actionable pending
+record and must never trigger mutation replay.
+
+**Acceptance criteria**
+
+- Startup auth tests reject production without credentials and reject
+  auth-disabled non-loopback or non-development configurations.
+- Audit failure-injection tests prove terminal-write errors are returned,
+  completed mutations are not replayed, pending operation state survives, and
+  evidence-based administrator reconciliation closes it without mutation.
+- Operational health and Prometheus expose pending outcomes; OpenAPI documents
+  the admin API and rendered alert tests pass in CI.
+- `make check`, focused race tests, exact-source CI, and CodeQL pass. This does
+  not close the independent security assessment or host certification gates.
+
 ### M1 — Complete installed-host failure recovery (P0)
 
 **Status:** Open. Exact-source hosted AlmaLinux 9/Caddy/MariaDB run

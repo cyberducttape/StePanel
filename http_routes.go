@@ -35,6 +35,7 @@ func (a *App) registerRoutes(staticAssets fs.FS) *http.ServeMux {
 	mux.Handle("/api/databases/", allowMethods(a.Auth.Require(http.HandlerFunc(a.databaseResource)), http.MethodGet, http.MethodHead, http.MethodPatch, http.MethodDelete))
 	mux.Handle("/api/ftp", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.ftpEndpoint)), http.MethodGet, http.MethodHead, http.MethodPost))
 	mux.Handle("/api/security/audit", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.securityAudit)), http.MethodGet, http.MethodHead))
+	mux.Handle("/api/security/audit/reconciliation", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.securityAuditReconciliation)), http.MethodGet, http.MethodHead, http.MethodPost))
 	mux.Handle("/api/security/center", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.securityCenter)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/audit/events", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.auditEvents)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/cloud", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.cloudInventory)), http.MethodGet, http.MethodHead))

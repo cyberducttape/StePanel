@@ -16,6 +16,7 @@ func TestRegisterRoutesPreservesCoreRoutePatterns(t *testing.T) {
 		{"/livez", "/livez"},
 		{"/readyz", "/readyz"},
 		{"/api/health/operational", "/api/health/operational"},
+		{"/api/security/audit/reconciliation", "/api/security/audit/reconciliation"},
 		{"/api/jobs", "/api/jobs"},
 		{"/api/jobs/events", "/api/jobs/events"},
 		{"/api/sites/files/example/path", "/api/sites/files/"},

@@ -15,6 +15,7 @@ echo "STEPANEL_ENV=${STEPANEL_ENV}"
 
 # Required in production:
 # - STEPANEL_ADMIN_TOTP_SECRET (TOTP MFA)
+# - STEPANEL_ADMIN_PASSWORD or STEPANEL_ADMIN_PASSWORD_HASH (required authentication)
 # - STEPANEL_AUDIT_KEY (audit logging)
 # - STEPANEL_SESSION_SECRET (session signing)
 # - STEPANEL_ENVIRONMENT_KEY (encryption)
@@ -26,6 +27,12 @@ echo "STEPANEL_ENV=${STEPANEL_ENV}"
 # Generate required secrets (use password manager!)
 openssl rand -hex 32  # 32 random bytes
 ```
+
+If startup reports `production authentication requires administrator
+credentials`, configure `STEPANEL_ADMIN_PASSWORD` or a valid bcrypt
+`STEPANEL_ADMIN_PASSWORD_HASH` in the systemd environment. Unauthenticated
+startup is available only with `STEPANEL_ENV=development` and a loopback
+`STEPANEL_LISTEN` address; do not use that mode on a shared or public host.
 
 ---
 

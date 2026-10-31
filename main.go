@@ -339,6 +339,12 @@ func Main() {
 		return
 	}
 	cfg := LoadConfig()
+	// Reject an unauthenticated production configuration before performing any
+	// further startup work or assembling HTTP routes.
+	auth, err := NewAuthForConfig(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
 	if cfg.Production && os.Getenv("STEPANEL_ACCOUNT_STATE") == "" {
 		cfg.AccountState = filepath.Join(filepath.Dir(cfg.SessionState), "accounts.json")
 	}
@@ -358,23 +364,6 @@ func Main() {
 	}
 	if strings.TrimSpace(cfg.ControlPlaneDB) == "" || strings.ContainsAny(cfg.ControlPlaneDB, "\x00\r\n") || cfg.Production && !filepath.IsAbs(cfg.ControlPlaneDB) {
 		log.Fatal("STEPANEL_CONTROL_PLANE_DB must be a non-empty filesystem path and absolute in production")
-	}
-	// The install smoke test reaches the production-configured backend directly
-	// over HTTP. Keep production cookies Secure by default, while allowing that
-	// explicitly isolated lab path to exercise the authenticated workflows.
-	secureCookies := secureCookieTransport(cfg)
-	if os.Getenv("STEPANEL_LAB_HTTP_COOKIES") == "1" {
-		secureCookies = false
-	}
-	auth, err := NewAuth(secureCookies)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if cfg.Production && !auth.Enabled {
-		log.Fatal("authentication must be configured in production")
-	}
-	if !auth.Enabled && !loopbackListenAddress(cfg.Listen) {
-		log.Fatal("authentication must be configured before listening on a non-loopback address")
 	}
 	auth.AuditLog = cfg.AuditLog
 	audit.SetDefault(audit.New(cfg.AuditLog))

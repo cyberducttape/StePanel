@@ -170,6 +170,20 @@ curl -fsS -H "Authorization: Bearer $STEPANEL_TOKEN" \
   "$PANEL/api/audit/events?limit=100" | jq
 ```
 
+If a terminal security-audit write fails after a host operation, StePanel keeps
+the operation pending. Compare its ID with the durable job and host state
+before recording evidence-based reconciliation. Reconciliation closes the
+audit record and never replays the original mutation:
+
+```sh
+curl -fsS -H "Authorization: Bearer $STEPANEL_TOKEN" \
+  "$PANEL/api/security/audit/reconciliation" | jq
+curl -fsS -X POST -H "Authorization: Bearer $STEPANEL_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"operation_id":"<32-character-id>","evidence":"Compared the durable job and host state; site is active at the requested generation."}' \
+  "$PANEL/api/security/audit/reconciliation" | jq
+```
+
 ## Jobs
 
 List and poll durable work:

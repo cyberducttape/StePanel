@@ -452,3 +452,18 @@ tests:
             exp_annotations:
               summary: No successful scheduled backup exists for never
               description: The enabled schedule for never has no recorded successful backup (success-present metric is 0). Check its latest attempt age and job result; create a verified backup and rehearse a restore.
+
+  - interval: 1m
+    input_series:
+      - series: 'stepanel_security_audit_outcomes_unresolved{job="stepanel"}'
+        values: '1+0x10'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: StePanelSecurityAuditOutcomeUnresolved
+        exp_alerts:
+          - exp_labels:
+              job: stepanel
+              severity: critical
+            exp_annotations:
+              summary: A host operation has no durable terminal audit outcome
+              description: "1 security operation(s) remain pending in security_audit_operations. Inspect /api/security/audit/reconciliation and compare the recorded operation ID, actor, target, host state, and job history. Record evidence-based reconciliation; do not rerun the mutation solely to obtain an audit event."

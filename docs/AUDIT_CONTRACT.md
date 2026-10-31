@@ -15,19 +15,26 @@ serves.
 intent  := BeginSecurityAudit(log, actor, action, target, detail)  // "<action>.initiated"
             ↳ error → refuse the request (HTTP 503); nothing has changed
 mutation
-intent.Completed(detail)   // "<action>"
-intent.Failed(detail)      // "<action>.failed"
+err := intent.Completed(detail)   // "<action>"
+err := intent.Failed(detail)      // "<action>.failed"
 ```
 
 - **No mutation without a durable intent.** If the intent cannot be recorded,
   the operation is refused and nothing changes.
-- **Every intent gets an outcome.** Handlers with several exit paths
+- **Every intent gets an outcome or remains explicitly pending.** Handlers with several exit paths
   `defer intent.Finish(&outcome, failure)` and set `outcome` at the point
   where the change takes effect (for example, right after a release is
   activated), so a later error cannot mislabel a live change as failed.
-- **Outcome failures never misreport the mutation.** Once the intent is
-  durable, failing to record the outcome is logged as `[CRITICAL]` and the
-  outbox retries. The intent alone shows that the operation was attempted.
+- **Outcome persistence failures are returned.** The operation ID, initiating
+  actor, action, target, and start time remain in the `security_audit_operations`
+  table with `state=pending`. Do not retry the host mutation because its audit
+  outcome failed. Review pending records through the administrator-only
+  `/api/security/audit/reconciliation` endpoint, then reconcile with evidence;
+  this closes the audit record and never replays the operation.
+- **Publication retries are distinct from outcome persistence.** Once the
+  outcome event and operation-state transition commit to SQLite, signed-log
+  publication is retried by the outbox. A publication delay does not mean the
+  outcome write failed.
 - `SecurityAuditRequired` records a single Class A event without an outcome.
   It is used for pre-mutation gates: the per-request `http.request` record,
   `auth.login.succeeded` before a session is issued, startup-recovery records,
@@ -44,7 +51,10 @@ Restoring access (unsuspending) is a grant and is recorded intent-first.
 
 ### What "durably recorded" means
 
-The event is persisted in the SQLite audit outbox. Publishing it to the
+The event is persisted in the SQLite audit outbox. For operations using
+`BeginSecurityAudit`, the intent and pending operation record commit in one
+SQLite transaction, and the terminal event plus state transition commit in a
+second transaction. Publishing the event to the
 signed, hash-chained audit file is retried by the outbox and is not part of
 the durability decision: an event that is in the outbox but not yet
 published is still recorded. (Treating a publication failure as "not

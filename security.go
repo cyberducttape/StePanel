@@ -1,9 +1,57 @@
 package stepanel
 
 import (
+	"encoding/hex"
 	"fmt"
+	"net/http"
 	"os"
+	"strings"
 )
+
+func (a *App) securityAuditReconciliation(w http.ResponseWriter, r *http.Request) {
+	store := defaultAuditOutbox
+	if store == nil {
+		http.Error(w, "durable security audit reconciliation is unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet, http.MethodHead:
+		items, err := store.listPendingSecurityAuditOperations(r.Context(), 100)
+		if err != nil {
+			http.Error(w, "could not read pending security audit operations", http.StatusServiceUnavailable)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"operations": items, "limit": 100})
+	case http.MethodPost:
+		var input struct {
+			OperationID string `json:"operation_id"`
+			Evidence    string `json:"evidence"`
+		}
+		if err := decodeJSON(w, r, 4096, &input); err != nil {
+			return
+		}
+		if len(input.OperationID) != 32 {
+			http.Error(w, "operation_id must be a 32-character audit operation ID", http.StatusBadRequest)
+			return
+		}
+		if _, err := hex.DecodeString(input.OperationID); err != nil {
+			http.Error(w, "operation_id is invalid", http.StatusBadRequest)
+			return
+		}
+		if strings.TrimSpace(input.Evidence) == "" || len(input.Evidence) > 2048 {
+			http.Error(w, "evidence must contain 1 to 2048 characters", http.StatusBadRequest)
+			return
+		}
+		actor := a.Auth.AuditActor(r)
+		if err := store.reconcileSecurityAuditOperation(r.Context(), a.Config.AuditLog, input.OperationID, actor, input.Evidence); err != nil {
+			http.Error(w, "could not reconcile audit operation: "+err.Error(), http.StatusConflict)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"reconciled": true, "operation_id": input.OperationID, "mutation_replayed": false})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
 
 type SecurityCheck struct {
 	Name                string `json:"name"`

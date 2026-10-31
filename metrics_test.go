@@ -250,9 +250,12 @@ func TestAuditOutboxMetricsExposePendingAge(t *testing.T) {
 	if err := store.persist(t.Context(), "operator", "site.update", "example", "test"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`INSERT INTO security_audit_operations(operation_id, actor, action, target, intent_detail, started_at, state) VALUES ('0123456789abcdef0123456789abcdef', 'operator', 'site.update', 'example', '', ?, 'pending')`, time.Now().UnixNano()); err != nil {
+		t.Fatal(err)
+	}
 	var output strings.Builder
 	writeAuditOutboxMetrics(&output, store)
-	for _, want := range []string{"stepanel_audit_outbox_up 1", "stepanel_audit_outbox_pending 1", "stepanel_audit_outbox_oldest_pending_age_seconds 0"} {
+	for _, want := range []string{"stepanel_audit_outbox_up 1", "stepanel_audit_outbox_pending 1", "stepanel_audit_outbox_oldest_pending_age_seconds 0", "stepanel_security_audit_outcomes_unresolved 1"} {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("audit outbox metrics missing %q:\n%s", want, output.String())
 		}

@@ -152,6 +152,15 @@ groups:
           summary: Durable audit events are not reaching the signed audit log
           description: The oldest unpublished audit event is {{ $value | humanizeDuration }} old, above five minutes. Check signed audit-log permissions, disk/inode capacity, and publication errors in the audit outbox.
 
+      - alert: StePanelSecurityAuditOutcomeUnresolved
+        expr: stepanel_security_audit_outcomes_unresolved{job="stepanel"} > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: A host operation has no durable terminal audit outcome
+          description: "{{ $value }} security operation(s) remain pending in security_audit_operations. Inspect /api/security/audit/reconciliation and compare the recorded operation ID, actor, target, host state, and job history. Record evidence-based reconciliation; do not rerun the mutation solely to obtain an audit event."
+
       - alert: StePanelNotificationOutboxBacklog
         expr: stepanel_operator_notifications_oldest_pending_age_seconds{job="stepanel"} > 900 and stepanel_operator_notifications_pending{job="stepanel"} > 0
         for: 5m

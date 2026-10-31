@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -58,6 +59,62 @@ func TestAuthRequiresSessionSecret(t *testing.T) {
 	t.Setenv("STEPANEL_SESSION_SECRET", "")
 	if _, err := NewAuth(true); err == nil {
 		t.Fatal("expected missing session secret to fail")
+	}
+}
+
+func TestStartupAuthenticationFailsClosedWithoutCredentials(t *testing.T) {
+	t.Setenv("STEPANEL_ADMIN_PASSWORD", "")
+	t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")
+	t.Setenv("STEPANEL_SESSION_SECRET", "")
+	t.Setenv("STEPANEL_ENV", "production")
+	if _, err := NewAuthForConfig(Config{Production: true, Listen: "127.0.0.1:8080"}); err == nil || !strings.Contains(err.Error(), "production authentication requires") {
+		t.Fatalf("production startup auth = %v; want missing-credentials failure", err)
+	}
+	if _, err := NewAuth(true); err == nil {
+		t.Fatal("public auth constructor accepted missing credentials outside explicit development mode")
+	}
+}
+
+func TestProductionHTTPServiceStartupRejectsMissingCredentials(t *testing.T) {
+	if os.Getenv("STEPANEL_TEST_PRODUCTION_AUTH_CHILD") == "1" {
+		Main()
+		t.Fatal("production HTTP service startup continued without administrator credentials")
+	}
+	t.Setenv("STEPANEL_ENV", "production")
+	t.Setenv("STEPANEL_ADMIN_PASSWORD", "")
+	t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")
+	t.Setenv("STEPANEL_SESSION_SECRET", "")
+	command := exec.Command(os.Args[0], "-test.run=^TestProductionHTTPServiceStartupRejectsMissingCredentials$")
+	command.Env = append(os.Environ(), "STEPANEL_TEST_PRODUCTION_AUTH_CHILD=1")
+	output, err := command.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "production authentication requires administrator credentials") {
+		t.Fatalf("production service startup output = %q, error = %v; want fail-closed auth error", output, err)
+	}
+}
+
+func TestDisabledAuthenticationRequiresExplicitLoopbackDevelopment(t *testing.T) {
+	t.Setenv("STEPANEL_ADMIN_PASSWORD", "")
+	t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")
+	t.Setenv("STEPANEL_SESSION_SECRET", "")
+	t.Setenv("STEPANEL_ENV", "")
+	if _, err := NewAuthForConfig(Config{Listen: "127.0.0.1:8080"}); err == nil || !strings.Contains(err.Error(), "STEPANEL_ENV=development") {
+		t.Fatalf("implicit development auth = %v; want explicit development mode", err)
+	}
+	t.Setenv("STEPANEL_ENV", "development")
+	t.Setenv("STEPANEL_LISTEN", "0.0.0.0:8080")
+	if _, err := NewAuth(true); err == nil || !strings.Contains(err.Error(), "loopback") {
+		t.Fatalf("public NewAuth constructor accepted non-loopback unauthenticated mode: %v", err)
+	}
+	if _, err := NewAuthForConfig(Config{Listen: "0.0.0.0:8080"}); err == nil || !strings.Contains(err.Error(), "loopback") {
+		t.Fatalf("non-loopback auth-disabled startup = %v; want loopback failure", err)
+	}
+	t.Setenv("STEPANEL_LISTEN", "127.0.0.1:8080")
+	if _, err := NewAuth(true); err != nil {
+		t.Fatalf("explicit development loopback NewAuth rejected: %v", err)
+	}
+	auth, err := NewAuthForConfig(Config{Listen: "127.0.0.1:8080"})
+	if err != nil || auth.Enabled {
+		t.Fatalf("explicit loopback development auth = %#v, %v; want auth disabled", auth, err)
 	}
 }
 

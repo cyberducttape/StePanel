@@ -241,6 +241,13 @@ func operationalChecks(cfg Config, jobs *Jobs) map[string]ReadinessCheck {
 		} else {
 			checks["audit_outbox"] = ReadinessCheck{Ready: true}
 		}
+		if pending, err := defaultAuditOutbox.pendingSecurityAuditOperations(context.Background()); err != nil {
+			checks["security_audit_outcomes"] = ReadinessCheck{Ready: false, Detail: fmt.Sprintf("security audit reconciliation state unavailable: %v", err)}
+		} else if pending > 0 {
+			checks["security_audit_outcomes"] = ReadinessCheck{Ready: false, Detail: fmt.Sprintf("%d security operation(s) have no durable terminal audit outcome; inspect operation IDs in security_audit_operations before retrying any mutation", pending)}
+		} else {
+			checks["security_audit_outcomes"] = ReadinessCheck{Ready: true}
+		}
 	}
 	if jobs == nil || jobs.db == nil {
 		checks["dead_letter_jobs"] = ReadinessCheck{Ready: false, Detail: "job store is not initialized"}
