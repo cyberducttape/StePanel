@@ -144,10 +144,15 @@ fi
 unit="stepanel-app-${site}.service"
 id "$site_user" >/dev/null 2>&1 || { echo 'isolated site user does not exist' >&2; exit 1; }
 active_package_unit=
+# A trapped signal does not terminate bash, so the handler must exit itself;
+# otherwise a cancelled helper would keep running its remaining steps.
 stop_package_unit_on_signal() {
   [[ -z $active_package_unit ]] || systemctl stop "$active_package_unit" >/dev/null 2>&1 || true
+  exit "$1"
 }
-trap stop_package_unit_on_signal TERM INT HUP
+trap 'stop_package_unit_on_signal 143' TERM
+trap 'stop_package_unit_on_signal 130' INT
+trap 'stop_package_unit_on_signal 129' HUP
 
 # Package managers and build scripts can execute code supplied by the site
 # (for example npm lifecycle scripts and PEP-517 build backends). Run those

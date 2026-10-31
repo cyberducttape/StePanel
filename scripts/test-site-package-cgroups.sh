@@ -19,7 +19,8 @@ require '--property=RuntimeMaxSec=15min --property=TimeoutStopSec=10s'
 require '--property="Slice=stepanel-site-$site.slice"'
 require '--property="ReadWritePaths=$public_root $site_private"'
 require '--property="SupplementaryGroups=$supplementary_groups"'
-require 'trap stop_package_unit_on_signal TERM INT HUP'
+require "trap 'stop_package_unit_on_signal 143' TERM"
+require 'exit "$1"'
 require 'systemctl stop "$active_package_unit"'
 
 # These entry points execute package-provided scripts or build backends.
