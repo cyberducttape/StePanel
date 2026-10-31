@@ -302,18 +302,16 @@ def remove_entry(parentfd, name, root_device):
 def mkdir(rootfd, parts):
     parent, leaf = parent_and_leaf(rootfd, parts)
     try:
-        mode = 0o750
-        if os.fstat(parent).st_mode & stat.S_ISGID:
-            mode |= stat.S_ISGID
+        previous_umask = os.umask(0o027)
         try:
-            os.mkdir(leaf, mode, dir_fd=parent)
+            # Let the kernel inherit the parent directory's setgid bit and
+            # group. A later chmod can clear setgid when the account user is
+            # not a member of the web-server group.
+            os.mkdir(leaf, 0o750, dir_fd=parent)
         except FileExistsError:
             raise Refused("path already exists") from None
-        child = open_directory(parent, leaf)
-        try:
-            os.fchmod(child, mode)
         finally:
-            os.close(child)
+            os.umask(previous_umask)
     finally:
         os.close(parent)
 

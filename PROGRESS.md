@@ -1167,8 +1167,9 @@ does not close a current-source or power-loss gate.
   system account.
 - Local validation passed: Bash syntax, ShellCheck, embedded Python compile,
   `git diff --check`, and a temporary-directory runtime check covering normal
-  operations, symlink confinement, and setgid group inheritance. The first
-  installed-host run exposed a setgid-bit regression in new directories; this
-  was corrected before the host smoke reached its symlink-swap cases. The
-  corrected exact-source host and full CI reruns are pending; no host
-  certification is claimed from the failed first run.
+  operations, symlink confinement, and setgid group inheritance. The
+  installed-host smoke exposed a setgid regression in new directories. An
+  initial chmod-based correction still failed for users outside the web
+  group, so directory creation now relies on kernel setgid inheritance under
+  a bounded temporary umask. The rerun for this final correction is pending;
+  no host certification is claimed from either failed run.
