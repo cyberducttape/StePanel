@@ -68,9 +68,10 @@ implemented. Daily publication is now an opt-in durable job that persists the
 checkpoint before remote I/O and verifies the remote copy. Independent
 checkpoint signing keys and protected historical-key verification are now
 supported. The exact source
-`ccb58c9` passed CI, CodeQL, and documentation validation; its installed-host
-smoke also passed one install/recovery run. The smoke did not configure an
-audit-checkpoint remote or exercise remote publication.
+`1353378` passed CI integration, CodeQL, documentation, and release-evidence
+validation. The installer smoke for its production-code-equivalent source
+`e8a1889` is still running; it does not configure an audit-checkpoint remote or
+exercise remote publication.
 
 Durable fencing prevents stale workers from committing SQLite job state, but
 does not undo an external mutation performed after lease loss. Operation-

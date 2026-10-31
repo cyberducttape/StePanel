@@ -21,11 +21,18 @@
   the root checkpoint/config race tests pass, as do `bash -n install.sh`, the
   GitHub Action SHA check, and `git diff --check`. The first hosted CI attempt
   on `e8a1889` found a test-fixture permissions mismatch caused by runner umask;
-  the fixture now explicitly chmods its group-writable directory, and hosted
-  CI is pending on the correction. The installed-host smoke is also pending.
-  Remote-provider append-only and outage/recovery evidence remains open;
-  changing `STEPANEL_AUDIT_KEY` remains unsupported because the event chain has
-  no per-record key IDs.
+  the fixture now explicitly sets modes. Exact-source CI integration
+  [41186123944](https://github.com/cyberducttape/StePanel/actions/runs/41186123944),
+  CodeQL [41186123895](https://github.com/cyberducttape/StePanel/actions/runs/41186123895),
+  documentation [41186123910](https://github.com/cyberducttape/StePanel/actions/runs/41186123910),
+  and release evidence
+  [41186233296](https://github.com/cyberducttape/StePanel/actions/runs/41186233296)
+  pass on `1353378`. The installed-host smoke
+  [41185781415](https://github.com/cyberducttape/StePanel/actions/runs/41185781415)
+  is still running on `e8a1889`, whose production code is identical; the only
+  later code-tree change is the test fixture chmod. Remote-provider append-only
+  and outage/recovery evidence remains open; changing `STEPANEL_AUDIT_KEY`
+  remains unsupported because the event chain has no per-record key IDs.
 
 ## Durable remote audit-checkpoint publication — 2026-10-31
 

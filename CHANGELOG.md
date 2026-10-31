@@ -95,7 +95,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Testing
 
 - Audit keyring permission regressions now set directory and file modes
-  explicitly, so test behavior is independent of the runner's umask.
+  explicitly, so test behavior is independent of the runner's umask. The
+  corrected exact-source CI integration, CodeQL, docs, and release-evidence
+  workflows passed on `1353378`; the matching installed-host smoke is pending.
 - `make check` passes on the current local source, including OpenAPI artifact
   validation, `go vet ./...`, and the complete serialized Go test suite. Focused
   audit/auth race tests pass. Prometheus YAML parses, but `promtool` is not
