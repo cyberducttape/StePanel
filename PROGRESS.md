@@ -19,10 +19,13 @@
 - `make check` passes, including API artifacts, shell contracts, `go vet ./...`,
   and the complete Go suite. Audit-package coverage is 95.0%, its race suite and
   the root checkpoint/config race tests pass, as do `bash -n install.sh`, the
-  GitHub Action SHA check, and `git diff --check`. Exact-source hosted CI and
-  host validation have not yet run on this change. Remote-provider append-only
-  and outage/recovery evidence remains open; changing `STEPANEL_AUDIT_KEY`
-  remains unsupported because the event chain has no per-record key IDs.
+  GitHub Action SHA check, and `git diff --check`. The first hosted CI attempt
+  on `e8a1889` found a test-fixture permissions mismatch caused by runner umask;
+  the fixture now explicitly chmods its group-writable directory, and hosted
+  CI is pending on the correction. The installed-host smoke is also pending.
+  Remote-provider append-only and outage/recovery evidence remains open;
+  changing `STEPANEL_AUDIT_KEY` remains unsupported because the event chain has
+  no per-record key IDs.
 
 ## Durable remote audit-checkpoint publication — 2026-10-31
 

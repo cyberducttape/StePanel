@@ -232,6 +232,9 @@ func TestCheckpointKeyringRejectsUnsafeStorage(t *testing.T) {
 	if err := os.Mkdir(writable, 0770); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(writable, 0770); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := LoadCheckpointKeyring(writable, "active", active, false); err == nil {
 		t.Fatal("group-writable keyring accepted")
 	}
