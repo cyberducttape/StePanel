@@ -668,6 +668,13 @@ closed device policy still refuses to open it.
   combination, with post-boot invariant evidence retained (see
   `docs/REAL_HOST_FAILURE_MATRIX.md`)
 
+The 2026-10-31 local Rocky 9 KVM attempt on source `77c355a` was terminated by
+the host OOM killer after 12,637 seconds. Its partial results are not counted
+as a completed repetition; the reached checkpoints and resource failure are
+recorded in the [lab report](lab-results/2026-10-31-rocky9-kvm-oom-interrupted.md).
+The exact-source hosted 20-repeat cohort is still running; only a fully
+completed six-platform repetition counts toward the criterion above.
+
 ---
 
 ## v1.0.0 Release Checklist

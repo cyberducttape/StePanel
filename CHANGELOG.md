@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Reliability
+
+- Recorded current-source recovery validation without overstating partial
+  results: the hosted six-platform cohort's first repetition passed, while a
+  local Rocky Linux 9 KVM run was interrupted by host memory exhaustion and is
+  not counted as a completed recovery repetition. See `PROGRESS.md` and the
+  dated lab report for the checkpoint boundary and environment.
+- Re-ran the archive-name fuzz target for 60 seconds (449,099 executions) and
+  focused authentication/TOTP tests; all passed. The full root-broker and
+  operations race packages passed with cached results.
+
 ### Security
 
 - Added an independent audit-checkpoint signing key and a bounded, permission-

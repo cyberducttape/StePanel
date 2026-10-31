@@ -1,5 +1,36 @@
 # Production-readiness progress
 
+## Current validation update — 2026-10-31
+
+- Current code source is `77c355a1f04771cce316284d9323754d1cab9480` (the
+  working tree is clean; no product code changed during this validation).
+  Focused production-authentication and database-backed TOTP replay tests pass.
+  `go test -race ./internal/rootbroker/... ./internal/operations/...` passes
+  (Go reported cached results). A fresh 60-second `FuzzNormalizeName` run
+  passed 449,099 executions and found no failure. `go vet ./...` also passed
+  in the earlier `make check` invocation; that full invocation timed out in
+  `TestGitStageQuotaIsSkippedOnlyInDevelopment`, whose isolated rerun passed.
+  The complete repeated Go suite is being run by the hosted reliability
+  workflow below, rather than duplicated during the installed-host run.
+- The exact-source hosted 20-repeat recovery cohort
+  [41191938794](https://github.com/cyberducttape/StePanel/actions/runs/41191938794)
+  completed repetition 1/20 with all six Ubuntu 24.04, AlmaLinux 9, and Rocky
+  Linux 9 Apache/Caddy combinations passing. Repetition 2/20 was in progress
+  with no failed shards at the time of this update. The cohort remains open;
+  one repetition is not certification.
+- A local Rocky Linux 9 KVM full-matrix attempt used source `77c355a`, QEMU
+  10.2.1, a 4 GiB/four-vCPU guest, and `cache=none`. It ran for 12,637 seconds
+  before the host OOM killer terminated QEMU; the guest console also recorded
+  a CPU soft-lockup warning. Confirmed checkpoints through
+  `terminate:services` passed. The `terminate:site-state` scenario had reached
+  its setup/backup/restore stages, but its termination recovery result and
+  later checkpoints were not recorded. This attempt is **interrupted and not
+  counted** toward any recovery gate. The result and host-resource limitation
+  are documented in
+  [`2026-10-31-rocky9-kvm-oom-interrupted.md`](docs/lab-results/2026-10-31-rocky9-kvm-oom-interrupted.md).
+- Production status remains **NO-GO**. No product source changed during this
+  validation; this entry records test evidence and limitations only.
+
 ## Independent audit-checkpoint key rotation — 2026-10-31
 
 - Exact current commit `950837d19fd87760182c6ffe3907fb9d400b9c38` passes local
