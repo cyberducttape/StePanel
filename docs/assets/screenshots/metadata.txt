@@ -1,9 +1,9 @@
 StePanel UI screenshots
 
-commit: eb2ae83
-version: v0.7.0-1165-geb2ae83-dirty
-captured_at_utc: 2026-10-11T03:37:41Z
+commit: e0d939d
+version: v0.7.0-2014-ge0d939d-dirty
+captured_at_utc: 2026-10-31T15:57:16Z
 browser: Playwright chrome
-theme: retro-neon (WayExpand-inspired)
+theme: StePanel Light (default appearance)
 data: synthetic sites, .example domains, backups, and one customer account seeded through the API
 host: disposable development control plane; root helpers replaced by stand-ins (vhost helper writes route files only; application and site isolation helpers are no-ops)
