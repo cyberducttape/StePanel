@@ -29,7 +29,10 @@
   and the changed root file-manager authorization tests. ShellCheck, the GitHub
   Action SHA pin check, and `git diff --check` passed. The complete root-package
   race suite was stopped after several minutes without a test failure; it
-  remains unverified in this run.
+  remains unverified in this run. Commit `db18dd0` was pushed to `main`; at
+  progress update time, exact-commit hosted CI, CodeQL, documentation, and
+  installation-smoke workflows were queued or pending, so hosted CI remains
+  unverified.
 - The production systemd/cgroup behavior still needs an installed-host test
   with a deliberately detached child on every supported OS. This work does
   not establish hostile multi-tenant isolation or close that release gate.
