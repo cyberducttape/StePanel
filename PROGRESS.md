@@ -6,16 +6,22 @@
   stored as `databases/<name>.dump`. The privileged restore helper uses
   `pg_restore` under `stepanel_dbload` with the database-owner role and rejects
   plain SQL scripts, preventing psql client commands from being interpreted.
+  A root-owned persistent `flock` now serializes PostgreSQL restore and
+  interrupted-restore role grant/revoke sequences across helper processes.
   The PostgreSQL installed-server smoke now attempts `\!`, `\copy`, and
-  `\o` payloads, verifies their marker files are absent, and verifies the
-  original database remains unchanged.
+  `\o` payloads and attempts cross-tenant `SET ROLE` during a blocked
+  concurrent restore. It verifies marker files are absent, the other tenant's
+  role cannot be assumed, and the original database remains unchanged.
+- The updated helper and PostgreSQL smoke pass `bash -n`, ShellCheck, and
+  `git diff --check`; documentation references also validate. Live PostgreSQL
+  behavior remains unrun locally and needs the hosted integration result.
 - `GOMAXPROCS=2 go test -p 1 -timeout 10m ./...`, `go vet ./...`, Go
   formatting, Bash syntax, ShellCheck, documentation reference/link checks,
   and `git diff --check` passed locally. This workstation has no PostgreSQL
   client/server, so the live PostgreSQL smoke remains dependent on CI.
   Existing PostgreSQL plain-SQL backup archives are intentionally not accepted
   for database restore; the source must be available to create a custom-format
-  backup. Exact-source hosted CI is pending for this change.
+  backup. Exact-source hosted CI is pending for these changes.
 
 ## Current validation update — 2026-10-31
 

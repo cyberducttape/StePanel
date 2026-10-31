@@ -33,6 +33,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   The real-PostgreSQL CI smoke checks these directives and confirms rejected
   input leaves the live database unchanged. Existing PostgreSQL plain-SQL
   backups must be recreated before their database can be restored.
+- PostgreSQL restore grant/load/revoke sequences now share a root-owned,
+  cross-process lock, preventing concurrent tenants from exposing multiple
+  database-owner memberships to the shared restore login. A PostgreSQL server
+  smoke attempts a cross-tenant `SET ROLE` during a blocked concurrent restore.
 - MySQL/MariaDB dump imports for cPanel, WordPress, and staged database
   restores now disable local client commands, use `--sandbox` when supported,
   ignore client option files, and run the importer as the unprivileged `mysql`

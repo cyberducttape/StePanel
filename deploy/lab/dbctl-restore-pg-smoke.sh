@@ -24,6 +24,9 @@ suffix=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
 db="pgr_$suffix"
 db_user="pgr_$suffix"
 site="pgsmoke-$suffix"
+db2="pgs_$suffix"
+db_user2="pgs_$suffix"
+site2="pgsmoke2-$suffix"
 work=$(mktemp -d /tmp/stepanel-restore-pg-smoke.XXXXXX)
 chmod 0755 "$work"
 marker_shell=/tmp/stepanel-pg-shell-$suffix
@@ -43,7 +46,9 @@ cleanup() {
   P -c "DROP DATABASE IF EXISTS \"pgrvictim_$suffix\"" -c "DROP ROLE IF EXISTS \"pgrevil_$suffix\"" >/dev/null 2>&1 || true
   "$helper" reconcile >/dev/null 2>&1 || true
   "$helper" drop-managed "$db" "$db_user" >/dev/null 2>&1 || true
-  rm -f -- "$registry/.locks/database-$db.lock" "$registry/.locks/site-$site.lock" "$registry/.locks/user-$db_user.lock"
+  "$helper" drop-managed "$db2" "$db_user2" >/dev/null 2>&1 || true
+  rm -f -- "$registry/.locks/database-$db.lock" "$registry/.locks/site-$site.lock" "$registry/.locks/user-$db_user.lock" \
+    "$registry/.locks/database-$db2.lock" "$registry/.locks/site-$site2.lock" "$registry/.locks/user-$db_user2.lock"
   rm -rf -- "$work"
 }
 trap cleanup EXIT
@@ -100,6 +105,37 @@ for attack in "${attacks[@]}"; do
   "$helper" restore-dump "$db" "$site" < "$work/backup.dump"
 done
 [[ $(snapshot) == "$before" ]] || fail 'an unsafe dump changed the live database'
+
+# Model tenant A in the grant-to-revoke section while a separate helper
+# attempts tenant B's restore. The cluster-wide lock must hold B before its
+# owner role is granted to the shared loader, so SET ROLE to B stays denied.
+printf '%s\n' "PgSmoke${suffix}Password2${suffix}" | "$helper" provision "$db2" "$db_user2" "$site2" UTF8
+(
+  flock -x 9
+  : > "$work/postgres-restore-lock-held"
+  sleep 4
+) 9>"$registry/.locks/postgres-restore.lock" &
+lock_pid=$!
+for _ in {1..100}; do
+  [[ -e $work/postgres-restore-lock-held ]] && break
+  sleep 0.05
+done
+[[ -e $work/postgres-restore-lock-held ]] || fail 'could not acquire the PostgreSQL restore coordination lock'
+P -c "GRANT \"$db_user\" TO stepanel_dbload" >/dev/null
+"$helper" restore-dump "$db2" "$site2" < "$work/backup.dump" > "$work/tenant-b.out" 2> "$work/tenant-b.err" &
+tenant_b_pid=$!
+sleep 1
+kill -0 "$tenant_b_pid" 2>/dev/null || fail 'tenant B restore did not wait for the active PostgreSQL restore lock'
+[[ $(P -c "SELECT COUNT(*) FROM pg_auth_members WHERE roleid=(SELECT oid FROM pg_roles WHERE rolname='$db_user2') AND member=(SELECT oid FROM pg_roles WHERE rolname='stepanel_dbload')") == 0 ]] || fail 'tenant B owner membership was granted before acquiring the global restore lock'
+if runuser -u stepanel_dbload -- psql --no-psqlrc --no-password --dbname "$db2" --command "SET ROLE \"$db_user2\"" >/dev/null 2>&1; then
+  fail 'the shared loader could SET ROLE to tenant B while tenant A restore membership was active'
+fi
+P -c "REVOKE \"$db_user\" FROM stepanel_dbload" >/dev/null
+wait "$lock_pid"
+if ! wait "$tenant_b_pid"; then fail "tenant B restore failed after lock release: $(cat "$work/tenant-b.err")"; fi
+[[ $(P --dbname "$db2" -c 'SELECT COUNT(*) FROM parent') == 2 ]] || fail 'tenant B restore did not complete after lock release'
+[[ $(P -c "SELECT COUNT(*) FROM pg_auth_members WHERE member=(SELECT oid FROM pg_roles WHERE rolname='stepanel_dbload')") == 0 ]] || fail 'restore role memberships remain after concurrent restore completion'
+pass 'concurrent restores serialize shared loader-role grants; tenant B cannot SET ROLE during tenant A restore'
 [[ $(P -c "SELECT COUNT(*) FROM pg_roles WHERE rolname = 'pgrevil_$suffix' OR (rolname = 'stepanel_dbload' AND (rolsuper OR rolcreatedb OR rolcreaterole))") == 0 ]] || fail 'an unsafe dump created or widened a role'
 [[ $(P -c "SELECT COUNT(*) FROM pg_database WHERE datname IN ('pgrvictim_$suffix', 'pgr_pwned')") == 1 ]] || fail 'an unsafe dump created or dropped a database'
 [[ $(P -c "SELECT COUNT(*) FROM pg_auth_members WHERE member = (SELECT oid FROM pg_roles WHERE rolname = 'stepanel_dbload')") == 0 ]] || fail 'the loader keeps a role membership after restores'

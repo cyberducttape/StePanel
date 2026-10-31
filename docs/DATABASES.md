@@ -40,8 +40,11 @@ mode, which disables client commands such as `system`. The loader may set
 definers, so after the load every trigger, view, routine and event must be
 defined by the site's own account, or the restore is refused. PostgreSQL
 archives load as the non-superuser OS identity `stepanel_dbload`, using the
-site database owner role only during that restore. A PostgreSQL database
-owned by `postgres` cannot be restored. On a MySQL or MariaDB server with binary
+site database owner role only during that restore. Because PostgreSQL role
+membership is cluster-wide, every helper process serializes the complete
+grant/load/revoke and interrupted-restore reconciliation sequence with a
+root-owned filesystem lock. A PostgreSQL database owned by `postgres` cannot
+be restored. On a MySQL or MariaDB server with binary
 logging enabled, only administrators can create triggers and stored
 functions unless `log_bin_trust_function_creators=1`. Enable it to restore
 databases that contain them; otherwise their restore is refused and the

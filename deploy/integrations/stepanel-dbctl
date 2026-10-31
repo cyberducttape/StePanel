@@ -20,7 +20,7 @@ lock_resources() {
   local -a sorted
   mapfile -t sorted < <(printf '%s\n' "$@" | LC_ALL=C sort -u)
   for lock_name in "${sorted[@]}"; do
-    [[ $lock_name =~ ^(database|site|user)-[a-z0-9_-]{1,64}$ ]] || { echo 'invalid internal database lock key' >&2; return 1; }
+    [[ $lock_name == postgres-restore || $lock_name =~ ^(database|site|user)-[a-z0-9_-]{1,64}$ ]] || { echo 'invalid internal database lock key' >&2; return 1; }
     exec {fd}>"$lock_dir/$lock_name.lock"
     flock -x "$fd"
     lock_fds+=("$fd")
@@ -333,8 +333,9 @@ drop_database_if_exists() {
 # authority. MySQL/MariaDB load it as a per-restore account with privileges
 # only on the shadow database; it may set definers, so every definer is then
 # checked to be the site's own account. PostgreSQL loads it as the
-# non-superuser login stepanel_dbload, a member of the database owner only
-# while loading, so a RESET ROLE in the dump cannot regain superuser rights.
+# non-superuser login stepanel_dbload. Its temporary owner-role membership is
+# cluster-wide, so PostgreSQL restore grant/load/revoke sequences are serialized
+# under the cross-process postgres-restore flock.
 postgres_loader=stepanel_dbload
 
 mysql_loader() { printf 'spl_%s' "$1"; }
@@ -592,7 +593,8 @@ if [[ $action == reconcile ]]; then
       pending-restore:*)
         valid_restore_shadow "$database" || { echo "invalid restore record: $database" >&2; exit 1; }
         parse_restore_record "$value" || { echo "invalid restore record: $database" >&2; exit 1; }
-        lock_keys=("database-$restore_database" "site-$restore_site") ;;
+        lock_keys=("database-$restore_database" "site-$restore_site")
+        [[ $engine != postgresql ]] || lock_keys+=(postgres-restore) ;;
       *) continue ;;
     esac
     lock_resources "${lock_keys[@]}"
@@ -689,7 +691,14 @@ if [[ $action == restore-dump ]]; then
   (( $# == 3 || $# == 4 )) || { echo 'usage: stepanel-dbctl restore-dump DATABASE SITE [DUMP_BYTES]' >&2; exit 64; }
   site=$3; valid_site "$site" || { echo 'invalid site' >&2; exit 1; }
   dump_bytes=${4:-0}; [[ $dump_bytes =~ ^[0-9]{1,18}$ ]] || { echo 'invalid database dump size' >&2; exit 64; }
-  lock_resources "database-$database" "site-$site"
+  if [[ $engine == postgresql ]]; then
+    # Role membership for the shared PostgreSQL loader is cluster-wide. Keep
+    # the entire grant/load/revoke and recovery sequence under one lock shared
+    # by every helper process, not merely the target database lock.
+    lock_resources "database-$database" "site-$site" postgres-restore
+  else
+    lock_resources "database-$database" "site-$site"
+  fi
   [[ -f $record ]] || { echo 'database is not registered as managed' >&2; exit 1; }
   value=$(<"$record")
   [[ $value == panel:"$site":* || $value == wordpress:"$site":* ]] || { echo 'database is not registered to this site' >&2; exit 1; }
@@ -781,7 +790,9 @@ case "$action" in
   dump)
     (( $# == 2 )) || exit 64; [[ -f $record ]] || { echo 'database is not registered as managed' >&2; exit 1; }; [[ $(<"$record") != pending-* ]] || exit 1
     value=$(<"$record"); site=$(record_site "$value")
-    if valid_site "$site"; then lock_resources "database-$database" "site-$site"; else lock_resources "database-$database"; fi
+    if [[ $engine == postgresql ]]; then
+      if valid_site "$site"; then lock_resources "database-$database" "site-$site" postgres-restore; else lock_resources "database-$database" postgres-restore; fi
+    elif valid_site "$site"; then lock_resources "database-$database" "site-$site"; else lock_resources "database-$database"; fi
     finish_restores_for "$database"
     # The locks stay held until the dump client exits: a restore swap or
     # other DDL during a --single-transaction dump would corrupt it.

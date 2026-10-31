@@ -14,13 +14,16 @@ successful one-off smoke does not close a host-certification gate.
 
 ### M0n — Remove psql client-command execution from PostgreSQL restores (P0)
 
-**Status:** Implemented; local full Go tests, `go vet`, shell validation,
-documentation checks, and diff validation pass. Awaiting exact-source
-PostgreSQL integration evidence. Native PostgreSQL dumps now use custom format, are archived as
+**Status:** Implemented; the prior source passed local full Go tests and vet,
+and the updated shell helper/smoke pass syntax, ShellCheck, documentation, and
+diff checks. Exact-source PostgreSQL integration evidence is pending. Native
+PostgreSQL dumps now use custom format, are archived as
 `.dump`, and restore through `pg_restore` as the restricted loader. Plain SQL
-is rejected at the privileged helper boundary. The real-server CI smoke
-attempts `\!`, `\copy`, and `\o` and checks that no marker is created and
-the live database is unchanged.
+is rejected at the privileged helper boundary. A root-owned cross-process
+lock serializes shared-loader role grants, loads, revocations, and interrupted
+restore reconciliation. The real-server CI smoke attempts `\!`, `\copy`,
+and `\o`, plus a concurrent cross-tenant `SET ROLE`, and verifies no marker
+is created and the live database is unchanged.
 
 **Acceptance criteria**
 
@@ -28,6 +31,8 @@ the live database is unchanged.
 - The PostgreSQL restore smoke successfully restores a valid custom archive.
 - The smoke rejects each psql meta-command fixture without executing it or
   changing the live database.
+- A second restore process cannot assume another tenant's database-owner role
+  while the first restore's membership is active.
 - CI evidence is tied to the exact source commit. Existing plain-SQL
   PostgreSQL backup compatibility must remain explicitly documented.
 
