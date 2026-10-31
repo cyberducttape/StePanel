@@ -65,7 +65,9 @@ remains separate.
 
 **Status:** Durable per-claim job fencing and the signed checkpoint format are
 implemented. Daily publication is now an opt-in durable job that persists the
-checkpoint before remote I/O and verifies the remote copy. The exact source
+checkpoint before remote I/O and verifies the remote copy. Independent
+checkpoint signing keys and protected historical-key verification are now
+supported. The exact source
 `ccb58c9` passed CI, CodeQL, and documentation validation; its installed-host
 smoke also passed one install/recovery run. The smoke did not configure an
 audit-checkpoint remote or exercise remote publication.
@@ -74,10 +76,13 @@ Configure `STEPANEL_AUDIT_CHECKPOINT_TARGET` to send checkpoints to a distinct
 rclone destination. Use a separately administered storage account and
 append/read-only policy where the provider supports it. The implementation
 reconciles ambiguous upload results by reading back the same immutable object,
-checking its exact bytes, and verifying its signature. It does not yet provide
-an independently managed historical-key keyring or evidence that the remote
-policy is immutable. The capability is optional and does not by itself close
-the production audit-completeness gate.
+checking its exact bytes, and verifying its signature. Configure
+`STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY` separately from the audit-chain key and
+retain retired checkpoint keys in the protected keyring before rotating. This
+does not support rotation of the local audit-chain key. The capability is
+optional; remote policy immutability, provider outage/recovery evidence, full
+destructive-operation completeness review, and repeat host certification remain
+open.
 
 **Acceptance criteria**
 
@@ -85,8 +90,10 @@ the production audit-completeness gate.
   after an ambiguous remote result and never overwrites a different object.
 - Remote read-back is size-bounded, byte-matched, signature-verified, and
   recorded as an audit outcome only after verification.
-- Key rotation uses a protected historical verification keyring; a disposable
-  remote-storage test proves append restrictions and retention behavior.
+- Checkpoint-key rotation uses a protected historical verification keyring;
+  tests prove old and current checkpoint signatures remain verifiable after
+  rotation. A disposable remote-storage test must still prove provider append
+  restrictions and retention behavior.
 - Exact-source CI, including race tests, coverage, release evidence, and
   installed-host validation, passes before this implementation is certified.
 
@@ -472,45 +479,6 @@ durable job state. Keep the token out of API serialization.
 - `make check`, focused root-package race tests, and `go test -race` for
   `internal/rootbroker` and `internal/operations` pass.
 - Exact-source CI and CodeQL pass before the milestone is closed.
-
-### M0l — Complete durable-operation and audit checkpoint guarantees (P0)
-
-**Status:** Open. The lease-token CAS closes stale durable job commits only; it
-does not by itself prevent duplicate external side effects after an ambiguous
-worker death.
-
-An initial audit-checkpoint artifact primitive is in progress: it verifies the
-local signed chain under the audit writer lock, binds the sequence/hash/time
-and caller-supplied key ID to an operation ID, and supports independent
-keyring verification. It is not yet wired to a durable job, does not publish
-to independent storage, and does not provide remote acknowledgement or
-rotation policy; none of the checkpoint release criteria are closed by this
-primitive alone.
-
-Remaining work includes mandatory operation-specific idempotency for
-destructive jobs, explicit committing/reconciliation-required states, durable
-prepare/apply/verify/recover journals for each irreversible host boundary, and
-repeatable SIGKILL recovery evidence. Audit work must separately establish
-record integrity, operation completeness, and retention: introduce signed
-checkpoints containing sequence, final hash, timestamp and key ID; bind the
-checkpoint to operation IDs; and publish it to an independently controlled
-destination with verifiable acknowledgement and retry status.
-
-**Acceptance criteria**
-
-- No destructive job can be admitted without a stable, operation-specific
-  idempotency identity; distinct operations are never coalesced.
-- Each destructive workflow has an explicit durable state machine and journal,
-  with safe restart behavior and operator-intervention state for ambiguous
-  external effects.
-- Crash tests kill workers at every irreversible boundary and prove that stale
-  workers cannot commit or repeat unverified side effects.
-- Checkpoints are cryptographically verifiable independently of the source
-  host, include sequence/hash/time/key ID and relevant operation IDs, and are
-  acknowledged by independent storage before reported as replicated.
-- Retention, key rotation, key loss and off-host checkpoint recovery are
-  tested and documented. This does not replace the host-level release gates.
-
 
 ### M1 — Complete installed-host failure recovery (P0)
 

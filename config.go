@@ -55,6 +55,7 @@ type Config struct {
 	OffsiteTarget                                                                 string
 	AuditCheckpointTarget                                                         string
 	AuditCheckpointKeyID                                                          string
+	AuditCheckpointKeyringDir                                                     string
 	CloudProvider                                                                 string
 	RequireOffsiteBackup                                                          bool
 	AlertWebhookURL, AlertWebhookSecret                                           string
@@ -275,6 +276,7 @@ func LoadConfig() Config {
 	c.OffsiteTarget = strings.TrimSpace(os.Getenv("STEPANEL_OFFSITE_TARGET"))
 	c.AuditCheckpointTarget = strings.TrimSpace(os.Getenv("STEPANEL_AUDIT_CHECKPOINT_TARGET"))
 	c.AuditCheckpointKeyID = strings.TrimSpace(os.Getenv("STEPANEL_AUDIT_CHECKPOINT_KEY_ID"))
+	c.AuditCheckpointKeyringDir = strings.TrimSpace(os.Getenv("STEPANEL_AUDIT_CHECKPOINT_KEYRING_DIR"))
 	if c.AuditCheckpointKeyID == "" {
 		c.AuditCheckpointKeyID = "primary"
 	}
@@ -452,6 +454,17 @@ func ValidateConfig(c Config) error {
 		}
 		if !auditCheckpointKeyIDPattern.MatchString(c.AuditCheckpointKeyID) {
 			problems = append(problems, errors.New("STEPANEL_AUDIT_CHECKPOINT_KEY_ID must be 1-64 alphanumeric, dot, underscore, or hyphen characters"))
+		}
+	}
+	if c.AuditCheckpointKeyringDir != "" && (!filepath.IsAbs(c.AuditCheckpointKeyringDir) || strings.ContainsAny(c.AuditCheckpointKeyringDir, "\x00\r\n")) {
+		problems = append(problems, errors.New("STEPANEL_AUDIT_CHECKPOINT_KEYRING_DIR must be an absolute path without control characters"))
+	}
+	if checkpointKey := os.Getenv("STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY"); checkpointKey != "" {
+		if len(checkpointKey) < 32 || strings.ContainsAny(checkpointKey, "\x00\r\n") {
+			problems = append(problems, errors.New("STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY must contain at least 32 bytes without NUL or newline"))
+		}
+		if checkpointKey == os.Getenv("STEPANEL_AUDIT_KEY") || checkpointKey == os.Getenv("STEPANEL_SESSION_SECRET") {
+			problems = append(problems, errors.New("STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY must be independent of audit and session keys"))
 		}
 	}
 	if err := validateSSHServers(); err != nil {

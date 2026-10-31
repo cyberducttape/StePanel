@@ -29,7 +29,12 @@ func TestValidateConfigChecksOffsiteTransferDeadline(t *testing.T) {
 func TestValidateConfigChecksAuditCheckpointDestinationAndKeyID(t *testing.T) {
 	t.Setenv("STEPANEL_AUDIT_CHECKPOINT_TARGET", "s3:audit-evidence/checkpoints")
 	t.Setenv("STEPANEL_AUDIT_CHECKPOINT_KEY_ID", "release-2026-10")
+	keyringDir := filepath.Join(t.TempDir(), "keys")
+	t.Setenv("STEPANEL_AUDIT_CHECKPOINT_KEYRING_DIR", keyringDir)
 	cfg := LoadConfig()
+	if cfg.AuditCheckpointKeyringDir != keyringDir {
+		t.Fatalf("checkpoint keyring directory not loaded: %q", cfg.AuditCheckpointKeyringDir)
+	}
 	if err := ValidateConfig(cfg); err != nil {
 		t.Fatalf("valid checkpoint configuration rejected: %v", err)
 	}
@@ -43,6 +48,26 @@ func TestValidateConfigChecksAuditCheckpointDestinationAndKeyID(t *testing.T) {
 	cfg = LoadConfig()
 	if err := ValidateConfig(cfg); err == nil || !strings.Contains(err.Error(), "STEPANEL_AUDIT_CHECKPOINT_TARGET") {
 		t.Fatalf("invalid checkpoint destination accepted: %v", err)
+	}
+}
+
+func TestValidateConfigChecksCheckpointKeyIndependenceAndKeyringPath(t *testing.T) {
+	auditKey := strings.Repeat("a", 64)
+	t.Setenv("STEPANEL_AUDIT_KEY", auditKey)
+	t.Setenv("STEPANEL_SESSION_SECRET", strings.Repeat("s", 64))
+	t.Setenv("STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY", strings.Repeat("c", 64))
+	t.Setenv("STEPANEL_AUDIT_CHECKPOINT_KEYRING_DIR", filepath.Join(t.TempDir(), "keys"))
+	if err := ValidateConfig(LoadConfig()); err != nil {
+		t.Fatalf("independent checkpoint key rejected: %v", err)
+	}
+	t.Setenv("STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY", auditKey)
+	if err := ValidateConfig(LoadConfig()); err == nil || !strings.Contains(err.Error(), "independent of audit and session keys") {
+		t.Fatalf("checkpoint key reused audit key without rejection: %v", err)
+	}
+	t.Setenv("STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY", strings.Repeat("c", 64))
+	t.Setenv("STEPANEL_AUDIT_CHECKPOINT_KEYRING_DIR", "relative/keys")
+	if err := ValidateConfig(LoadConfig()); err == nil || !strings.Contains(err.Error(), "STEPANEL_AUDIT_CHECKPOINT_KEYRING_DIR") {
+		t.Fatalf("relative checkpoint keyring path accepted: %v", err)
 	}
 }
 

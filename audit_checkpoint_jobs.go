@@ -51,12 +51,16 @@ func (a *App) handleAuditCheckpointJob(ctx context.Context, item Job) ([]byte, e
 	if err := validateOffsiteTarget(payload.Target); err != nil {
 		return nil, err
 	}
+	signingKey, err := audit.CheckpointSigningKey()
+	if err != nil {
+		return nil, err
+	}
 	if payload.Checkpoint == nil {
 		keyID := a.Config.AuditCheckpointKeyID
 		if keyID == "" {
 			keyID = "primary"
 		}
-		checkpoint, err := audit.CreateCheckpoint(a.Config.AuditLog, item.ID, keyID)
+		checkpoint, err := audit.CreateCheckpointWithKey(a.Config.AuditLog, item.ID, keyID, signingKey)
 		if err != nil {
 			return nil, fmt.Errorf("create signed audit checkpoint: %w", err)
 		}
@@ -77,7 +81,14 @@ func (a *App) handleAuditCheckpointJob(ctx context.Context, item Job) ([]byte, e
 	if checkpoint.OperationID != item.ID {
 		return nil, errors.New("audit checkpoint operation ID does not match its durable job")
 	}
-	if err := audit.VerifyCheckpointWithConfiguredKey(checkpoint); err != nil {
+	keyID := a.Config.AuditCheckpointKeyID
+	if keyID == "" {
+		keyID = "primary"
+	}
+	verify := func(value audit.Checkpoint) error {
+		return audit.VerifyCheckpointWithKeyring(value, a.Config.AuditCheckpointKeyringDir, keyID, signingKey, a.Config.Production)
+	}
+	if err := verify(checkpoint); err != nil {
 		return nil, fmt.Errorf("verify signed audit checkpoint before publication: %w", err)
 	}
 	encoded, err := json.Marshal(checkpoint)
@@ -99,7 +110,7 @@ func (a *App) handleAuditCheckpointJob(ctx context.Context, item Job) ([]byte, e
 	if err := json.Unmarshal(remoteBytes, &verified); err != nil {
 		return nil, fmt.Errorf("decode remote audit checkpoint: %w", err)
 	}
-	if err := audit.VerifyCheckpointWithConfiguredKey(verified); err != nil {
+	if err := verify(verified); err != nil {
 		return nil, fmt.Errorf("verify remote audit checkpoint: %w", err)
 	}
 	if verified != checkpoint {

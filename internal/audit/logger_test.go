@@ -24,6 +24,7 @@ func newTestLogger(t *testing.T) (*defaultLogger, string) {
 	previousKeyPath := auditKeyPath
 	TestSetKeyPath(keyPath)
 	t.Setenv("STEPANEL_AUDIT_KEY", "")
+	t.Setenv("STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY", "")
 	t.Setenv("STEPANEL_SESSION_SECRET", "")
 	t.Cleanup(func() { TestSetKeyPath(previousKeyPath) })
 	TestResetPersistenceError()

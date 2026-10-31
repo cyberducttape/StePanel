@@ -170,6 +170,8 @@ MIN_FREE_BYTES="${STEPANEL_MIN_FREE_BYTES:-1073741824}"
 REQUIRE_OFFSITE_BACKUP="${STEPANEL_REQUIRE_OFFSITE_BACKUP:-0}"
 AUDIT_CHECKPOINT_TARGET="${STEPANEL_AUDIT_CHECKPOINT_TARGET:-}"
 AUDIT_CHECKPOINT_KEY_ID="${STEPANEL_AUDIT_CHECKPOINT_KEY_ID:-primary}"
+AUDIT_CHECKPOINT_KEYRING_DIR="${STEPANEL_AUDIT_CHECKPOINT_KEYRING_DIR:-}"
+AUDIT_CHECKPOINT_SIGNING_KEY="${STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY:-}"
 MAX_UPLOAD_BYTES="${STEPANEL_MAX_UPLOAD_BYTES:-21474836480}"
 MAX_ARCHIVE_ENTRIES="${STEPANEL_MAX_ARCHIVE_ENTRIES:-1000000}"
 MAX_CONCURRENT_JOBS="${STEPANEL_MAX_CONCURRENT_JOBS:-2}"
@@ -177,6 +179,10 @@ unset STEPANEL_ADMIN_PASSWORD STEPANEL_SESSION_SECRET STEPANEL_DB_PASSWORD STEPA
 if [[ -z "$ADMIN_PASSWORD" && -z "$EXISTING_ADMIN_PASSWORD_HASH" && -t 0 ]]; then read -r -s -p "StePanel admin password: " ADMIN_PASSWORD; echo; fi
 if [[ -z "$ADMIN_PASSWORD" && -z "$EXISTING_ADMIN_PASSWORD_HASH" ]]; then echo "Set STEPANEL_ADMIN_PASSWORD or run the installer interactively." >&2; exit 1; fi
 if [[ -z "$SESSION_SECRET" ]]; then SESSION_SECRET="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"; fi
+if [[ -n "$AUDIT_CHECKPOINT_KEYRING_DIR" && ( "$AUDIT_CHECKPOINT_KEYRING_DIR" != /* || "$AUDIT_CHECKPOINT_KEYRING_DIR" == *$'\n'* || "$AUDIT_CHECKPOINT_KEYRING_DIR" == *$'\r'* ) ]]; then
+  echo 'STEPANEL_AUDIT_CHECKPOINT_KEYRING_DIR must be an absolute path without newlines.' >&2
+  exit 1
+fi
 if [[ -e /etc/stepanel-audit.key || -L /etc/stepanel-audit.key ]]; then
   [[ -f /etc/stepanel-audit.key && ! -L /etc/stepanel-audit.key ]] || { echo '/etc/stepanel-audit.key must be a regular file.' >&2; exit 1; }
   audit_key_owner=$(stat -c %u /etc/stepanel-audit.key)
@@ -193,6 +199,7 @@ if [[ -z "$BACKUP_ENCRYPTION_KEY" ]]; then BACKUP_ENCRYPTION_KEY="$(od -An -N32 
 if [[ -n "$ADMIN_PASSWORD" ]] && (( ${#ADMIN_PASSWORD} < 12 )); then echo "STEPANEL_ADMIN_PASSWORD must be at least 12 characters." >&2; exit 1; fi
 if (( ${#SESSION_SECRET} < 32 )); then echo "STEPANEL_SESSION_SECRET must be at least 32 characters." >&2; exit 1; fi
 if (( ${#AUDIT_KEY} < 32 )) || [[ $AUDIT_KEY == *$'\n'* || $AUDIT_KEY == *$'\r'* ]]; then echo 'STEPANEL_AUDIT_KEY must be at least 32 characters and contain no newlines.' >&2; exit 1; fi
+if [[ -n "$AUDIT_CHECKPOINT_SIGNING_KEY" ]] && { (( ${#AUDIT_CHECKPOINT_SIGNING_KEY} < 32 )) || [[ $AUDIT_CHECKPOINT_SIGNING_KEY == *$'\n'* || $AUDIT_CHECKPOINT_SIGNING_KEY == *$'\r'* || $AUDIT_CHECKPOINT_SIGNING_KEY == "$AUDIT_KEY" || $AUDIT_CHECKPOINT_SIGNING_KEY == "$SESSION_SECRET" ]]; }; then echo 'STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY must be independent and contain at least 32 characters without newlines.' >&2; exit 1; fi
 if (( ${#ENVIRONMENT_KEY} < 32 )) || [[ $ENVIRONMENT_KEY == *$'\n'* || $ENVIRONMENT_KEY == *$'\r'* ]]; then echo 'STEPANEL_ENVIRONMENT_KEY must be at least 32 characters and contain no newlines.' >&2; exit 1; fi
 if (( ${#BACKUP_SIGNING_KEY} < 32 )) || [[ $BACKUP_SIGNING_KEY == *$'\n'* || $BACKUP_SIGNING_KEY == *$'\r'* ]]; then echo 'STEPANEL_BACKUP_SIGNING_KEY must be at least 32 characters and contain no newlines.' >&2; exit 1; fi
 if (( ${#BACKUP_ENCRYPTION_KEY} < 32 )) || [[ $BACKUP_ENCRYPTION_KEY == *$'\n'* || $BACKUP_ENCRYPTION_KEY == *$'\r'* ]]; then echo 'STEPANEL_BACKUP_ENCRYPTION_KEY must be at least 32 characters and contain no newlines.' >&2; exit 1; fi
@@ -1153,6 +1160,8 @@ write_env() {
 # and installer-generated credentials are excluded here.
 PRESERVED_RUNTIME_SETTINGS=(
   STEPANEL_ACCOUNT_STATE
+  STEPANEL_AUDIT_CHECKPOINT_KEYRING_DIR
+  STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY
   STEPANEL_ALERT_EMAIL_FROM
   STEPANEL_ALERT_EMAIL_TO
   STEPANEL_ALERT_SMTP_HOST
@@ -1251,6 +1260,8 @@ TXN_TEMPS+=("$env_tmp")
     write_env STEPANEL_AUDIT_CHECKPOINT_TARGET "$AUDIT_CHECKPOINT_TARGET"
     write_env STEPANEL_AUDIT_CHECKPOINT_KEY_ID "$AUDIT_CHECKPOINT_KEY_ID"
   fi
+  if [[ -n "$AUDIT_CHECKPOINT_KEYRING_DIR" ]]; then write_env STEPANEL_AUDIT_CHECKPOINT_KEYRING_DIR "$AUDIT_CHECKPOINT_KEYRING_DIR"; fi
+  if [[ -n "$AUDIT_CHECKPOINT_SIGNING_KEY" ]]; then write_env STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY "$AUDIT_CHECKPOINT_SIGNING_KEY"; fi
   write_env STEPANEL_REQUIRE_OFFSITE_BACKUP "$REQUIRE_OFFSITE_BACKUP"
   if [[ -n "$RCLONE_CONFIG" ]]; then write_env RCLONE_CONFIG "$RCLONE_CONFIG"; fi
   write_env STEPANEL_JOB_STATE "$DATA_DIR/jobs.json"

@@ -151,6 +151,14 @@ Starting in production, StePanel validates encryption keys at startup and reject
 - **Rotation:** In-place rotation is not supported. Preserve and verify the
   existing chain before planning a versioned keyring migration; never replace
   this key merely to rotate it.
+- **Checkpoint signing:** Use `STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY` for an
+  independent HMAC key when remote checkpoints are enabled. It can be rotated
+  separately by retaining the previous key as
+  `<key-id>.key` in `STEPANEL_AUDIT_CHECKPOINT_KEYRING_DIR` before changing the
+  key and `STEPANEL_AUDIT_CHECKPOINT_KEY_ID` together. Keep the directory
+  root-owned, readable by the `stepanel` group, and not group/other-writable.
+  This rotates checkpoint signatures only; the local audit-chain key remains
+  non-rotatable until the event format supports per-record key IDs.
 - **Example:** `3b6e9a2c5d8e1f4a7b0c3d6e9f2a5b8c1d4e7a0c3f6b9e2d5f8a1b4c7d`
 
 ---

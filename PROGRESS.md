@@ -1,5 +1,28 @@
 # Production-readiness progress
 
+## Independent audit-checkpoint key rotation — 2026-10-31
+
+- Added a dedicated `STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY`, separate from the
+  local audit-chain HMAC and session key. New checkpoints use signature
+  version 2; version 1 checkpoint verification remains supported.
+- Durable checkpoint publication now loads a bounded historical keyring from
+  `STEPANEL_AUDIT_CHECKPOINT_KEYRING_DIR`. It rejects invalid IDs, excessive
+  key counts/sizes, symlink/non-regular key files, weak key lengths, and
+  group/other-writable storage. A stored old checkpoint remains verifiable
+  after the active checkpoint signing key changes, without changing the local
+  audit-chain key.
+- Installer and runtime configuration propagate the optional key/keyring
+  settings; installation docs describe root ownership, service-group read
+  access, permissions, and the checkpoint-only rotation procedure. Removed a
+  duplicate, stale M0l section from `DEVELOPMENT_PLAN.md`.
+- `make check` passes, including API artifacts, shell contracts, `go vet ./...`,
+  and the complete Go suite. Audit-package coverage is 95.0%, its race suite and
+  the root checkpoint/config race tests pass, as do `bash -n install.sh`, the
+  GitHub Action SHA check, and `git diff --check`. Exact-source hosted CI and
+  host validation have not yet run on this change. Remote-provider append-only
+  and outage/recovery evidence remains open; changing `STEPANEL_AUDIT_KEY`
+  remains unsupported because the event chain has no per-record key IDs.
+
 ## Durable remote audit-checkpoint publication — 2026-10-31
 
 - Added an optional daily scheduler that admits one `audit.checkpoint` durable
@@ -23,10 +46,10 @@
   [41182651772](https://github.com/cyberducttape/StePanel/actions/runs/41182651772)
   passed one AlmaLinux 9/Caddy/MariaDB install and recovery run. This does not
   establish repeated crash recovery or remote checkpoint-provider behavior.
-- Remaining gaps: no protected historical-key keyring for rotation, no
-  provider-side append-only policy verification, and no release-level proof
-  that the destination is independent. M0l and production readiness remain
-  open.
+- Remaining gaps: provider-side append-only policy verification, remote
+  outage/recovery evidence, and release-level proof that the destination is
+  independent. Local audit-chain key rotation remains unsupported. M0l and
+  production readiness remain open.
 
 ## Signed audit-checkpoint artifact primitive — 2026-10-31
 
