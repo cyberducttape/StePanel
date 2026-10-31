@@ -29,10 +29,20 @@
   [41186233296](https://github.com/cyberducttape/StePanel/actions/runs/41186233296)
   pass on `1353378`. The installed-host smoke
   [41185781415](https://github.com/cyberducttape/StePanel/actions/runs/41185781415)
-  is still running on `e8a1889`, whose production code is identical; the only
-  later code-tree change is the test fixture chmod. Remote-provider append-only
-  and outage/recovery evidence remains open; changing `STEPANEL_AUDIT_KEY`
-  remains unsupported because the event chain has no per-record key IDs.
+  was later canceled when a newer source was pushed and is not counted as
+  evidence. The exact final source `1e6db185e5fc77e034280e9182d30e47c562c190`
+  passed CI integration [41187605734](https://github.com/cyberducttape/StePanel/actions/runs/41187605734),
+  CodeQL [41187605838](https://github.com/cyberducttape/StePanel/actions/runs/41187605838),
+  documentation [41187605775](https://github.com/cyberducttape/StePanel/actions/runs/41187605775),
+  and one AlmaLinux 9/Caddy/MariaDB installed-host smoke
+  [41187605802](https://github.com/cyberducttape/StePanel/actions/runs/41187605802).
+  That smoke completed one recovery-matrix iteration and an application-level
+  WordPress restore proof (7.333 s RTO); it does not configure a checkpoint
+  remote or exercise remote publication. See the
+  [reviewed host result](docs/lab-results/2026-10-31-almalinux9-install-1e6db18.md).
+  Remote-provider append-only and outage/recovery evidence remains open;
+  changing `STEPANEL_AUDIT_KEY` remains unsupported because the event chain
+  has no per-record key IDs.
 
 ## Durable remote audit-checkpoint publication — 2026-10-31
 

@@ -68,10 +68,17 @@ implemented. Daily publication is now an opt-in durable job that persists the
 checkpoint before remote I/O and verifies the remote copy. Independent
 checkpoint signing keys and protected historical-key verification are now
 supported. The exact source
-`1353378` passed CI integration, CodeQL, documentation, and release-evidence
-validation. The installer smoke for its production-code-equivalent source
-`e8a1889` is still running; it does not configure an audit-checkpoint remote or
-exercise remote publication.
+`1e6db185e5fc77e034280e9182d30e47c562c190` passed CI integration
+([41187605734](https://github.com/cyberducttape/StePanel/actions/runs/41187605734)),
+CodeQL ([41187605838](https://github.com/cyberducttape/StePanel/actions/runs/41187605838)),
+documentation ([41187605775](https://github.com/cyberducttape/StePanel/actions/runs/41187605775)),
+and an installed-host smoke ([41187605802](https://github.com/cyberducttape/StePanel/actions/runs/41187605802)).
+The smoke passed one AlmaLinux 9/Caddy/MariaDB recovery iteration and a
+database-backed WordPress restore proof; details are in
+[`2026-10-31-almalinux9-install-1e6db18.md`](docs/lab-results/2026-10-31-almalinux9-install-1e6db18.md).
+It does not configure an audit-checkpoint remote or exercise remote
+publication. The earlier installer smoke on `e8a1889` was canceled after a
+newer source was pushed and is not counted.
 
 Durable fencing prevents stale workers from committing SQLite job state, but
 does not undo an external mutation performed after lease loss. Operation-
