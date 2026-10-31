@@ -15,14 +15,12 @@ successful one-off smoke does not close a host-certification gate.
 ### M0 — Restore green exact-source CI
 
 **Priority:** Immediate release hygiene  
-**Status:** Green on exact source `711948d` (2026-10-31). CI integration
-([41157044343](https://github.com/cyberducttape/StePanel/actions/runs/41157044343)),
-CodeQL ([41157044317](https://github.com/cyberducttape/StePanel/actions/runs/41157044317)),
-documentation ([41157044368](https://github.com/cyberducttape/StePanel/actions/runs/41157044368)),
-and release evidence ([41157205535](https://github.com/cyberducttape/StePanel/actions/runs/41157205535))
-all passed on the exact source. CI integration includes the Go suite, race
-tests, recovery drills, tmpfs ENOSPC, Prometheus rule tests, static analysis,
-dependency scanning, deployment validation, and browser E2E. The six-host full recovery shard
+**Status:** Green on exact source `ccb58c9` (2026-10-31); its CI integration,
+CodeQL, documentation, release-evidence, and one installed-host smoke passed.
+CI integration covers Go tests and race tests, recovery
+drills, tmpfs ENOSPC, database integration, static analysis, deployment
+validation, and browser E2E. Earlier exact-source evidence on `711948d` is
+retained in the prior progress record. The six-host full recovery shard
 [`gate-1ff3233`](https://github.com/cyberducttape/StePanel/actions/runs/41066287752)
 and the N-1 upgrade smoke
 [41066237188](https://github.com/cyberducttape/StePanel/actions/runs/41066237188)
@@ -33,21 +31,18 @@ until `7a85b2c` (overlapping CPU alerts), and the scheduled N-1 smoke from
 The earlier `c91a88b` evidence is recorded in
 [`docs/lab-results/2026-10-30-current-source-almalinux-install-79e1de4.md`](docs/lab-results/2026-10-30-current-source-almalinux-install-79e1de4.md).
 This closes M0 exact-source validation only; production recovery gates remain
-open. A separate Rocky 9 KVM host-recovery run on source `b650992` is active;
-its result is not included in this CI status.
+open and are tracked in [`docs/V1_PRODUCTION_GATES.md`](docs/V1_PRODUCTION_GATES.md).
 
-Most recent exact-source verification is `eaa51a81fd011f1539dc4a905de56b87315b6b9e`:
-CI integration [41180461643](https://github.com/cyberducttape/StePanel/actions/runs/41180461643),
-CodeQL [41180461695](https://github.com/cyberducttape/StePanel/actions/runs/41180461695),
-documentation [41180461626](https://github.com/cyberducttape/StePanel/actions/runs/41180461626),
-release evidence [41180486632](https://github.com/cyberducttape/StePanel/actions/runs/41180486632),
-and three-repeat/recovery workflow [41180463963](https://github.com/cyberducttape/StePanel/actions/runs/41180463963)
+Most recent exact-source verification is `ccb58c90d0de0b2e22506a13abba76aeb50b1b78`:
+CI integration [41182651721](https://github.com/cyberducttape/StePanel/actions/runs/41182651721),
+CodeQL [41182651731](https://github.com/cyberducttape/StePanel/actions/runs/41182651731),
+and documentation [41182651795](https://github.com/cyberducttape/StePanel/actions/runs/41182651795)
 passed. CI includes coverage floors, full Go tests, full race tests, recovery
 drills, tmpfs ENOSPC, database integration, deployment validation, and UI E2E.
 The exact-source AlmaLinux 9/Caddy/MariaDB installed-host smoke
-[41180461647](https://github.com/cyberducttape/StePanel/actions/runs/41180461647)
-also passed. This is one installed-host run; broader repeated host-failure
-certification remains separate.
+[41182651772](https://github.com/cyberducttape/StePanel/actions/runs/41182651772)
+passed one install/recovery run. Broader repeated host-failure certification
+remains separate.
 
 - [x] Correct the Playwright quota-headroom expectation to match the UI's
   account-scoped upper-bound wording; exact-source browser E2E passed in
@@ -70,8 +65,10 @@ certification remains separate.
 
 **Status:** Durable per-claim job fencing and the signed checkpoint format are
 implemented. Daily publication is now an opt-in durable job that persists the
-checkpoint before remote I/O and verifies the remote copy. Focused tests pass;
-the current publication change still needs complete exact-source CI.
+checkpoint before remote I/O and verifies the remote copy. The exact source
+`ccb58c9` passed CI, CodeQL, and documentation validation; its installed-host
+smoke also passed one install/recovery run. The smoke did not configure an
+audit-checkpoint remote or exercise remote publication.
 
 Configure `STEPANEL_AUDIT_CHECKPOINT_TARGET` to send checkpoints to a distinct
 rclone destination. Use a separately administered storage account and

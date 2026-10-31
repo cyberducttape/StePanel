@@ -15,7 +15,14 @@
   separately administered storage to establish independent evidence.
 - Local evidence so far: focused publication/config tests passed; race tests
   passed for `internal/audit`, `internal/rootbroker`, and `internal/operations`.
-  Full `make check` and exact-source hosted CI remain pending.
+  Full `make check` passed, as did focused race tests and the audit package
+  coverage floor (95.3%). Exact-source CI [41182651721](https://github.com/cyberducttape/StePanel/actions/runs/41182651721),
+  CodeQL [41182651731](https://github.com/cyberducttape/StePanel/actions/runs/41182651731),
+  and documentation [41182651795](https://github.com/cyberducttape/StePanel/actions/runs/41182651795)
+  passed on `ccb58c9`. Its exact-source installed-host smoke
+  [41182651772](https://github.com/cyberducttape/StePanel/actions/runs/41182651772)
+  passed one AlmaLinux 9/Caddy/MariaDB install and recovery run. This does not
+  establish repeated crash recovery or remote checkpoint-provider behavior.
 - Remaining gaps: no protected historical-key keyring for rotation, no
   provider-side append-only policy verification, and no release-level proof
   that the destination is independent. M0l and production readiness remain
