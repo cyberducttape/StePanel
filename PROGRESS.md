@@ -2,9 +2,17 @@
 
 ## Exact-source CI restored — 2026-10-31
 
-- Commit `711948d` is pushed to `main` as Stephan Loesevitz
-  `<stephan.loesevitz@gmail.com>` over SSH. The worktree is clean and
-  `origin/main` matches the commit.
+- Code commit `711948d` is pushed to `main` as Stephan Loesevitz
+  `<stephan.loesevitz@gmail.com>` over SSH. Full CI integration passed on that
+  exact commit. The current head `5e2ac8a` adds only changelog, plan, and
+  progress documentation; its Documentation
+  [41158199552](https://github.com/cyberducttape/StePanel/actions/runs/41158199552),
+  CodeQL
+  [41158199575](https://github.com/cyberducttape/StePanel/actions/runs/41158199575),
+  and Release evidence
+  [41158252216](https://github.com/cyberducttape/StePanel/actions/runs/41158252216)
+  workflows passed. The docs-only delta does not change the tested Go or web
+  application sources.
 - Exact-source CI integration
   [41157044343](https://github.com/cyberducttape/StePanel/actions/runs/41157044343),
   CodeQL
