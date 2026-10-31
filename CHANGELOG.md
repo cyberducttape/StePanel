@@ -48,6 +48,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Reconciled the session-store failure and app-activation compensation
+  milestones with exact-source CI evidence: both fixes and their regression
+  tests are included in `6ff12b6`, whose hosted Go suite and UI E2E passed.
 - Recorded the full repository production-gate pass on exact source `cab5cd4`,
   including coverage floors, the race suite, recovery drills, benchmarks, and
   mixed HTTP load. The report explicitly distinguishes mocked quota contract

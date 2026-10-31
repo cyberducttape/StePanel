@@ -2,6 +2,11 @@
 
 ## Audit fixes, failure-injection tests, and host evidence — 2026-10-30
 
+- Reconciled the plan's M0f/M0g statuses against the hosted run: CI integration
+  [41076494928](https://github.com/cyberducttape/StePanel/actions/runs/41076494928)
+  passed the complete Go suite and UI E2E on `6ff12b6`, which includes both
+  fixes and their regressions. The previous “hosted CI pending” labels were
+  stale.
 - **Runtime metrics on real hosts:** `systemctl show` prints
   `CPUQuotaPerSecUSec` as a timespan (`1.500000s` on systemd 259), so CPU
   quota utilization was never derived and the CPU quota alerts could not

@@ -264,9 +264,10 @@ site-operation routes still replay HTTP handlers.
 
 ### M0f — Preserve session-store failure semantics (P1)
 
-**Status:** Implemented locally; hosted CI pending. The durable session
-registry now returns storage errors distinctly from absent/revoked sessions,
-and authenticated HTTP requests surface store failures as 503.
+**Status:** Implemented and verified on exact source `6ff12b6`. CI integration
+([41076494928](https://github.com/cyberducttape/StePanel/actions/runs/41076494928))
+passed the complete Go test suite and UI E2E on that source; the commit contains
+this fix and its regression tests.
 
 **Acceptance criteria**
 
@@ -279,8 +280,10 @@ and authenticated HTTP requests surface store failures as 503.
 
 ### M0g — Complete app activation compensation after cancellation (P1)
 
-**Status:** Implemented locally; full local check passed. Exact-source hosted
-CI remains pending.
+**Status:** Implemented and verified on exact source `6ff12b6`. CI integration
+([41076494928](https://github.com/cyberducttape/StePanel/actions/runs/41076494928))
+passed the complete Go test suite and UI E2E on that source; the commit contains
+this fix and its cancellation/recovery regression test.
 
 When app activation fails or is canceled after host mutation may have begun,
 compensation uses a separate bounded context while preserving the mutation
