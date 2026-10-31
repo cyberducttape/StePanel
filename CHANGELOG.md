@@ -61,6 +61,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Installer now emits audit-checkpoint key and keyring settings once in the
+  generated service environment instead of also preserving duplicate entries.
 - Site CPU quota utilization is now derived on real hosts: `systemctl show`
   reports `CPUQuotaPerSecUSec` as a timespan (`2s`, `500ms`), which the
   runtime sampler could not parse, so the CPU quota alerts never fired.
