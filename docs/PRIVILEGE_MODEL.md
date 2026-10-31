@@ -1,6 +1,6 @@
 # How StePanel requests root
 
-**Verified against `main` on 2026-10-30.** This is the single answer to "how
+**Verified against `main` on 2026-10-31.** This is the single answer to "how
 can unprivileged StePanel make a privileged change?" Details live in
 [ROOT_BROKER_INTEGRATION.md](ROOT_BROKER_INTEGRATION.md).
 
@@ -55,6 +55,17 @@ such as `--exec` or `--require`. `stepanel-appctl wp` then runs the fixed
 `runuser -u <site user>` with a cleared environment. The database password for
 `wp-config.php` travels on stdin, never in argv. Composer and Node tooling use
 the same `runuser` path.
+
+## Untrusted SQL imports
+
+cPanel, WordPress, and staged database SQL dumps are imported by a
+database-scoped user created for that operation. The MySQL/MariaDB client runs
+as the unprivileged `mysql` OS account with `--no-defaults`, `--batch`, and
+`--binary-mode`; MariaDB's additional `--sandbox` is enabled when supported by
+the installed client. This prevents dump content from invoking local client
+commands such as `\!` or `\.` with host privileges. An installed-host smoke
+test exercises both cPanel and WordPress import paths with command payloads
+and confirms they are rejected without execution.
 
 ## Schema-validated helper operations still in use
 

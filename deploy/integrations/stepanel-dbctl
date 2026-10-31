@@ -50,6 +50,24 @@ fi
 
 sql() { printf '%s;\n' "$1" | "${admin[@]}"; }
 sql_secret() { printf '%s;\n' "$1" | "${admin[@]}" >/dev/null 2>&1 || { echo 'credential operation failed' >&2; return 1; }; }
+mysql_import_dump() {
+  local db_user=$1 database=$2 client_help
+  local -a options=(--no-defaults --protocol=socket --user="$db_user" --batch --binary-mode)
+  command -v setpriv >/dev/null 2>&1 || { echo 'setpriv is required for untrusted SQL imports' >&2; return 1; }
+  getent passwd mysql >/dev/null 2>&1 || { echo 'the mysql service account is required for untrusted SQL imports' >&2; return 1; }
+  # MariaDB's sandbox is a second guard against filesystem-accessing client
+  # commands. It is available in MariaDB 10.6.18 / 10.11.8 / 11.0.6 / 11.2.4 /
+  # 11.4.2 and later; detect it from this client instead of assuming support.
+  # --binary-mode remains mandatory for every client.
+  if [[ $client == mariadb ]]; then
+    client_help=$("$client" --no-defaults --help 2>&1 || true)
+    [[ $client_help != *--sandbox* ]] || options+=(--sandbox)
+  fi
+  # SQL is untrusted input. The client only needs the database-scoped grants
+  # created above, and it does not need the host's root identity.
+  MYSQL_PWD="$password" setpriv --reuid=mysql --regid=mysql --init-groups -- \
+    "$client" "${options[@]}" -- "$database"
+}
 valid_database() { if [[ $engine == postgresql ]]; then [[ $1 =~ ^[a-z0-9_]{1,63}$ ]]; else [[ $1 =~ ^[a-z0-9_]{1,64}$ ]]; fi; }
 valid_user() { [[ $1 =~ ^[a-z][a-z0-9_]{0,31}$ ]]; }
 valid_site() { [[ $1 =~ ^[a-z0-9_-]{1,32}$ ]]; }
@@ -509,8 +527,9 @@ restore_dump() {
     # MariaDB qualifies a view's columns with its schema when exporting it
     # unless the view's definer can access that schema.
     sql "GRANT ALL PRIVILEGES ON \`$restore_shadow\`.* TO '$db_user'@'localhost'"
-    # --binary-mode also disables client commands such as system.
-    if ! MYSQL_PWD=$password "$client" --no-defaults --protocol=socket --user="$loader" --batch --binary-mode "$restore_shadow"; then
+    # The source dump is untrusted. Import it as the database service OS
+    # account and as a database-scoped loader, with client commands disabled.
+    if ! mysql_import_dump "$loader" "$restore_shadow"; then
       if [[ $(sql 'SELECT CONCAT(@@log_bin, @@log_bin_trust_function_creators)') == 10 ]]; then
         echo 'binary logging is enabled, so the server lets only administrators create triggers and stored functions; set log_bin_trust_function_creators=1 to restore them' >&2
       fi
@@ -726,7 +745,7 @@ case "$action" in
     cleanup_cpmove() { local exit_status=$?; trap - EXIT; sql "DROP USER IF EXISTS '$importer'@'localhost'" >/dev/null 2>&1 || true; if (( exit_status != 0 )); then sql "DROP DATABASE IF EXISTS \`$database\`" >/dev/null 2>&1 || true; remove_record "$record"; fi; exit "$exit_status"; }
     register_database "$database" "pending-cpmove:$site:$importer"; trap cleanup_cpmove EXIT
     sql "CREATE DATABASE \`$database\`"; sql_secret "CREATE USER '$importer'@'localhost' IDENTIFIED BY '$password'"; sql "GRANT ALL PRIVILEGES ON \`$database\`.* TO '$importer'@'localhost'"
-    MYSQL_PWD="$password" "$client" --protocol=socket --user="$importer" "$database"; register_database "$database" "cpmove:$site"
+    mysql_import_dump "$importer" "$database"; register_database "$database" "cpmove:$site"
     ;;
   restore-wordpress)
     [[ $engine != postgresql ]] || { echo 'WordPress restore is unavailable for PostgreSQL' >&2; exit 1; }; (( $# == 4 || $# == 5 )) || exit 64
@@ -738,7 +757,7 @@ case "$action" in
     cleanup_wordpress() { local exit_status=$?; trap - EXIT; if (( exit_status != 0 )); then drop_objects "$database" "$db_user" >/dev/null 2>&1 || true; remove_record "$record"; fi; exit "$exit_status"; }
     register_database "$database" "pending-wordpress:$site:$db_user"; trap cleanup_wordpress EXIT
     sql "CREATE DATABASE \`$database\`"; sql_secret "CREATE USER '$db_user'@'localhost' IDENTIFIED BY '$password'"; sql "GRANT ALL PRIVILEGES ON \`$database\`.* TO '$db_user'@'localhost'"
-    MYSQL_PWD="$password" "$client" --protocol=socket --user="$db_user" "$database"; register_database "$database" "wordpress:$site:$db_user"
+    mysql_import_dump "$db_user" "$database"; register_database "$database" "wordpress:$site:$db_user"
     ;;
   cleanup-wordpress)
     (( $# == 3 )) || exit 64; db_user=$3; valid_user "$db_user" || exit 1

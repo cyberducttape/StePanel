@@ -566,6 +566,7 @@ fi
 # Exercise the installed HTTP upload and durable cpmove worker path. This
 # creates a separate disposable site so the helper smoke remains intact.
 CPMOVE_SMOKE_SITE=ci-import bash /work/deploy/lab/cpmove-import-smoke.sh
+bash /work/deploy/lab/dbctl-client-command-smoke.sh
 # Re-import into the same tenant to prove that existing live trees are moved
 # into recovery storage through the privileged broker, not by the worker.
 # The disposable administrator's TOTP code is single-use; wait for the next

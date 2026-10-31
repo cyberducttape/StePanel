@@ -27,6 +27,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Security
 
+- MySQL/MariaDB dump imports for cPanel, WordPress, and staged database
+  restores now disable local client commands, use `--sandbox` when supported,
+  ignore client option files, and run the importer as the unprivileged `mysql`
+  OS account. Added installed-host malicious-dump coverage for both cPanel and
+  WordPress paths.
 - Added an independent audit-checkpoint signing key and a bounded, permission-
   checked historical keyring for durable publication retries and verification.
   Configure `STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY` and retain prior keys in
