@@ -28,7 +28,8 @@ type SiteCapability interface {
 // failure, so a site-scoped handler that only compiles by first obtaining
 // one cannot reach its body without the ownership check having already run.
 type AuthorizedSite struct {
-	site string
+	site     string
+	tenantID string
 }
 
 // Site returns the authorized site name.
@@ -37,6 +38,11 @@ func (s AuthorizedSite) Site() string { return s.site }
 // SiteID implements sitefiles.SiteAccess. The value is available to the
 // file store only after the control plane has resolved tenant ownership.
 func (s AuthorizedSite) SiteID() string { return s.site }
+
+// TenantID identifies the durable owner resolved by the control plane. The
+// root broker checks this claim against its own view of tenant_sites before
+// allowing a privileged file operation.
+func (s AuthorizedSite) TenantID() string { return s.tenantID }
 
 // sealedSiteCapability marks this as a SiteCapability and prevents external
 // implementations.
@@ -52,6 +58,10 @@ type AuthorizedDurableSite struct {
 // Site returns the authorized site name.
 func (s AuthorizedDurableSite) Site() string { return s.site }
 
+// TenantID reports no HTTP tenant claim; durable jobs currently authorize
+// their actor separately at execution time.
+func (s AuthorizedDurableSite) TenantID() string { return "" }
+
 // sealedSiteCapability marks this as a SiteCapability and prevents external
 // implementations.
 func (s AuthorizedDurableSite) sealedSiteCapability() {}
@@ -65,6 +75,18 @@ func (a *App) authorizeSite(r *http.Request, site string) (AuthorizedSite, bool)
 	if !a.canAccessSite(r, site) {
 		return AuthorizedSite{}, false
 	}
+	if a.Accounts == nil {
+		return AuthorizedSite{site: site}, true
+	}
+	tenantID, owned, err := a.Accounts.OwnerOfSiteWithError(site)
+	if err != nil {
+		return AuthorizedSite{}, false
+	}
+	if owned {
+		return AuthorizedSite{site: site, tenantID: tenantID}, true
+	}
+	// Administrators may inspect legacy sites, but the broker-backed file
+	// manager rejects them because they have no durable tenant placement.
 	return AuthorizedSite{site: site}, true
 }
 

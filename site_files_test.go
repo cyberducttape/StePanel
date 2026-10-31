@@ -46,17 +46,19 @@ func siteFilesRequest(a *App, user, method, target string, body []byte, scopes .
 }
 
 func TestFileStoreRequiresResolvedSiteCapability(t *testing.T) {
-	if _, err := authorizedFileSiteID(AuthorizedSite{}); err == nil {
+	if _, err := resolveAuthorizedFileTarget(AuthorizedSite{}); err == nil {
 		t.Fatal("zero-value authorization capability was accepted")
 	}
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r = r.WithContext(context.WithValue(r.Context(), apiTokenUsernameKey{}, "admin"))
-	resolved, ok := (&App{Auth: Auth{Username: "admin"}}).authorizeSite(r, "shop")
+	resolved, ok := (&App{Auth: Auth{Username: "admin"}, Accounts: &AccountStore{accounts: map[string]HostingAccount{
+		"alice": {Username: "alice", Plan: "starter", Sites: []string{"shop"}},
+	}}}).authorizeSite(r, "shop")
 	if !ok {
 		t.Fatal("administrator authorization should resolve the site capability")
 	}
-	if got, err := authorizedFileSiteID(resolved); err != nil || got != "shop" {
-		t.Fatalf("authorizedFileSiteID() = %q, %v", got, err)
+	if got, err := resolveAuthorizedFileTarget(resolved); err != nil || got.site != "shop" || got.tenantID != "alice" {
+		t.Fatalf("resolveAuthorizedFileTarget() = %+v, %v", got, err)
 	}
 }
 

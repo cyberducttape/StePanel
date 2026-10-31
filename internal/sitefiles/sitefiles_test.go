@@ -12,7 +12,8 @@ import (
 
 type testSiteAccess string
 
-func (s testSiteAccess) SiteID() string { return string(s) }
+func (s testSiteAccess) SiteID() string   { return string(s) }
+func (s testSiteAccess) TenantID() string { return "test-tenant" }
 
 func TestCleanAcceptsOnlyPlainRelativePaths(t *testing.T) {
 	for input, want := range map[string]string{"": "", ".": "", "/": "", "a": "a", "/a/b.php": "a/b.php", ".well-known/x": ".well-known/x", "x y/z": "x y/z"} {

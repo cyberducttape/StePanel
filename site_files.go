@@ -52,19 +52,24 @@ func (s brokerFileStore) run(ctx context.Context, req rootbroker.FilesRequest) (
 	return client.Files(ctx, req)
 }
 
-func authorizedFileSiteID(site sitefiles.SiteAccess) (string, error) {
-	if site == nil || site.SiteID() == "" {
-		return "", errors.New("file operation requires an authorized site")
+type authorizedFileTarget struct {
+	site     string
+	tenantID string
+}
+
+func resolveAuthorizedFileTarget(site sitefiles.SiteAccess) (authorizedFileTarget, error) {
+	if site == nil || site.SiteID() == "" || site.TenantID() == "" {
+		return authorizedFileTarget{}, errors.New("file operation requires an authorized site and tenant")
 	}
-	return site.SiteID(), nil
+	return authorizedFileTarget{site: site.SiteID(), tenantID: site.TenantID()}, nil
 }
 
 func (s brokerFileStore) List(ctx context.Context, site sitefiles.SiteAccess, rel string) (sitefiles.Listing, error) {
-	siteID, err := authorizedFileSiteID(site)
+	target, err := resolveAuthorizedFileTarget(site)
 	if err != nil {
 		return sitefiles.Listing{}, err
 	}
-	resp, err := s.run(ctx, rootbroker.FilesRequest{Action: "list", Site: siteID, Path: rel})
+	resp, err := s.run(ctx, rootbroker.FilesRequest{Action: "list", Site: target.site, TenantID: target.tenantID, Path: rel})
 	if err != nil {
 		return sitefiles.Listing{}, err
 	}
@@ -75,16 +80,16 @@ func (s brokerFileStore) List(ctx context.Context, site sitefiles.SiteAccess, re
 }
 
 func (s brokerFileStore) Read(ctx context.Context, site sitefiles.SiteAccess, rel string) ([]byte, error) {
-	siteID, err := authorizedFileSiteID(site)
+	target, err := resolveAuthorizedFileTarget(site)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := s.run(ctx, rootbroker.FilesRequest{Action: "read", Site: siteID, Path: rel})
+	resp, err := s.run(ctx, rootbroker.FilesRequest{Action: "read", Site: target.site, TenantID: target.tenantID, Path: rel})
 	return resp.Content, err
 }
 
 func (s brokerFileStore) Write(ctx context.Context, site sitefiles.SiteAccess, rel string, content io.Reader) error {
-	siteID, err := authorizedFileSiteID(site)
+	target, err := resolveAuthorizedFileTarget(site)
 	if err != nil {
 		return err
 	}
@@ -92,33 +97,33 @@ func (s brokerFileStore) Write(ctx context.Context, site sitefiles.SiteAccess, r
 	if err != nil {
 		return err
 	}
-	return client.FilesWrite(ctx, siteID, rel, content)
+	return client.FilesWrite(ctx, target.site, target.tenantID, rel, content)
 }
 
 func (s brokerFileStore) Mkdir(ctx context.Context, site sitefiles.SiteAccess, rel string) error {
-	siteID, err := authorizedFileSiteID(site)
+	target, err := resolveAuthorizedFileTarget(site)
 	if err != nil {
 		return err
 	}
-	_, err = s.run(ctx, rootbroker.FilesRequest{Action: "mkdir", Site: siteID, Path: rel})
+	_, err = s.run(ctx, rootbroker.FilesRequest{Action: "mkdir", Site: target.site, TenantID: target.tenantID, Path: rel})
 	return err
 }
 
 func (s brokerFileStore) Rename(ctx context.Context, site sitefiles.SiteAccess, rel, destination string) error {
-	siteID, err := authorizedFileSiteID(site)
+	target, err := resolveAuthorizedFileTarget(site)
 	if err != nil {
 		return err
 	}
-	_, err = s.run(ctx, rootbroker.FilesRequest{Action: "rename", Site: siteID, Path: rel, Destination: destination})
+	_, err = s.run(ctx, rootbroker.FilesRequest{Action: "rename", Site: target.site, TenantID: target.tenantID, Path: rel, Destination: destination})
 	return err
 }
 
 func (s brokerFileStore) Delete(ctx context.Context, site sitefiles.SiteAccess, rel string) error {
-	siteID, err := authorizedFileSiteID(site)
+	target, err := resolveAuthorizedFileTarget(site)
 	if err != nil {
 		return err
 	}
-	_, err = s.run(ctx, rootbroker.FilesRequest{Action: "delete", Site: siteID, Path: rel})
+	_, err = s.run(ctx, rootbroker.FilesRequest{Action: "delete", Site: target.site, TenantID: target.tenantID, Path: rel})
 	return err
 }
 

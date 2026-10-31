@@ -67,6 +67,7 @@ type Listing struct {
 // Implementations should keep the concrete capability opaque to callers.
 type SiteAccess interface {
 	SiteID() string
+	TenantID() string
 }
 
 // Store performs file operations inside one authorized site's document root.

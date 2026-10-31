@@ -155,6 +155,11 @@ func validateFencingDatabaseSchema(db *sql.DB) error {
 			"username":   {typeName: "TEXT"},
 			"created_at": {typeName: "INTEGER"},
 		},
+		"tenant_sites": {
+			"site":       {typeName: "TEXT", primaryKey: true},
+			"username":   {typeName: "TEXT"},
+			"updated_at": {typeName: "INTEGER"},
+		},
 	} {
 		if err := validateSQLiteTableColumns(db, table, expected); err != nil {
 			return err

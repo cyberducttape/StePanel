@@ -13,6 +13,7 @@ import (
 	stepanelhelper "github.com/cyberducttape/StePanel/internal/helper"
 	"github.com/cyberducttape/StePanel/internal/operations"
 	"github.com/cyberducttape/StePanel/internal/sitefiles"
+	"github.com/cyberducttape/StePanel/internal/sitelayout"
 )
 
 // --- Customer file manager (ADR-0007) ---
@@ -24,6 +25,7 @@ import (
 type FilesRequest struct {
 	Action        string    `json:"action"` // list, read, write, mkdir, rename, delete
 	Site          string    `json:"site"`
+	TenantID      string    `json:"tenant_id"`
 	Path          string    `json:"path,omitempty"`
 	Destination   string    `json:"destination,omitempty"`
 	StreamContent bool      `json:"stream_content,omitempty"`
@@ -47,6 +49,9 @@ func (v *Validator) validateFilesRequest(req *FilesRequest) error {
 	}
 	if err := v.ValidateSiteName(req.Site); err != nil {
 		return err
+	}
+	if err := sitelayout.ValidUnixUser(req.TenantID); err != nil {
+		return fmt.Errorf("invalid file-operation tenant: %w", err)
 	}
 	clean := sitefiles.Clean
 	if !filesReadOnlyActions[req.Action] {
@@ -82,6 +87,16 @@ func (v *Validator) validateFilesRequest(req *FilesRequest) error {
 }
 
 func (b *Broker) handleFilesRequest(ctx context.Context, req *FilesRequest) (*Response, error) {
+	if b.fencingDB == nil {
+		return &Response{OK: false, Error: "file operations require durable tenant ownership state"}, nil
+	}
+	var owner string
+	if err := b.fencingDB.QueryRow(`SELECT username FROM tenant_sites WHERE site = ?`, req.Site).Scan(&owner); err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("resolve tenant owner for site %q: %v", req.Site, err)}, nil
+	}
+	if owner != req.TenantID {
+		return &Response{OK: false, Error: fmt.Sprintf("tenant %q is not authorized for site %q", req.TenantID, req.Site)}, nil
+	}
 	user, placed, err := placedSiteUser(b.fencingDB, req.Site)
 	if err != nil {
 		return &Response{OK: false, Error: err.Error()}, nil
@@ -188,12 +203,12 @@ func (c *Client) Files(ctx context.Context, req FilesRequest) (FilesResponse, er
 
 // FilesWrite streams file bytes separately from the JSON request metadata.
 // This avoids base64 expansion and whole-file copies in the panel and broker.
-func (c *Client) FilesWrite(ctx context.Context, site, rel string, content io.Reader) error {
+func (c *Client) FilesWrite(ctx context.Context, site, tenantID, rel string, content io.Reader) error {
 	if content == nil {
 		return errors.New("file content is required")
 	}
 	req := &Request{RequestType: "files", Files: &FilesRequest{
-		Action: "write", Site: site, Path: rel, StreamContent: true,
+		Action: "write", Site: site, TenantID: tenantID, Path: rel, StreamContent: true,
 	}}
 	if tokens := operations.FencingTokens(ctx); len(tokens) > 0 {
 		req.Fencing = tokens

@@ -31,6 +31,12 @@ func newAccountBroker(t *testing.T) (*Broker, *sql.DB, string) {
 	if _, err := db.Exec(`CREATE TABLE site_identities (site TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL)`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`CREATE TABLE tenant_sites (site TEXT PRIMARY KEY, username TEXT NOT NULL, updated_at INTEGER NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO tenant_sites(site, username, updated_at) VALUES ('alice', 'alice', 0)`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := sitelayout.AllocateAccount(db, "alice"); err != nil {
 		t.Fatal(err)
 	}

@@ -214,7 +214,7 @@ func TestClientFilesWriteStreamsRawBoundedContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := client.FilesWrite(context.Background(), "alice", "public/data.bin", strings.NewReader(want)); err != nil {
+	if err := client.FilesWrite(context.Background(), "alice", "alice", "public/data.bin", strings.NewReader(want)); err != nil {
 		select {
 		case serverErr := <-serverErr:
 			t.Fatalf("FilesWrite: %v (server: %v)", err, serverErr)

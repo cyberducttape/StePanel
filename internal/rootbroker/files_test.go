@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/cyberducttape/StePanel/internal/sitefiles"
+	"github.com/cyberducttape/StePanel/internal/sitelayout"
 )
 
 type failedStreamReader struct{}
@@ -24,13 +25,13 @@ func (failedStreamReader) Read(p []byte) (int, error) {
 func TestValidatorFilesRequestsAcceptOnlyCanonicalPaths(t *testing.T) {
 	v := NewValidator("/var/www")
 	valid := []*FilesRequest{
-		{Action: "list", Site: "alice"},
-		{Action: "list", Site: "alice", Path: "wp-content/themes"},
-		{Action: "read", Site: "alice", Path: "index.php"},
-		{Action: "write", Site: "alice", Path: "index.php", StreamContent: true, ContentReader: strings.NewReader("<?php")},
-		{Action: "mkdir", Site: "alice", Path: "assets"},
-		{Action: "rename", Site: "alice", Path: "a.txt", Destination: "assets/a.txt"},
-		{Action: "delete", Site: "alice", Path: "assets"},
+		{Action: "list", Site: "alice", TenantID: "alice"},
+		{Action: "list", Site: "alice", TenantID: "alice", Path: "wp-content/themes"},
+		{Action: "read", Site: "alice", TenantID: "alice", Path: "index.php"},
+		{Action: "write", Site: "alice", TenantID: "alice", Path: "index.php", StreamContent: true, ContentReader: strings.NewReader("<?php")},
+		{Action: "mkdir", Site: "alice", TenantID: "alice", Path: "assets"},
+		{Action: "rename", Site: "alice", TenantID: "alice", Path: "a.txt", Destination: "assets/a.txt"},
+		{Action: "delete", Site: "alice", TenantID: "alice", Path: "assets"},
 	}
 	for _, req := range valid {
 		if err := v.ValidateRequest(&Request{RequestType: "files", Files: req}); err != nil {
@@ -39,6 +40,7 @@ func TestValidatorFilesRequestsAcceptOnlyCanonicalPaths(t *testing.T) {
 	}
 	invalid := []*FilesRequest{
 		{Action: "list", Site: "../alice"},
+		{Action: "list", Site: "alice"},
 		{Action: "list", Site: "alice", Path: "../bob"},
 		{Action: "list", Site: "alice", Path: "/etc"},
 		{Action: "read", Site: "alice", Path: "a/./b"},
@@ -58,11 +60,49 @@ func TestValidatorFilesRequestsAcceptOnlyCanonicalPaths(t *testing.T) {
 	}
 }
 
+func TestValidatorFilesRequestRequiresTenantContext(t *testing.T) {
+	req := &Request{RequestType: "files", Files: &FilesRequest{Action: "list", Site: "alice"}}
+	if err := NewValidator("/var/www").ValidateRequest(req); err == nil {
+		t.Fatal("file request without a tenant claim passed broker validation")
+	}
+}
+
 func TestFilesMutationsRequireFencing(t *testing.T) {
 	for action, fenced := range map[string]bool{"list": false, "read": false, "write": true, "mkdir": true, "rename": true, "delete": true} {
 		if got := requestRequiresFencing(&Request{RequestType: "files", Files: &FilesRequest{Action: action}}); got != fenced {
 			t.Errorf("files %s requires fencing = %v, want %v", action, got, fenced)
 		}
+	}
+}
+
+func TestBrokerFilesRejectsCrossTenantRequestBeforeHelper(t *testing.T) {
+	broker, db, _ := newAccountBroker(t)
+	if _, err := db.Exec(`INSERT INTO tenant_sites(site, username, updated_at) VALUES ('bob-site', 'bob', 0)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sitelayout.AllocateAccount(db, "bob"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sitelayout.Place(db, sitelayout.Placement{Site: "bob-site", Account: "bob", UnixUser: "bob", Kind: sitelayout.KindMain, Directory: sitelayout.MainDirectory}); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "helper-ran")
+	stub := filepath.Join(t.TempDir(), "stepanel-filectl")
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\ntouch "+marker+"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	broker.filectl = stub
+	resp, err := broker.handleFilesRequest(context.Background(), &FilesRequest{
+		Action: "read", Site: "bob-site", TenantID: "alice", Path: "index.php",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.OK || !strings.Contains(resp.Error, "not authorized") {
+		t.Fatalf("cross-tenant broker response = %+v", resp)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("privileged file helper ran for a cross-tenant request: %v", err)
 	}
 }
 
@@ -99,29 +139,29 @@ func TestBrokerFilesRunAsTheRecordedAccountUser(t *testing.T) {
 		}
 		return resp, details
 	}
-	resp, details := run(&FilesRequest{Action: "list", Site: "alice"})
+	resp, details := run(&FilesRequest{Action: "list", Site: "alice", TenantID: "alice"})
 	if !resp.OK || details.Listing == nil || len(details.Listing.Entries) != 2 || details.Listing.Entries[0].Name != "assets" {
 		t.Fatalf("list = %+v, %+v", resp, details)
 	}
-	if resp, details = run(&FilesRequest{Action: "read", Site: "alice", Path: "index.php"}); !resp.OK || string(details.Content) != "hello" {
+	if resp, details = run(&FilesRequest{Action: "read", Site: "alice", TenantID: "alice", Path: "index.php"}); !resp.OK || string(details.Content) != "hello" {
 		t.Fatalf("read = %+v, %q", resp, details.Content)
 	}
-	if resp, _ = run(&FilesRequest{Action: "write", Site: "alice", Path: "index.php", StreamContent: true, ContentReader: strings.NewReader("<?php echo 1;")}); !resp.OK {
+	if resp, _ = run(&FilesRequest{Action: "write", Site: "alice", TenantID: "alice", Path: "index.php", StreamContent: true, ContentReader: strings.NewReader("<?php echo 1;")}); !resp.OK {
 		t.Fatalf("write = %s", resp.Error)
 	}
-	if resp, _ = run(&FilesRequest{Action: "write", Site: "alice", Path: "too-large", StreamContent: true, ContentReader: bytes.NewReader(make([]byte, sitefiles.MaxWriteBytes+1))}); resp.OK || !strings.Contains(resp.Error, "larger than") {
+	if resp, _ = run(&FilesRequest{Action: "write", Site: "alice", TenantID: "alice", Path: "too-large", StreamContent: true, ContentReader: bytes.NewReader(make([]byte, sitefiles.MaxWriteBytes+1))}); resp.OK || !strings.Contains(resp.Error, "larger than") {
 		t.Fatalf("oversized stream response = %+v", resp)
 	}
-	if resp, _ = run(&FilesRequest{Action: "write", Site: "alice", Path: "interrupted", StreamContent: true, ContentReader: failedStreamReader{}}); resp.OK || !strings.Contains(resp.Error, "incomplete") {
+	if resp, _ = run(&FilesRequest{Action: "write", Site: "alice", TenantID: "alice", Path: "interrupted", StreamContent: true, ContentReader: failedStreamReader{}}); resp.OK || !strings.Contains(resp.Error, "incomplete") {
 		t.Fatalf("interrupted stream response = %+v", resp)
 	}
 	if data, err := os.ReadFile(stdin); err != nil || string(data) != "<?php echo 1;" {
 		t.Fatalf("helper stdin = %q, %v", data, err)
 	}
-	if resp, _ = run(&FilesRequest{Action: "rename", Site: "alice", Path: "a", Destination: "b"}); !resp.OK {
+	if resp, _ = run(&FilesRequest{Action: "rename", Site: "alice", TenantID: "alice", Path: "a", Destination: "b"}); !resp.OK {
 		t.Fatalf("rename = %s", resp.Error)
 	}
-	if resp, _ = run(&FilesRequest{Action: "delete", Site: "alice", Path: "gone"}); resp.OK || !strings.Contains(resp.Error, "path does not exist") {
+	if resp, _ = run(&FilesRequest{Action: "delete", Site: "alice", TenantID: "alice", Path: "gone"}); resp.OK || !strings.Contains(resp.Error, "path does not exist") {
 		t.Fatalf("delete error = %+v", resp)
 	}
 	// A legacy site is not in a hosting account and never reaches the helper.
@@ -148,7 +188,7 @@ func TestBrokerFilesReadReportsGrownFileAsRefusal(t *testing.T) {
 		t.Fatal(err)
 	}
 	broker.filectl = stub
-	resp, err := broker.handleFilesRequest(context.Background(), &FilesRequest{Action: "read", Site: "alice", Path: "growing.log"})
+	resp, err := broker.handleFilesRequest(context.Background(), &FilesRequest{Action: "read", Site: "alice", TenantID: "alice", Path: "growing.log"})
 	if err != nil {
 		t.Fatal(err)
 	}

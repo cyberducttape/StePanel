@@ -175,7 +175,8 @@ func createFencingSchemaForTest(db *sql.DB) error {
 	_, err := db.Exec(`CREATE TABLE control_plane_migrations(version INTEGER PRIMARY KEY);
 		INSERT INTO control_plane_migrations(version) VALUES(20);
 		CREATE TABLE resource_locks(resource_key TEXT PRIMARY KEY, owner_id TEXT NOT NULL, lease_until INTEGER NOT NULL, generation INTEGER NOT NULL, acquired_at INTEGER NOT NULL);
-		CREATE TABLE site_identities(site TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL);`)
+		CREATE TABLE site_identities(site TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL);
+		CREATE TABLE tenant_sites(site TEXT PRIMARY KEY, username TEXT NOT NULL, updated_at INTEGER NOT NULL);`)
 	return err
 }
 
@@ -320,7 +321,7 @@ func TestSocketAttachesExplicitlyTerminatedFileStream(t *testing.T) {
 	defer client.Close()
 	content := make(chan []byte, 1)
 	go serveConn(fileStreamCaptureExecutor{content: content}, server, defaultConnLimits, log.New(io.Discard, "", 0))
-	req := &rootbroker.Request{RequestType: "files", Files: &rootbroker.FilesRequest{Action: "write", Site: "alice", Path: "file", StreamContent: true}}
+	req := &rootbroker.Request{RequestType: "files", Files: &rootbroker.FilesRequest{Action: "write", Site: "alice", TenantID: "alice", Path: "file", StreamContent: true}}
 	if err := json.NewEncoder(client).Encode(req); err != nil {
 		t.Fatal(err)
 	}

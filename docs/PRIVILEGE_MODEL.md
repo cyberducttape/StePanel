@@ -1,6 +1,6 @@
 # How StePanel requests root
 
-**Verified against `main` on 2026-10-02.** This is the single answer to "how
+**Verified against `main` on 2026-10-30.** This is the single answer to "how
 can unprivileged StePanel make a privileged change?" Details live in
 [ROOT_BROKER_INTEGRATION.md](ROOT_BROKER_INTEGRATION.md).
 
@@ -34,7 +34,7 @@ deploy/integrations/stepanel-{site,app,db,vhost,proxy,git,runner}ctl, stepanel-c
 | Property | How it is enforced |
 |----------|--------------------|
 | **Caller identity** | The socket is mode `0660` and group `stepanel`; the broker rejects any peer whose group is not `stepanel`. |
-| **Authorization** | Decided in the panel before the request is sent: tenant ownership (`requireSiteAccess`), API token scopes, and administrator checks. The broker trusts the peer, not the request's claims. |
+| **Authorization** | The panel resolves the authenticated principal, token scopes, and tenant ownership. For customer file operations, the broker independently requires a tenant ID and checks `tenant_sites` for an exact `(site, tenant)` owner match before it resolves placement or runs `stepanel-filectl`. The Unix-socket peer alone never authorizes a file path. |
 | **Narrow type** | Typed requests (`site`, `app`, `db`, `task`, `git`, `certificate`, `vhost`, `proxy`) have Go validation per field. Generic `helper` requests must match an allow-listed action with exact arity and a semantic type per argument (`helper_schema.go`). |
 | **Resource lock** | Per site, database, account, or certificate domain; host-wide helpers (`proxyctl`, `vhostctl` route deletes, `dbctl` engine reads) use a host key; anything unscoped runs exclusively (`scheduler.go`). Host account changes share one lock. |
 | **Deadline** | Every action has an explicit timeout class (`timeouts.go`): config 30 s, service lifecycle 60 s, dependency builds 15 min, container builds and clones 30 min, database mutations 60 min, and size-proportional work (dumps, restores, recursive ownership, site deletion) 120 min. The class is never shorter than the panel's own timeout for that action. |
@@ -75,7 +75,19 @@ These operations remain candidates for future typed request contracts. Any
 change to the accepted helper action inventory must update the broker schema,
 this document, and its contract tests together.
 
-The broker is a single privileged process on one host. It does not protect
-against a compromised panel issuing valid requests for sites it manages;
-tenant isolation is enforced in the panel (see
-[SECURITY.md](../SECURITY.md#what-tenant-isolation-does-and-does-not-mean)).
+The broker is a single privileged process on one host. Its customer file
+manager requires both the panel's sealed site capability and an independent
+broker-side match against durable site ownership before invoking the helper.
+This catches a missing or inconsistent HTTP-layer ownership check and keeps
+the privileged filesystem operation bound to the site's recorded tenant and
+Unix account. Other broker operation families retain their operation-specific
+validation and fencing contracts; this is not a universal broker-side
+revalidation of every API token scope.
+
+The panel service remains a trusted computing-base component: a fully
+compromised `stepanel` process can submit requests directly over its permitted
+socket and can state the durable owner as the tenant claim. This design does
+not claim to contain a compromised panel process or mutually hostile tenants
+sharing a kernel. The broker does not accept an HTTP session or API token as
+authority for an arbitrary filesystem path. See
+[SECURITY.md](../SECURITY.md#what-tenant-isolation-does-and-does-not-mean).

@@ -1,5 +1,27 @@
 # Production-readiness progress
 
+## Broker-side tenant check for privileged file operations — 2026-10-30
+
+- The sealed site capability now carries the durable tenant owner alongside
+  the site ID. Customer file-store requests pass both values to the root broker.
+- Before resolving account placement or invoking `stepanel-filectl`, the
+  broker requires an exact `(site, tenant)` match in `tenant_sites`. Missing
+  ownership state, missing tenant claims, and cross-tenant claims fail closed.
+  Root-broker startup now validates the ownership table schema.
+- Added a regression that directs a validly shaped request at another tenant's
+  placed site and verifies the helper is never invoked. Added validation
+  coverage for missing tenant context and capability propagation.
+- Local validation: `make check` passed, including API artifact validation,
+  shell contracts, `go vet ./...`, and `GOMAXPROCS=2 go test -p 1 -timeout
+  10m ./...`. Focused race tests passed for `internal/rootbroker`,
+  `internal/sitefiles`, `cmd/stepanel-root`, and root-package site-file and
+  tenant authorization tests. Hosted CI has not yet run on this change.
+- Scope limitation: The panel process remains trusted. The broker independently
+  checks the tenant-to-site ownership mapping for file operations, but this is
+  not cryptographic caller attestation against a fully compromised panel and
+  does not yet re-evaluate every API-token scope for every broker operation.
+  Hostile shared-kernel tenancy remains unsupported.
+
 ## TOTP, audit-key separation, and cPanel upload admission — 2026-10-30
 
 - Database-backed TOTP replay reads now distinguish `sql.ErrNoRows` from real

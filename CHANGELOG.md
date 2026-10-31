@@ -22,6 +22,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   cgroups with a process-tree kill policy, task limit, and runtime bound.
   Helper cancellation now sends SIGTERM before bounded SIGKILL escalation so
   wrappers can stop their transient units cleanly.
+- Root-broker file operations now carry the tenant resolved by the sealed site
+  capability. Before running the privileged file helper, the broker checks the
+  requested `(site, tenant)` pair against its own durable `tenant_sites` table
+  and rejects missing ownership state or cross-tenant claims. Broker startup
+  now requires this ownership schema, and a regression verifies rejection
+  occurs before helper execution.
 - Database-backed TOTP replay checks now treat a missing counter row as first
   use without signed/unsigned sentinel conversion; replay, concurrent first
   use, persistence, negative-state, and adjacent-window cases are covered.

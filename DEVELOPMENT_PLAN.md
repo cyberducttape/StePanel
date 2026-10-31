@@ -337,7 +337,10 @@ record and must never trigger mutation replay.
 
 **Status:** Partially implemented locally. File-store capability checks and
 package-command cgroup routing are in place. Durable job tenant snapshots and
-installed-host cgroup behavior remain open acceptance items.
+installed-host cgroup behavior remain open acceptance items. The root broker
+now independently checks customer file requests against the durable
+site-to-tenant table before resolving the placed Unix account or invoking the
+privileged file helper.
 
 The site file-store API now accepts a `SiteAccess` capability rather than a
 site-name string. The customer route passes the capability returned by the
@@ -354,6 +357,10 @@ hostile tenants.
 - Store methods cannot be called with raw site-name strings; missing or empty
   authorization capabilities fail closed, and cross-tenant route tests remain
   denied before storage access.
+- The root broker rejects missing or mismatched tenant claims for file
+  operations using its own durable `tenant_sites` read, before helper
+  execution; a regression proves a cross-tenant request cannot reach
+  `stepanel-filectl`. The broker startup schema contract requires this table.
 - Durable jobs persist immutable tenant and site identifiers, and execution
   revalidates that the actor remains authorized for that same tenant/site pair.
 - Every package/build command that can execute customer-provided scripts uses
