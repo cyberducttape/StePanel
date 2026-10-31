@@ -728,6 +728,9 @@ func Main() {
 				return
 			case <-scheduleTicker.C:
 				app.runDueBackups()
+				if err := app.scheduleAuditCheckpoint(time.Now().UTC()); err != nil {
+					log.Printf("schedule audit checkpoint publication: %v", err)
+				}
 			case <-cleanupTicker.C:
 				if err := app.Jobs.VerifyIntegrity(runCtx); err != nil {
 					log.Printf("control-plane integrity verification failed: %v", err)
@@ -1459,6 +1462,8 @@ func (a *App) handleDurableJob(ctx context.Context, item Job) ([]byte, error) {
 		return a.handleSiteCreation(ctx, item)
 	case siteOperationKind:
 		return a.handleSiteOperationJob(ctx, item)
+	case auditCheckpointJobKind:
+		return a.handleAuditCheckpointJob(ctx, item)
 	default:
 		return nil, fmt.Errorf("no durable worker handler for job kind %q", item.Kind)
 	}
@@ -1472,7 +1477,7 @@ func durableWorkloadClass(kind string) string {
 		return "backup"
 	case "archive.inspect", "archive.import", "migration.analysis", "site.create":
 		return "extract"
-	case "cloud.action", "certificate.issue", "node.deployment", siteOperationKind:
+	case "cloud.action", "certificate.issue", "node.deployment", siteOperationKind, auditCheckpointJobKind:
 		return "build"
 	case "site.terminate":
 		return "db_restore"

@@ -331,6 +331,8 @@ In an interactive terminal, the installer asks for the database engine and versi
 | `STEPANEL_RUNNERCTL` | Absolute helper path | Rootless Podman build-runner helper; defaults to `/usr/local/sbin/stepanel-runnerctl` |
 | `STEPANEL_INSTALL_SECURITY` | `0` or `1` | Install ClamAV and the PHP malware guard. The guard watches legacy sites under `/var/www/sites` only; sites placed in hosting accounts under `/home` are covered by the on-demand malware scan, not the background guard. |
 | `STEPANEL_OFFSITE_TARGET` | rclone destination | Offsite copy target, required for production installs, for example `s3:bucket/stepanel` |
+| `STEPANEL_AUDIT_CHECKPOINT_TARGET` | rclone destination | Optional destination for daily signed audit-chain checkpoints. Use a separately administered remote/account and restrict its policy to append/read where supported; do not point it at the backup target if independent evidence is required. A checkpoint proves the signed chain head at publication time, not completeness before the first checkpoint. |
+| `STEPANEL_AUDIT_CHECKPOINT_KEY_ID` | 1–64 safe identifier characters; default `primary` | Identifier embedded in published audit checkpoints. Keep historical verification keys under separate protected custody when rotating `STEPANEL_AUDIT_KEY`. |
 | `STEPANEL_OFFSITE_TRANSFER_TIMEOUT` | Go duration, default `168h` | Maximum total time for one offsite transfer workflow; configurable from `1m` through `720h`. Rclone's separate 30-minute I/O timeout detects stalled transfers. |
 | `STEPANEL_REQUIRE_OFFSITE_BACKUP` | `0` or `1` | Reject production startup unless an offsite target is configured |
 | `STEPANEL_CLOUD_PROVIDER` | `linode`, `aws`, or `openstack` | Optional provider for cloud inventory and lifecycle actions |

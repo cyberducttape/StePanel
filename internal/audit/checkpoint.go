@@ -128,6 +128,18 @@ func VerifyCheckpoint(checkpoint Checkpoint, keyring map[string]string) error {
 	return nil
 }
 
+// VerifyCheckpointWithConfiguredKey verifies a checkpoint using the current
+// audit signing key. Long-lived deployments that rotate keys should instead
+// call VerifyCheckpoint with their protected historical keyring.
+func VerifyCheckpointWithConfiguredKey(checkpoint Checkpoint) error {
+	key, err := auditSigningKey()
+	if err != nil {
+		return err
+	}
+	const keyPrefix = "stepanel-audit-v1\x00"
+	return VerifyCheckpoint(checkpoint, map[string]string{checkpoint.KeyID: strings.TrimPrefix(string(key), keyPrefix)})
+}
+
 func signCheckpoint(checkpoint Checkpoint, key []byte) (string, error) {
 	payload, err := json.Marshal(checkpointSigningPayload{
 		Version:     checkpoint.Version,

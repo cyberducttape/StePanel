@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Security
 
+- Added optional daily audit-checkpoint jobs that verify and sign the audit
+  chain head, durably save the exact checkpoint before remote I/O, publish it
+  with immutable rclone semantics, and verify the bounded remote read-back.
+  Ambiguous uploads are reconciled against the same signed object. Configure
+  `STEPANEL_AUDIT_CHECKPOINT_TARGET` to use a separately administered remote;
+  key rotation and independent-storage certification remain open.
 - Added a signed audit-checkpoint artifact primitive that verifies the full
   local chain before binding its sequence, tail hash, timestamp, key ID, and
   durable operation ID. Historical-key verification and tamper rejection are

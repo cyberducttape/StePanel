@@ -26,6 +26,26 @@ func TestValidateConfigChecksOffsiteTransferDeadline(t *testing.T) {
 	}
 }
 
+func TestValidateConfigChecksAuditCheckpointDestinationAndKeyID(t *testing.T) {
+	t.Setenv("STEPANEL_AUDIT_CHECKPOINT_TARGET", "s3:audit-evidence/checkpoints")
+	t.Setenv("STEPANEL_AUDIT_CHECKPOINT_KEY_ID", "release-2026-10")
+	cfg := LoadConfig()
+	if err := ValidateConfig(cfg); err != nil {
+		t.Fatalf("valid checkpoint configuration rejected: %v", err)
+	}
+	t.Setenv("STEPANEL_AUDIT_CHECKPOINT_KEY_ID", "bad key id")
+	cfg = LoadConfig()
+	if err := ValidateConfig(cfg); err == nil || !strings.Contains(err.Error(), "STEPANEL_AUDIT_CHECKPOINT_KEY_ID") {
+		t.Fatalf("invalid checkpoint key ID accepted: %v", err)
+	}
+	t.Setenv("STEPANEL_AUDIT_CHECKPOINT_TARGET", "-bad-target")
+	t.Setenv("STEPANEL_AUDIT_CHECKPOINT_KEY_ID", "primary")
+	cfg = LoadConfig()
+	if err := ValidateConfig(cfg); err == nil || !strings.Contains(err.Error(), "STEPANEL_AUDIT_CHECKPOINT_TARGET") {
+		t.Fatalf("invalid checkpoint destination accepted: %v", err)
+	}
+}
+
 func TestValidateConfigRejectsNonRegularCredentialFile(t *testing.T) {
 	cfg := LoadConfig()
 	cfg.DBPasswordFile = t.TempDir()

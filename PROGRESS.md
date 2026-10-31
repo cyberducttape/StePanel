@@ -1,5 +1,26 @@
 # Production-readiness progress
 
+## Durable remote audit-checkpoint publication — 2026-10-31
+
+- Added an optional daily scheduler that admits one `audit.checkpoint` durable
+  job per UTC day. The worker signs the verified audit-chain head and binds it
+  to its durable job ID.
+- The job persists the exact signed checkpoint before remote I/O. It uploads
+  with rclone immutable semantics, reads the remote object back under a 64 KiB
+  cap, compares exact bytes, verifies the signature, then records a signed
+  `audit.checkpoint.published` outcome. A simulated upload that succeeds
+  remotely but returns an error is resolved through read-back.
+- Added target/key-ID validation, installation environment propagation, and
+  installation documentation. The destination is opt-in; operators must use
+  separately administered storage to establish independent evidence.
+- Local evidence so far: focused publication/config tests passed; race tests
+  passed for `internal/audit`, `internal/rootbroker`, and `internal/operations`.
+  Full `make check` and exact-source hosted CI remain pending.
+- Remaining gaps: no protected historical-key keyring for rotation, no
+  provider-side append-only policy verification, and no release-level proof
+  that the destination is independent. M0l and production readiness remain
+  open.
+
 ## Signed audit-checkpoint artifact primitive — 2026-10-31
 
 - Added an audit checkpoint format binding a verified event-chain sequence,
@@ -23,11 +44,23 @@
   and release evidence [41179959544](https://github.com/cyberducttape/StePanel/actions/runs/41179959544).
   CI's coverage, full Go, race, recovery, tmpfs ENOSPC, database, deployment,
   and UI checks all passed. The initial coverage failure is resolved.
+- Exact source `eaa51a81fd011f1539dc4a905de56b87315b6b9e` passed complete CI
+  [41180461643](https://github.com/cyberducttape/StePanel/actions/runs/41180461643),
+  CodeQL [41180461695](https://github.com/cyberducttape/StePanel/actions/runs/41180461695),
+  documentation [41180461626](https://github.com/cyberducttape/StePanel/actions/runs/41180461626),
+  release evidence [41180486632](https://github.com/cyberducttape/StePanel/actions/runs/41180486632),
+  and the three-repeat/recovery run [41180463963](https://github.com/cyberducttape/StePanel/actions/runs/41180463963).
+  The CI integration included the full race suite, recovery and tmpfs ENOSPC
+  drills, MySQL/PostgreSQL restore checks, static analysis, container checks,
+  and browser E2E. Exact-source installed-host smoke
+  [41180461647](https://github.com/cyberducttape/StePanel/actions/runs/41180461647)
+  remains in progress.
 - Added a scheduled/manual reliability workflow for `go test ./... -count=3`
   and the isolated recovery-drill script, each with explicit test limits. Its
-  first hosted execution is pending; the existing PR integration already runs
-  the full race suite and separate recovery and ENOSPC steps. The workflow
-  passes the action-pin and release-tree checks locally.
+  first exact-source hosted run [41180463963](https://github.com/cyberducttape/StePanel/actions/runs/41180463963)
+  passed both steps. The existing PR integration also runs the full race suite
+  and separate recovery and ENOSPC steps. The workflow passes action-pin and
+  release-tree checks locally.
 - Local exercise of the scheduled commands passed: the three-repeat full suite
   passed all packages (root package 225.7 s). All four recovery-drill groups
   passed; using the pre-existing Go cache reduced the first drill from 150 s
@@ -36,11 +69,11 @@
 - This is a format/verification primitive only. It is not yet scheduled or
   journaled as a durable job, not published to independent storage, and has no
   verified remote acknowledgement or production key-rotation policy. M0l stays
-  open and production remains **NO-GO**. Exact-source CI for the previously
-  pushed fencing commit is still running. On this worktree, final `make check`
+  open and production remains **NO-GO**. On this worktree, final `make check`
   passed (API artifact check, shell contracts, `go vet ./...`, and all Go
-  packages), and `FuzzNormalizeName` passed a 60-second run. This
-  checkpoint/fuzz change has not yet received hosted CI.
+  packages), and `FuzzNormalizeName` passed a 60-second run. The checkpoint
+  artifact and fuzz target are covered by the exact-source hosted checks above;
+  durable off-host publication remains unimplemented.
 
 ## Per-claim job lease fencing — 2026-10-31
 

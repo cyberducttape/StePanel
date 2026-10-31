@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -23,6 +24,9 @@ func TestCreateAndVerifyOperationBoundCheckpoint(t *testing.T) {
 	if err := VerifyCheckpoint(checkpoint, map[string]string{"audit-2026-primary": strings.Repeat("k", 32)}); err != nil {
 		t.Fatalf("verify checkpoint: %v", err)
 	}
+	if err := VerifyCheckpointWithConfiguredKey(checkpoint); err != nil {
+		t.Fatalf("verify checkpoint with configured key: %v", err)
+	}
 
 	encoded, err := json.Marshal(checkpoint)
 	if err != nil {
@@ -34,6 +38,16 @@ func TestCreateAndVerifyOperationBoundCheckpoint(t *testing.T) {
 	}
 	if err := VerifyCheckpoint(decoded, map[string]string{"audit-2026-primary": strings.Repeat("k", 32)}); err != nil {
 		t.Fatalf("verify serialized checkpoint: %v", err)
+	}
+}
+
+func TestVerifyCheckpointWithConfiguredKeyRequiresKey(t *testing.T) {
+	previousKeyPath := auditKeyPath
+	TestSetKeyPath(filepath.Join(t.TempDir(), "missing-audit.key"))
+	t.Setenv("STEPANEL_AUDIT_KEY", "")
+	t.Cleanup(func() { TestSetKeyPath(previousKeyPath) })
+	if err := VerifyCheckpointWithConfiguredKey(Checkpoint{}); err == nil {
+		t.Fatal("verification succeeded without a configured audit key")
 	}
 }
 

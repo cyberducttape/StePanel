@@ -14,6 +14,7 @@ import (
 )
 
 var dbVersionPattern = regexp.MustCompile(`^(default|[0-9][0-9A-Za-z.+:~-]*)$`)
+var auditCheckpointKeyIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 const defaultRunnerMaxImageBytes int64 = 5 << 30
 
@@ -52,6 +53,8 @@ type Config struct {
 	BackupPreviousEncryptionKeys                                                  []string
 	RedisState                                                                    string
 	OffsiteTarget                                                                 string
+	AuditCheckpointTarget                                                         string
+	AuditCheckpointKeyID                                                          string
 	CloudProvider                                                                 string
 	RequireOffsiteBackup                                                          bool
 	AlertWebhookURL, AlertWebhookSecret                                           string
@@ -270,6 +273,11 @@ func LoadConfig() Config {
 		}
 	}
 	c.OffsiteTarget = strings.TrimSpace(os.Getenv("STEPANEL_OFFSITE_TARGET"))
+	c.AuditCheckpointTarget = strings.TrimSpace(os.Getenv("STEPANEL_AUDIT_CHECKPOINT_TARGET"))
+	c.AuditCheckpointKeyID = strings.TrimSpace(os.Getenv("STEPANEL_AUDIT_CHECKPOINT_KEY_ID"))
+	if c.AuditCheckpointKeyID == "" {
+		c.AuditCheckpointKeyID = "primary"
+	}
 	c.CloudProvider = strings.ToLower(strings.TrimSpace(os.Getenv("STEPANEL_CLOUD_PROVIDER")))
 	c.AlertWebhookURL = strings.TrimSpace(os.Getenv("STEPANEL_ALERT_WEBHOOK_URL"))
 	c.AlertWebhookSecret = os.Getenv("STEPANEL_ALERT_WEBHOOK_SECRET")
@@ -437,6 +445,14 @@ func ValidateConfig(c Config) error {
 	}
 	if c.RequireOffsiteBackup && c.OffsiteTarget == "" {
 		problems = append(problems, errors.New("STEPANEL_REQUIRE_OFFSITE_BACKUP=1 requires STEPANEL_OFFSITE_TARGET"))
+	}
+	if c.AuditCheckpointTarget != "" {
+		if err := validateOffsiteTarget(c.AuditCheckpointTarget); err != nil {
+			problems = append(problems, fmt.Errorf("STEPANEL_AUDIT_CHECKPOINT_TARGET: %w", err))
+		}
+		if !auditCheckpointKeyIDPattern.MatchString(c.AuditCheckpointKeyID) {
+			problems = append(problems, errors.New("STEPANEL_AUDIT_CHECKPOINT_KEY_ID must be 1-64 alphanumeric, dot, underscore, or hyphen characters"))
+		}
 	}
 	if err := validateSSHServers(); err != nil {
 		problems = append(problems, err)

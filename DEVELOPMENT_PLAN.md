@@ -36,15 +36,18 @@ This closes M0 exact-source validation only; production recovery gates remain
 open. A separate Rocky 9 KVM host-recovery run on source `b650992` is active;
 its result is not included in this CI status.
 
-Most recent exact-source verification is `d5fe183f51e5ccbea51434a5ea8620c17a47fea3`:
-CI integration [41179096619](https://github.com/cyberducttape/StePanel/actions/runs/41179096619),
-CodeQL [41179096643](https://github.com/cyberducttape/StePanel/actions/runs/41179096643),
-documentation [41179096618](https://github.com/cyberducttape/StePanel/actions/runs/41179096618),
-and release evidence [41179959544](https://github.com/cyberducttape/StePanel/actions/runs/41179959544)
+Most recent exact-source verification is `eaa51a81fd011f1539dc4a905de56b87315b6b9e`:
+CI integration [41180461643](https://github.com/cyberducttape/StePanel/actions/runs/41180461643),
+CodeQL [41180461695](https://github.com/cyberducttape/StePanel/actions/runs/41180461695),
+documentation [41180461626](https://github.com/cyberducttape/StePanel/actions/runs/41180461626),
+release evidence [41180486632](https://github.com/cyberducttape/StePanel/actions/runs/41180486632),
+and three-repeat/recovery workflow [41180463963](https://github.com/cyberducttape/StePanel/actions/runs/41180463963)
 passed. CI includes coverage floors, full Go tests, full race tests, recovery
 drills, tmpfs ENOSPC, database integration, deployment validation, and UI E2E.
-This establishes code-level CI on that source; the installed-host and repeated
-failure certification gates remain separate.
+The exact-source AlmaLinux 9/Caddy/MariaDB installed-host smoke
+[41180461647](https://github.com/cyberducttape/StePanel/actions/runs/41180461647)
+also passed. This is one installed-host run; broader repeated host-failure
+certification remains separate.
 
 - [x] Correct the Playwright quota-headroom expectation to match the UI's
   account-scoped upper-bound wording; exact-source browser E2E passed in
@@ -62,6 +65,33 @@ failure certification gates remain separate.
 - On the exact source commit, CI integration, CodeQL, documentation, and
   release-evidence checks complete successfully. Any failed job is diagnosed
   from its log/trace and fixed before starting another milestone.
+
+### M0l — Durable job fencing and independently verifiable audit evidence (P0)
+
+**Status:** Durable per-claim job fencing and the signed checkpoint format are
+implemented. Daily publication is now an opt-in durable job that persists the
+checkpoint before remote I/O and verifies the remote copy. Focused tests pass;
+the current publication change still needs complete exact-source CI.
+
+Configure `STEPANEL_AUDIT_CHECKPOINT_TARGET` to send checkpoints to a distinct
+rclone destination. Use a separately administered storage account and
+append/read-only policy where the provider supports it. The implementation
+reconciles ambiguous upload results by reading back the same immutable object,
+checking its exact bytes, and verifying its signature. It does not yet provide
+an independently managed historical-key keyring or evidence that the remote
+policy is immutable. The capability is optional and does not by itself close
+the production audit-completeness gate.
+
+**Acceptance criteria**
+
+- Crash/retry tests prove the durable job reuses the exact checkpoint bytes
+  after an ambiguous remote result and never overwrites a different object.
+- Remote read-back is size-bounded, byte-matched, signature-verified, and
+  recorded as an audit outcome only after verification.
+- Key rotation uses a protected historical verification keyring; a disposable
+  remote-storage test proves append restrictions and retention behavior.
+- Exact-source CI, including race tests, coverage, release evidence, and
+  installed-host validation, passes before this implementation is certified.
 
 ### M0a — Bound long-running restore and API-token behavior (P1)
 
