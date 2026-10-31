@@ -535,6 +535,107 @@ func TestTOTPReplayPersistsAcrossAuthInstances(t *testing.T) {
 	}
 }
 
+func TestTOTPReplayDatabaseFirstUseAndInvalidCounter(t *testing.T) {
+	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")
+	t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")
+	t.Setenv("STEPANEL_SESSION_SECRET", "12345678901234567890123456789012")
+	t.Setenv("STEPANEL_ADMIN_TOTP_SECRET", "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ")
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	auth, err := NewAuth(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.ConfigureTOTPReplayDB(db); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_234_567_890, 0)
+	code := totpCode([]byte("12345678901234567890"), uint64(now.Unix()/30))
+	if !auth.consumeTOTP(code, now) {
+		t.Fatal("first database-backed TOTP was rejected")
+	}
+	if auth.consumeTOTP(code, now) {
+		t.Fatal("database-backed TOTP replay was accepted")
+	}
+	if _, err := db.Exec(`UPDATE totp_replay SET last_counter=-1 WHERE username=?`, auth.Username); err != nil {
+		t.Fatal(err)
+	}
+	nextCode := totpCode([]byte("12345678901234567890"), uint64(now.Unix()/30+1))
+	if auth.consumeTOTP(nextCode, now.Add(30*time.Second)) {
+		t.Fatal("invalid negative replay counter was accepted as fresh state")
+	}
+}
+
+func TestTOTPReplayDatabaseConcurrentFirstUse(t *testing.T) {
+	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")
+	t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")
+	t.Setenv("STEPANEL_SESSION_SECRET", "12345678901234567890123456789012")
+	t.Setenv("STEPANEL_ADMIN_TOTP_SECRET", "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ")
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	now := time.Unix(1_234_567_890, 0)
+	code := totpCode([]byte("12345678901234567890"), uint64(now.Unix()/30))
+	auths := make([]Auth, 2)
+	for i := range auths {
+		auths[i], err = NewAuth(true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := auths[i].ConfigureTOTPReplayDB(db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	results := make(chan bool, len(auths))
+	for i := range auths {
+		go func(auth Auth) { results <- auth.consumeTOTP(code, now) }(auths[i])
+	}
+	accepted := 0
+	for range auths {
+		if <-results {
+			accepted++
+		}
+	}
+	if accepted != 1 {
+		t.Fatalf("concurrent first-use accepted %d times, want exactly once", accepted)
+	}
+}
+
+func TestTOTPReplayDatabaseAcceptsNextCounterAfterPreviousWindow(t *testing.T) {
+	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")
+	t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")
+	t.Setenv("STEPANEL_SESSION_SECRET", "12345678901234567890123456789012")
+	t.Setenv("STEPANEL_ADMIN_TOTP_SECRET", "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ")
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	auth, err := NewAuth(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.ConfigureTOTPReplayDB(db); err != nil {
+		t.Fatal(err)
+	}
+	window := int64(1_234_567_890 / 30)
+	previousTime := time.Unix(window*30+29, 0)
+	previousCode := totpCode([]byte("12345678901234567890"), uint64(window))
+	if !auth.consumeTOTP(previousCode, previousTime) {
+		t.Fatal("valid previous-window TOTP was rejected")
+	}
+	currentTime := time.Unix((window+1)*30, 0)
+	currentCode := totpCode([]byte("12345678901234567890"), uint64(window+1))
+	if !auth.consumeTOTP(currentCode, currentTime) {
+		t.Fatal("new adjacent-window TOTP was rejected")
+	}
+}
+
 func TestAuthRejectsInvalidTOTPSecret(t *testing.T) {
 	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")
 	t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")

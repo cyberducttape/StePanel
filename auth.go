@@ -990,12 +990,14 @@ func (a Auth) consumeTOTPFor(username string, secret []byte, code string, now ti
 			defer tx.Rollback()
 
 			var lastCounter int64
-			err = tx.QueryRow(`SELECT COALESCE(last_counter, -1) FROM totp_replay WHERE username = ?`, username).Scan(&lastCounter)
-			if err != nil && err != sql.ErrNoRows {
+			err = tx.QueryRow(`SELECT last_counter FROM totp_replay WHERE username = ?`, username).Scan(&lastCounter)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				return false
 			}
-
-			if candidate <= uint64(lastCounter) {
+			// A missing row is the normal first-use case. Existing negative
+			// counters are invalid persisted state; never convert them to uint64,
+			// where -1 would become the largest possible counter.
+			if err == nil && (lastCounter < 0 || candidate <= uint64(lastCounter)) {
 				return false
 			}
 

@@ -930,9 +930,37 @@ func RestoreCPMoveContext(ctx context.Context, cfg Config, file multipart.File, 
 	if err := ctx.Err(); err != nil {
 		return ImportResult{}, err
 	}
+	if file == nil {
+		return ImportResult{}, errors.New("cPanel archive is required")
+	}
+	maxArchiveBytes := cfg.MaxUpload
+	if maxArchiveBytes == 0 {
+		maxArchiveBytes = LoadConfig().MaxUpload
+	}
+	if maxArchiveBytes < 1 {
+		return ImportResult{}, errors.New("cPanel archive size limit must be positive")
+	}
+	if header != nil && (header.Size < 0 || header.Size > maxArchiveBytes) {
+		return ImportResult{}, fmt.Errorf("cPanel archive exceeds the %d-byte upload limit", maxArchiveBytes)
+	}
 	if err := os.MkdirAll(cfg.ImportRoot, 0700); err != nil {
 		return ImportResult{}, err
 	}
+	var ledger *capacityLedger
+	if len(ledgers) > 0 && ledgers[0] != nil {
+		ledger = ledgers[0]
+	} else {
+		ledger = &capacityLedger{}
+	}
+	limit := uint64(maxArchiveBytes)
+	demandsFor := func(size uint64) []capacityDemand {
+		return []capacityDemand{{Path: cfg.ImportRoot, Bytes: size}}
+	}
+	reservation, err := ledger.reserveProgressive(cfg, "cPanel archive copy", cfg.ImportRoot, limit, demandsFor)
+	if err != nil {
+		return ImportResult{}, err
+	}
+	defer reservation.release()
 	temp, err := os.CreateTemp(cfg.ImportRoot, "restore-upload-*.tar.gz")
 	if err != nil {
 		return ImportResult{}, err
@@ -943,7 +971,12 @@ func RestoreCPMoveContext(ctx context.Context, cfg Config, file multipart.File, 
 		temp.Close()
 		return ImportResult{}, err
 	}
-	if _, err := io.Copy(temp, file); err != nil {
+	copyWriter := &cpmoveAdmissionWriter{dst: temp, maxBytes: maxArchiveBytes, reservation: reservation}
+	if _, err := io.Copy(copyWriter, &cpmoveContextLimitReader{ctx: ctx, src: file, remaining: maxArchiveBytes + 1}); err != nil {
+		temp.Close()
+		return ImportResult{}, err
+	}
+	if err := ctx.Err(); err != nil {
 		temp.Close()
 		return ImportResult{}, err
 	}
@@ -951,6 +984,48 @@ func RestoreCPMoveContext(ctx context.Context, cfg Config, file multipart.File, 
 		return ImportResult{}, err
 	}
 	return restoreCPMoveArchiveContext(ctx, cfg, tempPath, header, site, databases, ledgers...)
+}
+
+type cpmoveContextLimitReader struct {
+	ctx       context.Context
+	src       io.Reader
+	remaining int64
+}
+
+func (r *cpmoveContextLimitReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	if r.remaining <= 0 {
+		return 0, io.EOF
+	}
+	if int64(len(p)) > r.remaining {
+		p = p[:r.remaining]
+	}
+	n, err := r.src.Read(p)
+	r.remaining -= int64(n)
+	return n, err
+}
+
+type cpmoveAdmissionWriter struct {
+	dst         io.Writer
+	maxBytes    int64
+	written     int64
+	reservation *capacityReservation
+}
+
+func (w *cpmoveAdmissionWriter) Write(p []byte) (int, error) {
+	if int64(len(p)) > w.maxBytes-w.written {
+		return 0, fmt.Errorf("cPanel archive exceeds the %d-byte upload limit", w.maxBytes)
+	}
+	n, err := w.dst.Write(p)
+	w.written += int64(n)
+	if n > 0 {
+		if reserveErr := w.reservation.consume(w.written); reserveErr != nil {
+			return n, reserveErr
+		}
+	}
+	return n, err
 }
 
 // restoreCPMoveArchiveContext restores from an immutable archive already held

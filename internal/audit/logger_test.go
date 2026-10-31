@@ -544,12 +544,12 @@ func TestAuditUtilityValidationAndFallbacks(t *testing.T) {
 	}
 	t.Setenv("STEPANEL_AUDIT_KEY", "")
 	t.Setenv("STEPANEL_SESSION_SECRET", strings.Repeat("s", 32))
-	if _, err := auditSigningKey(); err != nil {
-		t.Fatal("session secret fallback failed: ", err)
-	}
 	previousKeyPath := auditKeyPath
 	TestSetKeyPath(filepath.Join(t.TempDir(), "missing-key"))
 	t.Cleanup(func() { TestSetKeyPath(previousKeyPath) })
+	if _, err := auditSigningKey(); err == nil {
+		t.Fatal("session secret was accepted as the audit signing key")
+	}
 	t.Setenv("STEPANEL_SESSION_SECRET", "short")
 	if _, err := auditSigningKey(); err == nil {
 		t.Fatal("short audit key was accepted")

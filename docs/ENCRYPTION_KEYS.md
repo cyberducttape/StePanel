@@ -146,6 +146,11 @@ Starting in production, StePanel validates encryption keys at startup and reject
 - **Required:** In production
 - **Generation:** `openssl rand -hex 32`
 - **Storage:** Either `/etc/stepanel-audit.key` or `STEPANEL_AUDIT_KEY` environment variable
+- **Separation:** Must be independent of `STEPANEL_SESSION_SECRET`; the audit
+  logger refuses to use the session secret as a fallback.
+- **Rotation:** In-place rotation is not supported. Preserve and verify the
+  existing chain before planning a versioned keyring migration; never replace
+  this key merely to rotate it.
 - **Example:** `3b6e9a2c5d8e1f4a7b0c3d6e9f2a5b8c1d4e7a0c3f6b9e2d5f8a1b4c7d`
 
 ---

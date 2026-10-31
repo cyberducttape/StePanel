@@ -22,6 +22,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   cgroups with a process-tree kill policy, task limit, and runtime bound.
   Helper cancellation now sends SIGTERM before bounded SIGKILL escalation so
   wrappers can stop their transient units cleanly.
+- Database-backed TOTP replay checks now treat a missing counter row as first
+  use without signed/unsigned sentinel conversion; replay, concurrent first
+  use, persistence, negative-state, and adjacent-window cases are covered.
+- The audit logger no longer falls back to the session-signing secret. Direct
+  cPanel restore copies enforce the configured archive byte limit, check
+  cancellation, and reserve import-filesystem capacity while streaming.
 
 ### Fixed
 

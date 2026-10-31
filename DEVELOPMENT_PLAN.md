@@ -368,6 +368,39 @@ hostile tenants.
 - Shell contract tests, focused Go tests, race tests, and `make check` pass.
   Host systemd behavior must be recorded as installed-host evidence.
 
+### M0j — Close authentication, audit-key, and import-admission findings (P1)
+
+**Status:** Partially implemented locally. Database-backed TOTP first-use
+handling, independent audit-key selection, and direct cPanel-copy admission
+are fixed with focused regressions. Historical audit key IDs/keyring and the
+legacy-token sunset evidence remain open.
+
+The persisted TOTP path now treats `sql.ErrNoRows` as a fresh counter, rejects
+invalid negative persisted counters without unsigned conversion, and commits
+the accepted counter in the same transaction. Direct cPanel restore copies
+apply `Config.MaxUpload` even when the supplied multipart header understates
+the actual stream, check cancellation during reads, and reserve import-volume
+capacity progressively while bytes are written. Audit signing no longer
+falls back to the session secret. The existing fixed legacy-token hard cutoff
+remains in effect; it must not be extended without a compatibility review.
+
+**Acceptance criteria**
+
+- First persisted TOTP use succeeds; duplicate use is refused across auth
+  instances/restarts; concurrent first use accepts at most once; a newer
+  adjacent-window code is accepted; corrupt negative counters fail closed.
+- Direct cPanel restore rejects an oversized declared or actual stream,
+  cancels promptly, removes partial staging files, and releases its capacity
+  reservation on every return path.
+- Audit signing requires a dedicated key. A later rotation implementation
+  defines key IDs, a protected historical verifier keyring, backward reading
+  for existing records, and a tested key-retirement procedure before rotation
+  is advertised.
+- Legacy unscoped tokens continue only until the documented host-wide cutoff;
+  tests cover missing policy, pre/post-cutoff behavior, account suspension,
+  revoked tokens, and scoped-token least privilege.
+- Focused tests, race tests, `make check`, and exact-source hosted CI pass.
+
 ### M1 — Complete installed-host failure recovery (P0)
 
 **Status:** Open. Exact-source hosted AlmaLinux 9/Caddy/MariaDB run

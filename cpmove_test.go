@@ -100,6 +100,42 @@ func TestRestoreCPMoveContextHonorsCancellation(t *testing.T) {
 	}
 }
 
+func TestRestoreCPMoveContextEnforcesArchiveLimitWithoutHeaderTrust(t *testing.T) {
+	root := t.TempDir()
+	imports := filepath.Join(root, "imports")
+	if err := os.MkdirAll(imports, 0700); err != nil {
+		t.Fatal(err)
+	}
+	archivePath := filepath.Join(root, "oversized.tar.gz")
+	if err := os.WriteFile(archivePath, []byte("this archive is larger than the configured limit"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	input, err := os.Open(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer input.Close()
+	var ledger capacityLedger
+	_, err = RestoreCPMoveContext(context.Background(), Config{
+		ImportRoot:   imports,
+		MaxUpload:    8,
+		MinFreeBytes: 0,
+	}, multipartFile{File: input}, &multipart.FileHeader{Filename: "cpmove-account.tar.gz", Size: 1}, AuthorizedSite{site: "account"}, false, &ledger)
+	if err == nil || !strings.Contains(err.Error(), "exceeds the 8-byte upload limit") {
+		t.Fatalf("oversized stream error = %v", err)
+	}
+	entries, err := os.ReadDir(imports)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("oversized stream left temporary import files: %v", entries)
+	}
+	if held := ledger.heldBytes(imports); held != 0 {
+		t.Fatalf("oversized stream leaked %d reserved bytes", held)
+	}
+}
+
 func TestSafeArchivePath(t *testing.T) {
 	valid := []string{"homedir/public_html/index.php", "mysql/site.sql", "homedir/.well-known/acme-challenge/token"}
 	for _, path := range valid {

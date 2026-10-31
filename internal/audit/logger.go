@@ -35,7 +35,7 @@ var auditKeyPath = AuditKeyPath
 
 var (
 	auditMkdirAll   = os.MkdirAll
-	auditStat       = os.Stat
+	auditStat       = os.Lstat
 	auditCreateTemp = os.CreateTemp
 	auditRename     = os.Rename
 	auditOpen       = os.Open
@@ -133,8 +133,13 @@ func (l *defaultLogger) appendEvent(actor, action, target, detail string) error 
 	}
 
 	statePath := l.path + ".state"
-	if info, statErr := auditStat(l.path); statErr == nil && info.Size() >= maxAuditLogBytes {
-		return errors.New("audit log exceeds the 256 MiB retention limit; rotate it after verification")
+	if info, statErr := auditStat(l.path); statErr == nil {
+		if !info.Mode().IsRegular() {
+			return errors.New("audit log path must be a regular file")
+		}
+		if info.Size() >= maxAuditLogBytes {
+			return errors.New("audit log exceeds the 256 MiB retention limit; rotate it after verification")
+		}
 	} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
 		return statErr
 	}
@@ -769,11 +774,8 @@ func auditSigningKey() ([]byte, error) {
 			key = strings.TrimSpace(string(data))
 		}
 	}
-	if key == "" {
-		key = os.Getenv("STEPANEL_SESSION_SECRET")
-	}
 	if len(key) < 32 {
-		return nil, errors.New("STEPANEL_AUDIT_KEY or STEPANEL_SESSION_SECRET must contain at least 32 characters")
+		return nil, errors.New("an independent STEPANEL_AUDIT_KEY or protected audit key file with at least 32 characters is required")
 	}
 	return []byte("stepanel-audit-v1\x00" + key), nil
 }

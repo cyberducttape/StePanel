@@ -1,5 +1,31 @@
 # Production-readiness progress
 
+## TOTP, audit-key separation, and cPanel upload admission — 2026-10-30
+
+- Database-backed TOTP replay reads now distinguish `sql.ErrNoRows` from real
+  database errors and only compare unsigned counters when a valid persisted
+  row exists. Added regressions for first-use success, duplicate rejection,
+  cross-instance persistence, concurrent first use, corrupt negative state,
+  and acceptance of the next adjacent counter window.
+- The audit logger no longer uses `STEPANEL_SESSION_SECRET` when a dedicated
+  audit key is missing. Root-package tests receive a separate test-only key by
+  default, while explicit missing-key tests still clear it. Audit log paths
+  must be regular files; this also prevents a directory from being renamed as
+  a legacy log during first-write initialization.
+- `RestoreCPMoveContext` now enforces `Config.MaxUpload` against both declared
+  size and actual bytes copied, checks context cancellation while streaming,
+  progressively reserves capacity, removes partial files, and releases its
+  reservation on all return paths.
+- `make check` passed after these changes. Focused TOTP/cPanel tests, audit
+  package tests, audit outbox/crash-drill tests, focused root race tests,
+  `internal/audit` race tests, and the action-pin check passed. The first full
+  suite run identified tests depending on the old session-key fallback and a
+  directory-as-audit-path edge; both were corrected before the passing run.
+- Audit key IDs and a protected historical verification keyring are not yet
+  implemented. In-place key rotation remains explicitly unsupported. Legacy
+  token access still follows the documented fixed hard cutoff; broader
+  role/suspension/rotation contract coverage remains open.
+
 ## Tenant capability and package-process containment — 2026-10-30
 
 - Site file-store methods now require `sitefiles.SiteAccess`; the customer
