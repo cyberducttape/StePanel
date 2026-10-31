@@ -1,5 +1,46 @@
 # Production-readiness progress
 
+## Audit fixes, failure-injection tests, and host evidence — 2026-10-30
+
+- **Runtime metrics on real hosts:** `systemctl show` prints
+  `CPUQuotaPerSecUSec` as a timespan (`1.500000s` on systemd 259), so CPU
+  quota utilization was never derived and the CPU quota alerts could not
+  fire. Fixed in `d2d3e5a`/`2f9b0e2`; parsers are now tested against captured
+  `systemctl show` output in `testdata/systemctl/`.
+- **CI integration was red** from `05565dc` to `7a85b2c`: the CPU near-limit
+  warning overlapped the saturation alert and failed `promtool test rules`,
+  which also skipped govulncheck, staticcheck, and the container/Helm/
+  Terraform checks for that period. CI integration, including those steps,
+  passed on `7a85b2c` and `6ff12b6`.
+- **Production-only failures in new workflows:** WordPress site creation and
+  staging promotion took their database backups without the capacity ledger,
+  which production refuses, so every production WordPress creation rolled
+  back and every promotion refused (`bd508e9`, `11c0509`). A source guard now
+  rejects ledger-less backup calls in panel code.
+- **Other defects fixed:** SSH server inventory always reported incomplete
+  data because the remote shell re-split the probe script (`c31a3ae`);
+  staging clone and promotion did not hold the database locks used by drops
+  and credential rotations (`2db17e8`, `fc97f7b`).
+- **New tests:** staging promotion runs end to end against a temporary web
+  root and fails at each of 14 steps (`STEPANEL_FAIL_AT=promote:*`); every
+  failure must restore production files and configuration, leave no pending
+  journal or stage, and drop the candidate database exactly when one was
+  created. Mutation checks confirmed the cases fail when cleanup is removed.
+- **N-1 upgrade smoke** had failed every job since `b6ce902`: the candidate
+  installer stopped silently in its database version lookup. Guarded in
+  `1ff3233`, which also makes the installer name any unexpected failing line;
+  run [41066237188](https://github.com/cyberducttape/StePanel/actions/runs/41066237188)
+  passed all six upgrade jobs.
+- **Installed-host gate:** the six-host full recovery matrix shard
+  `gate-1ff3233` ([41066287752](https://github.com/cyberducttape/StePanel/actions/runs/41066287752))
+  passed on Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with Apache and
+  Caddy. This is one repetition; it does not count toward the cohort.
+- **Started** the 20-repetition installed recovery cohort on `6ff12b6`
+  ([41155137017](https://github.com/cyberducttape/StePanel/actions/runs/41155137017));
+  results are pending.
+- **Not run:** the local `abrupt-loss-operations` KVM drill needs at least
+  6 GiB available memory; this workstation had 3.9 GiB.
+
 ## Per-site CPU quota saturation evidence — 2026-10-30
 
 - Extended the background runtime sampler to calculate per-site CPU-quota
@@ -12,8 +53,10 @@
 - Added regression coverage for the counter calculation, invalid samples,
   metric rendering, and rendered warning/critical alerts. The focused Go tests
   passed. Local Prometheus rule validation could not run because `promtool` is
-  unavailable in this shell; hosted CI on the prior pushed source is still
-  running and will validate the fixture after this change is committed.
+  unavailable in this shell. **Outcome:** hosted CI then failed `promtool test
+  rules` on this source: the near-limit warning also fired at 100%. It was
+  fixed in `7a85b2c` (see the entry above). The sampler also could not parse
+  real systemd quota values; see `d2d3e5a` and `2f9b0e2`.
 - This adds CPU quota pressure to the existing PHP-FPM, database, filesystem,
   certificate, backup, memory, and task alerts. It does not provide CPU PSI or
   kernel throttling counters; the measured quota utilization is an interval

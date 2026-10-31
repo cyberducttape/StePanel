@@ -15,9 +15,18 @@ successful one-off smoke does not close a host-certification gate.
 ### M0 — Restore green exact-source CI
 
 **Priority:** Immediate release hygiene  
-**Status:** CI integration, CodeQL, documentation, browser E2E, and release
-evidence passed on exact source `c91a88b`; the installed-host smoke was on the
-earlier source `79e1de4`. The `c91a88b` workflow evidence is recorded in
+**Status:** Green again on 2026-10-30 after a red interval. CI integration
+(including govulncheck, staticcheck, the promtool rule tests, and the
+production container smoke), CodeQL, documentation, and release evidence
+passed on exact source `6ff12b6`. The six-host full recovery shard
+[`gate-1ff3233`](https://github.com/cyberducttape/StePanel/actions/runs/41066287752)
+and the N-1 upgrade smoke
+[41066237188](https://github.com/cyberducttape/StePanel/actions/runs/41066237188)
+passed on `1ff3233`, which differs from `6ff12b6` only in documentation, an
+alert expression, and a code comment. CI integration had failed from `05565dc`
+until `7a85b2c` (overlapping CPU alerts), and the scheduled N-1 smoke from
+`b6ce902` until `1ff3233` (installer preflight); see [PROGRESS.md](PROGRESS.md).
+The earlier `c91a88b` evidence is recorded in
 [`docs/lab-results/2026-10-30-current-source-almalinux-install-79e1de4.md`](docs/lab-results/2026-10-30-current-source-almalinux-install-79e1de4.md).
 This closes exact-source validation only; production recovery gates remain
 open.
@@ -305,6 +314,13 @@ One Rocky Linux 9 KVM iteration against older source
 passes; see the reviewed [run report](docs/lab-results/2026-10-30-rocky9-kvm-recovery-matrix-1348611.md).
 It is not counted as current-source evidence. Neither run establishes physical
 power-loss durability or meets the 20–50 repeat requirement.
+On 2026-10-30 the six-host full recovery shard `gate-1ff3233`
+([41066287752](https://github.com/cyberducttape/StePanel/actions/runs/41066287752))
+passed one iteration on every supported OS/web-server pair. A 20-repetition
+cohort was started on `6ff12b6`
+([41155137017](https://github.com/cyberducttape/StePanel/actions/runs/41155137017));
+until it completes with every host job passing, no repetition counts toward
+this milestone.
 **Source of truth:** Gate 5 and `docs/REAL_HOST_FAILURE_MATRIX.md`.
 
 Run the installed native systemd stack on each supported OS/filesystem, and

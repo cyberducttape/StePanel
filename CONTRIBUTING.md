@@ -50,6 +50,33 @@ The local server uses `data/imports` and `data/www` by default, so development d
 - Open a pull request for substantial changes, even when you are the sole
   maintainer, so design and review history remains visible.
 
+## Testing against real behavior
+
+Several production defects have passed tests that used invented input or ran
+only in development mode. Prefer these patterns:
+
+- **Use captured tool output, not hand-written values.** Parsers of system
+  tools are tested against real output stored under `testdata/` (for example
+  `testdata/systemctl/`, captured with the commands in its README). systemd
+  prints `*USec` properties as timespans such as `1.500000s`, not integers.
+- **Test remote commands as the remote shell sees them.** `ssh` joins its
+  remote arguments with spaces and the remote shell parses them again; the
+  recording fake `ssh` in `ssh_inventory_test.go` asserts the exact words.
+- **Inject failures at every step of a destructive workflow.** Use
+  `failureInjection("<operation>", "<point>")` and drive it with
+  `STEPANEL_FAIL_AT=<operation>:<point>` (points are listed in
+  `docs/V1_PRODUCTION_GATES.md`). Assert the end state after each failure, not
+  just the error: see `staging_promotion_flow_test.go`. Then break the
+  compensation code once and confirm the test fails.
+- **Exercise production-only branches.** Code guarded by `cfg.Production`
+  (typed broker calls, the capacity ledger) is skipped by most tests. Use the
+  shared helpers (`createSiteBackupContext(..., a.capacityLedger())`,
+  `databaseLockKey`) instead of reimplementing them; source guards fail the
+  build when panel code bypasses them.
+- **Validate alert rules with `promtool`.** CI runs `promtool check rules` and
+  `promtool test rules observability/alerts_test.yml`; add a test case for
+  each new alert, including that warning and critical pairs do not overlap.
+
 ## Design principles
 
 1. Validate untrusted archive input before extraction.

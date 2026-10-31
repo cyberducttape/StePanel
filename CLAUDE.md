@@ -2,7 +2,7 @@
 
 This document establishes the code quality expectations and architectural patterns for StePanel development.
 
-**Last Updated:** 2026-09-25  
+**Last Updated:** 2026-10-30  
 **Scope:** All new code and refactored subsystems must follow Tier 1 standards
 
 ## Audit Contract
@@ -309,7 +309,7 @@ New code should be placed in appropriate `internal/` package based on domain, no
 
 ### Current State
 
-The root package contains ~150 Go files (~2.5MB), which creates maintenance and review challenges:
+The root package contains 266 Go files (117 non-test files, about 1.9 MB of production source; counted 2026-10-30), which creates maintenance and review challenges:
 - Hard to locate authorization checks (scattered across files)
 - Hard to understand privilege boundaries
 - Hard to trace which code mutations canonical site state
@@ -352,7 +352,7 @@ Instead of rewriting large sections:
 
 ### Not Recommended
 
-❌ **Single big refactor** of all 150 files at once — too risky, too expensive
+❌ **Single big refactor** of the whole root package at once — too risky, too expensive
 ❌ **Forced artificial splits** that don't match actual domain boundaries
 ❌ **Leaving root code in internal/** — that defeats the purpose
 

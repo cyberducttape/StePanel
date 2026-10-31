@@ -232,8 +232,24 @@ an explicitly reviewed exception. Set `basic_auth:true`, `auth_user`, and an
 initial `auth_password` to protect the route with Basic Auth when using Caddy
 or Apache; only a bcrypt
 hash is persisted by the Apache/Caddy helper and the password is discarded
-after the request. Database promotion, schema rollback, and outbound-email
-blocking remain planned integrations.
+after the request. With database cloning, a WordPress staging site gets its
+own managed database and user, rewritten URLs, and a recorded relationship to
+its production site.
+
+WordPress staging promotion copies that staging site back over production.
+`POST /api/staging/promote/preview` with `source` (the staging site) and
+`site` (production) returns the current state, the proposed change, its
+effects, and the recovery plan; `POST /api/staging/promote` with the
+preview's `preview_token` (valid for 5 minutes) performs it. Both need access
+to both sites and the `site:deploy` scope. Promotion takes a verified
+production safety backup, copies the staging files into a production
+transaction, clones the staging database into a *new* production database,
+rewrites URLs to the production domain, checks the database with WP-CLI, and
+keeps the previous production database. Any failed step restores the prior
+production files and drops the new database. After success, the pre-promotion
+backup and the retained database are the rollback path; verify the site over
+HTTP before deleting either. General (non-WordPress) database promotion,
+schema rollback, and outbound-email blocking remain planned.
 
 `POST /api/backups/restore-to-staging` restores a fully verified backup's
 regular site files into a new isolated site and validated route. It can also

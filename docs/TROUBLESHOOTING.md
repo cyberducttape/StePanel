@@ -68,6 +68,43 @@ sudo systemctl start stepanel
 
 ---
 
+## Installer Issues
+
+### "install.sh: line N: command exited with status S: COMMAND"
+
+**Cause:** A command in the installer failed unexpectedly. The installer runs
+with `set -e`, so it stops at the first failing command and names the line
+and command. The message can repeat for an enclosing command substitution.
+
+**Solution:**
+- Re-run the named command by hand on the host to see its own error output.
+- If the failure happened before the preflight finished, nothing on the host
+  was changed.
+- If the installer also printed `Installer stopped before commit; recovery
+  journal: …`, follow [INSTALLER_RECOVERY.md](INSTALLER_RECOVERY.md) before
+  retrying: packages and service state may have changed.
+- Include the full line in any issue report.
+
+## Monitoring Issues
+
+### `stepanel_site_resource_cpu_quota_utilization_percent` is missing for a site
+
+**Cause:** The value is only emitted when it can be measured honestly: the
+site has a CPU quota (unlimited slices report `CPUQuotaPerSecUSec=infinity`),
+the resource probe succeeded in two consecutive samples 10 seconds to 5
+minutes apart, the quota did not change, and the CPU counter did not reset.
+
+**Solution:**
+```bash
+# Inspect the slice the sampler reads
+systemctl show "stepanel-site-SITE.slice" --property=CPUQuotaPerSecUSec --property=CPUUsageNSec
+# Check that runtime samples are fresh
+curl -s http://127.0.0.1:8090/metrics | grep -E 'stepanel_site_resource_(probe_up|sample_timestamp_seconds)\{site="SITE"'
+```
+A missing value for an unlimited site is expected. For a site with a quota,
+check `StePanelSiteResourceProbeUnavailable` and
+`StePanelSiteRuntimeSamplesStale`.
+
 ## Database Issues
 
 ### "database helper returned invalid inventory"
