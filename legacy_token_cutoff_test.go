@@ -1,6 +1,7 @@
 package stepanel
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -128,5 +129,67 @@ func TestLegacyTokenRefusedWithoutDeprecationPolicy(t *testing.T) {
 	}
 	if !f.authenticates(f.scoped) {
 		t.Fatal("scoped token refused without a deprecation policy")
+	}
+}
+
+func TestLegacyCustomerTokenRemainsBoundByCurrentRoleAndSuspension(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	accounts, err := OpenAccountStore(filepath.Join(t.TempDir(), "accounts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := accounts.Create("tenant-owner", "a sufficiently long tenant-owner password", testTOTPSecret, "starter", []string{"site-one"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := accounts.CreateMember("tenant-owner", "developer", "a sufficiently long developer password", testTOTPSecret, "developer"); err != nil {
+		t.Fatal(err)
+	}
+	secret := "stp_legacy-member-token-for-policy-test"
+	digest := sha256.Sum256([]byte(secret))
+	if _, err := db.Exec(`INSERT INTO api_tokens (id, username, name, token_hash, token_prefix, scopes, created_at) VALUES ('member-token', 'developer', 'legacy', ?, ?, '', ?)`, hex.EncodeToString(digest[:]), secret[:12], time.Now().Add(-time.Hour).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	deprecation := authpolicy.NewLegacyTokenDeprecationWithClock(db, func() time.Time {
+		return authpolicy.LegacyTokenHardCutoff.Add(-time.Hour)
+	})
+	if err := deprecation.InitializeSchema(); err != nil {
+		t.Fatal(err)
+	}
+	auth := Auth{Enabled: true, Username: "admin", Accounts: accounts, apiTokens: &apiTokenStore{db: db}, legacyTokenDeprecation: deprecation}
+	request := httptest.NewRequest(http.MethodGet, "/api/sites", nil)
+	request.Header.Set("Authorization", "Bearer "+secret)
+	identity, scopes, ok := auth.validAPITokenWithScopes(request)
+	if !ok {
+		t.Fatal("unexpired legacy member token was refused")
+	}
+	withIdentity := func() *http.Request {
+		ctx := context.WithValue(request.Context(), apiTokenUsernameKey{}, identity)
+		ctx = context.WithValue(ctx, apiTokenScopesKey{}, scopes)
+		return request.WithContext(ctx)
+	}
+	if !auth.HasRequiredCustomerScope(withIdentity(), "site:deploy") {
+		t.Fatal("developer role lost its allowed deploy scope")
+	}
+	if _, err := accounts.SetMemberRole("developer", "viewer"); err != nil {
+		t.Fatal(err)
+	}
+	if auth.HasRequiredCustomerScope(withIdentity(), "site:deploy") {
+		t.Fatal("legacy token retained deploy permission after role downgrade")
+	}
+	if _, err := accounts.SetSuspended("developer", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := auth.validAPITokenWithScopes(request); ok {
+		t.Fatal("legacy token remained valid after tenant member suspension")
+	}
+	if err := auth.apiTokens.revoke("developer", "member-token"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := auth.validAPITokenWithScopes(request); ok {
+		t.Fatal("revoked legacy token authenticated")
 	}
 }

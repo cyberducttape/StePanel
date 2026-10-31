@@ -23,8 +23,12 @@
   directory-as-audit-path edge; both were corrected before the passing run.
 - Audit key IDs and a protected historical verification keyring are not yet
   implemented. In-place key rotation remains explicitly unsupported. Legacy
-  token access still follows the documented fixed hard cutoff; broader
-  role/suspension/rotation contract coverage remains open.
+  token access still follows the documented fixed hard cutoff. A customer
+  token regression now proves current role downgrade, member suspension, and
+  revocation are enforced during the compatibility window; token
+  reissuance/rotation coverage remains open. On exact commit `2497cd3`, hosted
+  docs, UI E2E, and Go static analysis passed; full CI integration and the
+  installed-host smoke were still running when recorded.
 
 ## Tenant capability and package-process containment — 2026-10-30
 

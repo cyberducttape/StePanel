@@ -372,8 +372,9 @@ hostile tenants.
 
 **Status:** Partially implemented locally. Database-backed TOTP first-use
 handling, independent audit-key selection, and direct cPanel-copy admission
-are fixed with focused regressions. Historical audit key IDs/keyring and the
-legacy-token sunset evidence remain open.
+are fixed with focused regressions. A customer-token contract test now checks
+role downgrade, suspension, and revocation. Historical audit key IDs/keyring
+and token reissuance evidence remain open.
 
 The persisted TOTP path now treats `sql.ErrNoRows` as a fresh counter, rejects
 invalid negative persisted counters without unsigned conversion, and commits
@@ -397,8 +398,9 @@ remains in effect; it must not be extended without a compatibility review.
   for existing records, and a tested key-retirement procedure before rotation
   is advertised.
 - Legacy unscoped tokens continue only until the documented host-wide cutoff;
-  tests cover missing policy, pre/post-cutoff behavior, account suspension,
-  revoked tokens, and scoped-token least privilege.
+  tests cover missing policy, pre/post-cutoff behavior, member role downgrade,
+  suspension, revocation, and scoped-token least privilege. Token rotation and
+  replacement must also be covered before removing the compatibility path.
 - Focused tests, race tests, `make check`, and exact-source hosted CI pass.
 
 ### M1 — Complete installed-host failure recovery (P0)
