@@ -2,6 +2,16 @@
 
 ## Independent audit-checkpoint key rotation — 2026-10-31
 
+- After the single-host smoke below, the scheduled exact-code six-host matrix
+  [41189484718](https://github.com/cyberducttape/StePanel/actions/runs/41189484718)
+  passed all Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 combinations with
+  Apache and Caddy. Every host passed one interrupted-workflow matrix and an
+  installed WordPress restore probe (5.269–7.308 s RTO). Reviewed diagnostics
+  and limitations are in
+  [`2026-10-31-six-host-install-matrix-1e6db18.md`](docs/lab-results/2026-10-31-six-host-install-matrix-1e6db18.md).
+  This is one iteration per combination, not the required 20–50 repeats or
+  power-loss certification.
+
 - Added a dedicated `STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY`, separate from the
   local audit-chain HMAC and session key. New checkpoints use signature
   version 2; version 1 checkpoint verification remains supported.
@@ -34,12 +44,13 @@
   passed CI integration [41187605734](https://github.com/cyberducttape/StePanel/actions/runs/41187605734),
   CodeQL [41187605838](https://github.com/cyberducttape/StePanel/actions/runs/41187605838),
   documentation [41187605775](https://github.com/cyberducttape/StePanel/actions/runs/41187605775),
-  and one AlmaLinux 9/Caddy/MariaDB installed-host smoke
+  and an AlmaLinux 9/Caddy/MariaDB installed-host smoke
   [41187605802](https://github.com/cyberducttape/StePanel/actions/runs/41187605802).
-  That smoke completed one recovery-matrix iteration and an application-level
-  WordPress restore proof (7.333 s RTO); it does not configure a checkpoint
-  remote or exercise remote publication. See the
-  [reviewed host result](docs/lab-results/2026-10-31-almalinux9-install-1e6db18.md).
+  The subsequent six-host matrix completed one recovery iteration and a
+  WordPress restore proof on every supported OS/web-server pair. Neither run
+  configured a checkpoint remote or exercised remote publication. See the
+  [single-host result](docs/lab-results/2026-10-31-almalinux9-install-1e6db18.md)
+  and [six-host results](docs/lab-results/2026-10-31-six-host-install-matrix-1e6db18.md).
   Remote-provider append-only and outage/recovery evidence remains open;
   changing `STEPANEL_AUDIT_KEY` remains unsupported because the event chain
   has no per-record key IDs.

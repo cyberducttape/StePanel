@@ -15,8 +15,11 @@ successful one-off smoke does not close a host-certification gate.
 ### M0 — Restore green exact-source CI
 
 **Priority:** Immediate release hygiene  
-**Status:** Green on exact source `ccb58c9` (2026-10-31); its CI integration,
-CodeQL, documentation, release-evidence, and one installed-host smoke passed.
+**Status:** Green on current code source `1e6db18` with documentation commit
+`b2be13f`: CI integration passed on the identical code tree, and CodeQL,
+documentation, release evidence, and the exact-code six-host install/recovery
+matrix passed. The matrix is one iteration per OS/web-server pair; it is not a
+recovery certification cohort.
 CI integration covers Go tests and race tests, recovery
 drills, tmpfs ENOSPC, database integration, static analysis, deployment
 validation, and browser E2E. Earlier exact-source evidence on `711948d` is
@@ -33,16 +36,18 @@ The earlier `c91a88b` evidence is recorded in
 This closes M0 exact-source validation only; production recovery gates remain
 open and are tracked in [`docs/V1_PRODUCTION_GATES.md`](docs/V1_PRODUCTION_GATES.md).
 
-Most recent exact-source verification is `ccb58c90d0de0b2e22506a13abba76aeb50b1b78`:
-CI integration [41182651721](https://github.com/cyberducttape/StePanel/actions/runs/41182651721),
-CodeQL [41182651731](https://github.com/cyberducttape/StePanel/actions/runs/41182651731),
-and documentation [41182651795](https://github.com/cyberducttape/StePanel/actions/runs/41182651795)
-passed. CI includes coverage floors, full Go tests, full race tests, recovery
-drills, tmpfs ENOSPC, database integration, deployment validation, and UI E2E.
-The exact-source AlmaLinux 9/Caddy/MariaDB installed-host smoke
-[41182651772](https://github.com/cyberducttape/StePanel/actions/runs/41182651772)
-passed one install/recovery run. Broader repeated host-failure certification
-remains separate.
+Current code source `1e6db185e5fc77e034280e9182d30e47c562c190` passed CI
+integration [41187605734](https://github.com/cyberducttape/StePanel/actions/runs/41187605734)
+and the six-host installed recovery matrix
+[41189484718](https://github.com/cyberducttape/StePanel/actions/runs/41189484718).
+Documentation [41189593476](https://github.com/cyberducttape/StePanel/actions/runs/41189593476)
+and CodeQL [41189593384](https://github.com/cyberducttape/StePanel/actions/runs/41189593384)
+passed on documentation commit `b2be13f`, whose non-Markdown tree matches the
+tested code source. The release-evidence job also passed; a refreshed report
+will be generated after this evidence update. Integration includes coverage
+floors, the full Go suite and race tests, recovery drills, tmpfs ENOSPC,
+database integration, deployment validation, and UI E2E. These software and
+single-iteration host checks do not close repeated host-failure certification.
 
 - [x] Correct the Playwright quota-headroom expectation to match the UI's
   account-scoped upper-bound wording; exact-source browser E2E passed in
@@ -503,7 +508,13 @@ durable job state. Keep the token out of API serialization.
 
 ### M1 — Complete installed-host failure recovery (P0)
 
-**Status:** Open. Exact-source hosted AlmaLinux 9/Caddy/MariaDB run
+**Status:** Open. Exact-code scheduled six-host run
+[41189484718](https://github.com/cyberducttape/StePanel/actions/runs/41189484718)
+passed one installed recovery-matrix iteration on each Ubuntu 24.04,
+AlmaLinux 9, and Rocky Linux 9 host with Apache and Caddy, including an
+installed WordPress application proof (5.269–7.308 s measured RTO). See the
+[reviewed six-host result](docs/lab-results/2026-10-31-six-host-install-matrix-1e6db18.md).
+An earlier exact-source hosted AlmaLinux 9/Caddy/MariaDB run
 `41019722358` on `79e1de4` passed one installed recovery-matrix iteration and
 the WordPress application proof (7.309 s); see the reviewed
 [result](docs/lab-results/2026-10-30-current-source-almalinux-install-79e1de4.md).
@@ -547,8 +558,11 @@ state, service health, and successful post-recovery invariants.
 
 ### M2 — Certify application recovery and supported runtime matrix (P0)
 
-**Status:** Partial; existing six-combination results are not all from the
-current release candidate.
+**Status:** Partial. Exact-code run `41189484718` passed an installed
+WordPress database and HTTP recovery proof on all six Ubuntu/AlmaLinux/Rocky
+and Apache/Caddy combinations (5.269–7.308 s measured RTO); see the
+[six-host result](docs/lab-results/2026-10-31-six-host-install-matrix-1e6db18.md).
+This is a single pass per combination, not repeated certification.
 
 On a clean disposable destination, restore a real WordPress site including
 files and a populated database, configure PHP-FPM and the virtual host, then

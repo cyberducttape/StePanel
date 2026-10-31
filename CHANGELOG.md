@@ -28,11 +28,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   test and workflow timeouts.
 - Recovery-drill test invocations now reuse the configured Go build cache,
   avoiding a cold rebuild of the large root package for each scenario.
-- The independent checkpoint-key rotation source passed exact-commit hosted
-  integration, CodeQL, documentation, and one AlmaLinux 9 installed-host
-  recovery smoke. The smoke report records a 7.333-second WordPress restore
-  proof and explicitly retains the repeated crash-recovery and remote-storage
-  policy gates as open.
+- The independent checkpoint-key rotation source passed exact-code hosted
+  integration, CodeQL, documentation, release evidence, and all six scheduled
+  AlmaLinux, Rocky Linux, and Ubuntu installed-host combinations. Each passed
+  one recovery iteration and WordPress restore proof (5.269–7.308 s RTO). The
+  reviewed report retains repeated crash-recovery, physical power-loss, and
+  remote-storage policy gates as open.
 - Durable job claims now receive unique random fencing tokens. Worker progress,
   checkpoint, renewal, failure, and completion writes compare-and-swap against
   the active token and unexpired lease, so an expired claim cannot commit even
