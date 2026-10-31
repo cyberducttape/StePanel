@@ -16,6 +16,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   pending record; an administrator can reconcile it with evidence without
   replaying the host mutation. Health, Prometheus metrics, and a critical alert
   expose unresolved outcomes.
+- The site file-store interface now requires a tenant-authorization capability
+  rather than accepting raw site-name strings. Customer-controlled Composer,
+  Node, and Python package commands now run in transient per-site systemd
+  cgroups with a process-tree kill policy, task limit, and runtime bound.
+  Helper cancellation now sends SIGTERM before bounded SIGKILL escalation so
+  wrappers can stop their transient units cleanly.
 
 ### Fixed
 

@@ -24,11 +24,14 @@ type Local struct {
 	DocRoot func(site string) (string, error)
 }
 
-func (l Local) open(site string) (*os.Root, error) {
+func (l Local) open(site SiteAccess) (*os.Root, error) {
 	if l.DocRoot == nil {
 		return nil, errors.New("file manager has no document root resolver")
 	}
-	dir, err := l.DocRoot(site)
+	if site == nil || site.SiteID() == "" {
+		return nil, errors.New("file manager requires an authorized site")
+	}
+	dir, err := l.DocRoot(site.SiteID())
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +74,7 @@ func noLinks(root *os.Root, rel string, through bool) error {
 	return nil
 }
 
-func (l Local) List(_ context.Context, site, rel string) (Listing, error) {
+func (l Local) List(_ context.Context, site SiteAccess, rel string) (Listing, error) {
 	root, err := l.open(site)
 	if err != nil {
 		return Listing{}, err
@@ -120,7 +123,7 @@ func (l Local) List(_ context.Context, site, rel string) (Listing, error) {
 	return listing, nil
 }
 
-func (l Local) Read(_ context.Context, site, rel string) ([]byte, error) {
+func (l Local) Read(_ context.Context, site SiteAccess, rel string) ([]byte, error) {
 	root, err := l.open(site)
 	if err != nil {
 		return nil, err
@@ -171,7 +174,7 @@ func readBounded(r io.Reader, limit int64) ([]byte, error) {
 // rename. It syncs the file before publication and the parent directory after
 // rename for crash durability on filesystems that support directory fsync.
 // An existing file keeps its permissions; a new one is 0640.
-func (l Local) Write(_ context.Context, site, rel string, content io.Reader) (err error) {
+func (l Local) Write(_ context.Context, site SiteAccess, rel string, content io.Reader) (err error) {
 	if content == nil {
 		return errors.New("file content is required")
 	}
@@ -251,7 +254,7 @@ func (l Local) Write(_ context.Context, site, rel string, content io.Reader) (er
 	return nil
 }
 
-func (l Local) Mkdir(_ context.Context, site, rel string) error {
+func (l Local) Mkdir(_ context.Context, site SiteAccess, rel string) error {
 	root, err := l.open(site)
 	if err != nil {
 		return err
@@ -269,7 +272,7 @@ func (l Local) Mkdir(_ context.Context, site, rel string) error {
 	return nil
 }
 
-func (l Local) Rename(_ context.Context, site, rel, destination string) error {
+func (l Local) Rename(_ context.Context, site SiteAccess, rel, destination string) error {
 	if destination == rel || strings.HasPrefix(destination, rel+"/") {
 		return Refused("cannot move a directory into itself")
 	}
@@ -298,7 +301,7 @@ func (l Local) Rename(_ context.Context, site, rel, destination string) error {
 	return nil
 }
 
-func (l Local) Delete(_ context.Context, site, rel string) error {
+func (l Local) Delete(_ context.Context, site SiteAccess, rel string) error {
 	root, err := l.open(site)
 	if err != nil {
 		return err

@@ -60,15 +60,24 @@ type Listing struct {
 	Truncated bool    `json:"truncated"`
 }
 
-// Store performs file operations inside one site's document root. Paths are
-// relative to that root and must pass Clean.
+// SiteAccess is an authorization capability resolved by the control plane
+// after checking the current principal against the site's tenant. Stores
+// accept this capability instead of a raw site name so a caller cannot
+// accidentally skip the authorization step at the data-access boundary.
+// Implementations should keep the concrete capability opaque to callers.
+type SiteAccess interface {
+	SiteID() string
+}
+
+// Store performs file operations inside one authorized site's document root.
+// Paths are relative to that root and must pass Clean.
 type Store interface {
-	List(ctx context.Context, site, path string) (Listing, error)
-	Read(ctx context.Context, site, path string) ([]byte, error)
-	Write(ctx context.Context, site, path string, content io.Reader) error
-	Mkdir(ctx context.Context, site, path string) error
-	Rename(ctx context.Context, site, path, destination string) error
-	Delete(ctx context.Context, site, path string) error
+	List(ctx context.Context, site SiteAccess, path string) (Listing, error)
+	Read(ctx context.Context, site SiteAccess, path string) ([]byte, error)
+	Write(ctx context.Context, site SiteAccess, path string, content io.Reader) error
+	Mkdir(ctx context.Context, site SiteAccess, path string) error
+	Rename(ctx context.Context, site SiteAccess, path, destination string) error
+	Delete(ctx context.Context, site SiteAccess, path string) error
 }
 
 // Clean validates a path relative to a document root and returns it in the

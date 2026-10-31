@@ -1,5 +1,39 @@
 # Production-readiness progress
 
+## Tenant capability and package-process containment — 2026-10-30
+
+- Site file-store methods now require `sitefiles.SiteAccess`; the customer
+  handler passes the private `AuthorizedSite` value created by the ownership
+  resolver through every list/read/write/mkdir/rename/delete path. The local
+  store rejects nil and empty capabilities. Existing cross-tenant handler
+  tests continue to exercise denial before storage access.
+- Composer, Node install/build, and Python pip package/build-backend commands
+  now execute in transient systemd services with `KillMode=control-group`, a
+  15-minute runtime cap, `TasksMax=256`, and the site's resource slice. Rootless
+  container builds already used a bounded transient unit and container.
+- The shared helper now sends SIGTERM to the helper process group before
+  escalating to SIGKILL after 250 ms. The app helper traps that signal and
+  explicitly stops its active transient package unit. A regression confirms
+  a cooperative signal handler runs; detached descendants still require and
+  are placed within the systemd cgroup.
+- Durable jobs already persist actor and site data and revalidate current
+  ownership before execution; immutable tenant-ID snapshots are not yet a
+  common durable-job contract and remain an open authorization hardening item.
+- Added a shell contract regression and included it in `make check` and CI;
+  updated security documentation to distinguish cgroup process containment
+  from hostile-tenant isolation. A per-operation cgroup smoke on real
+  installed systemd hosts is still required.
+- Verification on this source: `make check` passed (API artifact checks, shell
+  contracts, `go vet ./...`, and `GOMAXPROCS=2 go test -p 1 -timeout 10m ./...`).
+  Focused `go test -race` passed for `internal/helper`, `internal/sitefiles`,
+  and the changed root file-manager authorization tests. ShellCheck, the GitHub
+  Action SHA pin check, and `git diff --check` passed. The complete root-package
+  race suite was stopped after several minutes without a test failure; it
+  remains unverified in this run.
+- The production systemd/cgroup behavior still needs an installed-host test
+  with a deliberately detached child on every supported OS. This work does
+  not establish hostile multi-tenant isolation or close that release gate.
+
 ## Authentication and audit-outcome hardening — 2026-10-30
 
 - Centralized startup authentication policy. Missing credentials now stop

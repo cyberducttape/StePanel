@@ -2,7 +2,7 @@ APP := stepanel
 GO ?= go
 LDFLAGS := -s -w -X github.com/cyberducttape/StePanel.Commit=$${GIT_COMMIT:-dev} -X github.com/cyberducttape/StePanel.BuildDate=$$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-.PHONY: all build test test-race fmt fmt-check vet coverage coverage-check fuzz-smoke api-generate api-check check recovery-drill mixed-load production-gate audit release-check clean
+.PHONY: all build test test-race fmt fmt-check vet coverage coverage-check fuzz-smoke api-generate api-check shell-contract-check check recovery-drill mixed-load production-gate audit release-check clean
 
 # The test suite exercises SQLite workers and helper subprocesses. Keep the
 # default local targets within a modest process budget so a developer's host
@@ -52,7 +52,11 @@ api-generate:
 api-check:
 	python3 scripts/generate-api-artifacts.py --check
 
-check: fmt-check api-check vet test
+shell-contract-check:
+	bash -n deploy/integrations/stepanel-appctl
+	bash scripts/test-site-package-cgroups.sh
+
+check: fmt-check api-check shell-contract-check vet test
 
 recovery-drill:
 	bash deploy/lab/run-recovery-drills.sh "$${RECOVERY_DRILL_OUTPUT:-/tmp/stepanel-recovery-drills.md}"

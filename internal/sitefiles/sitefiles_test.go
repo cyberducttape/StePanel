@@ -10,6 +10,10 @@ import (
 	"testing"
 )
 
+type testSiteAccess string
+
+func (s testSiteAccess) SiteID() string { return string(s) }
+
 func TestCleanAcceptsOnlyPlainRelativePaths(t *testing.T) {
 	for input, want := range map[string]string{"": "", ".": "", "/": "", "a": "a", "/a/b.php": "a/b.php", ".well-known/x": ".well-known/x", "x y/z": "x y/z"} {
 		if got, err := Clean(input); err != nil || got != want {
@@ -64,13 +68,14 @@ func newLocal(t *testing.T) (Local, string) {
 func TestLocalStoreLifecycle(t *testing.T) {
 	ctx := context.Background()
 	store, dir := newLocal(t)
-	if err := store.Mkdir(ctx, "alice", "assets"); err != nil {
+	alice := testSiteAccess("alice")
+	if err := store.Mkdir(ctx, alice, "assets"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Mkdir(ctx, "alice", "assets"); err == nil {
+	if err := store.Mkdir(ctx, alice, "assets"); err == nil {
 		t.Fatal("an existing directory was created again")
 	}
-	if err := store.Write(ctx, "alice", "assets/site.css", bytes.NewReader([]byte("body{}"))); err != nil {
+	if err := store.Write(ctx, alice, "assets/site.css", bytes.NewReader([]byte("body{}"))); err != nil {
 		t.Fatal(err)
 	}
 	if info, err := os.Stat(filepath.Join(dir, "assets", "site.css")); err != nil || info.Mode().Perm() != 0o640 {
@@ -80,36 +85,36 @@ func TestLocalStoreLifecycle(t *testing.T) {
 	if err := os.Chmod(filepath.Join(dir, "assets", "site.css"), 0o604); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Write(ctx, "alice", "assets/site.css", bytes.NewReader([]byte("main{}"))); err != nil {
+	if err := store.Write(ctx, alice, "assets/site.css", bytes.NewReader([]byte("main{}"))); err != nil {
 		t.Fatal(err)
 	}
 	if info, err := os.Stat(filepath.Join(dir, "assets", "site.css")); err != nil || info.Mode().Perm() != 0o604 {
 		t.Fatalf("replaced file = %v, %v", info, err)
 	}
-	data, err := store.Read(ctx, "alice", "assets/site.css")
+	data, err := store.Read(ctx, alice, "assets/site.css")
 	if err != nil || string(data) != "main{}" {
 		t.Fatalf("read = %q, %v", data, err)
 	}
-	listing, err := store.List(ctx, "alice", "")
+	listing, err := store.List(ctx, alice, "")
 	if err != nil || len(listing.Entries) != 1 || listing.Entries[0].Name != "assets" || listing.Entries[0].Type != "dir" {
 		t.Fatalf("root listing = %+v, %v", listing, err)
 	}
-	if err := store.Rename(ctx, "alice", "assets", "assets/nested"); err == nil {
+	if err := store.Rename(ctx, alice, "assets", "assets/nested"); err == nil {
 		t.Fatal("a directory was moved into itself")
 	}
-	if err := store.Rename(ctx, "alice", "assets/site.css", "style.css"); err != nil {
+	if err := store.Rename(ctx, alice, "assets/site.css", "style.css"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Write(ctx, "alice", "assets/other.css", bytes.NewReader(nil)); err != nil {
+	if err := store.Write(ctx, alice, "assets/other.css", bytes.NewReader(nil)); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Rename(ctx, "alice", "style.css", "assets/other.css"); err == nil {
+	if err := store.Rename(ctx, alice, "style.css", "assets/other.css"); err == nil {
 		t.Fatal("a rename replaced an existing file")
 	}
-	if err := store.Delete(ctx, "alice", "assets"); err != nil {
+	if err := store.Delete(ctx, alice, "assets"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Read(ctx, "alice", "assets/other.css"); !errors.Is(err, ErrNotFound) {
+	if _, err := store.Read(ctx, alice, "assets/other.css"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("read after delete = %v", err)
 	}
 	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 1 || entries[0].Name() != "style.css" {
@@ -127,30 +132,37 @@ func TestLocalStoreRefusesLinksAndLimits(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(dir, "escape")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Read(ctx, "alice", "escape/secret"); err == nil {
+	alice := testSiteAccess("alice")
+	if _, err := store.Read(ctx, alice, "escape/secret"); err == nil {
 		t.Fatal("a read followed a link out of the document root")
 	}
-	if err := store.Write(ctx, "alice", "escape/new", bytes.NewReader([]byte("x"))); err == nil {
+	if err := store.Write(ctx, alice, "escape/new", bytes.NewReader([]byte("x"))); err == nil {
 		t.Fatal("a write followed a link out of the document root")
 	}
-	if _, err := store.List(ctx, "alice", "escape"); err == nil {
+	if _, err := store.List(ctx, alice, "escape"); err == nil {
 		t.Fatal("a listing followed a link out of the document root")
 	}
 	// Deleting the link removes only the link.
-	if err := store.Delete(ctx, "alice", "escape"); err != nil {
+	if err := store.Delete(ctx, alice, "escape"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(outside, "secret")); err != nil {
 		t.Fatalf("deleting a link removed its target: %v", err)
 	}
-	if err := store.Write(ctx, "alice", "big", bytes.NewReader(make([]byte, MaxWriteBytes+1))); !errors.Is(err, ErrTooLarge) {
+	if err := store.Write(ctx, alice, "big", bytes.NewReader(make([]byte, MaxWriteBytes+1))); !errors.Is(err, ErrTooLarge) {
 		t.Fatal("an oversized write was accepted")
 	}
-	if err := store.Write(ctx, "alice", "missing/file", bytes.NewReader([]byte("x"))); err == nil {
+	if err := store.Write(ctx, alice, "missing/file", bytes.NewReader([]byte("x"))); err == nil {
 		t.Fatal("a write into a missing directory was accepted")
 	}
-	if _, err := store.List(ctx, "bob", ""); err == nil {
+	if _, err := store.List(ctx, testSiteAccess("bob"), ""); err == nil {
 		t.Fatal("an unknown site was listed")
+	}
+	if _, err := store.List(ctx, nil, ""); err == nil {
+		t.Fatal("a missing authorization capability was accepted")
+	}
+	if _, err := store.List(ctx, testSiteAccess(""), ""); err == nil {
+		t.Fatal("an empty authorization capability was accepted")
 	}
 }
 

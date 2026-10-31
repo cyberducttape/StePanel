@@ -333,6 +333,41 @@ record and must never trigger mutation replay.
 - `make check`, focused race tests, exact-source CI, and CodeQL pass. This does
   not close the independent security assessment or host certification gates.
 
+### M0i — Require tenant capabilities at file access and contain package code (P1)
+
+**Status:** Partially implemented locally. File-store capability checks and
+package-command cgroup routing are in place. Durable job tenant snapshots and
+installed-host cgroup behavior remain open acceptance items.
+
+The site file-store API now accepts a `SiteAccess` capability rather than a
+site-name string. The customer route passes the capability returned by the
+ownership resolver through reads, uploads, and mutations. Customer-controlled
+Node lifecycle/build commands, Composer operations, and Python package build
+backends now execute in transient systemd services within the site's resource
+slice, with cgroup-wide kill mode, a task ceiling, and a 15-minute runtime
+bound. Rootless container builds retain their existing transient-unit and
+container limits. This does not make shared-kernel hosting safe for mutually
+hostile tenants.
+
+**Acceptance criteria**
+
+- Store methods cannot be called with raw site-name strings; missing or empty
+  authorization capabilities fail closed, and cross-tenant route tests remain
+  denied before storage access.
+- Durable jobs persist immutable tenant and site identifiers, and execution
+  revalidates that the actor remains authorized for that same tenant/site pair.
+- Every package/build command that can execute customer-provided scripts uses
+  the cgroup-bound runner; shell contract tests guard the unit properties and
+  all call sites.
+- Helper cancellation gives the wrapper a bounded SIGTERM window to stop its
+  transient unit before SIGKILL escalation; tests prove the signal handler ran
+  and the ordinary process-group descendants were reaped.
+- On each supported installed OS, a deliberately detached descendant remains
+  in the transient unit cgroup, is bounded by task/time/resource limits, and
+  disappears when the unit is stopped or its runtime limit expires.
+- Shell contract tests, focused Go tests, race tests, and `make check` pass.
+  Host systemd behavior must be recorded as installed-host evidence.
+
 ### M1 — Complete installed-host failure recovery (P0)
 
 **Status:** Open. Exact-source hosted AlmaLinux 9/Caddy/MariaDB run

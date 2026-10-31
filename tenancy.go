@@ -34,6 +34,10 @@ type AuthorizedSite struct {
 // Site returns the authorized site name.
 func (s AuthorizedSite) Site() string { return s.site }
 
+// SiteID implements sitefiles.SiteAccess. The value is available to the
+// file store only after the control plane has resolved tenant ownership.
+func (s AuthorizedSite) SiteID() string { return s.site }
+
 // sealedSiteCapability marks this as a SiteCapability and prevents external
 // implementations.
 func (s AuthorizedSite) sealedSiteCapability() {}
@@ -73,12 +77,10 @@ func (a *App) authorizeSite(r *http.Request, site string) (AuthorizedSite, bool)
 // gets the audit trail for free instead of needing to remember it
 // separately - the exact failure mode (a handler that called
 // a.canAccessSite but not an audit helper, or forgot the check entirely)
-// that motivated this file. It stops short of making the check itself
-// impossible to skip: that would require every downstream data-access
-// function to accept an AuthorizedSite instead of a string, which would also
-// have to reach the durable-job execution path (authorizeDurableSiteJob),
-// where there is no *http.Request to authorize against. Given the size of
-// that change, this is deliberately scoped to the HTTP boundary for now.
+// that motivated this file. Sensitive data-access interfaces should accept
+// AuthorizedSite (or a domain-specific capability) instead of a raw string.
+// Durable jobs use authorizeDurableSiteJob to mint their capability after
+// rechecking ownership at execution time; they do not depend on HTTP context.
 func (a *App) requireSiteAccess(w http.ResponseWriter, r *http.Request, site, deniedMessage string, deniedStatus int) (AuthorizedSite, bool) {
 	access, ok := a.authorizeSite(r, site)
 	if !ok {

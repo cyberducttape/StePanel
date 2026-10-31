@@ -143,6 +143,57 @@ if [[ $action != account-resource-apply ]]; then
 fi
 unit="stepanel-app-${site}.service"
 id "$site_user" >/dev/null 2>&1 || { echo 'isolated site user does not exist' >&2; exit 1; }
+active_package_unit=
+stop_package_unit_on_signal() {
+  [[ -z $active_package_unit ]] || systemctl stop "$active_package_unit" >/dev/null 2>&1 || true
+}
+trap stop_package_unit_on_signal TERM INT HUP
+
+# Package managers and build scripts can execute code supplied by the site
+# (for example npm lifecycle scripts and PEP-517 build backends). Run those
+# commands as the site's Unix identity inside a transient service cgroup so
+# cancellation and RuntimeMaxSec apply to every descendant, including a
+# child that creates a new session. The site's resource slice supplies the
+# configured CPU/memory ceiling; this unit adds a per-operation task ceiling.
+run_site_package_command() {
+  local working_dir=$1 output unit status supplementary_groups
+  shift
+  [[ -d $working_dir && ! -L $working_dir && $# -gt 0 ]] || {
+    echo 'invalid isolated package command' >&2
+    return 64
+  }
+  command -v systemd-run >/dev/null 2>&1 || {
+    echo 'systemd-run is required to isolate package commands' >&2
+    return 1
+  }
+  output=$(mktemp "/run/stepanel-package-${site}.XXXXXX") || return 1
+  chmod 0600 "$output"
+  unit="stepanel-package-${site}-${BASHPID}-${RANDOM}.service"
+  supplementary_groups=$(id -G "$site_user") || { rm -f -- "$output"; return 1; }
+  active_package_unit=$unit
+  if systemd-run --quiet --wait --collect --service-type=exec --unit="$unit" \
+    --property="StandardOutput=append:$output" --property="StandardError=append:$output" \
+    --uid="$site_user" --gid="$site_user" --working-directory="$working_dir" \
+    --property="SupplementaryGroups=$supplementary_groups" \
+    --property="Slice=stepanel-site-$site.slice" \
+    --property=KillMode=control-group --property=TasksMax=256 \
+    --property=RuntimeMaxSec=15min --property=TimeoutStopSec=10s \
+    --property=NoNewPrivileges=yes --property=PrivateTmp=yes \
+    --property=ProtectSystem=strict --property=ProtectProc=invisible \
+    --property="ReadWritePaths=$public_root $site_private" \
+    --property=RestrictSUIDSGID=yes -- "$@"; then
+    status=0
+  else
+    status=$?
+  fi
+  active_package_unit=
+  if [[ -f $output ]]; then
+    cat -- "$output"
+    rm -f -- "$output"
+  fi
+  return "$status"
+}
+
 # Deletion still requires the persisted identity even though the account is
 # not used to render units. Normalization removes it from positional
 # arguments after validating it, so the dispatch branch sees two arguments.
@@ -365,7 +416,7 @@ EOF
     if [[ ! -x "$venv/bin/gunicorn" ]]; then
         venv_stage=$(as_site_user mktemp -d "$site_private/.stepanel-venv.XXXXXX") || { echo 'could not stage the site virtualenv' >&2; exit 1; }
         as_site_user "python$version" -m venv "$venv_stage" || { cleanup_python_stage; echo "python$version cannot create a virtualenv; on Debian/Ubuntu install python$version-venv" >&2; exit 1; }
-        if ! as_site_user "$venv_stage/bin/pip" install --quiet --require-hashes -r "$lockfile"; then
+        if ! run_site_package_command "$root" /usr/bin/env -i HOME="$site_private" PATH="/usr/local/bin:/usr/bin:/bin" LANG=C.UTF-8 "$venv_stage/bin/pip" install --quiet --require-hashes -r "$lockfile"; then
             echo 'gunicorn could not be installed in the site virtualenv' >&2
             cleanup_python_stage
             exit 1
@@ -457,7 +508,7 @@ EOF
       build:yarn) command=(yarn run build --if-present);;
       build:pnpm) command=(pnpm run build --if-present);;
     esac
-    runuser -u "$site_user" -- sh -c 'cd "$1" && shift && exec env -i HOME="$1" NODE_ENV=production PATH="/usr/local/bin:/usr/bin:/bin" LANG=C.UTF-8 "$@"' sh "$root" "$root" "${command[@]}" ;;
+    run_site_package_command "$root" /usr/bin/env -i HOME="$root" NODE_ENV=production PATH="/usr/local/bin:/usr/bin:/bin" LANG=C.UTF-8 "${command[@]}" ;;
   wp)
     # The root broker builds the arguments from a named operation; this
     # helper fixes the executable and WordPress path, refuses wp-cli global
@@ -483,7 +534,7 @@ EOF
     args=(install --no-interaction --no-progress --no-scripts --no-plugins)
     [[ $development == 1 ]] || args+=(--no-dev)
     [[ $optimize == 1 ]] && args+=(--optimize-autoloader)
-    runuser -u "$site_user" -- sh -c 'cd "$1" && shift && exec env -i HOME="$1" COMPOSER_HOME="$1/.composer" PATH="/usr/local/bin:/usr/bin:/bin" LANG=C.UTF-8 composer "$@"' sh "$root" "$root" "${args[@]}" ;;
+    run_site_package_command "$root" /usr/bin/env -i HOME="$root" COMPOSER_HOME="$root/.composer" PATH="/usr/local/bin:/usr/bin:/bin" LANG=C.UTF-8 composer "${args[@]}" ;;
   resource-apply)
     (( $# == 8 || $# == 9 )) || { echo 'usage: stepanel-appctl resource-apply SITE CPU_PERCENT CPU_WEIGHT MEMORY_HIGH_MB MEMORY_MAX_MB IO_WEIGHT TASKS_MAX [ACCOUNT]' >&2; exit 64; }
     cpu=$3; cpu_weight=$4; memory_high=$5; memory=$6; io_weight=$7; tasks=$8; account=${9:-}

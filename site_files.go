@@ -42,6 +42,8 @@ var errSiteNotPlaced = errors.New("the file manager is available for sites in a 
 // brokerFileStore is the production sitefiles.Store.
 type brokerFileStore struct{ cfg Config }
 
+var _ sitefiles.SiteAccess = AuthorizedSite{}
+
 func (s brokerFileStore) run(ctx context.Context, req rootbroker.FilesRequest) (rootbroker.FilesResponse, error) {
 	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", s.cfg.WebRoot)
 	if err != nil {
@@ -50,8 +52,19 @@ func (s brokerFileStore) run(ctx context.Context, req rootbroker.FilesRequest) (
 	return client.Files(ctx, req)
 }
 
-func (s brokerFileStore) List(ctx context.Context, site, rel string) (sitefiles.Listing, error) {
-	resp, err := s.run(ctx, rootbroker.FilesRequest{Action: "list", Site: site, Path: rel})
+func authorizedFileSiteID(site sitefiles.SiteAccess) (string, error) {
+	if site == nil || site.SiteID() == "" {
+		return "", errors.New("file operation requires an authorized site")
+	}
+	return site.SiteID(), nil
+}
+
+func (s brokerFileStore) List(ctx context.Context, site sitefiles.SiteAccess, rel string) (sitefiles.Listing, error) {
+	siteID, err := authorizedFileSiteID(site)
+	if err != nil {
+		return sitefiles.Listing{}, err
+	}
+	resp, err := s.run(ctx, rootbroker.FilesRequest{Action: "list", Site: siteID, Path: rel})
 	if err != nil {
 		return sitefiles.Listing{}, err
 	}
@@ -61,31 +74,51 @@ func (s brokerFileStore) List(ctx context.Context, site, rel string) (sitefiles.
 	return *resp.Listing, nil
 }
 
-func (s brokerFileStore) Read(ctx context.Context, site, rel string) ([]byte, error) {
-	resp, err := s.run(ctx, rootbroker.FilesRequest{Action: "read", Site: site, Path: rel})
+func (s brokerFileStore) Read(ctx context.Context, site sitefiles.SiteAccess, rel string) ([]byte, error) {
+	siteID, err := authorizedFileSiteID(site)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := s.run(ctx, rootbroker.FilesRequest{Action: "read", Site: siteID, Path: rel})
 	return resp.Content, err
 }
 
-func (s brokerFileStore) Write(ctx context.Context, site, rel string, content io.Reader) error {
+func (s brokerFileStore) Write(ctx context.Context, site sitefiles.SiteAccess, rel string, content io.Reader) error {
+	siteID, err := authorizedFileSiteID(site)
+	if err != nil {
+		return err
+	}
 	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", s.cfg.WebRoot)
 	if err != nil {
 		return err
 	}
-	return client.FilesWrite(ctx, site, rel, content)
+	return client.FilesWrite(ctx, siteID, rel, content)
 }
 
-func (s brokerFileStore) Mkdir(ctx context.Context, site, rel string) error {
-	_, err := s.run(ctx, rootbroker.FilesRequest{Action: "mkdir", Site: site, Path: rel})
+func (s brokerFileStore) Mkdir(ctx context.Context, site sitefiles.SiteAccess, rel string) error {
+	siteID, err := authorizedFileSiteID(site)
+	if err != nil {
+		return err
+	}
+	_, err = s.run(ctx, rootbroker.FilesRequest{Action: "mkdir", Site: siteID, Path: rel})
 	return err
 }
 
-func (s brokerFileStore) Rename(ctx context.Context, site, rel, destination string) error {
-	_, err := s.run(ctx, rootbroker.FilesRequest{Action: "rename", Site: site, Path: rel, Destination: destination})
+func (s brokerFileStore) Rename(ctx context.Context, site sitefiles.SiteAccess, rel, destination string) error {
+	siteID, err := authorizedFileSiteID(site)
+	if err != nil {
+		return err
+	}
+	_, err = s.run(ctx, rootbroker.FilesRequest{Action: "rename", Site: siteID, Path: rel, Destination: destination})
 	return err
 }
 
-func (s brokerFileStore) Delete(ctx context.Context, site, rel string) error {
-	_, err := s.run(ctx, rootbroker.FilesRequest{Action: "delete", Site: site, Path: rel})
+func (s brokerFileStore) Delete(ctx context.Context, site sitefiles.SiteAccess, rel string) error {
+	siteID, err := authorizedFileSiteID(site)
+	if err != nil {
+		return err
+	}
+	_, err = s.run(ctx, rootbroker.FilesRequest{Action: "delete", Site: siteID, Path: rel})
 	return err
 }
 
@@ -114,7 +147,8 @@ func (a *App) siteFiles(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid site", http.StatusUnprocessableEntity)
 		return
 	}
-	if _, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", http.StatusForbidden); !ok {
+	access, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", http.StatusForbidden)
+	if !ok {
 		return
 	}
 	location, err := siteLocationFor(a.Config, site)
@@ -129,9 +163,9 @@ func (a *App) siteFiles(w http.ResponseWriter, r *http.Request) {
 	store := a.siteFileStore()
 	switch {
 	case operation == "" && (r.Method == http.MethodGet || r.Method == http.MethodHead):
-		a.siteFilesList(w, r, store, site)
+		a.siteFilesList(w, r, store, access)
 	case operation == "content" && (r.Method == http.MethodGet || r.Method == http.MethodHead):
-		a.siteFilesRead(w, r, store, site)
+		a.siteFilesRead(w, r, store, access)
 	case operation == "content" && r.Method == http.MethodPut:
 		rel, err := sitefiles.CleanTarget(r.URL.Query().Get("path"))
 		if err != nil {
@@ -147,8 +181,8 @@ func (a *App) siteFiles(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, sitefiles.MaxWriteBytes)
-		a.siteFilesMutate(w, r, site, "site.files.write", rel+" (streamed upload)", func(ctx context.Context) error {
-			return store.Write(ctx, site, rel, r.Body)
+		a.siteFilesMutate(w, r, access, "site.files.write", rel+" (streamed upload)", func(ctx context.Context) error {
+			return store.Write(ctx, access, rel, r.Body)
 		})
 	case r.Method == http.MethodPost && (operation == "mkdir" || operation == "rename" || operation == "delete"):
 		var input struct {
@@ -166,17 +200,17 @@ func (a *App) siteFiles(w http.ResponseWriter, r *http.Request) {
 		}
 		switch operation {
 		case "mkdir":
-			a.siteFilesMutate(w, r, site, "site.files.mkdir", rel, func(ctx context.Context) error { return store.Mkdir(ctx, site, rel) })
+			a.siteFilesMutate(w, r, access, "site.files.mkdir", rel, func(ctx context.Context) error { return store.Mkdir(ctx, access, rel) })
 		case "delete":
-			a.siteFilesMutate(w, r, site, "site.files.delete", rel, func(ctx context.Context) error { return store.Delete(ctx, site, rel) })
+			a.siteFilesMutate(w, r, access, "site.files.delete", rel, func(ctx context.Context) error { return store.Delete(ctx, access, rel) })
 		case "rename":
 			destination, err := sitefiles.CleanTarget(input.Destination)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 				return
 			}
-			a.siteFilesMutate(w, r, site, "site.files.rename", rel+" -> "+destination, func(ctx context.Context) error {
-				return store.Rename(ctx, site, rel, destination)
+			a.siteFilesMutate(w, r, access, "site.files.rename", rel+" -> "+destination, func(ctx context.Context) error {
+				return store.Rename(ctx, access, rel, destination)
 			})
 		}
 	default:
@@ -184,7 +218,7 @@ func (a *App) siteFiles(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *App) siteFilesList(w http.ResponseWriter, r *http.Request, store sitefiles.Store, site string) {
+func (a *App) siteFilesList(w http.ResponseWriter, r *http.Request, store sitefiles.Store, site sitefiles.SiteAccess) {
 	if !a.requireCustomerScope(w, r, "files:read") {
 		return
 	}
@@ -201,7 +235,7 @@ func (a *App) siteFilesList(w http.ResponseWriter, r *http.Request, store sitefi
 	writeJSON(w, http.StatusOK, listing)
 }
 
-func (a *App) siteFilesRead(w http.ResponseWriter, r *http.Request, store sitefiles.Store, site string) {
+func (a *App) siteFilesRead(w http.ResponseWriter, r *http.Request, store sitefiles.Store, site sitefiles.SiteAccess) {
 	if !a.requireCustomerScope(w, r, "files:read") {
 		return
 	}
@@ -241,7 +275,7 @@ func (a *App) siteFilesRead(w http.ResponseWriter, r *http.Request, store sitefi
 
 // siteFilesMutate runs one file change under the site's mutation lease (the
 // broker requires its fencing token) with a Class A audit record.
-func (a *App) siteFilesMutate(w http.ResponseWriter, r *http.Request, site, action, detail string, change func(context.Context) error) {
+func (a *App) siteFilesMutate(w http.ResponseWriter, r *http.Request, site sitefiles.SiteAccess, action, detail string, change func(context.Context) error) {
 	if !a.Auth.CSRF(r) {
 		http.Error(w, "invalid CSRF token", http.StatusForbidden)
 		return
@@ -249,13 +283,13 @@ func (a *App) siteFilesMutate(w http.ResponseWriter, r *http.Request, site, acti
 	if !a.requireCustomerScope(w, r, "files:write") {
 		return
 	}
-	operationCtx, release, err := a.acquireSiteMutationLockContext(r.Context(), site)
+	operationCtx, release, err := a.acquireSiteMutationLockContext(r.Context(), site.SiteID())
 	if err != nil {
 		http.Error(w, "the site has another change in progress; try again shortly", http.StatusConflict)
 		return
 	}
 	defer release()
-	intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), action, site, detail)
+	intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), action, site.SiteID(), detail)
 	if err != nil {
 		refuseWithoutSecurityAudit(w)
 		return

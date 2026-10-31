@@ -18,6 +18,7 @@ import (
 )
 
 const MaxCommandOutput = 64 << 10
+const processGroupShutdownGrace = 250 * time.Millisecond
 
 // Operation-specific timeout classes for helper invocations.
 // These should be used instead of a universal timeout to ensure
@@ -158,9 +159,11 @@ func RunBoundedCommand(ctx context.Context, cmd *exec.Cmd) ([]byte, error) {
 // now verifies it, so a cmd built with plain exec.Command cannot silently
 // ignore its deadline here.
 //
-// Commands run in their own process group so timeout/cancellation can terminate
-// ordinary descendants that remain in that group. This is not a complete
-// process-tree boundary: a child that creates a new session can escape it.
+// Commands run in their own process group. Cancellation first sends SIGTERM
+// and then SIGKILL after a short grace period, allowing a wrapper to stop a
+// transient systemd unit before the helper tears down the caller's process
+// group. This is not a complete process-tree boundary: a child that creates a
+// new session can escape it unless it is also contained by a cgroup.
 func RunBoundedCommandLimit(ctx context.Context, cmd *exec.Cmd, limit int) ([]byte, error) {
 	var output BoundedBuffer
 	output.limit = limit
@@ -172,6 +175,12 @@ func RunBoundedCommandLimit(ctx context.Context, cmd *exec.Cmd, limit int) ([]by
 	}
 	// Ensure all commands run in their own process group.
 	PrepareCommand(cmd)
+	// exec.CommandContext otherwise kills only the direct child immediately.
+	// Signal the group first so wrapper processes can stop a cgroup-managed
+	// workload; the cancellation branch below enforces the escalation deadline.
+	if cmd.Cancel != nil { // exec.CommandContext installs the immediate-child kill.
+		cmd.Cancel = func() error { return signalProcessGroup(cmd, unix.SIGTERM) }
+	}
 
 	if err := cmd.Start(); err != nil {
 		captured := output.Bytes()
@@ -189,7 +198,10 @@ func RunBoundedCommandLimit(ctx context.Context, cmd *exec.Cmd, limit int) ([]by
 		// before Wait won this select. Recheck cancellation and reap its process
 		// group so descendants do not survive that race.
 		if ctx.Err() != nil && cmd.Process != nil {
-			_ = unix.Kill(-cmd.Process.Pid, unix.SIGKILL)
+			// The command has already exited, so its process group may no longer
+			// have a live leader to give a grace period. Reap any remaining group
+			// members immediately while the cancellation race is known.
+			_ = signalProcessGroup(cmd, unix.SIGKILL)
 		}
 		if ctx.Err() != nil {
 			captured := output.Bytes()
@@ -201,16 +213,36 @@ func RunBoundedCommandLimit(ctx context.Context, cmd *exec.Cmd, limit int) ([]by
 		}
 		return output.Bytes(), nil
 	case <-ctx.Done():
-		// Kill the process group, not just the direct child. Descendants that
-		// deliberately detach into another session require cgroup containment.
-		if cmd.Process != nil {
-			// Kill the process group (negative PID kills all processes in the group)
-			_ = unix.Kill(-cmd.Process.Pid, unix.SIGKILL)
-		}
+		// Give wrappers time to stop transient cgroup units, then kill every
+		// remaining process in the helper group. Detached sessions still require
+		// cgroup containment.
+		terminateProcessGroup(cmd)
 		<-waitErr
 		captured := output.Bytes()
 		return captured, fmt.Errorf("%w: %s", ctx.Err(), string(captured))
 	}
+}
+
+func signalProcessGroup(cmd *exec.Cmd, signal syscall.Signal) error {
+	if cmd == nil || cmd.Process == nil {
+		return os.ErrProcessDone
+	}
+	if err := unix.Kill(-cmd.Process.Pid, signal); err != nil {
+		if errors.Is(err, unix.ESRCH) {
+			return os.ErrProcessDone
+		}
+		return err
+	}
+	return nil
+}
+
+func terminateProcessGroup(cmd *exec.Cmd) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	_ = signalProcessGroup(cmd, unix.SIGTERM)
+	time.Sleep(processGroupShutdownGrace)
+	_ = signalProcessGroup(cmd, unix.SIGKILL)
 }
 
 func RunBoundedCommandInput(ctx context.Context, cmd *exec.Cmd, input io.Reader) ([]byte, error) {

@@ -1,6 +1,6 @@
 # StePanel Security
 
-**Last Updated:** 2026-09-25
+**Last Updated:** 2026-10-30
 **Status:** Security reference; release approval is governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md)
 
 This document summarizes implemented security controls and known limitations. It is
@@ -14,7 +14,7 @@ StePanel runs as a privileged control panel for WordPress sites. Security is enf
 
 1. **Authentication**: API tokens, TOTP, per-site isolation
 2. **Authorization**: Admin-only endpoints, site-scoped operations
-3. **Isolation**: Process-group cancellation, symlink rejection, filesystem bounds
+3. **Isolation**: Tenant-scoped authorization, per-operation cgroups for package commands, symlink rejection, filesystem bounds
 4. **Hardening**: Container registry allowlist, webhook auth, no legacy protocols
 
 ## Completed Security Features
@@ -43,7 +43,7 @@ StePanel runs as a privileged control panel for WordPress sites. Security is enf
 
 ### File Operations
 - ✅ Symlink safety in backup/restore (O_NOFOLLOW)
-- ✅ Process-group termination (SIGKILL)
+- ✅ Opaque tenant authorization capability required by the site file-store interface
 - ✅ Recursive directory traversal safety (filepath.WalkDir)
 - ✅ Atomic file writes (temporary file + rename pattern)
 
@@ -64,6 +64,10 @@ StePanel runs as a privileged control panel for WordPress sites. Security is enf
   shared-kernel tenant boundary described in `SECURITY.md`. Unix users,
   ownership, PHP-FPM pools, and cgroups are suitable isolation for trusted or
   semi-trusted shared hosting, not for mutually hostile arbitrary-code tenants.
+- ✅ Site file stores accept a control-plane `SiteAccess` capability instead
+  of a raw site name. The HTTP route mints it only after ownership checks;
+  the concrete authorization value remains private to the control-plane
+  package.
 
 ### Webhooks
 - ✅ Per-site webhook isolation
@@ -82,12 +86,16 @@ StePanel runs as a privileged control panel for WordPress sites. Security is enf
 - No archive encryption support
 
 ### Process Management
-- Cancellation terminates the command's Unix process group. A descendant that
-  deliberately starts a new session or process group can escape this cleanup.
-- StePanel does not yet place each helper invocation in its own delegated
-  systemd scope/cgroup. The service-level `TasksMax` is an aggregate ceiling,
-  not per-command containment. Do not treat process-group cancellation as a
-  security boundary for hostile build scripts or installers.
+- General helper cancellation signals the command's Unix process group with
+  SIGTERM and escalates to SIGKILL after 250 ms; a descendant that creates a
+  new session can escape that signal. Customer-
+  controlled Node lifecycle/build commands, Composer operations, and Python
+  package build backends run in transient systemd services with
+  `KillMode=control-group`, a 15-minute runtime limit, a per-operation task
+  cap, and the site's resource slice. Rootless container builds are also
+  bounded by a transient systemd unit and container limits. These controls
+  contain their process trees but do not make shared-kernel hosting suitable
+  for mutually hostile tenants.
 - Windows process handling is less robust; native production support is Linux.
 
 ## Threat Model

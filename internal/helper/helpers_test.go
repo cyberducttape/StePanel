@@ -94,6 +94,37 @@ func TestRunBoundedCommandDoesNotStartForCanceledContext(t *testing.T) {
 	}
 }
 
+func TestRunBoundedCommandGivesSignalHandlersTimeToCleanUp(t *testing.T) {
+	root := t.TempDir()
+	ready := filepath.Join(root, "ready")
+	stopped := filepath.Join(root, "stopped")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "sh", "-c", `trap 'printf stopped > "$1"; exit 0' TERM; printf ready > "$2"; while :; do sleep .01; done`, "sh", stopped, ready)
+	done := make(chan error, 1)
+	go func() {
+		_, err := RunBoundedCommandLimit(ctx, cmd, 1024)
+		done <- err
+	}()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("command did not start")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("command cancellation error = %v, want context.Canceled", err)
+	}
+	if data, err := os.ReadFile(stopped); err != nil || string(data) != "stopped" {
+		t.Fatalf("TERM cleanup marker = %q, %v", data, err)
+	}
+}
+
 func TestRunBoundedCommandCancellationDuringOutputAndStdin(t *testing.T) {
 	for _, tc := range []struct {
 		name string

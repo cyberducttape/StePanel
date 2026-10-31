@@ -103,12 +103,15 @@ kernel or local privilege-escalation vulnerability must not cross customers.
   cross an individually installed, root-owned helper with a fixed interface;
   helpers must validate their arguments and perform their own authorization
   and filesystem checks.
-- Subprocess cancellation currently signals the command's Unix process group.
-  Descendants that deliberately create a new session may escape it; service
-  `TasksMax` limits are aggregate and are not per-command cgroup containment.
-  Do not run hostile build hooks or installers as though process-group cleanup
-  were a sandbox. Per-operation systemd scope/cgroup containment remains a
-  hardening gap.
+- General helper cancellation sends SIGTERM to the command's Unix process
+  group, then escalates to SIGKILL after 250 ms; this is not complete
+  process-tree containment. Customer-controlled Node lifecycle
+  scripts/builds, Composer commands, and Python package build backends run in
+  transient systemd services with `KillMode=control-group`, a 15-minute runtime
+  limit, a task cap, and the site's resource slice. Rootless container builds
+  also run in a bounded transient unit and container. These controls bound and
+  contain those command trees; they do not provide a hostile-tenant security
+  boundary or isolate the shared host kernel/network.
 - Keep database and webserver credentials out of requests, archives, logs, and
   child environments. Cloud and rclone credential files belong in protected
   host locations, not in a site root or repository checkout.
