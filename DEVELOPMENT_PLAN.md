@@ -15,10 +15,14 @@ successful one-off smoke does not close a host-certification gate.
 ### M0 — Restore green exact-source CI
 
 **Priority:** Immediate release hygiene  
-**Status:** Green again on 2026-10-30 after a red interval. CI integration
-(including govulncheck, staticcheck, the promtool rule tests, and the
-production container smoke), CodeQL, documentation, and release evidence
-passed on exact source `6ff12b6`. The six-host full recovery shard
+**Status:** Green on exact source `711948d` (2026-10-31). CI integration
+([41157044343](https://github.com/cyberducttape/StePanel/actions/runs/41157044343)),
+CodeQL ([41157044317](https://github.com/cyberducttape/StePanel/actions/runs/41157044317)),
+documentation ([41157044368](https://github.com/cyberducttape/StePanel/actions/runs/41157044368)),
+and release evidence ([41157205535](https://github.com/cyberducttape/StePanel/actions/runs/41157205535))
+all passed on the exact source. CI integration includes the Go suite, race
+tests, recovery drills, tmpfs ENOSPC, Prometheus rule tests, static analysis,
+dependency scanning, deployment validation, and browser E2E. The six-host full recovery shard
 [`gate-1ff3233`](https://github.com/cyberducttape/StePanel/actions/runs/41066287752)
 and the N-1 upgrade smoke
 [41066237188](https://github.com/cyberducttape/StePanel/actions/runs/41066237188)
@@ -28,13 +32,15 @@ until `7a85b2c` (overlapping CPU alerts), and the scheduled N-1 smoke from
 `b6ce902` until `1ff3233` (installer preflight); see [PROGRESS.md](PROGRESS.md).
 The earlier `c91a88b` evidence is recorded in
 [`docs/lab-results/2026-10-30-current-source-almalinux-install-79e1de4.md`](docs/lab-results/2026-10-30-current-source-almalinux-install-79e1de4.md).
-This closes exact-source validation only; production recovery gates remain
-open.
+This closes M0 exact-source validation only; production recovery gates remain
+open. A separate Rocky 9 KVM host-recovery run on source `b650992` is active;
+its result is not included in this CI status.
 
-- Correct the Playwright quota-headroom expectation to match the UI's current
-  account-scoped upper-bound wording.
-- Keep stateful customer-panel fixtures unique across Playwright workers and
-  repeat attempts.
+- [x] Correct the Playwright quota-headroom expectation to match the UI's
+  account-scoped upper-bound wording; exact-source browser E2E passed in
+  [41157044343](https://github.com/cyberducttape/StePanel/actions/runs/41157044343).
+- [x] Keep stateful customer-panel fixtures unique across Playwright workers
+  and repeat attempts; the exact-source UI E2E job passed in run 41157044343.
 
 **Acceptance criteria**
 

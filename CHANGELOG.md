@@ -38,6 +38,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Testing
 
+- Exact-source CI passed on `711948d`: Go tests, race tests, repository
+  recovery/ENOSPC drills, Prometheus alerts, static and dependency analysis,
+  deployment checks, and browser E2E. CodeQL, documentation, and generated
+  release-evidence workflows also passed.
 - WordPress staging promotion runs end to end in tests against a temporary web
   root, succeeding and failing at each of 14 steps; every failure must leave
   production files and configuration unchanged, no pending recovery journal or

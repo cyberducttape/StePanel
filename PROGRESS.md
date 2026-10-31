@@ -1,5 +1,26 @@
 # Production-readiness progress
 
+## Exact-source CI restored — 2026-10-31
+
+- Commit `711948d` is pushed to `main` as Stephan Loesevitz
+  `<stephan.loesevitz@gmail.com>` over SSH. The worktree is clean and
+  `origin/main` matches the commit.
+- Exact-source CI integration
+  [41157044343](https://github.com/cyberducttape/StePanel/actions/runs/41157044343),
+  CodeQL
+  [41157044317](https://github.com/cyberducttape/StePanel/actions/runs/41157044317),
+  documentation
+  [41157044368](https://github.com/cyberducttape/StePanel/actions/runs/41157044368),
+  and release evidence
+  [41157205535](https://github.com/cyberducttape/StePanel/actions/runs/41157205535)
+  all passed. CI includes Go tests, race tests, recovery drills, tmpfs ENOSPC,
+  alert-rule tests, static analysis, vulnerability scanning, container and
+  deployment checks, and browser E2E.
+- Production remains **NO-GO**. The 20-repeat installed-host cohort
+  [41155137017](https://github.com/cyberducttape/StePanel/actions/runs/41155137017)
+  and a separate local Rocky 9/Caddy/MariaDB KVM run remain active; neither is
+  counted as completed certification yet.
+
 ## Evidence-led operational alerts — 2026-10-30
 
 - Clarified fired-alert messages for PHP-FPM saturation, database connectivity
