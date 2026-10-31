@@ -69,6 +69,33 @@ func TestNormalizeName(t *testing.T) {
 	}
 }
 
+func FuzzNormalizeName(f *testing.F) {
+	for _, seed := range []string{
+		"a/b.php", "./a//b/", `win\path.txt`, "./", "../escape",
+		"/absolute", "a/..", "", "bad\x00name", "bad\xff",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, input string) {
+		got, err := NormalizeName(input)
+		if err != nil {
+			return
+		}
+		if len(got) > maxPathBytes || strings.HasPrefix(got, "/") || strings.ContainsRune(got, '\\') {
+			t.Fatalf("accepted name is not bounded and canonical: %q", got)
+		}
+		for _, component := range strings.Split(got, "/") {
+			if component == ".." || len(component) > maxComponentBytes {
+				t.Fatalf("accepted unsafe component %q in %q", component, got)
+			}
+		}
+		again, err := NormalizeName(got)
+		if err != nil || again != got {
+			t.Fatalf("normalization is not idempotent: %q -> %q, %v", got, again, err)
+		}
+	})
+}
+
 func TestPathSetRejectsDuplicatesAndCollisions(t *testing.T) {
 	type entry struct {
 		name string

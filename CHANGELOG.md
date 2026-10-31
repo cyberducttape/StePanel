@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Security
 
+- Added a signed audit-checkpoint artifact primitive that verifies the full
+  local chain before binding its sequence, tail hash, timestamp, key ID, and
+  durable operation ID. Historical-key verification and tamper rejection are
+  covered; scheduled off-host publication and acknowledgement remain open.
+- Added a `FuzzNormalizeName` archive-path property target to the scheduled
+  fuzz workflow, checking canonicalization idempotence and path bounds.
 - Durable job claims now receive unique random fencing tokens. Worker progress,
   checkpoint, renewal, failure, and completion writes compare-and-swap against
   the active token and unexpired lease, so an expired claim cannot commit even

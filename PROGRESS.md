@@ -1,5 +1,26 @@
 # Production-readiness progress
 
+## Signed audit-checkpoint artifact primitive — 2026-10-31
+
+- Added an audit checkpoint format binding a verified event-chain sequence,
+  final hash, UTC timestamp, key ID, and operation ID. Creation serializes with
+  the audit writer, verifies the complete chain and authenticated state, and
+  refuses empty or tampered logs. Independent verification uses a key-ID
+  indexed historical keyring and rejects missing keys or modified fields.
+- Added tests for creation, JSON round-trip, historical key lookup, tampering,
+  empty logs, and corrupted chains. `go test ./internal/audit`,
+  `go test -race ./internal/audit`, and `go vet ./internal/audit` passed.
+- Added `FuzzNormalizeName` to the scheduled fuzz workflow; a 60-second local
+  run passed 1.94 million executions with no failure.
+- This is a format/verification primitive only. It is not yet scheduled or
+  journaled as a durable job, not published to independent storage, and has no
+  verified remote acknowledgement or production key-rotation policy. M0l stays
+  open and production remains **NO-GO**. Exact-source CI for the previously
+  pushed fencing commit is still running. On this worktree, final `make check`
+  passed (API artifact check, shell contracts, `go vet ./...`, and all Go
+  packages), and `FuzzNormalizeName` passed a 60-second run. This
+  checkpoint/fuzz change has not yet received hosted CI.
+
 ## Per-claim job lease fencing — 2026-10-31
 
 - Added a random, per-claim fencing token to durable jobs and a schema migration
@@ -30,7 +51,7 @@
   lease was lost. Operation-specific idempotency, explicit
   `committing`/`reconciliation_required` states, complete per-operation crash
   journals, and independent signed audit-checkpoint replication remain open
-  under M0f in `DEVELOPMENT_PLAN.md`. Production remains **NO-GO**.
+  under M0l in `DEVELOPMENT_PLAN.md`. Production remains **NO-GO**.
 
 ## Broker-side tenant check for privileged file operations — 2026-10-30
 

@@ -80,63 +80,6 @@ rates, and no capacity-based rejection of otherwise-valid tokens.
 - `make check` passes on the exact local source and the changelog/progress
   record the evidence and any remaining host-certification limits.
 
-### M0e — Fence every durable job claim through commit (P0)
-
-**Status:** Implemented and locally verified on 2026-10-31. `make check`,
-the full repeated suite, and the full race suite passed during this change. A
-later startup-reconciliation CAS refinement also passed `make check` and its
-focused race tests. Obtain exact-source hosted CI before closing this
-milestone.
-
-Each claim receives a fresh random lease token distinct from the diagnostic
-worker ID. Progress updates, payload checkpoints, lease renewal, success and
-failure transitions compare-and-swap on that token and require the lease to
-remain unexpired at the SQLite update boundary. This prevents an expired or
-replaced worker—including a retry using the same worker ID—from committing
-durable job state. Keep the token out of API serialization.
-
-**Acceptance criteria**
-
-- A stale claim cannot commit after expiry, before or after reclamation by a
-  worker reusing the same worker ID; current claim can still commit.
-- Every worker-owned transition, including legacy completion helpers, uses the
-  same token and unexpired-lease compare-and-swap.
-- Existing databases migrate to a nullable claim-token column without losing
-  queued or running job state. Recovered jobs receive a new token.
-- `make check`, focused root-package race tests, and `go test -race` for
-  `internal/rootbroker` and `internal/operations` pass.
-- Exact-source CI and CodeQL pass before the milestone is closed.
-
-### M0f — Complete durable-operation and audit checkpoint guarantees (P0)
-
-**Status:** Open. The lease-token CAS closes stale durable job commits only; it
-does not by itself prevent duplicate external side effects after an ambiguous
-worker death.
-
-Remaining work includes mandatory operation-specific idempotency for
-destructive jobs, explicit committing/reconciliation-required states, durable
-prepare/apply/verify/recover journals for each irreversible host boundary, and
-repeatable SIGKILL recovery evidence. Audit work must separately establish
-record integrity, operation completeness, and retention: introduce signed
-checkpoints containing sequence, final hash, timestamp and key ID; bind the
-checkpoint to operation IDs; and publish it to an independently controlled
-destination with verifiable acknowledgement and retry status.
-
-**Acceptance criteria**
-
-- No destructive job can be admitted without a stable, operation-specific
-  idempotency identity; distinct operations are never coalesced.
-- Each destructive workflow has an explicit durable state machine and journal,
-  with safe restart behavior and operator-intervention state for ambiguous
-  external effects.
-- Crash tests kill workers at every irreversible boundary and prove that stale
-  workers cannot commit or repeat unverified side effects.
-- Checkpoints are cryptographically verifiable independently of the source
-  host, include sequence/hash/time/key ID and relevant operation IDs, and are
-  acknowledged by independent storage before reported as replicated.
-- Retention, key rotation, key loss and off-host checkpoint recovery are
-  tested and documented. This does not replace the host-level release gates.
-
 ### M0b — Report effective security posture and extract typed operation paths (P1/P2)
 
 **Status:** Security reporting and typed services for Node tooling and Python
@@ -466,6 +409,72 @@ remains in effect; it must not be extended without a compatibility review.
   suspension, revocation, and scoped-token least privilege. Token rotation and
   replacement must also be covered before removing the compatibility path.
 - Focused tests, race tests, `make check`, and exact-source hosted CI pass.
+
+### M0k — Fence every durable job claim through commit (P0)
+
+**Status:** Implemented and locally verified on 2026-10-31. `make check`,
+the full repeated suite, and the full race suite passed during this change. A
+later startup-reconciliation CAS refinement also passed `make check` and its
+focused race tests. Obtain exact-source hosted CI before closing this
+milestone.
+
+Each claim receives a fresh random lease token distinct from the diagnostic
+worker ID. Progress updates, payload checkpoints, lease renewal, success and
+failure transitions compare-and-swap on that token and require the lease to
+remain unexpired at the SQLite update boundary. This prevents an expired or
+replaced worker—including a retry using the same worker ID—from committing
+durable job state. Keep the token out of API serialization.
+
+**Acceptance criteria**
+
+- A stale claim cannot commit after expiry, before or after reclamation by a
+  worker reusing the same worker ID; current claim can still commit.
+- Every worker-owned transition, including legacy completion helpers, uses the
+  same token and unexpired-lease compare-and-swap.
+- Existing databases migrate to a nullable claim-token column without losing
+  queued or running job state. Recovered jobs receive a new token.
+- `make check`, focused root-package race tests, and `go test -race` for
+  `internal/rootbroker` and `internal/operations` pass.
+- Exact-source CI and CodeQL pass before the milestone is closed.
+
+### M0l — Complete durable-operation and audit checkpoint guarantees (P0)
+
+**Status:** Open. The lease-token CAS closes stale durable job commits only; it
+does not by itself prevent duplicate external side effects after an ambiguous
+worker death.
+
+An initial audit-checkpoint artifact primitive is in progress: it verifies the
+local signed chain under the audit writer lock, binds the sequence/hash/time
+and caller-supplied key ID to an operation ID, and supports independent
+keyring verification. It is not yet wired to a durable job, does not publish
+to independent storage, and does not provide remote acknowledgement or
+rotation policy; none of the checkpoint release criteria are closed by this
+primitive alone.
+
+Remaining work includes mandatory operation-specific idempotency for
+destructive jobs, explicit committing/reconciliation-required states, durable
+prepare/apply/verify/recover journals for each irreversible host boundary, and
+repeatable SIGKILL recovery evidence. Audit work must separately establish
+record integrity, operation completeness, and retention: introduce signed
+checkpoints containing sequence, final hash, timestamp and key ID; bind the
+checkpoint to operation IDs; and publish it to an independently controlled
+destination with verifiable acknowledgement and retry status.
+
+**Acceptance criteria**
+
+- No destructive job can be admitted without a stable, operation-specific
+  idempotency identity; distinct operations are never coalesced.
+- Each destructive workflow has an explicit durable state machine and journal,
+  with safe restart behavior and operator-intervention state for ambiguous
+  external effects.
+- Crash tests kill workers at every irreversible boundary and prove that stale
+  workers cannot commit or repeat unverified side effects.
+- Checkpoints are cryptographically verifiable independently of the source
+  host, include sequence/hash/time/key ID and relevant operation IDs, and are
+  acknowledged by independent storage before reported as replicated.
+- Retention, key rotation, key loss and off-host checkpoint recovery are
+  tested and documented. This does not replace the host-level release gates.
+
 
 ### M1 — Complete installed-host failure recovery (P0)
 
