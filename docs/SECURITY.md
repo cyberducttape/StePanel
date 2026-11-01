@@ -98,6 +98,25 @@ StePanel runs as a privileged control panel for WordPress sites. Security is enf
   for mutually hostile tenants.
 - Windows process handling is less robust; native production support is Linux.
 
+### Recovery proof hooks
+`STEPANEL_RECOVERY_PROOF_COMMAND` is a trusted, operator-managed extension, not
+a plugin interface. It runs as the unprivileged `stepanel` service account
+(never as root) with a minimal environment: `PATH`, `LANG`, and the site and
+stage inputs, without the panel's secrets. Its output is discarded.
+
+- **Enforced:** the resolved executable and every directory above it must be
+  owned by root and not group- or world-writable (a root-owned sticky
+  directory is accepted as an ancestor). A compromised panel therefore cannot
+  replace the program that certifies its own recoveries. Install it, for
+  example, as `/usr/local/libexec/stepanel/recovery-proof` with `root:root
+  0755`.
+- **Accepted risk:** while it runs, the hook has everything the `stepanel`
+  account can read: the control-plane database, staged backups, and the panel
+  state directory. Do not configure code you would not run as the panel
+  itself. Third-party or customer-supplied proof programs need a separate
+  restricted identity and sandbox, which StePanel does not provide; that is
+  not supported.
+
 ## Threat Model
 
 ### Threats We Defend Against

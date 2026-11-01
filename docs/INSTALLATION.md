@@ -342,7 +342,7 @@ In an interactive terminal, the installer asks for the database engine and versi
 | `STEPANEL_INSTALL_TLS` | `0` or `1` | Install Certbot and the Apache certificate integration |
 | `STEPANEL_STAGE_RETENTION_HOURS` | Positive hours | Retain completed restore staging directories for audit |
 | `STEPANEL_REHEARSAL_INTERVAL_HOURS` | `0`–`8760` hours (default `24`) | Minimum spacing of automatic restore rehearsals, which follow successful scheduled backups; `0` disables them |
-| `STEPANEL_RECOVERY_PROOF_COMMAND` | Absolute executable path | Optional application-level recovery proof command; invoked as `<site> <temporary-stage>` and must restore the database, regenerate configuration, activate services, and verify application HTTP success |
+| `STEPANEL_RECOVERY_PROOF_COMMAND` | Absolute executable path | Optional application-level recovery proof command; invoked as `<site> <temporary-stage>` and must restore the database, regenerate configuration, activate services, and verify application HTTP success. Runs as the `stepanel` account; the file and every parent directory must be root-owned and not group/world-writable (see SECURITY.md, Recovery proof hooks) |
 | `STEPANEL_WORDPRESS_RECOVERY_PROOF` | `manual` (default), `always`, `off` | When rehearsals run the built-in WordPress application proof (a throwaway site, database, and route on this host; see OPERATIONS.md). `manual`: operator-requested rehearsals; `always`: also automatic post-backup rehearsals |
 | `STEPANEL_MIN_FREE_BYTES` | Bytes | Refuse new restores below this free-space threshold |
 | `STEPANEL_MAX_UPLOAD_BYTES` | Bytes, up to 20 GiB | Maximum ordinary restore request size; uploads without `Content-Length` are reserved progressively up to this ceiling |

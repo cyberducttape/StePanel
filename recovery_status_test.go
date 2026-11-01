@@ -184,7 +184,7 @@ func TestPassingRehearsalIsRecordedAndVerifiesRecovery(t *testing.T) {
 
 func TestApplicationRecoveryProofRaisesRehearsalLevel(t *testing.T) {
 	f := newRecoveryFixture(t)
-	proof := filepath.Join(f.dir, "recovery-proof")
+	proof := filepath.Join(recoveryProofDir(t), "recovery-proof")
 	if err := os.WriteFile(proof, []byte("#!/bin/sh\n[ -d \"$2/site/public\" ] && [ -f \"$2/site/public/index.html\" ]\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +216,7 @@ func TestRecoveryProofCommandGetsMinimalEnvironmentAndDoesNotPersistOutput(t *te
 	t.Setenv("STEPANEL_BACKUP_ENCRYPTION_KEY", "parent-backup-secret-test-value")
 	t.Setenv("STEPANEL_AUDIT_KEY", "parent-audit-secret-test-value")
 	stage := t.TempDir()
-	proof := filepath.Join(t.TempDir(), "proof")
+	proof := filepath.Join(recoveryProofDir(t), "proof")
 	script := "#!/bin/sh\nprintf '%s\\n%s\\n%s\\n%s\\n%s\\n' \\\n  \"${STEPANEL_SESSION_SECRET-unset}\" \\\n  \"${STEPANEL_BACKUP_ENCRYPTION_KEY-unset}\" \\\n  \"${STEPANEL_AUDIT_KEY-unset}\" \\\n  \"$STEPANEL_RECOVERY_PROOF_SITE\" \\\n  \"$STEPANEL_RECOVERY_PROOF_STAGE\" > \"$2/proof-env\"\nprintf 'child-private-output-marker\\n' >&2\nexit 1\n"
 	if err := os.WriteFile(proof, []byte(script), 0700); err != nil {
 		t.Fatal(err)
@@ -250,7 +250,7 @@ func TestRecoveryProofCommandRefusesRootExecution(t *testing.T) {
 
 func TestFailedApplicationProofIsRecordedAsAttemptWithoutOverclaimingLevel(t *testing.T) {
 	f := newRecoveryFixture(t)
-	proof := filepath.Join(t.TempDir(), "recovery-proof-fail")
+	proof := filepath.Join(recoveryProofDir(t), "recovery-proof-fail")
 	if err := os.WriteFile(proof, []byte("#!/bin/sh\nexit 1\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
