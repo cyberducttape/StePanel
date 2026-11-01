@@ -505,8 +505,10 @@ unverified where they cannot establish application-level behavior.
 ### M0e — Continue typed durable operation extraction (P1)
 
 **Status:** In progress. Node tooling, Python deployment, Composer install,
-and sandboxed runner builds have typed worker executors; the remaining durable
-site-operation routes still replay HTTP handlers.
+and sandboxed runner builds have typed worker executors. Node deployment now
+uses shared typed application, Node-selection, and proxy services from both
+HTTP and durable-job entry points; its synthetic HTTP replay has been removed.
+Six other site-operation routes still replay handlers.
 
 **Acceptance criteria**
 
@@ -515,7 +517,9 @@ site-operation routes still replay HTTP handlers.
   at admission and execution.
 - Worker code does not synthesize HTTP requests for migrated routes; tests
   verify lock, audit, state-persistence, cancellation, and stale-token behavior
-  remain correct.
+  remain correct. Node deployment checkpoints its previous files and runtime
+  stage, revalidates the queuing API token before execution, and refuses
+  compensation after losing its durable job/site fencing ownership.
 - The handler-replay fallback is removed only once all registered routes have
   equivalent services and regression coverage.
 - Focused Go tests and `make check` pass for each extraction; host-level

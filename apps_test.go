@@ -25,9 +25,9 @@ func TestAppDeployPersistsRunningManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 	appRoot := filepath.Join(root, "apps")
-	a := &App{Config: Config{WebRoot: webRoot, AppRoot: appRoot, AppCtl: helper}, Auth: Auth{}}
+	a := &App{Config: Config{WebRoot: webRoot, AppRoot: appRoot, AppCtl: helper}, Auth: Auth{Username: "admin"}}
 	body := `{"site":"demo","domain":"demo.example.test","node_version":"v22.1.0","port":3000}`
-	request := httptest.NewRequest(http.MethodPost, "/api/apps/deploy", strings.NewReader(body))
+	request := appDeployTestRequest(body)
 	response := httptest.NewRecorder()
 	a.appDeploy(response, request)
 	if response.Code != http.StatusAccepted {
@@ -74,9 +74,9 @@ func TestAppDeployRestoresManifestWhenHelperFails(t *testing.T) {
 	if err := os.WriteFile(manifestPath+".bak", oldRollback, 0600); err != nil {
 		t.Fatal(err)
 	}
-	a := &App{Config: Config{WebRoot: webRoot, AppRoot: appRoot, AppCtl: helper}, Auth: Auth{}}
+	a := &App{Config: Config{WebRoot: webRoot, AppRoot: appRoot, AppCtl: helper}, Auth: Auth{Username: "admin"}}
 	body := `{"site":"demo","domain":"demo.example.test","node_version":"v22.1.0","port":3000}`
-	request := httptest.NewRequest(http.MethodPost, "/api/apps/deploy", strings.NewReader(body))
+	request := appDeployTestRequest(body)
 	response := httptest.NewRecorder()
 	a.appDeploy(response, request)
 	if response.Code != http.StatusBadGateway {
@@ -120,10 +120,10 @@ func TestAppDeployRefusesCorruptExistingManifest(t *testing.T) {
 	if err := os.WriteFile(manifestPath, corrupt, 0600); err != nil {
 		t.Fatal(err)
 	}
-	a := &App{Config: Config{WebRoot: webRoot, AppRoot: appRoot, AppCtl: helper}, Auth: Auth{}}
+	a := &App{Config: Config{WebRoot: webRoot, AppRoot: appRoot, AppCtl: helper}, Auth: Auth{Username: "admin"}}
 	body := `{"site":"demo","domain":"demo.example.test","node_version":"v22.1.0","port":3000}`
 	response := httptest.NewRecorder()
-	a.appDeploy(response, httptest.NewRequest(http.MethodPost, "/api/apps/deploy", strings.NewReader(body)))
+	a.appDeploy(response, appDeployTestRequest(body))
 	if response.Code != http.StatusConflict {
 		t.Fatalf("status = %d, body = %s; want refusal to overwrite corrupt state", response.Code, response.Body.String())
 	}
@@ -133,6 +133,11 @@ func TestAppDeployRefusesCorruptExistingManifest(t *testing.T) {
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("app helper ran while rejecting corrupt state (stat error %v)", err)
 	}
+}
+
+func appDeployTestRequest(body string) *http.Request {
+	request := httptest.NewRequest(http.MethodPost, "/api/apps/deploy", strings.NewReader(body))
+	return request.WithContext(context.WithValue(request.Context(), replayedIdentityKey{}, "admin"))
 }
 
 func TestValidAppManifestRejectsUnexpectedRoot(t *testing.T) {

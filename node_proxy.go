@@ -1,7 +1,9 @@
 package stepanel
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -59,47 +61,70 @@ func (a *App) selectNode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid site or Node version", 422)
 		return
 	}
-	version := strings.TrimPrefix(input.Version, "v")
-	installed, err := safePath(a.Config.NVMDir, "versions", "node", "v"+version)
-	if err != nil {
-		http.Error(w, "invalid Node version", 422)
-		return
-	}
-	if info, err := os.Stat(installed); err != nil || !info.IsDir() {
-		http.Error(w, "requested Node version is not installed", 422)
-		return
-	}
-	siteRoot, err := existingManagedSiteState(a.Config, input.Site)
-	if err != nil {
+	if _, err := existingManagedSiteState(a.Config, input.Site); err != nil {
 		http.Error(w, "site document root does not exist", http.StatusUnprocessableEntity)
 		return
 	}
 	operationCtx := r.Context()
-	if _, internal := operationCtx.Value(nodeDeploymentContextKey{}).(bool); !internal {
-		var releaseUnlock func()
-		var lockErr error
-		operationCtx, releaseUnlock, lockErr = a.acquireSiteMutationLockContext(operationCtx, input.Site)
-		if lockErr != nil {
-			http.Error(w, "Node version mutation is busy", http.StatusConflict)
-			return
-		}
-		defer releaseUnlock()
+	var releaseUnlock func()
+	var lockErr error
+	operationCtx, releaseUnlock, lockErr = a.acquireSiteMutationLockContext(operationCtx, input.Site)
+	if lockErr != nil {
+		http.Error(w, "Node version mutation is busy", http.StatusConflict)
+		return
 	}
+	defer releaseUnlock()
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "Node version mutation cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
+	principal := siteOperationPrincipalFromRequest(a.Auth, r)
+	if err := a.applyNodeSelection(operationCtx, principal, input.Site, input.Version); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"site": input.Site, "version": "v" + strings.TrimPrefix(input.Version, "v")})
+}
+
+func siteOperationPrincipalFromRequest(auth Auth, r *http.Request) siteOperationPrincipal {
+	principal := siteOperationPrincipal{Actor: auth.UsernameForRequest(r), Token: auth.IsAPITokenRequest(r)}
+	if scopes, ok := r.Context().Value(apiTokenScopesKey{}).([]string); ok {
+		principal.Scopes = append([]string(nil), scopes...)
+	}
+	return principal
+}
+
+func (a *App) applyNodeSelection(ctx context.Context, principal siteOperationPrincipal, site, requestedVersion string) error {
+	if safeUser(site) == "" || !nodeVersionPattern.MatchString(requestedVersion) {
+		return errors.New("invalid site or Node version")
+	}
+	if !a.durableSiteOperationScopeAllowed(principal, "site:deploy") {
+		return errors.New("Node selection is not authorized for this principal")
+	}
+	version := strings.TrimPrefix(requestedVersion, "v")
+	installed, err := safePath(a.Config.NVMDir, "versions", "node", "v"+version)
+	if err != nil {
+		return errors.New("invalid Node version")
+	}
+	if info, err := os.Stat(installed); err != nil || !info.IsDir() {
+		return errors.New("requested Node version is not installed")
+	}
+	siteRoot, err := existingManagedSiteState(a.Config, site)
+	if err != nil {
+		return errors.New("site document root does not exist")
+	}
 	nvmrc, err := safePath(siteRoot, ".nvmrc")
 	if err != nil {
-		http.Error(w, "invalid Node version path", 422)
-		return
+		return errors.New("invalid Node version path")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if err := writeAtomic(nvmrc, []byte("v"+version+"\n"), 0640); err != nil {
-		http.Error(w, "unable to select Node version", 500)
-		return
+		return fmt.Errorf("unable to select Node version: %w", err)
 	}
-	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "node.version.selected", input.Site, "Node v"+version)
-	writeJSON(w, http.StatusOK, map[string]string{"site": input.Site, "version": "v" + version})
+	TelemetryAudit(a.Config.AuditLog, principal.Actor, "node.version.selected", site, "Node v"+version)
+	return ctx.Err()
 }
 
 func (a *App) deployProxy(w http.ResponseWriter, r *http.Request) {
@@ -123,41 +148,56 @@ func (a *App) deployProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	name := proxyConfigName(a.Config.WebServer, input.Site, input.Domain)
 	operationCtx := r.Context()
-	if _, internal := operationCtx.Value(nodeDeploymentContextKey{}).(bool); !internal {
-		var releaseUnlock func()
-		var lockErr error
-		operationCtx, releaseUnlock, lockErr = a.acquireSiteMutationLocksContext(operationCtx, input.Site, "proxy:"+name)
-		if lockErr != nil {
-			http.Error(w, "proxy mutation is busy", http.StatusConflict)
-			return
-		}
-		defer releaseUnlock()
+	var releaseUnlock func()
+	var lockErr error
+	operationCtx, releaseUnlock, lockErr = a.acquireSiteMutationLocksContext(operationCtx, input.Site, "proxy:"+name)
+	if lockErr != nil {
+		http.Error(w, "proxy mutation is busy", http.StatusConflict)
+		return
 	}
+	defer releaseUnlock()
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "proxy mutation cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	path, err := safePath(a.Config.ProxyRoot, name)
+	principal := siteOperationPrincipalFromRequest(a.Auth, r)
+	path, err := a.applyProxyDeployment(operationCtx, principal, input)
 	if err != nil {
-		http.Error(w, "invalid proxy path", 422)
-		return
-	}
-	intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "proxy.deployed", input.Site, input.Domain+" -> "+backend)
-	if err != nil {
-		refuseWithoutSecurityAudit(w)
-		return
-	}
-	if err := runProxyMutation(operationCtx, a.Config, "apply", input.Site, strings.ToLower(input.Domain), backend); err != nil {
-		intent.Failed(err.Error())
-		http.Error(w, "proxy helper rejected the configuration or webserver reload failed", http.StatusServiceUnavailable)
-		return
-	}
-	intent.Completed(input.Domain + " -> " + backend)
-	if err := operationCtx.Err(); err != nil {
-		http.Error(w, "proxy deployment cancelled because the mutation lock was lost", http.StatusConflict)
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"site": input.Site, "domain": input.Domain, "backend": backend, "config": path, "reloaded": true})
+}
+
+func (a *App) applyProxyDeployment(ctx context.Context, principal siteOperationPrincipal, input proxyRequest) (string, error) {
+	if safeUser(input.Site) == "" || len(input.Domain)+len(input.Site) > 220 || !domainname.Valid(strings.ToLower(input.Domain)) {
+		return "", errors.New("invalid site or domain")
+	}
+	backend, err := localBackend(input.Backend)
+	if err != nil {
+		return "", fmt.Errorf("invalid proxy backend: %w", err)
+	}
+	if !a.durableSiteOperationScopeAllowed(principal, "site:deploy") {
+		return "", errors.New("proxy deployment is not authorized for this principal")
+	}
+	name := proxyConfigName(a.Config.WebServer, input.Site, input.Domain)
+	path, err := safePath(a.Config.ProxyRoot, name)
+	if err != nil {
+		return "", errors.New("invalid proxy path")
+	}
+	intent, err := BeginSecurityAudit(a.Config.AuditLog, principal.Actor, "proxy.deployed", input.Site, input.Domain+" -> "+backend)
+	if err != nil {
+		return "", errors.New("security audit unavailable; proxy deployment refused")
+	}
+	if err := runProxyMutation(ctx, a.Config, "apply", input.Site, strings.ToLower(input.Domain), backend); err != nil {
+		intent.Failed(err.Error())
+		return "", errors.New("proxy helper rejected the configuration or webserver reload failed")
+	}
+	intent.Completed(input.Domain + " -> " + backend)
+	if err := ctx.Err(); err != nil {
+		return "", errors.New("proxy deployment cancelled because the mutation lock was lost")
+	}
+	return path, nil
 }
 
 func (a *App) proxyList(w http.ResponseWriter, r *http.Request) {

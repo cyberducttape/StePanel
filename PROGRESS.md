@@ -1,5 +1,40 @@
 # Production-readiness progress
 
+## Node deployment authorization, recovery, and typed execution — 2026-10-31
+
+- Node deployment jobs now persist whether admission used an API token and its
+  token ID. Worker execution revalidates token status, expiry, account
+  ownership, and current `site:deploy` scope. Worker-owned checkpoint fields
+  supplied in the enqueue request are discarded.
+- Before changing state, the worker persists a bounded snapshot of `.nvmrc`,
+  app manifests, rollback manifest, and the proxy configuration. It records
+  each step as applying/applied. A retry first compensates from that snapshot
+  under the new durable job lease and site fencing token. Compensation uses a
+  bounded context that survives operation cancellation only while ownership is
+  still valid; after lease loss it refuses host mutations and leaves recovery
+  state for the next claimant. Invalid prior manifests fail closed, and
+  rollback handles both Apache and Caddy proxy configuration.
+- Removed Node deployment's synthetic HTTP handler replay. The API handlers
+  and durable worker now call shared typed services for Node selection, app
+  activation, and proxy deployment, passing the typed authenticated principal;
+  each service enforces the current deploy-scope policy. This closes the
+  Node-specific portion of the handler-replay debt; the six other listed
+  `site.operation` routes remain tracked under M0s/M0e.
+- Added regressions for token revocation before worker execution, forged
+  checkpoint fields, recovery at each step boundary, and refusal to roll back
+  after durable lease loss. Focused tests and `go vet ./...` pass; focused
+  Node deployment tests also pass under the race detector. The first full
+  check after introducing typed principals exposed three app-deploy unit tests
+  that bypassed the authentication middleware; their fixtures now provide the
+  authenticated administrator identity. Focused app/Node regressions and the
+  corrected full `make check` pass, including vet and the full serialized Go
+  suite (root package completed in 87.7 seconds). Focused app/Node regressions
+  also pass under `go test -race` on the final typed-principal form.
+- This does not certify host crash recovery or prove every multi-resource
+  failure sequence. Interrupted Node deployments are compensated and retried
+  from a durable snapshot; an unavailable/lost lease leaves explicit recovery
+  state rather than authorizing a stale worker to mutate host state.
+
 ## Lease-recovery contract and durable queue measurements — 2026-10-31
 
 - Clarified M0l's recovery contract: lease fencing only prevents stale durable

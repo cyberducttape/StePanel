@@ -73,52 +73,66 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	operationCtx := r.Context()
-	if _, internal := operationCtx.Value(nodeDeploymentContextKey{}).(bool); !internal {
-		var releaseUnlock func()
-		var lockErr error
-		operationCtx, releaseUnlock, lockErr = a.acquireSiteMutationLockContext(operationCtx, app.Site)
-		if lockErr != nil {
-			http.Error(w, "app deployment is busy", http.StatusConflict)
-			return
-		}
-		defer releaseUnlock()
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(operationCtx, app.Site)
+	if lockErr != nil {
+		http.Error(w, "app deployment is busy", http.StatusConflict)
+		return
 	}
+	defer releaseUnlock()
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "app deployment cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	if err := os.MkdirAll(a.Config.AppRoot, 0750); err != nil {
-		http.Error(w, "unable to create app state directory", 500)
+	principal := siteOperationPrincipalFromRequest(a.Auth, r)
+	app, status, message, err := a.applyAppDeployment(operationCtx, principal, app)
+	if err != nil {
+		http.Error(w, message, status)
 		return
+	}
+	writeJSON(w, http.StatusAccepted, app)
+}
+
+func (a *App) applyAppDeployment(operationCtx context.Context, principal siteOperationPrincipal, app AppManifest) (AppManifest, int, string, error) {
+	if !a.durableSiteOperationScopeAllowed(principal, "site:deploy") {
+		return AppManifest{}, http.StatusForbidden, "app deployment is not authorized for this principal", errors.New("app deployment is not authorized for this principal")
+	}
+	var rootErr error
+	app.Root, rootErr = siteDocRoot(a.Config, app.Site)
+	if rootErr != nil {
+		return AppManifest{}, http.StatusUnprocessableEntity, "invalid site root", rootErr
+	}
+	if info, err := os.Stat(app.Root); err != nil || !info.IsDir() {
+		return AppManifest{}, http.StatusUnprocessableEntity, "site document root does not exist", errors.New("site document root does not exist")
+	}
+	if err := operationCtx.Err(); err != nil {
+		return AppManifest{}, http.StatusConflict, "app deployment cancelled because the mutation lock was lost", err
+	}
+	if err := os.MkdirAll(a.Config.AppRoot, 0750); err != nil {
+		return AppManifest{}, http.StatusInternalServerError, "unable to create app state directory", err
 	}
 	previous, hadPrevious, previousErr := readAppStateFile(a.Config, app.Site, ".json")
 	if previousErr != nil {
-		http.Error(w, "unable to read existing app manifest", 500)
-		return
+		return AppManifest{}, http.StatusInternalServerError, "unable to read existing app manifest", previousErr
 	}
 	var previousManifest *AppManifest
 	if hadPrevious {
 		var parsed AppManifest
 		if err := json.Unmarshal(previous, &parsed); err != nil || !validAppManifest(a.Config, parsed, app.Site) {
-			http.Error(w, "existing app manifest is invalid; refusing to replace unmanaged runtime state", http.StatusConflict)
-			return
+			return AppManifest{}, http.StatusConflict, "existing app manifest is invalid; refusing to replace unmanaged runtime state", errors.New("existing app manifest is invalid")
 		}
 		previousManifest = &parsed
 	}
 	previousBackup, hadPreviousBackup, backupReadErr := readAppStateFile(a.Config, app.Site, ".json.bak")
 	if backupReadErr != nil {
-		http.Error(w, "unable to read existing app rollback state", 500)
-		return
+		return AppManifest{}, http.StatusInternalServerError, "unable to read existing app rollback state", backupReadErr
 	}
 	if err := operationCtx.Err(); err != nil {
-		http.Error(w, "app deployment cancelled because the mutation lock was lost", http.StatusConflict)
-		return
+		return AppManifest{}, http.StatusConflict, "app deployment cancelled because the mutation lock was lost", err
 	}
 	deployment := app.Domain + " on port " + strconv.Itoa(app.Port)
-	intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "app.deployed", app.Site, deployment)
+	intent, err := BeginSecurityAudit(a.Config.AuditLog, principal.Actor, "app.deployed", app.Site, deployment)
 	if err != nil {
-		refuseWithoutSecurityAudit(w)
-		return
+		return AppManifest{}, http.StatusServiceUnavailable, "security audit unavailable; app deployment refused", err
 	}
 	var outcome string
 	defer intent.Finish(&outcome, "application service was not applied; previous configuration kept")
@@ -129,19 +143,17 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 		if errors.As(err, &activationErr) && activationErr.RecoveryErr != nil {
 			outcome = deployment + "; rollback incomplete: " + activationErr.RecoveryErr.Error()
 			log.Printf("app deploy %s: activation failed and recovery is pending: %v", app.Site, err)
-			http.Error(w, "application activation failed and rollback is incomplete; operator recovery is required", http.StatusServiceUnavailable)
-			return
+			return AppManifest{}, http.StatusServiceUnavailable, "application activation failed and rollback is incomplete; operator recovery is required", err
 		}
 		log.Printf("app deploy %s: activation failed; previous generation restored: %v", app.Site, err)
-		http.Error(w, "application service could not be applied; the previous configuration was restored", http.StatusBadGateway)
-		return
+		return AppManifest{}, http.StatusBadGateway, "application service could not be applied; the previous configuration was restored", err
 	}
 	if cleanupPending {
 		log.Printf("app deploy %s: committed activation journal cleanup is pending startup recovery", app.Site)
 	}
 	outcome = deployment
 	a.invalidateAppsCache()
-	writeJSON(w, http.StatusAccepted, app)
+	return app, http.StatusAccepted, "", nil
 }
 
 func restoreAppActivation(cfg Config, ctx context.Context, journal *appActivationJournal) error {
