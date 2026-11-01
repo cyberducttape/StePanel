@@ -45,7 +45,18 @@ func (v *Validator) validateAccountRequest(req *AccountRequest) error {
 		return err
 	}
 	switch req.Action {
-	case "ensure", "delete", "quota-clear":
+	case "ensure":
+		// ensure may name the site it is created for: that site's lease
+		// fences the request before the site's placement is recorded.
+		if req.Site != "" {
+			if err := v.ValidateSiteName(req.Site); err != nil {
+				return err
+			}
+		}
+		if req.Kind != "" || req.Directory != "" || req.DiskMB != 0 || req.Inodes != 0 {
+			return errors.New("account ensure accepts only an account and the site it is for")
+		}
+	case "delete", "quota-clear":
 		if req.Site != "" || req.Kind != "" || req.Directory != "" || req.DiskMB != 0 || req.Inodes != 0 {
 			return fmt.Errorf("account %s accepts only an account", req.Action)
 		}

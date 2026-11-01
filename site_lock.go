@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"sort"
+	"strings"
 
 	"github.com/cyberducttape/StePanel/internal/operations"
 )
@@ -28,6 +29,12 @@ func (a *App) acquireSiteMutationLock(ctx context.Context, key string) (func(), 
 // name must hold this key (TestDatabaseLocksUseOneKeyHelper).
 func databaseLockKey(name string) string {
 	return "database:" + name
+}
+
+// certificateLockKey names the lease the root broker requires for issuing a
+// domain's certificate.
+func certificateLockKey(domain string) string {
+	return "certificate:" + strings.ToLower(domain)
 }
 
 func (a *App) acquireSiteMutationLockContext(ctx context.Context, key string) (context.Context, func(), error) {

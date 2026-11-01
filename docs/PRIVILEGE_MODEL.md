@@ -19,7 +19,7 @@ same code can run helpers directly, which `STEPANEL_ENV=production` forbids.
 panel / worker (user stepanel)
   │  audit event written first (fail-closed), then
   ▼
-Unix socket 0660 root:stepanel ── peer credentials checked (SO_PEERCRED gid)
+Unix socket 0660 root:stepanel ── peer credentials checked (SO_PEERCRED uid and gid)
   ▼
 stepanel-root: decode (96 MiB cap, 30 s read deadline)
   → validate (typed rules or per-action helper schema)
@@ -33,7 +33,8 @@ deploy/integrations/stepanel-{site,app,db,vhost,proxy,git,runner}ctl, stepanel-c
 
 | Property | How it is enforced |
 |----------|--------------------|
-| **Caller identity** | The socket is mode `0660` and group `stepanel`; the broker rejects any peer whose group is not `stepanel`. |
+| **Caller identity** | The socket is mode `0660` and group `stepanel`, and the broker admits only the exact service identity: peer UID `stepanel` (`-socket-user`, default the user named like `-socket-group`, never root) with primary GID `stepanel`. Group membership alone is not enough. A refused peer is logged to the broker journal as `security: unauthorized peer pid=… uid=… gid=…`. Keep the `stepanel` group exclusive to the panel and worker; never add customer or maintenance accounts to it. |
+| **Fencing scope** | Every mutating request must carry a fencing token that is a live lease **on its own target**, derived by the broker from the validated request (`fencing_scope.go`): the site (or the hosting account it is placed in), `database:<name>` or the database's owning site from the root-owned dbctl registry, `database:session:<id>`, `database:reconcile`, `vhost:<name>`/`proxy:<name>` or the site in the config name, `account:<user>` (or a site placed in that account), and `certificate:<domain>`. A valid lease for a different resource, or two conflicting tokens for one resource, is rejected before any helper runs. |
 | **Authorization** | The panel resolves the authenticated principal, token scopes, and tenant ownership. For customer file operations, the broker independently requires a tenant ID and checks `tenant_sites` for an exact `(site, tenant)` owner match before it resolves placement or runs `stepanel-filectl`. The Unix-socket peer alone never authorizes a file path. |
 | **Narrow type** | Typed requests (`site`, `app`, `db`, `task`, `git`, `certificate`, `vhost`, `proxy`) have Go validation per field. Generic `helper` requests must match an allow-listed action with exact arity and a semantic type per argument (`helper_schema.go`). |
 | **Resource lock** | Per site, database, account, or certificate domain; host-wide helpers (`proxyctl`, `vhostctl` route deletes, `dbctl` engine reads) use a host key; anything unscoped runs exclusively (`scheduler.go`). Host account changes share one lock. |

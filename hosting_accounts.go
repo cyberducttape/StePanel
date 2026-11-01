@@ -102,7 +102,7 @@ func placeSiteInAccount(ctx context.Context, cfg Config, db *sql.DB, placement s
 	if _, err := sitelayout.AllocateAccount(db, placement.Account); err != nil {
 		return false, fmt.Errorf("allocate hosting account %s: %w", placement.Account, err)
 	}
-	if _, err := accountHelperContext(ctx, cfg, rootbroker.AccountRequest{Action: "ensure", Account: placement.Account}); err != nil {
+	if _, err := accountHelperContext(ctx, cfg, rootbroker.AccountRequest{Action: "ensure", Account: placement.Account, Site: placement.Site}); err != nil {
 		return false, fmt.Errorf("create hosting account %s: %w", placement.Account, err)
 	}
 	recorded := false

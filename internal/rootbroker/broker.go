@@ -71,6 +71,9 @@ type Broker struct {
 	logger           *log.Logger
 	host             hostOps
 	fencingDB        *sql.DB
+	// databaseRegistryRoot is stepanel-dbctl's managed-database registry,
+	// read to find a database's owning site (defaultDatabaseRegistryRoot).
+	databaseRegistryRoot string
 	// leaseWatchInterval and leaseWatchMargin drive the fencing watchdog
 	// for mutating requests; see watchFencing.
 	leaseWatchInterval  time.Duration
@@ -239,6 +242,12 @@ func (b *Broker) Execute(ctx context.Context, req *Request) (*Response, error) {
 			if err != nil {
 				return &Response{OK: false, Error: fmt.Sprintf("fencing token rejected: %v", err)}, nil
 			}
+		}
+		// A live lease is not enough: it must be a lease on this request's
+		// target (fencing_scope.go).
+		if err := b.checkFencingScope(req); err != nil {
+			b.logger.Printf("fencing scope rejected %s request: %v", req.RequestType, err)
+			return &Response{OK: false, Error: fmt.Sprintf("fencing token rejected: %v", err)}, nil
 		}
 		watchCtx, stop := b.watchFencing(ctx, req.Fencing)
 		resp, err := b.dispatch(watchCtx, req)

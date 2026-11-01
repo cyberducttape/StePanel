@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/operations"
+	"github.com/cyberducttape/StePanel/internal/sitelayout"
 	_ "modernc.org/sqlite"
 )
 
@@ -28,7 +29,10 @@ func fencedWordPressBroker(t *testing.T, runFor string) (*Broker, *sql.DB, strin
 	if _, err := db.Exec(`CREATE TABLE resource_locks (resource_key TEXT PRIMARY KEY, owner_id TEXT NOT NULL, lease_until INTEGER NOT NULL, generation INTEGER NOT NULL, acquired_at INTEGER NOT NULL)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO resource_locks VALUES ('site:demo', 'owner-a', ?, 1, ?)`, time.Now().Add(time.Minute).UnixNano(), time.Now().UnixNano()); err != nil {
+	if _, err := db.Exec(`INSERT INTO resource_locks VALUES ('demo', 'owner-a', ?, 1, ?)`, time.Now().Add(time.Minute).UnixNano(), time.Now().UnixNano()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(sitelayout.Schema); err != nil {
 		t.Fatal(err)
 	}
 	// WordPress actions run as the site's persisted Unix account, which a
@@ -52,7 +56,7 @@ func fencedWordPressBroker(t *testing.T, runFor string) (*Broker, *sql.DB, strin
 	return broker, db, completed
 }
 
-var demoLease = []operations.FencingToken{{ResourceKey: "site:demo", OwnerID: "owner-a", Generation: 1}}
+var demoLease = []operations.FencingToken{{ResourceKey: "demo", OwnerID: "owner-a", Generation: 1}}
 
 // A privileged operation must not outlive the lease that admitted it: when
 // another owner takes the resource mid-operation, the helper is killed.
@@ -60,7 +64,7 @@ func TestBrokerCancelsOperationWhenLeaseIsSuperseded(t *testing.T) {
 	broker, db, completed := fencedWordPressBroker(t, "5")
 	go func() {
 		time.Sleep(150 * time.Millisecond)
-		_, _ = db.Exec(`UPDATE resource_locks SET owner_id = 'owner-b', generation = 2 WHERE resource_key = 'site:demo'`)
+		_, _ = db.Exec(`UPDATE resource_locks SET owner_id = 'owner-b', generation = 2 WHERE resource_key = 'demo'`)
 	}()
 	started := time.Now()
 	response, err := broker.Execute(context.Background(), &Request{RequestType: "wordpress", Fencing: demoLease, WordPress: &WordPressRequest{Action: "core-update", Site: "demo"}})

@@ -1368,7 +1368,14 @@ func (a *App) handleCertificateJob(ctx context.Context, item Job) ([]byte, error
 	if err != nil || !lineage.sameContent(request.Before) {
 		return nil, errors.New("certificate lineage changed after preview and before execution")
 	}
-	certificateCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+	// The root broker admits a certificate issue only under this domain's
+	// own fencing lease (rootbroker fencing scope).
+	lockedCtx, releaseCertificate, err := a.acquireSiteMutationLockContext(ctx, certificateLockKey(request.Domain))
+	if err != nil {
+		return nil, fmt.Errorf("acquire certificate lock: %w", err)
+	}
+	defer releaseCertificate()
+	certificateCtx, cancel := context.WithTimeout(lockedCtx, 15*time.Minute)
 	defer cancel()
 	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", a.Config.WebRoot)
 	if err != nil {

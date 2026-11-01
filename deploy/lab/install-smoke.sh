@@ -363,10 +363,13 @@ apply_smoke_vhost() {
     runuser -u stepanel -- python3 - "$target_site" "$target_domain" <<'PY'
 import json, socket, sys
 import os, sqlite3, time
-resource_key = "site:ci-smoke-caddy-" + str(time.time_ns())
+# The broker admits a mutation only under a lease on its target: lease the
+# site itself, as the panel does.
+resource_key = sys.argv[1]
 owner_id = "install-smoke:" + str(os.getpid())
 now = time.time_ns()
 database = sqlite3.connect("/var/lib/ste-panel/stepanel-control.db")
+database.execute("DELETE FROM resource_locks WHERE resource_key=? AND lease_until<?", (resource_key, now))
 database.execute(
     "INSERT INTO resource_locks(resource_key, owner_id, lease_until, generation, acquired_at) VALUES(?,?,?,?,?)",
     (resource_key, owner_id, now + 300_000_000_000, 1, now),
