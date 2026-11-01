@@ -180,7 +180,7 @@ func (a *App) siteTermination(w http.ResponseWriter, r *http.Request) {
 	}
 	job, err := a.enqueueSiteTermination(input.Site, a.Auth.UsernameForRequest(r), operationKey)
 	if err != nil {
-		http.Error(w, "could not persist site termination job", http.StatusInternalServerError)
+		writeJobEnqueueError(w, err, "could not persist site termination job")
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "status_url": "/api/jobs/" + job.ID})

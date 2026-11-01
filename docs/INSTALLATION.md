@@ -350,6 +350,7 @@ In an interactive terminal, the installer asks for the database engine and versi
 | `STEPANEL_DB_DATA_DIR` | Absolute directory | Local database data filesystem used for restore admission and cross-process capacity reservations; defaults to `/var/lib/mysql` (or the PostgreSQL data root) when the database is local. Set this explicitly for a nonstandard data directory. |
 | `STEPANEL_MAX_ARCHIVE_ENTRIES` | `1`–`1000000` | Maximum filesystem entries in a restore or backup |
 | `STEPANEL_MAX_CONCURRENT_JOBS` | `1`–`32` | Global restore, backup, and certificate job slots |
+| `STEPANEL_MAX_PENDING_JOBS` | `100`–`100000` (default `10000`) | Admission limit on queued plus running durable jobs; new jobs get `503` with `Retry-After` at the limit. See CAPACITY.md, Durable queue limits |
 | `STEPANEL_WORKER_MODE` | `embedded` or `external` | Run jobs in the panel process or in the separately supervised worker service; the installer selects `external` |
 | `STEPANEL_CONTROL_PLANE_DB` | Absolute path in production | SQLite control-plane database for durable jobs, customer accounts, site ownership, and sessions |
 | `STEPANEL_ACCOUNT_STATE` | Absolute path in production | Optional private customer-account state file; defaults beside session state |

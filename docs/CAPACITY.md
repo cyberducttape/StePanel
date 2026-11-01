@@ -33,6 +33,30 @@ database. The run used an unsupported Ubuntu 26.04 developer host and tmpfs;
 it does not establish checkpoint behavior, killed-process recovery, or a
 production capacity limit.
 
+## Durable queue limits
+
+SQLite remains the single-host job store; the measurements above show no busy
+errors and claim latency that grows roughly linearly with the queued backlog,
+which calls for an explicit operating limit rather than a different database.
+
+- **Admission limit:** `STEPANEL_MAX_PENDING_JOBS` (default 10,000; accepted
+  range 100–100,000) bounds queued plus running jobs. At the limit, new jobs
+  are refused with `503 Service Unavailable` and `Retry-After: 60`, so a
+  runaway client or scheduler cannot grow the backlog until every claim slows
+  down. The default keeps the adverse-fixture claim near 21 ms; the ceiling is
+  the largest backlog measured (about 211 ms). The check counts before it
+  inserts, so concurrent submissions can overshoot by a few jobs.
+- **Retention:** completed, failed, and cancelled jobs are removed after 24
+  hours; dead-letter jobs are kept until an operator retries or resolves them.
+- **Watch:** `stepanel_jobs_queued`, `stepanel_jobs_running`,
+  `stepanel_jobs_oldest_queued_age_seconds`, and `stepanel_jobs_dead_letter`. A backlog that stays near the limit means workers cannot keep up;
+  raise `STEPANEL_MAX_CONCURRENT_JOBS` or reduce scheduled work rather than
+  raising the pending limit.
+
+Sustained-workload certification (hours of mixed scheduled jobs at the target
+site count with claim, queue-age, and WAL checkpoint measurements) is still
+outstanding; see below.
+
 ## What remains unmeasured
 
 Before publishing site, account, domain, or concurrent-job ceilings, run the

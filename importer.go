@@ -121,7 +121,7 @@ func (a *App) inspectArchive(w http.ResponseWriter, r *http.Request) {
 
 	job, err := a.Jobs.Enqueue("archive.inspect", "admin", "archive-inspection", payload, 3)
 	if err != nil {
-		http.Error(w, "failed to enqueue inspection job: "+err.Error(), http.StatusInternalServerError)
+		writeJobEnqueueError(w, err, "failed to enqueue inspection job: "+err.Error())
 		return
 	}
 
@@ -258,7 +258,7 @@ func (a *App) archiveImportStart(w http.ResponseWriter, r *http.Request) {
 
 	job, err := a.Jobs.Enqueue("archive.import", "admin", req.SiteName, payload, 3)
 	if err != nil {
-		http.Error(w, "failed to enqueue import job: "+err.Error(), http.StatusInternalServerError)
+		writeJobEnqueueError(w, err, "failed to enqueue import job: "+err.Error())
 		return
 	}
 

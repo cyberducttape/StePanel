@@ -230,7 +230,7 @@ func (a *App) wpressImport(w http.ResponseWriter, r *http.Request) {
 	job, existing, err := a.Jobs.EnqueueIdempotent("wordpress.restore", site, operationKey, payload, 3)
 	if err != nil {
 		_ = os.Remove(tempPath)
-		http.Error(w, "could not persist restore job", http.StatusInternalServerError)
+		writeJobEnqueueError(w, err, "could not persist restore job")
 		return
 	}
 	if existing {

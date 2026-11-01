@@ -488,7 +488,7 @@ func (a *App) migrationDoctor(w http.ResponseWriter, r *http.Request) {
 
 	job, err := a.Jobs.Enqueue("migration.analysis", "", "", jobPayload, 1)
 	if err != nil {
-		http.Error(w, "could not create analysis job: "+err.Error(), http.StatusInternalServerError)
+		writeJobEnqueueError(w, err, "could not create analysis job: "+err.Error())
 		return
 	}
 

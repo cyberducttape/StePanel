@@ -77,11 +77,13 @@ type Config struct {
 	MaxUpload                                                               int64
 	CPMoveMaxUpload                                                         int64
 	MaxEntries, MaxConcurrentJobs, StageRetentionHours, GitReleaseRetention int
-	GitReleaseMaxAgeHours                                                   int
-	GitReleaseMaxBytes                                                      int64
-	GitReleaseMaxTreeBytes                                                  int64
-	FTPPassiveMin, FTPPassiveMax                                            int
-	MinFreeBytes                                                            uint64
+	// MaxPendingJobs bounds queued plus running durable jobs at admission.
+	MaxPendingJobs               int
+	GitReleaseMaxAgeHours        int
+	GitReleaseMaxBytes           int64
+	GitReleaseMaxTreeBytes       int64
+	FTPPassiveMin, FTPPassiveMax int
+	MinFreeBytes                 uint64
 	// RehearsalIntervalHours is the minimum spacing of automatic restore
 	// rehearsals per site, triggered by successful scheduled backups. 0
 	// disables automatic rehearsals.
@@ -91,7 +93,7 @@ type Config struct {
 const maxCPMoveUploadBytesSupported int64 = 40 << 30
 
 func LoadConfig() Config {
-	c := Config{WebServer: "caddy", Listen: "127.0.0.1:8080", ImportRoot: "data/imports", BackupRoot: "data/backups", WebRoot: "data/www", HomeRoot: "data/home", MailRoot: "data/mail", NVMDir: "data/nvm", ProxyRoot: "data/proxy", VHostRoot: "data/vhosts", AppRoot: "data/apps", MalwareRoot: "data/quarantine", AppCtl: "/usr/local/sbin/stepanel-appctl", ProxyCtl: "/usr/local/sbin/stepanel-proxyctl", VHostCtl: "/usr/local/sbin/stepanel-vhostctl", RunnerCtl: "/usr/local/sbin/stepanel-runnerctl", GitCtl: "/usr/local/sbin/stepanel-gitctl", TaskCtl: "/usr/local/sbin/stepanel-taskctl", Certbot: "/usr/local/sbin/stepanel-certbot", WPressExtract: "/usr/local/bin/wpress-extract", WPCLI: "/usr/local/bin/wp", AuditLog: "data/stepanel-audit.jsonl", JobState: "data/jobs.json", SessionState: "data/sessions.json", AccountState: "data/accounts.json", ControlPlaneDB: "data/stepanel-control.db", RecoveryRoot: "data/www/sites/.stepanel-recovery", GitAllowedHosts: "github.com,gitlab.com,bitbucket.org", RunnerAllowedRegistries: "docker.io,ghcr.io,quay.io", RunnerNetworkMode: "none", RunnerMaxImageBytes: defaultRunnerMaxImageBytes, MaxUpload: 20 << 30, CPMoveMaxUpload: maxCPMoveUploadBytesSupported, MaxEntries: 1000000, MaxConcurrentJobs: 2, StageRetentionHours: 168, GitReleaseRetention: 3, GitReleaseMaxAgeHours: 168, GitReleaseMaxBytes: 5 << 30, GitReleaseMaxTreeBytes: 5 << 30, MinFreeBytes: 5 << 30, FTPPassiveMin: 40100, FTPPassiveMax: 40200, RehearsalIntervalHours: 24, AlertSMTPPort: 587}
+	c := Config{WebServer: "caddy", Listen: "127.0.0.1:8080", ImportRoot: "data/imports", BackupRoot: "data/backups", WebRoot: "data/www", HomeRoot: "data/home", MailRoot: "data/mail", NVMDir: "data/nvm", ProxyRoot: "data/proxy", VHostRoot: "data/vhosts", AppRoot: "data/apps", MalwareRoot: "data/quarantine", AppCtl: "/usr/local/sbin/stepanel-appctl", ProxyCtl: "/usr/local/sbin/stepanel-proxyctl", VHostCtl: "/usr/local/sbin/stepanel-vhostctl", RunnerCtl: "/usr/local/sbin/stepanel-runnerctl", GitCtl: "/usr/local/sbin/stepanel-gitctl", TaskCtl: "/usr/local/sbin/stepanel-taskctl", Certbot: "/usr/local/sbin/stepanel-certbot", WPressExtract: "/usr/local/bin/wpress-extract", WPCLI: "/usr/local/bin/wp", AuditLog: "data/stepanel-audit.jsonl", JobState: "data/jobs.json", SessionState: "data/sessions.json", AccountState: "data/accounts.json", ControlPlaneDB: "data/stepanel-control.db", RecoveryRoot: "data/www/sites/.stepanel-recovery", GitAllowedHosts: "github.com,gitlab.com,bitbucket.org", RunnerAllowedRegistries: "docker.io,ghcr.io,quay.io", RunnerNetworkMode: "none", RunnerMaxImageBytes: defaultRunnerMaxImageBytes, MaxUpload: 20 << 30, CPMoveMaxUpload: maxCPMoveUploadBytesSupported, MaxEntries: 1000000, MaxConcurrentJobs: 2, MaxPendingJobs: defaultMaxPendingJobs, StageRetentionHours: 168, GitReleaseRetention: 3, GitReleaseMaxAgeHours: 168, GitReleaseMaxBytes: 5 << 30, GitReleaseMaxTreeBytes: 5 << 30, MinFreeBytes: 5 << 30, FTPPassiveMin: 40100, FTPPassiveMax: 40200, RehearsalIntervalHours: 24, AlertSMTPPort: 587}
 	c.HSTSIncludeSubdomains, c.HSTSPreload = true, true
 	c.RecoveryProofCommand = os.Getenv("STEPANEL_RECOVERY_PROOF_COMMAND")
 	c.WordPressRecoveryProof = recoveryProofModeManual
@@ -328,6 +330,9 @@ func LoadConfig() Config {
 	if v, err := strconv.Atoi(os.Getenv("STEPANEL_MAX_CONCURRENT_JOBS")); err == nil && v > 0 && v <= 32 {
 		c.MaxConcurrentJobs = v
 	}
+	if v, err := strconv.Atoi(os.Getenv("STEPANEL_MAX_PENDING_JOBS")); err == nil && v >= 100 && v <= maxPendingJobsLimit {
+		c.MaxPendingJobs = v
+	}
 	if v, err := strconv.Atoi(os.Getenv("STEPANEL_STAGE_RETENTION_HOURS")); err == nil && v > 0 {
 		c.StageRetentionHours = v
 	}
@@ -496,6 +501,7 @@ func ValidateConfig(c Config) error {
 	validateIntegerEnvironment(&problems, "STEPANEL_CPMOVE_MAX_UPLOAD_BYTES", 1, maxCPMoveUploadBytesSupported)
 	validateIntegerEnvironment(&problems, "STEPANEL_MAX_ARCHIVE_ENTRIES", 1, 1_000_000)
 	validateIntegerEnvironment(&problems, "STEPANEL_MAX_CONCURRENT_JOBS", 1, 32)
+	validateIntegerEnvironment(&problems, "STEPANEL_MAX_PENDING_JOBS", 100, maxPendingJobsLimit)
 	validateIntegerEnvironment(&problems, "STEPANEL_STAGE_RETENTION_HOURS", 1, 87_600)
 	validateIntegerEnvironment(&problems, "STEPANEL_REHEARSAL_INTERVAL_HOURS", 0, 8760)
 	validateIntegerEnvironment(&problems, "STEPANEL_GIT_RELEASE_RETENTION", 1, 100)

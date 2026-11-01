@@ -29,6 +29,19 @@ var (
 	ErrJobBusy                  = errors.New("too many long-running jobs or target is already active")
 	ErrIdempotencyConflict      = errors.New("idempotency key was already used with a different request")
 	ErrDurableWorkerUnavailable = errors.New("no compatible durable worker is available")
+	// ErrJobQueueFull refuses new work while the pending backlog is at the
+	// configured limit (STEPANEL_MAX_PENDING_JOBS). Claim latency grows
+	// linearly with queued rows (docs/CAPACITY.md), so an unbounded backlog
+	// would slow every worker; refusing early keeps the queue serviceable.
+	ErrJobQueueFull = errors.New("the durable job queue is at its pending-job limit; retry after queued work drains")
+)
+
+// defaultMaxPendingJobs keeps the measured adverse-fixture claim latency near
+// 21 ms (2026-10-31 benchmark: 10,000 queued rows); maxPendingJobsLimit is the
+// largest backlog that has been measured (100,000 rows, about 211 ms).
+const (
+	defaultMaxPendingJobs = 10_000
+	maxPendingJobsLimit   = 100_000
 )
 
 // authorizeDurableSiteJob rechecks tenant policy at execution time. Queue
@@ -592,6 +605,9 @@ func (j *Jobs) enqueue(kind, owner, operationKey string, payload []byte, maxAtte
 		maxAttempts = 1
 	}
 	if err := j.admissionWorkerReady(); err != nil {
+		return Job{}, err
+	}
+	if err := j.admissionQueueCapacity(); err != nil {
 		return Job{}, err
 	}
 	id, err := newJobID(kind)
@@ -1602,6 +1618,9 @@ func decodeJobStore(data []byte) (jobStore, error) {
 }
 
 type Jobs struct {
+	// maxPending bounds queued plus running durable jobs at enqueue; 0 means
+	// defaultMaxPendingJobs.
+	maxPending    atomic.Int64
 	mu            sync.RWMutex
 	items         map[string]*Job
 	admissionGate *jobadmission.Admission
@@ -1661,6 +1680,48 @@ func (j *Jobs) admissionWorkerReady() error {
 		return fmt.Errorf("%w: %s", ErrDurableWorkerUnavailable, detail)
 	}
 	return nil
+}
+
+// SetMaxPending sets the pending-job admission limit (queued plus running).
+func (j *Jobs) SetMaxPending(limit int) {
+	j.maxPending.Store(int64(limit))
+}
+
+// admissionQueueCapacity refuses a new job while the pending backlog is at
+// the limit. The count and the insert are not one transaction, so concurrent
+// enqueues can overshoot by a few jobs; the limit bounds growth, it is not an
+// exact quota.
+func (j *Jobs) admissionQueueCapacity() error {
+	limit := j.maxPending.Load()
+	if limit <= 0 {
+		limit = defaultMaxPendingJobs
+	}
+	var pending int64
+	if err := j.db.QueryRow(`SELECT COUNT(*) FROM jobs WHERE state IN ('queued', 'running')`).Scan(&pending); err != nil {
+		return fmt.Errorf("count pending durable jobs: %w", err)
+	}
+	if pending >= limit {
+		return fmt.Errorf("%w (%d pending, limit %d)", ErrJobQueueFull, pending, limit)
+	}
+	return nil
+}
+
+// jobAdmissionRefused reports whether an enqueue error is a temporary
+// admission refusal the client should retry later (503), rather than a
+// persistence failure.
+func jobAdmissionRefused(err error) bool {
+	return errors.Is(err, ErrJobQueueFull) || errors.Is(err, ErrDurableWorkerUnavailable)
+}
+
+// writeJobEnqueueError answers a failed enqueue: 503 with Retry-After for an
+// admission refusal, otherwise 500 with message.
+func writeJobEnqueueError(w http.ResponseWriter, err error, message string) {
+	if jobAdmissionRefused(err) {
+		w.Header().Set("Retry-After", "60")
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	http.Error(w, message, http.StatusInternalServerError)
 }
 
 func (j *Jobs) claimsOpen() (bool, string) {

@@ -592,6 +592,7 @@ func Main() {
 		log.Fatalf("open durable control-plane job state: %v", err)
 	}
 	jobs.RequireCompatibleWorker(cfg.WorkerMode == "external")
+	jobs.SetMaxPending(cfg.MaxPendingJobs)
 	if cfg.WorkerMode == "external" && !workerMode {
 		if err := jobs.publishWorkerContract(); err != nil {
 			log.Fatalf("publish durable worker compatibility contract: %v", err)
@@ -1596,7 +1597,7 @@ func (a *App) importBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	queued, _, err := a.Jobs.EnqueueIdempotent("cpmove.restore", user, operationKey, payload, 3)
 	if err != nil {
-		http.Error(w, "could not persist restore job", http.StatusInternalServerError)
+		writeJobEnqueueError(w, err, "could not persist restore job")
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": queued.ID, "status_url": filepath.Join("/api/jobs", queued.ID)})

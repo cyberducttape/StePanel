@@ -453,7 +453,7 @@ func (a *App) cloudAction(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
-		http.Error(w, "could not persist cloud job", http.StatusInternalServerError)
+		writeJobEnqueueError(w, err, "could not persist cloud job")
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "status_url": "/api/jobs/" + job.ID})
@@ -567,7 +567,7 @@ func (a *App) cloudLoadBalancer(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
-		http.Error(w, "could not persist load balancer job", 500)
+		writeJobEnqueueError(w, err, "could not persist load balancer job")
 		return
 	}
 	writeJSON(w, 202, map[string]string{"job_id": job.ID, "status_url": "/api/jobs/" + job.ID})

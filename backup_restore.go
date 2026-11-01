@@ -558,7 +558,7 @@ func (a *App) backupRehearse(w http.ResponseWriter, r *http.Request) {
 	}
 	job, _, err := a.Jobs.EnqueueIdempotent("backup.rehearsal", input.Site, operationKey, payload, 2)
 	if err != nil {
-		http.Error(w, "could not persist rehearsal job", http.StatusInternalServerError)
+		writeJobEnqueueError(w, err, "could not persist rehearsal job")
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "status_url": filepath.Join("/api/jobs", job.ID), "kind": "backup.rehearsal"})
@@ -1216,7 +1216,7 @@ func (a *App) backupRestoreFilesHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	job, err := a.enqueueBackupRestoreJob(durableBackupRestoreRequest{Mode: "files", Site: input.Site, Backup: input.Backup, Actor: a.Auth.UsernameForRequest(r)}, operationKey)
 	if err != nil {
-		http.Error(w, "could not persist restore job", http.StatusInternalServerError)
+		writeJobEnqueueError(w, err, "could not persist restore job")
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "status_url": "/api/jobs/" + job.ID, "mode": "files-only"})
@@ -1353,7 +1353,7 @@ func (a *App) backupRestoreDatabaseHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 	job, err := a.enqueueBackupRestoreJob(durableBackupRestoreRequest{Mode: "database", Site: input.Site, Backup: input.Backup, Database: input.Database, Actor: a.Auth.UsernameForRequest(r)}, operationKey)
 	if err != nil {
-		http.Error(w, "could not persist restore job", http.StatusInternalServerError)
+		writeJobEnqueueError(w, err, "could not persist restore job")
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "status_url": "/api/jobs/" + job.ID, "mode": "database-only", "schema_rollback": "manual"})
@@ -1390,7 +1390,7 @@ func (a *App) backupRestoreOffsiteFilesHTTP(w http.ResponseWriter, r *http.Reque
 	}
 	job, err := a.enqueueBackupRestoreJob(durableBackupRestoreRequest{Mode: "offsite-files", Site: input.Site, Backup: input.Backup, Actor: a.Auth.UsernameForRequest(r)}, operationKey)
 	if err != nil {
-		http.Error(w, "could not persist restore job", http.StatusInternalServerError)
+		writeJobEnqueueError(w, err, "could not persist restore job")
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "status_url": "/api/jobs/" + job.ID, "mode": "offsite-files-only"})
@@ -1428,7 +1428,7 @@ func (a *App) backupRestoreOffsiteDatabaseHTTP(w http.ResponseWriter, r *http.Re
 	}
 	job, err := a.enqueueBackupRestoreJob(durableBackupRestoreRequest{Mode: "offsite-database", Site: input.Site, Backup: input.Backup, Database: input.Database, Actor: a.Auth.UsernameForRequest(r)}, operationKey)
 	if err != nil {
-		http.Error(w, "could not persist restore job", http.StatusInternalServerError)
+		writeJobEnqueueError(w, err, "could not persist restore job")
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "status_url": "/api/jobs/" + job.ID, "mode": "offsite-database-only", "schema_rollback": "manual"})

@@ -97,7 +97,7 @@ func (a *App) issueCertificate(w http.ResponseWriter, r *http.Request) {
 	}
 	job, _, err := a.Jobs.EnqueueIdempotent("certificate.issue", input.Domain, operationKey, payload, 3)
 	if err != nil {
-		http.Error(w, "could not persist certificate job", http.StatusInternalServerError)
+		writeJobEnqueueError(w, err, "could not persist certificate job")
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "status": "queued"})

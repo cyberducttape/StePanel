@@ -107,7 +107,7 @@ func (a *App) startNodeDeployment(w http.ResponseWriter, r *http.Request) {
 	}
 	job, _, err := a.Jobs.EnqueueIdempotent("node.deployment", input.Site, operationKey, payload, 3)
 	if err != nil {
-		http.Error(w, "could not persist deployment", http.StatusInternalServerError)
+		writeJobEnqueueError(w, err, "could not persist deployment")
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "status_url": "/api/jobs/" + job.ID})

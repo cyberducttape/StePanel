@@ -186,7 +186,7 @@ func (a *App) backups(w http.ResponseWriter, r *http.Request) {
 		}
 		job, _, err := a.Jobs.EnqueueIdempotent("site.backup", input.Site, operationKey, payload, 3)
 		if err != nil {
-			http.Error(w, "could not persist backup job", http.StatusInternalServerError)
+			writeJobEnqueueError(w, err, "could not persist backup job")
 			return
 		}
 		writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "status_url": filepath.Join("/api/jobs", job.ID)})
