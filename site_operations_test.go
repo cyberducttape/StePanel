@@ -203,6 +203,22 @@ func TestSiteOperationRequiresScopeBeforeQueueing(t *testing.T) {
 	}
 }
 
+func TestExternalWorkerAdmissionRejectsWhenNoCompatibleWorkerExists(t *testing.T) {
+	app, _ := newSiteOperationFixture(t, http.StatusOK, `{}`)
+	app.Config.WorkerMode = "external"
+	app.Jobs.RequireCompatibleWorker(true)
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/sites/git-deploy", strings.NewReader(`{"site":"shop","repository":"https://github.com/acme/shop.git"}`))
+	request = request.WithContext(context.WithValue(request.Context(), replayedIdentityKey{}, "admin"))
+	app.siteOperation("git.deploy")(response, request)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("admission status = %d %s, want 503", response.Code, response.Body.String())
+	}
+	if len(app.Jobs.List(10)) != 0 {
+		t.Fatal("operation was queued without a compatible external worker")
+	}
+}
+
 func TestSiteOperationReplaysBrowserSessionIdentity(t *testing.T) {
 	app, seen := newSiteOperationFixture(t, http.StatusOK, "done")
 	payload, _ := json.Marshal(siteOperationPayload{Operation: "test.echo", Path: "/api/test/echo", Body: []byte(`{"site":"shop"}`), Site: "shop", Actor: "admin"})

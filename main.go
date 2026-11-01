@@ -591,6 +591,12 @@ func Main() {
 	if err != nil {
 		log.Fatalf("open durable control-plane job state: %v", err)
 	}
+	jobs.RequireCompatibleWorker(cfg.WorkerMode == "external")
+	if cfg.WorkerMode == "external" && !workerMode {
+		if err := jobs.publishWorkerContract(); err != nil {
+			log.Fatalf("publish durable worker compatibility contract: %v", err)
+		}
+	}
 	if _, err := jobs.RequeueExpired(); err != nil {
 		log.Fatalf("requeue expired durable jobs: %v", err)
 	}

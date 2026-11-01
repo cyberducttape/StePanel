@@ -202,6 +202,46 @@ func TestApplicationRecoveryProofRaisesRehearsalLevel(t *testing.T) {
 	}
 }
 
+func TestRecoveryProofCommandGetsMinimalEnvironmentAndDoesNotPersistOutput(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("recovery proof commands must be run as the unprivileged service identity")
+	}
+	t.Setenv("STEPANEL_SESSION_SECRET", "parent-session-secret-test-value")
+	t.Setenv("STEPANEL_BACKUP_ENCRYPTION_KEY", "parent-backup-secret-test-value")
+	t.Setenv("STEPANEL_AUDIT_KEY", "parent-audit-secret-test-value")
+	stage := t.TempDir()
+	proof := filepath.Join(t.TempDir(), "proof")
+	script := "#!/bin/sh\nprintf '%s\\n%s\\n%s\\n%s\\n%s\\n' \\\n  \"${STEPANEL_SESSION_SECRET-unset}\" \\\n  \"${STEPANEL_BACKUP_ENCRYPTION_KEY-unset}\" \\\n  \"${STEPANEL_AUDIT_KEY-unset}\" \\\n  \"$STEPANEL_RECOVERY_PROOF_SITE\" \\\n  \"$STEPANEL_RECOVERY_PROOF_STAGE\" > \"$2/proof-env\"\nprintf 'child-private-output-marker\\n' >&2\nexit 1\n"
+	if err := os.WriteFile(proof, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	err := runRecoveryProofCommand(context.Background(), proof, "shop", stage)
+	if err == nil {
+		t.Fatal("failing proof command succeeded")
+	}
+	if strings.Contains(err.Error(), "child-private-output-marker") || strings.Contains(err.Error(), "parent-") {
+		t.Fatalf("proof output or parent secret leaked through error: %v", err)
+	}
+	data, readErr := os.ReadFile(filepath.Join(stage, "proof-env"))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	want := "unset\nunset\nunset\nshop\n" + stage + "\n"
+	if string(data) != want {
+		t.Fatalf("proof environment = %q, want %q", data, want)
+	}
+}
+
+func TestRecoveryProofCommandRefusesRootExecution(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("requires root to verify proof execution is refused")
+	}
+	err := runRecoveryProofCommand(context.Background(), "/bin/true", "shop", t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "unprivileged StePanel service account") {
+		t.Fatalf("root proof execution error = %v", err)
+	}
+}
+
 func TestFailedApplicationProofIsRecordedAsAttemptWithoutOverclaimingLevel(t *testing.T) {
 	f := newRecoveryFixture(t)
 	proof := filepath.Join(t.TempDir(), "recovery-proof-fail")

@@ -93,6 +93,101 @@ func TestWorkerHeartbeatRequiresCompatibleFreshWorker(t *testing.T) {
 	}
 }
 
+func TestWorkerReadinessRejectsMismatchedRelease(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jobs := newJobsWithDB(db, 1)
+	if err := jobs.publishWorkerHeartbeat("worker-old", "host-a", 42, time.Now().UTC(), durableWorkerJobKinds, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE worker_heartbeats SET protocol_version = ? WHERE worker_id = ?`, durableJobProtocolVersion+1, "worker-old"); err != nil {
+		t.Fatal(err)
+	}
+	ready, detail, err := jobs.workerReadiness(durableWorkerJobKinds, workerHeartbeatFreshness)
+	if err != nil || ready {
+		t.Fatalf("mismatched worker readiness = %v, err %v", ready, err)
+	}
+	if !strings.Contains(detail, fmt.Sprintf("protocol %d", durableJobProtocolVersion+1)) {
+		t.Fatalf("mismatch detail = %q", detail)
+	}
+}
+
+func TestExternalWorkerRefusesPanelContractMismatchBeforeHeartbeat(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jobs := newJobsWithDB(db, 1)
+	jobs.RequireCompatibleWorker(true)
+	if err := jobs.publishWorkerContract(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE worker_control_contract SET protocol_version = ? WHERE id = 1`, durableJobProtocolVersion+1); err != nil {
+		t.Fatal(err)
+	}
+	err = jobs.RunWorker(context.Background(), "worker-old", durableWorkerJobKinds, time.Millisecond, func(context.Context, Job) ([]byte, error) {
+		return nil, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "refusing incompatible durable worker startup") {
+		t.Fatalf("worker startup mismatch error = %v", err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM worker_heartbeats WHERE worker_id = ?`, "worker-old").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatal("incompatible worker published an admissible heartbeat")
+	}
+}
+
+func TestExternalWorkerStopsClaimingAfterPanelContractChanges(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jobs := newJobsWithDB(db, 1)
+	jobs.RequireCompatibleWorker(true)
+	if err := jobs.publishWorkerContract(); err != nil {
+		t.Fatal(err)
+	}
+	jobs.SetClaimGate(func() (bool, string) { return false, "test pause" })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- jobs.RunWorker(ctx, "worker-old", durableWorkerJobKinds, time.Millisecond, func(context.Context, Job) ([]byte, error) {
+			return nil, nil
+		})
+	}()
+	deadline := time.Now().Add(time.Second)
+	for {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM worker_heartbeats WHERE worker_id = ?`, "worker-old").Scan(&count); err == nil && count == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("worker did not publish its initial compatible heartbeat")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if _, err := db.Exec(`UPDATE worker_control_contract SET protocol_version = ? WHERE id = 1`, durableJobProtocolVersion+1); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "worker contract changed") {
+			t.Fatalf("worker did not stop after contract change: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("worker continued claiming-loop after panel contract changed")
+	}
+}
+
 func TestRunWorkerPublishesAndRemovesHeartbeat(t *testing.T) {
 	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control-plane.db"))
 	if err != nil {

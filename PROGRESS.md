@@ -1,5 +1,33 @@
 # Production-readiness progress
 
+## Recovery proof isolation, worker compatibility, and login limiter capacity — 2026-10-31
+
+- Recovery-proof commands now receive a minimal environment containing only a
+  fixed PATH/locale and the requested site/stage. They are refused when the
+  panel process is root, and bounded child output is discarded rather than
+  copied into durable errors. A regression sets known session, encryption,
+  and audit secrets in the parent and checks the child cannot read them; it
+  also verifies child stderr is not preserved.
+- Worker heartbeats now persist a durable job-protocol version. Readiness
+  requires matching protocol, release version, and commit. External mode
+  persists the panel-required contract in SQLite; workers verify it before
+  publishing a heartbeat, and all durable job admission fails closed without
+  a compatible live worker. Migration, worker-startup, mismatch, and
+  admission regressions are added.
+- Login limiter capacity now uses an O(1) LRU list: a full bounded table
+  admits a new key while preserving recently active keys. A capacity test
+  verifies the recent key remains throttled after eviction.
+- Validation passed: `go vet ./...`, `go test -race ./internal/auth`,
+  `go test ./internal/...`, focused root-package regressions for proof
+  environment isolation and worker compatibility/admission, and the complete
+  serialized suite `GOMAXPROCS=2 go test -p 1 -timeout 10m ./...` (latest root
+  package run completed in 72 seconds). Focused root race tests for the worker
+  contract and proof process also pass. Hosted exact-source CI has not yet
+  been run.
+- Remaining work in this finding set: six site-operation routes still replay
+  HTTP handlers. M0s in `DEVELOPMENT_PLAN.md` tracks typed-executor extraction
+  and its authorization/recovery acceptance criteria.
+
 ## Independent audit-checkpoint signing key — 2026-10-31
 
 - Production config validation now refuses an audit checkpoint destination

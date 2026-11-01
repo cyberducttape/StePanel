@@ -3,6 +3,7 @@
 package auth
 
 import (
+	"container/list"
 	"net"
 	"net/http"
 	"strings"
@@ -20,6 +21,8 @@ type loginAttempt struct {
 type Limiter struct {
 	mu      sync.Mutex
 	attempt map[string]loginAttempt
+	order   *list.List
+	entries map[string]*list.Element
 	lastGC  time.Time
 	limit   int
 	window  time.Duration
@@ -47,7 +50,7 @@ func NewLimiterWithPolicy(limit int, window time.Duration) *Limiter {
 	if window <= 0 {
 		window = defaultWindow
 	}
-	return &Limiter{attempt: make(map[string]loginAttempt), lastGC: time.Now(), limit: limit, window: window}
+	return &Limiter{attempt: make(map[string]loginAttempt), order: list.New(), entries: make(map[string]*list.Element), lastGC: time.Now(), limit: limit, window: window}
 }
 
 // Allow admits one attempt when the client remains within the configured
@@ -59,19 +62,30 @@ func (l *Limiter) Allow(key string) bool {
 	if now.Sub(l.lastGC) >= time.Minute {
 		for candidate, attempt := range l.attempt {
 			if now.Sub(attempt.start) >= l.window {
-				delete(l.attempt, candidate)
+				l.removeLocked(candidate)
 			}
 		}
 		l.lastGC = now
 	}
 	attempt := l.attempt[key]
 	if attempt.start.IsZero() || now.Sub(attempt.start) >= l.window {
+		if !attempt.start.IsZero() {
+			l.removeLocked(key)
+		}
 		if len(l.attempt) >= maxKeys {
-			return false
+			// Keep the table bounded without turning high client cardinality
+			// into a hard authentication outage. Per-IP and per-account/IP
+			// limiters remain independent controls; evict only the least
+			// recently used bucket when the bounded table is full.
+			if oldest := l.order.Back(); oldest != nil {
+				l.removeLocked(oldest.Value.(string))
+			}
 		}
 		l.attempt[key] = loginAttempt{count: 1, start: now}
+		l.entries[key] = l.order.PushFront(key)
 		return true
 	}
+	l.order.MoveToFront(l.entries[key])
 	if attempt.count >= l.limit {
 		return false
 	}
@@ -86,8 +100,16 @@ func (l *Limiter) Allow(key string) bool {
 // authenticated user could launder failed guesses against other accounts.
 func (l *Limiter) Reset(key string) {
 	l.mu.Lock()
-	delete(l.attempt, key)
+	l.removeLocked(key)
 	l.mu.Unlock()
+}
+
+func (l *Limiter) removeLocked(key string) {
+	delete(l.attempt, key)
+	if entry := l.entries[key]; entry != nil {
+		l.order.Remove(entry)
+		delete(l.entries, key)
+	}
 }
 
 // Release refunds one previously admitted attempt that turned out not to be
@@ -101,11 +123,12 @@ func (l *Limiter) Release(key string) {
 		return
 	}
 	if attempt.count <= 1 {
-		delete(l.attempt, key)
+		l.removeLocked(key)
 		return
 	}
 	attempt.count--
 	l.attempt[key] = attempt
+	l.order.MoveToFront(l.entries[key])
 }
 
 // ClientIP extracts the peer address without trusting forwarded headers.

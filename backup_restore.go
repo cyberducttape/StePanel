@@ -11,7 +11,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -478,12 +477,10 @@ func (a *App) rehearseBackupArchive(operationCtx context.Context, request durabl
 		run.record.ApplicationProofAttempted = true
 		run.begin()
 		proofCtx, cancel := context.WithTimeout(operationCtx, 15*time.Minute)
-		proof := exec.CommandContext(proofCtx, command, request.Site, stage)
-		proof.Env = append(os.Environ(), "STEPANEL_RECOVERY_PROOF_SITE="+request.Site, "STEPANEL_RECOVERY_PROOF_STAGE="+stage)
-		output, proofErr := runBoundedCommand(proofCtx, proof)
+		proofErr := runRecoveryProofCommand(proofCtx, command, request.Site, stage)
 		cancel()
 		if proofErr != nil {
-			return backupRehearsalResult{}, fmt.Errorf("application recovery proof failed: %w: %s", proofErr, strings.TrimSpace(string(output)))
+			return backupRehearsalResult{}, fmt.Errorf("application recovery proof failed: %w", proofErr)
 		}
 		run.end("application-proof")
 		run.record.Level = recovery.LevelApplication

@@ -26,8 +26,9 @@ import (
 )
 
 var (
-	ErrJobBusy             = errors.New("too many long-running jobs or target is already active")
-	ErrIdempotencyConflict = errors.New("idempotency key was already used with a different request")
+	ErrJobBusy                  = errors.New("too many long-running jobs or target is already active")
+	ErrIdempotencyConflict      = errors.New("idempotency key was already used with a different request")
+	ErrDurableWorkerUnavailable = errors.New("no compatible durable worker is available")
 )
 
 // authorizeDurableSiteJob rechecks tenant policy at execution time. Queue
@@ -53,6 +54,11 @@ func (a *App) authorizeDurableSiteJob(site, actor string, scheduled bool) (Autho
 }
 
 const maxJobStateBytes = 16 << 20
+
+// DurableJobProtocolVersion changes whenever the durable payload or worker
+// execution contract becomes incompatible. It is persisted in heartbeats so
+// deployments can reject mixed worker/control-plane protocols explicitly.
+const durableJobProtocolVersion = 2
 
 func nullString(value string) any {
 	if value == "" {
@@ -199,10 +205,10 @@ func (j *Jobs) publishWorkerHeartbeat(workerID, hostID string, pid int, startedA
 	if err != nil {
 		return err
 	}
-	_, err = j.db.Exec(`INSERT INTO worker_heartbeats (worker_id, host_id, pid, started_at, last_seen, supported_job_kinds, current_jobs, version, build)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(worker_id) DO UPDATE SET host_id=excluded.host_id, pid=excluded.pid, started_at=excluded.started_at, last_seen=excluded.last_seen, supported_job_kinds=excluded.supported_job_kinds, current_jobs=excluded.current_jobs, version=excluded.version, build=excluded.build`,
-		workerID, hostID, pid, startedAt.UnixNano(), time.Now().UTC().UnixNano(), string(supportedJSON), string(currentJSON), Version, Commit)
+	_, err = j.db.Exec(`INSERT INTO worker_heartbeats (worker_id, host_id, pid, started_at, last_seen, supported_job_kinds, current_jobs, version, build, protocol_version)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(worker_id) DO UPDATE SET host_id=excluded.host_id, pid=excluded.pid, started_at=excluded.started_at, last_seen=excluded.last_seen, supported_job_kinds=excluded.supported_job_kinds, current_jobs=excluded.current_jobs, version=excluded.version, build=excluded.build, protocol_version=excluded.protocol_version`,
+		workerID, hostID, pid, startedAt.UnixNano(), time.Now().UTC().UnixNano(), string(supportedJSON), string(currentJSON), Version, Commit, durableJobProtocolVersion)
 	return err
 }
 
@@ -221,16 +227,24 @@ func (j *Jobs) workerReadiness(requiredKinds []string, maxAge time.Duration) (bo
 	if maxAge <= 0 {
 		maxAge = workerHeartbeatFreshness
 	}
-	rows, err := j.db.Query(`SELECT worker_id, last_seen, supported_job_kinds, version, build FROM worker_heartbeats WHERE last_seen >= ?`, time.Now().UTC().Add(-maxAge).UnixNano())
+	rows, err := j.db.Query(`SELECT worker_id, last_seen, supported_job_kinds, version, build, protocol_version FROM worker_heartbeats WHERE last_seen >= ?`, time.Now().UTC().Add(-maxAge).UnixNano())
 	if err != nil {
 		return false, "worker heartbeat query failed: " + err.Error(), err
 	}
 	defer rows.Close()
+	var incompatibleWorker string
 	for rows.Next() {
 		var workerID, kindsJSON, version, build string
 		var lastSeen int64
-		if err := rows.Scan(&workerID, &lastSeen, &kindsJSON, &version, &build); err != nil {
+		var protocolVersion int
+		if err := rows.Scan(&workerID, &lastSeen, &kindsJSON, &version, &build, &protocolVersion); err != nil {
 			return false, "worker heartbeat row is invalid: " + err.Error(), err
+		}
+		if protocolVersion != durableJobProtocolVersion || version != Version || build != Commit {
+			if incompatibleWorker == "" {
+				incompatibleWorker = fmt.Sprintf("worker %s has version %q/build %q/protocol %d; panel requires version %q/build %q/protocol %d", workerID, version, build, protocolVersion, Version, Commit, durableJobProtocolVersion)
+			}
+			continue
 		}
 		var supported []string
 		if err := json.Unmarshal([]byte(kindsJSON), &supported); err != nil {
@@ -254,7 +268,37 @@ func (j *Jobs) workerReadiness(requiredKinds []string, maxAge time.Duration) (bo
 	if err := rows.Err(); err != nil {
 		return false, "worker heartbeat query failed: " + err.Error(), err
 	}
-	return false, fmt.Sprintf("no compatible durable worker heartbeat within %s", maxAge), nil
+	if incompatibleWorker != "" {
+		return false, incompatibleWorker, nil
+	}
+	return false, fmt.Sprintf("no fresh durable worker with matching panel version %q and build %q and required job kinds within %s", Version, Commit, maxAge), nil
+}
+
+func (j *Jobs) publishWorkerContract() error {
+	if j == nil || j.db == nil {
+		return errors.New("worker contract requires the durable control-plane database")
+	}
+	_, err := j.db.Exec(`INSERT INTO worker_control_contract (id, version, build, protocol_version, updated_at)
+		VALUES (1, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET version=excluded.version, build=excluded.build, protocol_version=excluded.protocol_version, updated_at=excluded.updated_at`,
+		Version, Commit, durableJobProtocolVersion, time.Now().UTC().UnixNano())
+	return err
+}
+
+func (j *Jobs) verifyWorkerContract() error {
+	if j == nil || j.db == nil {
+		return errors.New("worker contract store is unavailable")
+	}
+	var version, build string
+	var protocol int
+	err := j.db.QueryRow(`SELECT version, build, protocol_version FROM worker_control_contract WHERE id = 1`).Scan(&version, &build, &protocol)
+	if err != nil {
+		return fmt.Errorf("read panel worker contract: %w", err)
+	}
+	if version != Version || build != Commit || protocol != durableJobProtocolVersion {
+		return fmt.Errorf("worker binary %q/%q protocol %d does not match panel contract %q/%q protocol %d", Version, Commit, durableJobProtocolVersion, version, build, protocol)
+	}
+	return nil
 }
 
 // Claim acquires a durable lease for a queued job. It is the boundary used by
@@ -546,6 +590,9 @@ func (j *Jobs) enqueue(kind, owner, operationKey string, payload []byte, maxAtte
 	}
 	if maxAttempts < 1 {
 		maxAttempts = 1
+	}
+	if err := j.admissionWorkerReady(); err != nil {
+		return Job{}, err
 	}
 	id, err := newJobID(kind)
 	if err != nil {
@@ -1184,6 +1231,11 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 	if j.db == nil || strings.TrimSpace(owner) == "" || handler == nil {
 		return errors.New("durable worker requires a database, owner, and handler")
 	}
+	if j.requireCompatibleWorker.Load() {
+		if err := j.verifyWorkerContract(); err != nil {
+			return fmt.Errorf("refusing incompatible durable worker startup: %w", err)
+		}
+	}
 	if poll <= 0 {
 		poll = time.Second
 	}
@@ -1238,6 +1290,11 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 	defer requeueTicker.Stop()
 	paused := false
 	for {
+		if j.requireCompatibleWorker.Load() {
+			if err := j.verifyWorkerContract(); err != nil {
+				return fmt.Errorf("worker contract changed; refusing further job claims: %w", err)
+			}
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -1574,13 +1631,36 @@ type Jobs struct {
 	integrityAt  time.Time
 	integrityErr error
 	// claimGate, when set, must report open before a worker claims a job.
-	claimGate atomic.Pointer[func() (bool, string)]
+	claimGate               atomic.Pointer[func() (bool, string)]
+	requireCompatibleWorker atomic.Bool
 }
 
 // SetClaimGate makes workers claim jobs only while gate reports open. The
 // panel and the external worker use it to wait for startup recovery.
 func (j *Jobs) SetClaimGate(gate func() (bool, string)) {
 	j.claimGate.Store(&gate)
+}
+
+// RequireCompatibleWorker makes durable job admission fail closed unless a
+// fresh worker matches this process release, build, protocol, and job-kind
+// contract. Both panel and external-worker processes enable it in external
+// worker mode.
+func (j *Jobs) RequireCompatibleWorker(required bool) {
+	j.requireCompatibleWorker.Store(required)
+}
+
+func (j *Jobs) admissionWorkerReady() error {
+	if !j.requireCompatibleWorker.Load() {
+		return nil
+	}
+	ready, detail, err := j.workerReadiness(durableWorkerJobKinds, workerHeartbeatFreshness)
+	if err != nil || !ready {
+		if strings.TrimSpace(detail) == "" {
+			detail = "worker heartbeat is unavailable"
+		}
+		return fmt.Errorf("%w: %s", ErrDurableWorkerUnavailable, detail)
+	}
+	return nil
 }
 
 func (j *Jobs) claimsOpen() (bool, string) {

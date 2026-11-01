@@ -32,15 +32,38 @@ func TestLimiterWindowAndReset(t *testing.T) {
 	}
 }
 
-func TestLimiterBoundsDistinctClients(t *testing.T) {
+func TestLimiterEvictsLeastRecentlyUsedBucketAtCapacity(t *testing.T) {
 	limiter := NewLimiter()
-	for i := 0; i < maxKeys; i++ {
-		if !limiter.Allow(fmt.Sprintf("192.0.2.%d", i)) {
+	if !limiter.Allow("client-0") {
+		t.Fatal("first client rejected")
+	}
+	for i := 0; i < maxKeys-1; i++ {
+		key := fmt.Sprintf("client-%d", i)
+		if i == 0 {
+			continue
+		}
+		if !limiter.Allow(key) {
 			t.Fatalf("client %d was unexpectedly rejected", i)
 		}
 	}
-	if limiter.Allow("198.51.100.1") {
-		t.Fatal("limiter accepted state beyond its configured bound")
+	if !limiter.Allow("protected") {
+		t.Fatal("protected client rejected")
+	}
+	protected := limiter.attempt["protected"]
+	protected.count = limiter.limit
+	limiter.attempt["protected"] = protected
+
+	if !limiter.Allow("legitimate-new-client") {
+		t.Fatal("new client was rejected when the bounded table was full")
+	}
+	if len(limiter.attempt) != maxKeys {
+		t.Fatalf("tracked keys = %d, want bounded at %d", len(limiter.attempt), maxKeys)
+	}
+	if _, ok := limiter.attempt["client-0"]; ok {
+		t.Fatal("least recently used bucket was not evicted")
+	}
+	if limiter.Allow("protected") {
+		t.Fatal("recently used client's failure limit was lost during eviction")
 	}
 }
 

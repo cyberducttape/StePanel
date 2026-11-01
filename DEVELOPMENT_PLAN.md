@@ -12,6 +12,44 @@ successful one-off smoke does not close a host-certification gate.
 
 ## Milestones
 
+### M0r — Isolate recovery-proof execution and reject incompatible workers (P1)
+
+**Status:** Partially implemented locally; exact-source CI pending. Login
+limiter capacity handling is also improved. Typed executors remain unfinished
+for six site-operation routes and are tracked separately below.
+
+**Acceptance criteria**
+
+- Recovery proof children receive only an explicit environment allowlist,
+  execute only under the unprivileged panel identity, and never persist
+  arbitrary child output in job/rehearsal errors.
+- A regression gives the parent known test secrets and verifies the child
+  cannot read them; failure output is not retained.
+- Worker heartbeats include a durable job-protocol version. Readiness and
+  external-worker admission reject mismatched release/build/protocol values.
+- Login limiter memory remains bounded and a full table does not reject a new
+  identity; active recent buckets retain their limits and eviction is O(1).
+- Focused tests, full repository checks, and exact-source CI pass.
+
+### M0s — Remove HTTP-handler replay from durable site operations (P1)
+
+**Status:** Open. Four routes already use typed executors; six routes still
+replay handlers: release pipeline, Git deploy, staging create/promote, and
+local/offsite restore-to-staging. Complete this extraction without changing
+HTTP authorization, audit, mutation-lock, webhook, or recovery semantics.
+
+**Acceptance criteria**
+
+- All site-operation route entries have typed executors; HTTP handlers only
+  parse/authenticate/authorize and enqueue, while workers invoke domain
+  services directly.
+- Webhook deployments retain their signed-site binding and revalidate current
+  webhook configuration before execution.
+- API-token ownership and scopes are revalidated at execution; session jobs
+  use immutable actor/site identity and re-check current ownership.
+- Regression tests cover enqueue, retry, cancellation, authorization revocation,
+  and error serialization for the converted operations.
+
 ### M0q — Require independent signing key for production audit checkpoints (P1)
 
 **Status:** Implemented; focused configuration and checkpoint tests and full

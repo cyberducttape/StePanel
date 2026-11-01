@@ -474,6 +474,22 @@ CREATE INDEX recovery_rehearsals_application_proof_idx ON recovery_rehearsals(si
 		_, err := tx.Exec(`ALTER TABLE jobs ADD COLUMN lease_token TEXT`)
 		return err
 	}),
+	migration.NewMigrationWithCheck(27, "record durable worker job protocol version", func(tx *sql.Tx) (bool, error) {
+		return controlPlaneColumnExists(tx, "worker_heartbeats", "protocol_version")
+	}, func(tx *sql.Tx) error {
+		_, err := tx.Exec(`ALTER TABLE worker_heartbeats ADD COLUMN protocol_version INTEGER NOT NULL DEFAULT 1`)
+		return err
+	}),
+	migration.NewMigration(28, "record the panel-required durable worker contract", func(tx *sql.Tx) error {
+		_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS worker_control_contract (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			version TEXT NOT NULL,
+			build TEXT NOT NULL,
+			protocol_version INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL
+		)`)
+		return err
+	}),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {
