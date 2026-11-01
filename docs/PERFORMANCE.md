@@ -79,10 +79,10 @@ export STEPANEL_MAX_CONCURRENT_JOBS=8
 ```bash
 # Default: 20 GB per upload
 export STEPANEL_MAX_UPLOAD_BYTES=$((20 * 1024 * 1024 * 1024))
+export STEPANEL_CPMOVE_MAX_UPLOAD_BYTES=$((40 * 1024 * 1024 * 1024))
 
-# Values above 20 GiB are rejected by config validation. There is no supported
-# 50 GiB setting in v0.7.0; larger migrations must be staged with an external
-# workflow until a future release changes and revalidates this ceiling.
+# Ordinary uploads above 20 GiB and cPanel archives above 40 GiB are rejected
+# by config validation. Capacity admission may still reject smaller archives.
 ```
 
 ### Archive Entry Limits

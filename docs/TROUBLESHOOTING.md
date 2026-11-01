@@ -258,7 +258,7 @@ rm -rf /var/lib/ste-panel/backups/example.com/2026-09-17-120000
 
 ---
 
-### "backup exceeds the 20 GiB upload limit"
+### "backup exceeds the configured upload limit"
 
 **Symptoms:** Restore fails when importing cpmove backup.
 
@@ -272,10 +272,13 @@ ls -lh /path/to/archive.tar.gz
 # Split large archive (if possible)
 tar -czf archive-split-01.tar.gz --exclude='path/to/large/dir' /path/to/archive
 
-# Or increase limit (if you have disk space)
-export STEPANEL_MAX_UPLOAD_BYTES=$((20 * 1024 * 1024 * 1024))  # 20 GiB maximum
+# Raise the cPanel-specific ceiling (40 GiB maximum); ordinary uploads
+# continue to use STEPANEL_MAX_UPLOAD_BYTES.
+export STEPANEL_CPMOVE_MAX_UPLOAD_BYTES=$((40 * 1024 * 1024 * 1024))
 sudo systemctl restart stepanel
 ```
+
+A larger compressed upload does not imply enough destination capacity. Build and review the destination plan; it checks current ownership, site-name collisions, database compatibility, expanded-tree requirements, and available capacity before allowing import.
 
 ---
 

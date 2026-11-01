@@ -116,6 +116,20 @@ func TestValidateConfigRejectsMalformedSafetyLimit(t *testing.T) {
 	}
 }
 
+func TestCPMoveUploadLimitIsIndependentAndCappedAt40GiB(t *testing.T) {
+	t.Setenv("STEPANEL_MAX_UPLOAD_BYTES", "21474836480")
+	t.Setenv("STEPANEL_CPMOVE_MAX_UPLOAD_BYTES", "42949672960")
+	cfg := LoadConfig()
+	if cfg.MaxUpload != 20<<30 || cfg.CPMoveMaxUpload != 40<<30 {
+		t.Fatalf("upload limits = ordinary %d cpmove %d", cfg.MaxUpload, cfg.CPMoveMaxUpload)
+	}
+	t.Setenv("STEPANEL_CPMOVE_MAX_UPLOAD_BYTES", "42949672961")
+	cfg = LoadConfig()
+	if cfg.CPMoveMaxUpload != 40<<30 {
+		t.Fatalf("invalid cPanel limit should retain safe default, got %d", cfg.CPMoveMaxUpload)
+	}
+}
+
 func TestValidateConfigRequiresAbsoluteDatabaseDataDirInProduction(t *testing.T) {
 	cfg := LoadConfig()
 	cfg.Production = true

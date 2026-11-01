@@ -345,7 +345,8 @@ In an interactive terminal, the installer asks for the database engine and versi
 | `STEPANEL_RECOVERY_PROOF_COMMAND` | Absolute executable path | Optional application-level recovery proof command; invoked as `<site> <temporary-stage>` and must restore the database, regenerate configuration, activate services, and verify application HTTP success |
 | `STEPANEL_WORDPRESS_RECOVERY_PROOF` | `manual` (default), `always`, `off` | When rehearsals run the built-in WordPress application proof (a throwaway site, database, and route on this host; see OPERATIONS.md). `manual`: operator-requested rehearsals; `always`: also automatic post-backup rehearsals |
 | `STEPANEL_MIN_FREE_BYTES` | Bytes | Refuse new restores below this free-space threshold |
-| `STEPANEL_MAX_UPLOAD_BYTES` | Bytes, up to 20 GiB | Maximum compressed restore request size; uploads without `Content-Length` are reserved progressively up to this ceiling |
+| `STEPANEL_MAX_UPLOAD_BYTES` | Bytes, up to 20 GiB | Maximum ordinary restore request size; uploads without `Content-Length` are reserved progressively up to this ceiling |
+| `STEPANEL_CPMOVE_MAX_UPLOAD_BYTES` | Bytes, up to 40 GiB | Separate compressed cPanel archive limit. The import still enforces the 80 GiB expanded-tree and entry-count limits and requires capacity for the archive, extracted staging trees, database growth, and configured free-space reserve. |
 | `STEPANEL_DB_DATA_DIR` | Absolute directory | Local database data filesystem used for restore admission and cross-process capacity reservations; defaults to `/var/lib/mysql` (or the PostgreSQL data root) when the database is local. Set this explicitly for a nonstandard data directory. |
 | `STEPANEL_MAX_ARCHIVE_ENTRIES` | `1`–`1000000` | Maximum filesystem entries in a restore or backup |
 | `STEPANEL_MAX_CONCURRENT_JOBS` | `1`–`32` | Global restore, backup, and certificate job slots |

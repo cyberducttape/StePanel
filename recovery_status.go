@@ -62,10 +62,11 @@ func (a *App) maybeEnqueueScheduledRehearsal(ctx context.Context, site, backup s
 // siteRecoveryResponse is the recovery status plus recent history.
 type siteRecoveryResponse struct {
 	recovery.Status
-	History                     []recovery.Rehearsal `json:"history"`
-	RehearsalIntervalHours      int                  `json:"rehearsal_interval_hours"`
-	AutomaticRehearsalsEnabled  bool                 `json:"automatic_rehearsals_enabled"`
-	ScheduledBackupsForThisSite bool                 `json:"scheduled_backups"`
+	History                          []recovery.Rehearsal `json:"history"`
+	RehearsalIntervalHours           int                  `json:"rehearsal_interval_hours"`
+	AutomaticRehearsalsEnabled       bool                 `json:"automatic_rehearsals_enabled"`
+	AutomaticApplicationProofEnabled bool                 `json:"automatic_application_proof_enabled"`
+	ScheduledBackupsForThisSite      bool                 `json:"scheduled_backups"`
 }
 
 // siteRecovery serves GET /api/sites/recovery/{site}.
@@ -136,10 +137,11 @@ func (a *App) buildSiteRecovery(ctx context.Context, access SiteCapability) (sit
 		scheduled = ok && schedule.Enabled
 	}
 	return siteRecoveryResponse{
-		Status:                      recovery.Assess(in),
-		History:                     history,
-		RehearsalIntervalHours:      a.Config.RehearsalIntervalHours,
-		AutomaticRehearsalsEnabled:  a.Config.RehearsalIntervalHours > 0,
-		ScheduledBackupsForThisSite: scheduled,
+		Status:                           recovery.Assess(in),
+		History:                          history,
+		RehearsalIntervalHours:           a.Config.RehearsalIntervalHours,
+		AutomaticRehearsalsEnabled:       a.Config.RehearsalIntervalHours > 0,
+		AutomaticApplicationProofEnabled: a.Config.RecoveryProofCommand != "" || wordpressProofEnabled(a.Config, true),
+		ScheduledBackupsForThisSite:      scheduled,
 	}, nil
 }

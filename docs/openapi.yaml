@@ -1127,7 +1127,7 @@ paths:
         '200': {description: Archive inventory}
         '408': {description: Upload stalled (no body bytes for 2 minutes)}
         '411': {description: No Content-Length and no configured upload ceiling to admit against}
-        '413': {description: Archive exceeds STEPANEL_MAX_UPLOAD_BYTES}
+        '413': {description: Archive exceeds STEPANEL_CPMOVE_MAX_UPLOAD_BYTES (maximum 40 GiB)}
         '507': {description: Insufficient free space for the archive, extraction, staging, and reserve after outstanding upload reservations}
   /api/v1/cpmove/import:
     post:
@@ -1146,14 +1146,35 @@ paths:
           multipart/form-data:
             schema:
               type: object
-              required: [upload_id, username, confirm]
+              required: [upload_id, username, confirm, destination_preview_token]
               properties:
                 upload_id: {type: string}
                 username: {type: string}
                 confirm: {type: string, example: IMPORT}
                 restore_databases: {type: string}
+                destination_preview_token: {type: string, description: Short-lived signed token returned by cpmove/plan and bound to the inspected archive, account, and database choice}
       responses:
         '202': {description: Restore job queued}
+        '409': {description: Destination plan expired, changed, or now has a blocker; build and review the plan again}
+  /api/v1/cpmove/plan:
+    post:
+      summary: Build and sign a destination-specific cPanel migration plan
+      operationId: planMigrationDestination
+      x-stepanel-cli: migration plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [upload_id, username, restore_databases]
+              properties:
+                upload_id: {type: string}
+                username: {type: string}
+                restore_databases: {type: boolean}
+      responses:
+        '200': {description: Ownership, site-name, database, capacity, mapping, and recovery plan; blocked plans have no confirmation token}
+        '404': {description: Upload missing, expired, or owned by another administrator}
   /api/v1/wpress/preflight:
     get:
       summary: Check WordPress restore dependencies

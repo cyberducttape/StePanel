@@ -15,6 +15,7 @@ export const contractOperations: readonly ContractOperation[] = [
   { id: "createBackup", method: "POST", path: "/api/v1/backups", cliCommand: "backup create" },
   { id: "inspectMigrationArchive", method: "POST", path: "/api/v1/cpmove/inspect", cliCommand: "migration inspect" },
   { id: "importMigrationArchive", method: "POST", path: "/api/v1/cpmove/import", cliCommand: "migration import" },
+  { id: "planMigrationDestination", method: "POST", path: "/api/v1/cpmove/plan", cliCommand: "migration plan" },
   { id: "listJobs", method: "GET", path: "/api/v1/jobs", cliCommand: "jobs list" },
   { id: "getJob", method: "GET", path: "/api/v1/jobs/", cliCommand: "jobs watch" }
 ];

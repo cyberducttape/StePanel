@@ -10,7 +10,7 @@ _stepanelctl_complete() {
     backup) COMPREPLY=( $(compgen -W "create list" -- "$cur") ) ;;
     diagnostics) COMPREPLY=( $(compgen -W "collect" -- "$cur") ) ;;
     jobs) COMPREPLY=( $(compgen -W "list watch" -- "$cur") ) ;;
-    migration) COMPREPLY=( $(compgen -W "import inspect" -- "$cur") ) ;;
+    migration) COMPREPLY=( $(compgen -W "import inspect plan" -- "$cur") ) ;;
     restore) COMPREPLY=( $(compgen -W "database files staging" -- "$cur") ) ;;
     site) COMPREPLY=( $(compgen -W "create inspect" -- "$cur") ) ;;
     sites) COMPREPLY=( $(compgen -W "list" -- "$cur") ) ;;

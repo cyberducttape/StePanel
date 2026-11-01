@@ -365,6 +365,31 @@ applied and verified.
 
 ## HTTP timeouts
 
+## cPanel migration admission and recovery evidence
+
+The migration UI separates archive inspection from destination admission.
+Inspection inventories source metadata; “Check destination and build plan”
+then binds the selected account and database choice to a short-lived signed
+preview. The plan reports source-to-site mappings, existing ownership/routes,
+database compatibility, capacity admission, and the durable recovery
+checkpoint. Import is rejected if the preview expires or the selected inputs
+change, and the worker repeats the conflict and capacity checks after taking
+the site mutation lock. cPanel uploads have a separate default 40 GiB ceiling
+(`STEPANEL_CPMOVE_MAX_UPLOAD_BYTES`); expanded size, entry count, inode
+overhead, database growth, and free-space reserve remain independently
+bounded.
+
+The import uses StePanel's durable filesystem/database recovery workflow and
+can run the built-in disposable WordPress proof. That proof is an isolated
+rehearsal of the archive, not a pre-cutover test of the final public DNS/TLS
+route. DNS is not changed by import. The migration report keeps DNS cutover,
+destination TLS, and live-domain HTTP verification as separate operator
+checks. Configure a per-site backup schedule and automatic application proof
+if the site is to receive recurring application-level restore rehearsals.
+Recovery status reports the age of the latest verified backup as an observed
+RPO indicator and duration of the last passing rehearsal as measured RTO; these
+are measurements, not service guarantees.
+
 The panel applies one deadline class per request path
 (`internal/http/timeouts.go`). Headers must arrive within 5 seconds and idle
 keep-alive connections close after 30 seconds on every path.

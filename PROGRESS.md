@@ -1,5 +1,39 @@
 # Production-readiness progress
 
+## cPanel migration destination plan and recovery evidence — 2026-10-31
+
+- Added a separate `STEPANEL_CPMOVE_MAX_UPLOAD_BYTES` setting (default 40 GiB,
+  maximum 40 GiB) without increasing ordinary restore uploads. Archive expanded
+  size, entry count, filesystem metadata overhead, database growth, and free
+  space checks remain independently enforced.
+- Added an authenticated destination-plan API and dashboard step. It resolves
+  imported domain names against current site placements/filesystem paths,
+  checks target ownership, existing domain routes, MySQL compatibility, and
+  capacity, then signs the reviewed archive/target/database/mapping state.
+  Import rejects stale/missing previews and the worker repeats capacity and
+  conflict checks after the site mutation lock. The CLI now follows the same
+  inspect → plan → import contract; generated SDK and completions were updated.
+- After import, the migration report fetches per-site recovery status and shows
+  the last verified backup, measured rehearsal duration, observed recovery
+  point age, recurring rehearsal/application-proof configuration, and
+  confidence. The normal site recovery panel also labels observed RPO age and
+  measured RTO clearly.
+- Verified boundaries: import still does not update public DNS or prove the
+  destination's public TLS/HTTP route. The WordPress proof is a disposable
+  application rehearsal, and not a pre-activation customer-facing staging
+  site. The report and operations docs state these limits instead of implying
+  cutover is verified. A site needs a backup schedule and enabled application
+  proof for recurring application-level recovery drills.
+- Focused destination-plan/config tests and JavaScript syntax checks passed.
+  The first full `make check` exposed a legacy no-upload-ceiling fixture after
+  the new cPanel limit was introduced; that case was corrected so an explicit
+  zero limit still rejects chunked uploads before reading. Final validation:
+  `make check` passed (API artifact freshness, shell contract, vet, full Go
+  suite), and focused `go test -race` passed for destination plan/token and
+  upload admission. `npm run test:unit` passed (17/17), and both changed
+  browser modules passed `node --check`. Browser E2E and installed-host 40
+  GiB, WordPress, DNS/TLS, and scheduled recovery drills were not run here.
+
 ## HTTP 503 incident correlation — 2026-10-31
 
 - Extended the site systemd resource snapshot with active/substate/result and

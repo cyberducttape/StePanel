@@ -12,6 +12,8 @@
   let inspection;
   let uploadID = '';
   let currentPreview;
+  let destinationPlan;
+  let destinationToken = '';
   const preview = document.createElement('section');
   preview.className = 'migration-preview';
   preview.setAttribute('aria-label', 'Migration preview');
@@ -31,6 +33,14 @@
     let unit = 0;
     while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
     return `${value.toFixed(unit ? 1 : 0)} ${units[unit]}`;
+  };
+
+  const formatAgeSeconds = (seconds) => {
+    if (!Number.isFinite(seconds) || seconds < 0) return 'unknown';
+    if (seconds < 60) return `${Math.floor(seconds)} seconds`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)} minutes`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours`;
+    return `${Math.floor(seconds / 86400)} days`;
   };
 
   const summary = (info) => [
@@ -100,6 +110,32 @@
       row.append(name, source, details); list.append(row);
     });
     preview.append(list);
+    const destination = document.createElement('section'); destination.className = 'migration-destination-plan';
+    const destinationHeading = document.createElement('h4'); destinationHeading.textContent = 'Destination and recovery plan'; destination.append(destinationHeading);
+    const destinationStatus = document.createElement('p'); destinationStatus.setAttribute('role', 'status'); destination.append(destinationStatus);
+    const planButton = document.createElement('button'); planButton.type = 'button'; planButton.className = 'button-secondary'; planButton.textContent = 'Check destination and build plan';
+    const planDetails = document.createElement('div'); destination.append(planButton, planDetails); preview.append(destination);
+    const renderDestinationPlan = (plan) => {
+      planDetails.replaceChildren();
+      const summary = document.createElement('p'); summary.textContent = `${plan.status === 'ready' ? 'Ready for review' : 'Blocked'} · target account ${plan.target_account} · ${formatBytes(plan.archive_bytes)} compressed · ${formatBytes(plan.expanded_bytes)} expanded · estimated free space required ${formatBytes(plan.required_free_bytes || 0)}${plan.restore_databases ? ` · database growth estimate ${formatBytes(plan.database_bytes || 0)}` : ' · database dumps will not be restored'}`; planDetails.append(summary);
+      renderTable(planDetails, 'Resolved destination mappings', plan.domain_mappings, [['Source domain', 'source_domain'], ['Type', 'kind'], ['Source document root', 'source_document_root'], ['Destination', 'destination'], ['Status', 'status'], ['Notes', 'details']]);
+      [['Blockers', plan.blockers], ['Review before cutover', plan.warnings], ['Rollback and recovery', plan.rollback_plan]].forEach(([title, items]) => { if (!items?.length) return; const section = document.createElement('section'); const h = document.createElement('h5'); h.textContent = title; section.append(h); const ul = document.createElement('ul'); items.forEach((item) => { const li = document.createElement('li'); li.textContent = item; ul.append(li); }); section.append(ul); planDetails.append(section); });
+      destinationToken = plan.preview_token || '';
+      button.disabled = !destinationToken || plan.status !== 'ready';
+      destinationStatus.textContent = plan.status === 'ready' ? 'Plan is signed for these current inputs and expires shortly. Rebuild it after changing the target or database option.' : 'Resolve the blockers before importing.';
+      const report = { generated_at: new Date().toISOString(), phase: 'destination_plan', source: currentPreview, destination_plan: plan };
+      addReportDownloads(report, planDetails);
+    };
+    planButton.addEventListener('click', async () => {
+      if (!uploadID) return;
+      planButton.disabled = true; button.disabled = true; destinationToken = '';
+      destinationStatus.textContent = 'Checking account ownership, site-name collisions, database support, and disk capacity…';
+      try {
+        destinationPlan = await StepanelAPI.request('/api/cpmove/plan', { method: 'POST', json: { upload_id: uploadID, username: user.value.trim(), restore_databases: database.checked } });
+        renderDestinationPlan(destinationPlan);
+      } catch (error) { destinationStatus.textContent = `Could not build destination plan: ${error.message}`; }
+      finally { planButton.disabled = false; }
+    });
     const report = { generated_at: new Date().toISOString(), phase: 'pre_migration', ...info };
     addReportDownloads(report, preview);
     renderTable(preview, 'Domain mapping', info.domain_mappings, [
@@ -163,6 +199,15 @@
     addTable('TLS certificate differences (public metadata only)', report.tls_certificates, [[(r) => (r.domains || []).join(', ') || 'unknown', 'Hostnames'], ['status', 'Source status'], ['not_after', 'Source expiry'], ['destination_status', 'Destination'], ['fingerprint_sha256', 'SHA-256 fingerprint'], ['details', 'Details']]);
     addTable('Rollback and recovery checkpoints', report.rollback_checkpoints, [['name', 'Checkpoint'], ['status', 'State'], ['at', 'Recorded'], ['journal_id', 'Recovery journal'], ['details', 'Recovery guidance']]);
     addTable('Post-migration verification', report.post_migration_checks, [['status', 'Status'], ['name', 'Check'], ['details', 'Details']]);
+    if (report.destination_plan) {
+      lines.push('## Destination plan', '', `- Status: ${safeLine(report.destination_plan.status)}`, `- Target account: ${safeLine(report.destination_plan.target_account)}`, `- Required free space: ${safeLine(formatBytes(report.destination_plan.required_free_bytes || 0))}`, '');
+      addTable('Resolved domain destinations', report.destination_plan.domain_mappings, [['source_domain','Source'],['kind','Type'],['destination','Destination'],['status','Status'],['details','Notes']]);
+      for (const [heading, values] of [['Blockers', report.destination_plan.blockers], ['Warnings', report.destination_plan.warnings], ['Rollback plan', report.destination_plan.rollback_plan]]) if (values?.length) lines.push(`### ${heading}`, '', ...values.map((item) => `- ${safeLine(item)}`), '');
+    }
+    if (report.site_recovery_status) {
+      const recovery = report.site_recovery_status;
+      lines.push('## Site recovery evidence', '', `- Confidence: ${safeLine(recovery.confidence_level || 'unknown')}`, `- Measured recovery time (observed RTO): ${recovery.measured_recovery_ms ? `${(recovery.measured_recovery_ms / 1000).toFixed(1)} seconds` : 'not measured'}`, `- Observed recovery-point age (RPO indicator): ${Number.isFinite(recovery.recovery_point_age_seconds) ? `${recovery.recovery_point_age_seconds} seconds; not an RPO guarantee` : 'not measured'}`, `- Automatic rehearsal: ${recovery.automatic_rehearsals_enabled ? `${recovery.rehearsal_interval_hours} hour interval` : 'disabled'}`, `- Automatic application proof: ${recovery.automatic_application_proof_enabled ? 'configured' : 'not configured'}`, '');
+    }
     addTable('Component dispositions', report.components, [['category', 'Component'], ['source', 'Source'], ['target', 'Destination'], ['disposition', 'Disposition'], ['details', 'Notes']]);
     if (report.source_scan) {
       const source = report.source_scan.source_inventory || {};
@@ -268,6 +313,7 @@
     if (inspection) inspection.abort();
     inspection = null;
     uploadID = '';
+    destinationToken = ''; destinationPlan = null;
     currentPreview = null;
     preview.replaceChildren();
     StepanelUI.setStatus(result, '');
@@ -305,6 +351,7 @@
       currentPreview = info;
       if (info.database_count > 0) database.checked = true;
       renderPreview(info);
+      button.disabled = true;
       StepanelUI.setStatus(status, `Ready: ${summary(info)}. DNS records and scheduled task commands are not imported; the result will show observed schedules and cutover work.`, 'warning');
     } catch (error) {
       file.required = true;
@@ -317,25 +364,42 @@
       if (inspection === controller) {
         inspection = null;
         cancelUpload.hidden = true;
-        button.disabled = false;
+        button.disabled = Boolean(uploadID);
       }
     }
   });
 
   cancelUpload.addEventListener('click', () => inspection?.abort());
 
+  const invalidateDestinationPlan = () => {
+    destinationToken = ''; destinationPlan = null; button.disabled = Boolean(uploadID);
+    const note = preview.querySelector('.migration-destination-plan [role="status"]');
+    if (note && uploadID) note.textContent = 'Destination inputs changed. Rebuild the plan before import.';
+  };
+  user.addEventListener('input', invalidateDestinationPlan);
+  database.addEventListener('change', invalidateDestinationPlan);
+
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     if (!uploadID) { StepanelUI.setStatus(result, 'Inspect the selected backup before importing.', 'warning'); return; }
+    if (!destinationToken) { StepanelUI.setStatus(result, 'Build and review the destination plan before importing.', 'warning'); return; }
     button.disabled = true;
     StepanelUI.setStatus(result, 'Queueing import…', 'pending');
     const body = new FormData(form);
     body.delete('backup'); body.append('upload_id', uploadID);
+    body.append('destination_preview_token', destinationToken);
     try {
       const data = await StepanelAPI.request('/api/cpmove/import', { method: 'POST', body });
       StepanelUI.setStatus(result, 'Import queued; follow it in Operations.', 'pending');
       const job = await StepanelJobs.wait(data.job_id);
       const value = job.result || {};
+      if (job.state === 'completed' && value.user) {
+        try {
+          value.site_recovery_status = await StepanelAPI.request(`/api/sites/recovery/${encodeURIComponent(value.user)}`);
+        } catch (error) {
+          value.site_recovery_status = { evidence_unavailable: error.message };
+        }
+      }
       const evidence = value.migration_evidence || [];
       const dispositions = value.components || [];
       const needsReview = job.state !== 'completed' || dispositions.some((item) => ['skipped', 'unsupported', 'failed'].includes(item.disposition)) || (value.application_rehearsal && value.application_rehearsal.status !== 'passed');
@@ -357,6 +421,23 @@
       renderTable(result, 'Rollback and recovery checkpoints', value.rollback_checkpoints, [
         ['Checkpoint', 'name'], ['State', 'status'], ['Recorded', (item) => item.at ? new Date(item.at).toLocaleString() : 'unknown'], ['Recovery journal', 'journal_id'], ['Recovery guidance', 'details'],
       ]);
+      if (value.site_recovery_status) {
+        const recovery = value.site_recovery_status;
+        const section = document.createElement('section'); section.className = 'migration-recovery-evidence';
+        const title = document.createElement('h3'); title.textContent = 'Site recovery evidence after import'; section.append(title);
+        const facts = document.createElement('ul');
+        const rows = [
+          ['Last verified recovery point', recovery.last_backup?.verified_at || recovery.last_backup?.created_at ? new Date(recovery.last_backup.verified_at || recovery.last_backup.created_at).toLocaleString() : 'No verified backup is recorded'],
+          ['Measured recovery time (observed RTO)', recovery.measured_recovery_ms ? `${(recovery.measured_recovery_ms / 1000).toFixed(1)} seconds` : 'Not measured by a passing rehearsal'],
+          ['Observed recovery-point age (RPO indicator)', Number.isFinite(recovery.recovery_point_age_seconds) ? `${formatAgeSeconds(recovery.recovery_point_age_seconds)}; observed backup age, not a guarantee` : 'Not measured'],
+          ['Automatic rehearsal', recovery.automatic_rehearsals_enabled ? `Enabled at ${recovery.rehearsal_interval_hours} hour interval` : 'Not enabled'],
+          ['Automatic application proof', recovery.automatic_application_proof_enabled ? 'Configured; verify the recorded proof level below' : 'Not configured; scheduled drills may prove archive recovery only'],
+          ['Automatic drill cadence', recovery.scheduled_backups ? 'A site backup schedule exists; restore rehearsals follow produced backups subject to the server interval' : 'No recurring backup schedule is configured for this site'],
+          ['Evidence status', recovery.confidence_level || recovery.evidence_unavailable || 'No recovery evidence recorded'],
+        ];
+        rows.forEach(([labelText, valueText]) => { const li = document.createElement('li'); const strong = document.createElement('strong'); strong.textContent = `${labelText}: `; li.append(strong, document.createTextNode(String(valueText))); facts.append(li); });
+        section.append(facts); result.append(section);
+      }
       if (job.state === 'completed') result.append(renderMigrationEvidence(evidence));
       if (dispositions.length) result.append(renderReportComponents(dispositions));
       if (value.application_rehearsal) {

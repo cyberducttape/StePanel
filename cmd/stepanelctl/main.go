@@ -40,7 +40,7 @@ Commands:
   sites list | site inspect NAME | site create --site NAME [--template php|wordpress]
   backup list [--site NAME] | backup create --site NAME [--include-databases] [--wait]
   restore files|database|staging ... (live restores require exact confirmation)
-  migration inspect --file ARCHIVE | migration import --upload-id ID --username NAME --confirm IMPORT
+  migration inspect --file ARCHIVE | migration plan --upload-id ID --username NAME [--restore-databases] | migration import --upload-id ID --username NAME --confirm IMPORT --preview-token TOKEN
   diagnostics collect --output FILE
   provision apply --file PLAN.json [--wait]
   jobs list | jobs watch ID
@@ -141,6 +141,9 @@ func run(base, token string, args []string, stdin io.Reader, stdout, stderr io.W
 	case "migration":
 		if len(args) >= 2 && args[1] == "inspect" {
 			return migrationInspect(c, ctx, args[2:], stdout)
+		}
+		if len(args) >= 2 && args[1] == "plan" {
+			return migrationPlan(c, ctx, args[2:], stdout)
 		}
 		if len(args) >= 2 && args[1] == "import" {
 			return migrationImport(c, ctx, args[2:], stdout)
@@ -342,16 +345,17 @@ func migrationImport(c *stepanel.Client, ctx context.Context, args []string, out
 	upload := fs.String("upload-id", "", "ID returned by migration inspect")
 	username := fs.String("username", "", "target account")
 	confirm := fs.String("confirm", "", "must be IMPORT")
+	previewToken := fs.String("preview-token", "", "signed token returned by migration plan")
 	db := fs.Bool("restore-databases", false, "restore included databases")
 	key := fs.String("idempotency-key", "", "stable retry key")
 	wait := fs.Bool("wait", false, "wait for durable job completion")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *upload == "" || *username == "" || *confirm != "IMPORT" {
-		return errors.New("migration import requires --upload-id, --username, and --confirm IMPORT")
+	if *upload == "" || *username == "" || *confirm != "IMPORT" || *previewToken == "" {
+		return errors.New("migration import requires --upload-id, --username, --confirm IMPORT, and --preview-token from migration plan")
 	}
-	fields := map[string]string{"upload_id": *upload, "username": *username, "confirm": *confirm}
+	fields := map[string]string{"upload_id": *upload, "username": *username, "confirm": *confirm, "destination_preview_token": *previewToken}
 	if *db {
 		fields["restore_databases"] = "on"
 	}
@@ -362,6 +366,24 @@ func migrationImport(c *stepanel.Client, ctx context.Context, args []string, out
 	}
 	if *wait {
 		return emitAndWatch(c, ctx, resp, out)
+	}
+	return emit(resp, out)
+}
+
+func migrationPlan(c *stepanel.Client, ctx context.Context, args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("migration plan", flag.ContinueOnError)
+	upload := fs.String("upload-id", "", "ID returned by migration inspect")
+	username := fs.String("username", "", "target account")
+	databases := fs.Bool("restore-databases", false, "include the inspected database dumps")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *upload == "" || *username == "" {
+		return errors.New("migration plan requires --upload-id and --username")
+	}
+	resp, err := c.JSONOperation(ctx, "planMigrationDestination", map[string]any{"upload_id": *upload, "username": *username, "restore_databases": *databases}, nil)
+	if err != nil {
+		return err
 	}
 	return emit(resp, out)
 }

@@ -464,8 +464,10 @@ stepanelctl restore files --backup BACKUP_NAME --site example \
 stepanelctl restore database --backup BACKUP_NAME --site example \
   --database example_wp --confirm RESTORE_DATABASE --wait
 stepanelctl migration inspect --file ./cpmove-account.tar.gz
+stepanelctl migration plan --upload-id UPLOAD_ID --username example \
+  --restore-databases
 stepanelctl migration import --upload-id UPLOAD_ID --username example \
-  --confirm IMPORT --restore-databases --wait
+  --confirm IMPORT --restore-databases --preview-token TOKEN --wait
 stepanelctl diagnostics collect --output ./stepanel-support.zip
 ```
 
@@ -473,7 +475,9 @@ For WordPress creation, add `--domain`, `--title`, `--admin-user`, and
 `--admin-email`, then pass the administrator password through stdin with
 `--admin-password-stdin`. This keeps it out of process arguments. A migration
 inspection response contains the compatibility findings and `upload_id` used
-by the import step. Imports require the exact `IMPORT` confirmation.
+by the plan step. The signed destination plan checks site/domain conflicts,
+database compatibility, and current capacity. Import requires the exact
+`IMPORT` confirmation and the unexpired `preview_token` returned by that plan.
 
 Scripted site provisioning accepts a JSON plan. Since it can contain
 credentials, create it with mode `0600`; the CLI refuses group/world-readable

@@ -388,7 +388,6 @@ const maxCPMoveEntries = 50_000
 const maxCPMovePathMetadataBytes int64 = 64 << 20
 const maxCPMovePathComponents = 128
 const maxCPMoveFilesystemObjectBytes uint64 = 4 << 10
-const maxCPMoveUploadMetadataBytes = 16 << 10
 const maxCPMoveCronFileBytes = 1 << 20
 const maxCPMoveCronInventoryBytes = 8 << 20
 const maxCPMoveTLSCertificateBytes = 256 << 10
@@ -401,23 +400,39 @@ var dumpServerVersionPattern = regexp.MustCompile(`(?i)server version[[:space:]]
 var mailboxLocalPartPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$`)
 
 const (
+	maxCPMoveUploadMetadataBytes    = 2 << 20
 	maxCPMoveSQLHeaderBytes         = 256 << 10
 	maxCPMoveUserdataInventory      = 8 << 20
 	maxCPMoveUserdataInventoryFiles = 512
 )
 
 type cpmoveUpload struct {
-	ID            string    `json:"id"`
-	Path          string    `json:"path"`
-	Filename      string    `json:"filename"`
-	Size          int64     `json:"size"`
-	ExpandedBytes int64     `json:"expanded_bytes"`
-	DatabaseBytes int64     `json:"database_bytes"`
-	PathObjects   int       `json:"path_objects,omitempty"`
-	SHA256        string    `json:"sha256"`
-	Owner         string    `json:"owner"`
-	CreatedAt     time.Time `json:"created_at"`
-	ExpiresAt     time.Time `json:"expires_at"`
+	ID                     string                   `json:"id"`
+	Path                   string                   `json:"path"`
+	Filename               string                   `json:"filename"`
+	Size                   int64                    `json:"size"`
+	ExpandedBytes          int64                    `json:"expanded_bytes"`
+	DatabaseBytes          int64                    `json:"database_bytes"`
+	PathObjects            int                      `json:"path_objects,omitempty"`
+	SHA256                 string                   `json:"sha256"`
+	Owner                  string                   `json:"owner"`
+	CreatedAt              time.Time                `json:"created_at"`
+	ExpiresAt              time.Time                `json:"expires_at"`
+	DomainMappings         []MigrationDomainMapping `json:"domain_mappings,omitempty"`
+	DomainInventoryStatus  string                   `json:"domain_inventory_status,omitempty"`
+	DomainInventoryDetails string                   `json:"domain_inventory_details,omitempty"`
+	DNSZones               []string                 `json:"dns_zones,omitempty"`
+	DNSZoneOmitted         int                      `json:"dns_zone_omitted_count,omitempty"`
+}
+
+func cpmoveUploadLimit(cfg Config) int64 {
+	if cfg.CPMoveMaxUpload > 0 && cfg.CPMoveMaxUpload <= maxCPMoveUploadBytesSupported {
+		return cfg.CPMoveMaxUpload
+	}
+	if cfg.MaxUpload > 0 {
+		return min(cfg.MaxUpload, maxCPMoveUploadBytesSupported)
+	}
+	return 0
 }
 
 func cpmoveExtractorLimits(maxEntries int) archivesafe.ExtractorLimits {
@@ -736,8 +751,8 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 	if header == nil {
 		return CPMoveInfo{}, errors.New("backup file metadata is missing")
 	}
-	if header.Size > 20<<30 {
-		return CPMoveInfo{}, errors.New("backup exceeds the 20 GiB upload limit")
+	if header.Size > maxCPMoveUploadBytesSupported {
+		return CPMoveInfo{}, errors.New("cPanel backup exceeds the 40 GiB archive ceiling")
 	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return CPMoveInfo{}, err
@@ -1167,9 +1182,9 @@ func RestoreCPMoveContext(ctx context.Context, cfg Config, file multipart.File, 
 	if file == nil {
 		return ImportResult{}, errors.New("cPanel archive is required")
 	}
-	maxArchiveBytes := cfg.MaxUpload
+	maxArchiveBytes := cpmoveUploadLimit(cfg)
 	if maxArchiveBytes == 0 {
-		maxArchiveBytes = LoadConfig().MaxUpload
+		maxArchiveBytes = cpmoveUploadLimit(LoadConfig())
 	}
 	if maxArchiveBytes < 1 {
 		return ImportResult{}, errors.New("cPanel archive size limit must be positive")

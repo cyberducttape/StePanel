@@ -1025,7 +1025,11 @@ func (a *App) stageArchiveUpload(w http.ResponseWriter, r *http.Request, workflo
 		a.writeUploadError(w, r, fmt.Errorf("prepare upload storage: %w", err))
 		return nil, nil, false
 	}
-	declared, known, err := declaredUploadBytes(r, a.Config.MaxUpload)
+	maxFileBytes := opts.MaxFileBytes
+	if maxFileBytes <= 0 {
+		maxFileBytes = a.Config.MaxUpload
+	}
+	declared, known, err := declaredUploadBytes(r, maxFileBytes)
 	var reservation *capacityReservation
 	if err == nil {
 		if known {
@@ -1050,7 +1054,7 @@ func (a *App) stageArchiveUpload(w http.ResponseWriter, r *http.Request, workflo
 		return nil, nil, false
 	}
 	opts.FileField = "backup"
-	opts.MaxFileBytes = a.Config.MaxUpload
+	opts.MaxFileBytes = maxFileBytes
 	opts.CheckSpace = reservation.consume
 	staged, err := upload.Stream(reader, opts)
 	if err != nil {

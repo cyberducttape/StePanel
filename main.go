@@ -1010,11 +1010,12 @@ func (a *App) inspect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", 405)
 		return
 	}
-	if a.Config.MaxUpload > 0 && r.ContentLength > maxUploadRequestBytes(a.Config.MaxUpload) {
+	archiveLimit := cpmoveUploadLimit(a.Config)
+	if r.ContentLength > maxUploadRequestBytes(archiveLimit) {
 		http.Error(w, "upload exceeds the configured size limit", http.StatusRequestEntityTooLarge)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxUploadRequestBytes(a.Config.MaxUpload))
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadRequestBytes(archiveLimit))
 	if !a.Auth.CSRF(r) {
 		http.Error(w, "invalid CSRF token", 403)
 		return
@@ -1028,6 +1029,7 @@ func (a *App) inspect(w http.ResponseWriter, r *http.Request) {
 	// multipart spool file, one disk write.
 	archivePath := cpmoveUploadPath(a.Config.ImportRoot, uploadID)
 	staged, reservation, ok := a.stageArchiveUpload(w, r, "cPanel upload", upload.Options{
+		MaxFileBytes: archiveLimit,
 		Create: func(string) (*os.File, error) {
 			return os.OpenFile(archivePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 		},
@@ -1068,7 +1070,7 @@ func (a *App) inspect(w http.ResponseWriter, r *http.Request) {
 	}
 	info.UploadID = uploadID
 	owner := a.Auth.UsernameForRequest(r)
-	metadata := cpmoveUpload{ID: uploadID, Path: archivePath, Filename: staged.Filename, Size: written, ExpandedBytes: info.ExpandedBytes, DatabaseBytes: info.DatabaseBytes, PathObjects: info.pathObjects, SHA256: staged.SHA256, Owner: owner, CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().UTC().Add(24 * time.Hour)}
+	metadata := cpmoveUpload{ID: uploadID, Path: archivePath, Filename: staged.Filename, Size: written, ExpandedBytes: info.ExpandedBytes, DatabaseBytes: info.DatabaseBytes, PathObjects: info.pathObjects, SHA256: staged.SHA256, Owner: owner, CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().UTC().Add(24 * time.Hour), DomainMappings: info.DomainMappings, DomainInventoryStatus: info.DomainInventoryStatus, DomainInventoryDetails: info.DomainInventoryDetails, DNSZones: info.DNSZones, DNSZoneOmitted: info.DNSZoneOmitted}
 	metadataBytes, marshalErr := json.Marshal(metadata)
 	metadataErr := marshalErr
 	if metadataErr == nil && owner != "" {
@@ -1169,6 +1171,11 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 	defer releaseUnlock()
 	if err := operationCtx.Err(); err != nil {
 		return nil, err
+	}
+	if plan, err := a.makeCPMoveDestinationPlan(upload, request.User, request.RestoreDBs); err != nil {
+		return nil, fmt.Errorf("revalidate cpmove destination: %w", err)
+	} else if plan.Status == "blocked" {
+		return nil, errors.New("cpmove destination has a conflict or insufficient capacity; rebuild the migration plan")
 	}
 	if err := a.reconcileInterruptedSiteWithLease(operationCtx, request.User, a.siteManager); err != nil {
 		return nil, fmt.Errorf("reconcile interrupted cpmove restore: %w", err)
@@ -1553,6 +1560,22 @@ func (a *App) importBackup(w http.ResponseWriter, r *http.Request) {
 	user := safeUser(r.FormValue("username"))
 	if user == "" {
 		http.Error(w, "a valid account username is required", 400)
+		return
+	}
+	previewToken := strings.TrimSpace(r.FormValue("destination_preview_token"))
+	plan, planErr := a.makeCPMoveDestinationPlan(upload, user, databaseRestore)
+	if planErr != nil {
+		http.Error(w, "destination plan is unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if plan.Status == "blocked" {
+		http.Error(w, "destination plan has blockers; rebuild and review it", http.StatusConflict)
+		return
+	}
+	before := cpmovePlanPreviewState(upload, plan)
+	proposed := map[string]any{"user": user, "restore_databases": databaseRestore}
+	if !a.verifyChangePreview(previewToken, "cpmove.import:"+upload.ID, before, proposed) {
+		http.Error(w, "migration plan is missing, expired, or stale; build the destination plan again", http.StatusConflict)
 		return
 	}
 	operationKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))

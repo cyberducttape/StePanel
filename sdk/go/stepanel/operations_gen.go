@@ -22,6 +22,7 @@ var contractOperations = [...]Operation{
 	{ID: "createBackup", Method: "POST", Path: "/api/v1/backups", CLICommand: "backup create"},
 	{ID: "inspectMigrationArchive", Method: "POST", Path: "/api/v1/cpmove/inspect", CLICommand: "migration inspect"},
 	{ID: "importMigrationArchive", Method: "POST", Path: "/api/v1/cpmove/import", CLICommand: "migration import"},
+	{ID: "planMigrationDestination", Method: "POST", Path: "/api/v1/cpmove/plan", CLICommand: "migration plan"},
 	{ID: "listJobs", Method: "GET", Path: "/api/v1/jobs", CLICommand: "jobs list"},
 	{ID: "getJob", Method: "GET", Path: "/api/v1/jobs/", CLICommand: "jobs watch"},
 }

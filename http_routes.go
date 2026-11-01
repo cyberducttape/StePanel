@@ -121,6 +121,7 @@ func (a *App) registerRoutes(staticAssets fs.FS) *http.ServeMux {
 	mux.Handle("/api/caddy/htaccess", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.htaccessMigration)), http.MethodPost))
 	mux.Handle("/api/apps/", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.appAction)), http.MethodPost))
 	mux.Handle("/api/cpmove/inspect", allowMethods(a.Auth.RequireAdministrator(a.limitConcurrentResource(http.HandlerFunc(a.inspect), "extract")), http.MethodPost))
+	mux.Handle("/api/cpmove/plan", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.cpmovePlan)), http.MethodPost))
 	mux.Handle("/api/cpmove/import", allowMethods(a.Auth.RequireAdministrator(a.limitConcurrentResource(http.HandlerFunc(a.importBackup), "extract")), http.MethodPost))
 	mux.Handle("/api/wpress/preflight", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.wpressPreflight)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/wpress/import", allowMethods(a.Auth.RequireAdministrator(a.limitConcurrentResource(http.HandlerFunc(a.wpressImport), "extract")), http.MethodPost))

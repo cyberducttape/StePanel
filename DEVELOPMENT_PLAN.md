@@ -12,6 +12,32 @@ successful one-off smoke does not close a host-certification gate.
 
 ## Milestones
 
+### M0x — Bind cPanel import to a destination plan and report recovery evidence (P1)
+
+**Status:** Implemented locally; focused race tests and full `make check` pass.
+This connects archive inventory,
+destination admission, import, and per-site recovery evidence; it does not yet
+provide an isolated customer-visible staging hostname or verify the final
+public DNS/TLS route before activation.
+
+**Acceptance criteria**
+
+- cPanel uploads have an independent configurable limit up to 40 GiB while
+  expanded-tree, entry, capacity, and database-storage admission stay bounded.
+- The operator can build a destination-specific plan showing source mappings,
+  target account, current route/name conflicts, database support, capacity,
+  and rollback/cutover guidance. Import requires a short-lived signed token
+  bound to that plan and the selected target/database options.
+- The worker repeats capacity and destination conflict checks after taking the
+  site mutation lock. Dashboard and CLI use the same plan/import API contract.
+- Migration evidence reports the site's verified backup, measured rehearsal
+  duration, observed backup age, rehearsal cadence, and whether application
+  proof is configured. RPO age and RTO duration are explicitly measurements,
+  not guarantees.
+- Focused regression tests, generated API artifacts, JavaScript syntax checks,
+  and `make check` pass. Installed-host 40 GiB capacity and application/TLS
+  cutover drills remain separate release evidence.
+
 ### M0w — Correlate site HTTP 503s with host evidence (P1)
 
 **Status:** Implemented locally; `make check` and JavaScript unit tests pass.
