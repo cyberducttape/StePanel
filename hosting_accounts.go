@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/cyberducttape/StePanel/internal/domainname"
@@ -27,9 +28,14 @@ func accountHelperContext(ctx context.Context, cfg Config, req rootbroker.Accoun
 		}
 		return client.AccountRequest(ctx, req)
 	}
+	// Without the broker, nothing else validates this request before its
+	// names become paths: apply the broker's own name rules here.
+	if err := sitelayout.ValidUnixUser(req.Account); err != nil {
+		return rootbroker.AccountResponse{}, err
+	}
 	switch req.Action {
 	case "ensure":
-		home, err := safePath(cfg.HomeRoot, req.Account)
+		home, err := developmentAccountPath(cfg.HomeRoot, req.Account)
 		if err != nil {
 			return rootbroker.AccountResponse{}, err
 		}
@@ -37,7 +43,11 @@ func accountHelperContext(ctx context.Context, cfg Config, req rootbroker.Accoun
 			return rootbroker.AccountResponse{}, fmt.Errorf("create development account home: %w", err)
 		}
 	case "place":
-		private, err := safePath(cfg.HomeRoot, req.Account, ".stepanel", "sites", req.Site, "php")
+		placement := sitelayout.Placement{Site: req.Site, Account: req.Account, UnixUser: req.Account, Kind: sitelayout.Kind(req.Kind), Directory: req.Directory}
+		if err := placement.Validate(); err != nil {
+			return rootbroker.AccountResponse{}, err
+		}
+		private, err := developmentAccountPath(cfg.HomeRoot, req.Account, ".stepanel", "sites", req.Site, "php")
 		if err != nil {
 			return rootbroker.AccountResponse{}, err
 		}
@@ -46,6 +56,25 @@ func accountHelperContext(ctx context.Context, cfg Config, req rootbroker.Accoun
 		}
 	}
 	return rootbroker.AccountResponse{UnixUser: req.Account}, nil
+}
+
+// developmentAccountPath joins validated names beneath the home root and
+// refuses any result that is not strictly inside it.
+func developmentAccountPath(homeRoot string, parts ...string) (string, error) {
+	joined, err := safePath(homeRoot, parts...)
+	if err != nil {
+		return "", err
+	}
+	root := filepath.Clean(homeRoot)
+	candidate := filepath.Clean(joined)
+	rel, err := filepath.Rel(root, candidate)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("account path escapes %s", root)
+	}
+	if !strings.HasPrefix(candidate, root+string(filepath.Separator)) {
+		return "", fmt.Errorf("account path escapes %s", root)
+	}
+	return candidate, nil
 }
 
 // sitePlacementRequest describes where a new site goes inside an account.
