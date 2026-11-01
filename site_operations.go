@@ -145,6 +145,9 @@ type siteOperationPayload struct {
 	TokenID   string   `json:"token_id,omitempty"`
 	Scopes    []string `json:"scopes,omitempty"`
 	Webhook   bool     `json:"webhook,omitempty"`
+	// WebhookGeneration is the webhook secret generation that authenticated
+	// a queued delivery (never the secret itself).
+	WebhookGeneration int64 `json:"webhook_generation,omitempty"`
 }
 
 // replayedIdentityKey carries a browser-session requester into the worker
@@ -272,7 +275,14 @@ func (a *App) handleSiteOperationJob(ctx context.Context, item Job) ([]byte, err
 			return nil, fmt.Errorf("load webhook configuration: %w", err)
 		}
 		if config == nil || config.WebhookSecret == "" {
-			return nil, errors.New("the webhook for this site was removed before the deployment ran")
+			return nil, doNotRetry(errors.New("the webhook for this site was removed before the deployment ran"))
+		}
+		// Rotating the signing secret revokes deliveries accepted under the
+		// previous one. Deliveries queued before generations were recorded
+		// carry none and are refused too; the sender can redeliver.
+		if payload.WebhookGeneration == 0 || config.SecretGeneration != payload.WebhookGeneration {
+			TelemetryAudit(a.Config.AuditLog, "webhook", "webhook.deploy.revoked", payload.Site, fmt.Sprintf("queued under secret generation %d, current %d", payload.WebhookGeneration, config.SecretGeneration))
+			return nil, doNotRetry(errors.New("the webhook signing secret changed after this delivery was accepted; the deployment was not run"))
 		}
 		config.Site = payload.Site
 		operationCtx = context.WithValue(operationCtx, gitWebhookSiteKey{}, newAuthenticatedWebhook(config))

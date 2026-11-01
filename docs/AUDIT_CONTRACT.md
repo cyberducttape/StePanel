@@ -100,6 +100,7 @@ and never affects the operation; failures are logged.
 | Queuing a long site operation (`site.operation` job) | A (request ledger) | the `http.request` event `Auth.Require` writes; the operation's own events are written by the worker with the original actor |
 | Webhook configuration update | A, intent-first | `webhook.config.updated` |
 | Webhook disable | A, revocation | `webhook.config.disabled` |
+| Queued webhook delivery refused because the signing secret was rotated, re-enabled, or revoked (site termination) after it was accepted | B | `webhook.deploy.revoked` |
 | Site creation | A, intent-first | `site.created` |
 | WordPress recovery proof (throwaway site, database, and route created and removed during a rehearsal) | A, intent-first | `recovery.proof.site` |
 | Site route publication and removal | A, intent-first | `site.deployed`, `site.deleted` |

@@ -515,6 +515,13 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 	} else if exists {
 		return nil, fmt.Errorf("site %q already exists", req.Site)
 	}
+	// A new site never inherits webhook authorization left under its name
+	// (for example by a site removed before termination revoked webhooks).
+	if a.Webhooks != nil {
+		if err := a.Webhooks.RevokeWebhookConfig(req.Site); err != nil {
+			return nil, fmt.Errorf("clear inherited webhook authorization: %w", err)
+		}
+	}
 	if req.WordPress != nil && a.Routes != nil {
 		for _, route := range a.Routes.list() {
 			if strings.EqualFold(route.Domain, req.WordPress.Domain) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"errors"
@@ -573,12 +574,18 @@ func webhookAuthorization(r *http.Request) (authenticatedWebhook, bool) {
 // Each site can have its own webhook secret, allowed repositories, and allowed refs.
 // This prevents a single leaked secret from compromising all sites.
 type GitWebhookConfig struct {
-	Site          string    `json:"site"`
-	Repositories  []string  `json:"repositories"` // allowed repository URLs
-	AllowedRefs   []string  `json:"allowed_refs"` // allowed Git refs (branches/tags)
-	WebhookSecret string    `json:"webhook_secret"`
-	EnabledAt     time.Time `json:"enabled_at"`
-	LastWebhookAt time.Time `json:"last_webhook_at,omitempty"`
+	Site          string   `json:"site"`
+	Repositories  []string `json:"repositories"` // allowed repository URLs
+	AllowedRefs   []string `json:"allowed_refs"` // allowed Git refs (branches/tags)
+	WebhookSecret string   `json:"webhook_secret"`
+	// SecretGeneration advances whenever the signing secret changes or a
+	// disabled webhook is configured again. A queued delivery records the
+	// generation it was authenticated under and runs only if it is still
+	// current, so rotating a secret revokes deliveries accepted under the
+	// old one.
+	SecretGeneration int64     `json:"secret_generation"`
+	EnabledAt        time.Time `json:"enabled_at"`
+	LastWebhookAt    time.Time `json:"last_webhook_at,omitempty"`
 }
 
 type webhookConfigRequest struct {
@@ -681,12 +688,15 @@ func (a *App) webhookConfig(w http.ResponseWriter, r *http.Request) {
 			refuseWithoutSecurityAudit(w)
 			return
 		}
-		if err := a.Webhooks.SetWebhookConfig(site, secret, input.Repositories, input.AllowedRefs); err != nil {
+		change, err := a.Webhooks.ConfigureWebhook(site, secret, input.Repositories, input.AllowedRefs)
+		if err != nil {
 			intent.Failed(err.Error())
 			http.Error(w, "could not persist webhook configuration", http.StatusInternalServerError)
 			return
 		}
-		intent.Completed(detail)
+		// A re-enable or secret rotation revokes every delivery accepted
+		// under the previous configuration; record which one this was.
+		intent.Completed(detail + " change=" + string(change))
 		if err := operationCtx.Err(); err != nil {
 			http.Error(w, "webhook configuration cancelled because the mutation lock was lost", http.StatusConflict)
 			return
@@ -903,7 +913,9 @@ func (a *App) gitWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "webhook body targets a different site than the URL signature authorized", http.StatusForbidden)
 		return
 	}
-	a.enqueueSiteOperation(w, r, siteOperationPayload{Operation: "git.deploy", Path: "/api/sites/git-deploy", Body: body, Site: site, Actor: "webhook", Webhook: true})
+	// Record the secret generation this delivery was authenticated under; the
+	// worker refuses it if the secret was rotated while it was queued.
+	a.enqueueSiteOperation(w, r, siteOperationPayload{Operation: "git.deploy", Path: "/api/sites/git-deploy", Body: body, Site: site, Actor: "webhook", Webhook: true, WebhookGeneration: config.SecretGeneration})
 }
 
 // containsString checks if a string is in a list (case-insensitive for URLs)
@@ -1630,50 +1642,95 @@ func (wcs *WebhookConfigStore) InitializeSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_webhook_site ON webhook_configs(site);
 	`
 
-	_, err := wcs.db.Exec(schema)
-	return err
+	if _, err := wcs.db.Exec(schema); err != nil {
+		return err
+	}
+	// Databases created before secret generations existed gain the column;
+	// their webhooks start at generation 1.
+	var columns int
+	if err := wcs.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('webhook_configs') WHERE name = 'secret_generation'`).Scan(&columns); err != nil {
+		return fmt.Errorf("inspect webhook schema: %w", err)
+	}
+	if columns == 0 {
+		if _, err := wcs.db.Exec(`ALTER TABLE webhook_configs ADD COLUMN secret_generation INTEGER NOT NULL DEFAULT 1`); err != nil {
+			return fmt.Errorf("add webhook secret generation: %w", err)
+		}
+	}
+	return nil
 }
 
 // SetWebhookConfig creates or updates a webhook configuration for a site
+// WebhookConfigChange reports what SetWebhookConfig changed, for the audit
+// record.
+type WebhookConfigChange string
+
+const (
+	WebhookConfigCreated   WebhookConfigChange = "created"
+	WebhookConfigReenabled WebhookConfigChange = "re-enabled"
+	WebhookSecretRotated   WebhookConfigChange = "secret-rotated"
+	WebhookPolicyUpdated   WebhookConfigChange = "policy-updated"
+)
+
+// SetWebhookConfig creates, re-enables, or updates a site's webhook and
+// enables it. A new secret or a re-enable advances the secret generation.
 func (wcs *WebhookConfigStore) SetWebhookConfig(site, secret string, repos, refPatterns []string) error {
+	_, err := wcs.ConfigureWebhook(site, secret, repos, refPatterns)
+	return err
+}
+
+// ConfigureWebhook is SetWebhookConfig that also reports what changed.
+func (wcs *WebhookConfigStore) ConfigureWebhook(site, secret string, repos, refPatterns []string) (change WebhookConfigChange, err error) {
 	wcs.mu.Lock()
 	defer wcs.mu.Unlock()
 
 	tx, err := wcs.db.BeginTx(context.Background(), nil)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer tx.Rollback()
 
 	var id int64
-	err = tx.QueryRow("SELECT id FROM webhook_configs WHERE site = ?", site).Scan(&id)
+	var previousSecret string
+	var enabled bool
+	err = tx.QueryRow("SELECT id, webhook_secret, enabled FROM webhook_configs WHERE site = ?", site).Scan(&id, &previousSecret, &enabled)
 	if err != nil && err != sql.ErrNoRows {
-		return err
+		return "", err
 	}
 
 	if err == sql.ErrNoRows {
 		result, err := tx.Exec(
-			"INSERT INTO webhook_configs (site, webhook_secret) VALUES (?, ?)",
+			"INSERT INTO webhook_configs (site, webhook_secret, secret_generation) VALUES (?, ?, 1)",
 			site, secret,
 		)
 		if err != nil {
-			return err
+			return "", err
 		}
+		change = WebhookConfigCreated
 		if id, err = result.LastInsertId(); err != nil {
-			return err
+			return "", err
 		}
 	} else {
+		// A new secret, or re-enabling a disabled webhook, revokes every
+		// delivery accepted before it. Configuring a webhook also enables it.
+		advance := 0
+		change = WebhookPolicyUpdated
+		switch {
+		case !enabled:
+			advance, change = 1, WebhookConfigReenabled
+		case subtle.ConstantTimeCompare([]byte(previousSecret), []byte(secret)) != 1:
+			advance, change = 1, WebhookSecretRotated
+		}
 		_, err := tx.Exec(
-			"UPDATE webhook_configs SET webhook_secret = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-			secret, id,
+			"UPDATE webhook_configs SET webhook_secret = ?, enabled = 1, secret_generation = secret_generation + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+			secret, advance, id,
 		)
 		if err != nil {
-			return err
+			return "", err
 		}
 	}
 
 	if _, err := tx.Exec("DELETE FROM webhook_allowed_repos WHERE webhook_id = ?", id); err != nil {
-		return err
+		return "", err
 	}
 
 	for _, repo := range repos {
@@ -1685,12 +1742,12 @@ func (wcs *WebhookConfigStore) SetWebhookConfig(site, secret string, repos, refP
 			id, strings.TrimSpace(strings.ToLower(repo)),
 		)
 		if err != nil {
-			return err
+			return "", err
 		}
 	}
 
 	if _, err := tx.Exec("DELETE FROM webhook_allowed_refs WHERE webhook_id = ?", id); err != nil {
-		return err
+		return "", err
 	}
 
 	for _, pattern := range refPatterns {
@@ -1702,11 +1759,14 @@ func (wcs *WebhookConfigStore) SetWebhookConfig(site, secret string, repos, refP
 			id, strings.TrimSpace(pattern),
 		)
 		if err != nil {
-			return err
+			return "", err
 		}
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	return change, nil
 }
 
 // GetWebhookConfig retrieves the webhook configuration for a site
@@ -1716,12 +1776,13 @@ func (wcs *WebhookConfigStore) GetWebhookConfig(site string) (*GitWebhookConfig,
 
 	var id int64
 	var secret string
+	var generation int64
 	var enabledAt time.Time
 
 	err := wcs.db.QueryRow(
-		"SELECT id, webhook_secret, created_at FROM webhook_configs WHERE site = ? AND enabled = 1",
+		"SELECT id, webhook_secret, secret_generation, created_at FROM webhook_configs WHERE site = ? AND enabled = 1",
 		site,
-	).Scan(&id, &secret, &enabledAt)
+	).Scan(&id, &secret, &generation, &enabledAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -1730,11 +1791,12 @@ func (wcs *WebhookConfigStore) GetWebhookConfig(site string) (*GitWebhookConfig,
 	}
 
 	config := &GitWebhookConfig{
-		Site:          site,
-		WebhookSecret: secret,
-		EnabledAt:     enabledAt,
-		Repositories:  []string{},
-		AllowedRefs:   []string{},
+		Site:             site,
+		WebhookSecret:    secret,
+		SecretGeneration: generation,
+		EnabledAt:        enabledAt,
+		Repositories:     []string{},
+		AllowedRefs:      []string{},
 	}
 
 	rows, err := wcs.db.Query(
@@ -1778,6 +1840,44 @@ func (wcs *WebhookConfigStore) GetWebhookConfig(site string) (*GitWebhookConfig,
 	}
 
 	return config, nil
+}
+
+// RevokeWebhookConfig removes every webhook authorization a site name holds:
+// it disables the webhook, discards its secret and allowlists, and advances
+// its secret generation so no delivery queued under it can run. The row is
+// kept so generations never restart for a reused site name. It is idempotent
+// and a no-op for a site that never had a webhook.
+func (wcs *WebhookConfigStore) RevokeWebhookConfig(site string) error {
+	wcs.mu.Lock()
+	defer wcs.mu.Unlock()
+
+	tx, err := wcs.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var id int64
+	var secret string
+	var enabled bool
+	err = tx.QueryRow("SELECT id, webhook_secret, enabled FROM webhook_configs WHERE site = ?", site).Scan(&id, &secret, &enabled)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if enabled || secret != "" {
+		if _, err := tx.Exec("UPDATE webhook_configs SET enabled = 0, webhook_secret = '', secret_generation = secret_generation + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", id); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec("DELETE FROM webhook_allowed_repos WHERE webhook_id = ?", id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM webhook_allowed_refs WHERE webhook_id = ?", id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // DisableWebhookConfig disables webhooks for a site

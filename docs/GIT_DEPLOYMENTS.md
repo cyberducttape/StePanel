@@ -84,6 +84,18 @@ pointer. The request queues a durable job and answers `202` with its
 Signed webhook deliveries are queued the same way, and the worker re-reads the
 site's webhook policy before the deployment starts.
 
+Webhook authority is bound to a secret generation and to the site's lifecycle,
+not to the site name. Each queued delivery records the generation of the
+secret that authenticated it (never the secret itself), and the worker refuses
+it unless that generation is still current. Rotating the secret, or disabling
+the webhook and configuring it again, advances the generation, so deliveries
+accepted under the previous configuration are refused
+(`webhook.deploy.revoked`) instead of deployed; updating only the repository or
+ref allowlist does not. Configuring a disabled webhook re-enables it. Site
+termination revokes the site's webhook (secret, allowlists, and any queued
+delivery) before ownership is detached, and creating a site clears any webhook
+authorization left under its name, so a reused name inherits nothing.
+
 ## Roll back
 
 Rollback activates the newest preserved release and retains the release it

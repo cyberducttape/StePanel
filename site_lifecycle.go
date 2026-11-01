@@ -558,6 +558,15 @@ func (a *App) removeSiteState(ctx context.Context, site SiteCapability) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	// Deployment authority is bound to this site's lifecycle, not to its
+	// reusable name: revoke the webhook first, before ownership is
+	// detached, so a later site with the same name inherits nothing and no
+	// queued delivery can still run.
+	if a.Webhooks != nil {
+		if err := a.Webhooks.RevokeWebhookConfig(site.Site()); err != nil {
+			return fmt.Errorf("revoke webhook authorization: %w", err)
+		}
+	}
 	if a.Routes != nil {
 		if err := ctx.Err(); err != nil {
 			return err
