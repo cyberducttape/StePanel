@@ -567,7 +567,21 @@ EOF
     systemctl start "stepanel-site-$site.slice" ;;
   resource-status)
     (( $# == 2 )) || { echo 'usage: stepanel-appctl resource-status SITE' >&2; exit 64; }
-    systemctl show "stepanel-site-$site.slice" --property=ActiveState --property=CPUQuotaPerSecUSec --property=CPUWeight --property=MemoryHigh --property=MemoryMax --property=MemoryCurrent --property=IOWeight --property=TasksMax --property=TasksCurrent --property=CPUUsageNSec --no-pager ;;
+    unit="stepanel-site-$site.slice"
+    status=$(systemctl show "$unit" --property=ActiveState --property=SubState --property=Result --property=CPUQuotaPerSecUSec --property=CPUWeight --property=MemoryHigh --property=MemoryMax --property=MemoryCurrent --property=IOWeight --property=TasksMax --property=TasksCurrent --property=CPUUsageNSec --no-pager) || exit $?
+    printf '%s\n' "$status"
+    control_group=$(systemctl show "$unit" --property=ControlGroup --value --no-pager 2>/dev/null || true)
+    oom_events=unknown; oom_kill=unknown; oom_evidence=unavailable
+    # ControlGroup is supplied by systemd, but validate it before reading
+    # cgroupfs so this diagnostic can never be redirected to an arbitrary path.
+    if [[ $control_group == /* && $control_group != *..* && $control_group =~ ^/[A-Za-z0-9_./@\\-]+$ ]]; then
+      cgroup_dir="/sys/fs/cgroup$control_group"
+      if [[ -r $cgroup_dir/memory.events ]]; then
+        read -r oom_events oom_kill < <(awk '$1 == "oom" {o=$2} $1 == "oom_kill" {k=$2} END {print (o == "" ? "unknown" : o), (k == "" ? "unknown" : k)}' "$cgroup_dir/memory.events")
+        oom_evidence=available
+      fi
+    fi
+    printf 'OOMEvents=%s\nOOMKillEvents=%s\nOOMEvidence=%s\n' "$oom_events" "$oom_kill" "$oom_evidence" ;;
   task-apply)
     (( $# == 14 )) || { echo 'usage: stepanel-appctl task-apply SITE NAME RUNTIME ON_CALENDAR ENABLED TIMEOUT COMMAND_B64 MIN_INTERVAL MISSED_POLICY CPU_PERCENT MEMORY_MB TASKS_MAX WEBHOOK' >&2; exit 64; }
     name=$3; runtime=$4; on_calendar=$5; enabled=$6; timeout=$7; command_b64=$8; minimum=$9; missed=${10}; task_cpu=${11}; task_memory=${12}; task_tasks=${13}; webhook=${14}

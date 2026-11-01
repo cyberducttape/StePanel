@@ -12,6 +12,29 @@ successful one-off smoke does not close a host-certification gate.
 
 ## Milestones
 
+### M0w — Correlate site HTTP 503s with host evidence (P1)
+
+**Status:** Implemented locally; `make check` and JavaScript unit tests pass.
+The authenticated browser journey was discovered but skipped because seeded
+E2E credentials/server are unavailable. Exact-source CI and installed-host
+checks remain pending. This diagnostic correlates bounded snapshots and does
+not claim causality across unsynchronized sample times.
+
+**Acceptance criteria**
+
+- The site resource probe reports systemd slice active/substate/result and,
+  when cgroup v2 exposes it, OOM and OOM-kill counters. It validates the
+  systemd-provided cgroup path before reading kernel counters.
+- A 503-focused incident panel summarizes request count/sample time and
+  connects PHP-FPM queue/saturation, systemd/cgroup state, database probes,
+  disk/quota headroom, web-server error evidence, certificate state, and the
+  latest deployment without dumping full logs or asserting unproven causes.
+- Cumulative OOM counts, unavailable signals, and point-in-time “healthy”
+  samples are labeled so they cannot be mistaken for request-specific proof.
+- Regression coverage verifies the status evidence contract and the
+  authenticated browser journey. Full repository checks pass; production host
+  behavior remains to be verified on supported cgroup/systemd combinations.
+
 ### M0v — Make risky configuration changes reviewable and verifiable (P1)
 
 **Status:** Implemented for PHP runtime, site resource, managed domain route,

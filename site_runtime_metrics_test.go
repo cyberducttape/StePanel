@@ -90,6 +90,19 @@ func TestParseSystemdTimespanUSecReadsSystemctlShowFormat(t *testing.T) {
 	}
 }
 
+func TestParseResourceStatusRetainsSystemdAndCgroupFailureEvidence(t *testing.T) {
+	got := parseResourceStatus("ActiveState=active\nSubState=running\nResult=oom-kill\nOOMEvents=3\nOOMKillEvents=2\nOOMEvidence=available\n")
+	for key, want := range map[string]string{
+		"state": "active", "ActiveState": "active", "SubState": "running",
+		"Result":    "oom-kill",
+		"OOMEvents": "3", "OOMKillEvents": "2", "OOMEvidence": "available",
+	} {
+		if got[key] != want {
+			t.Errorf("resource status %s = %q, want %q", key, got[key], want)
+		}
+	}
+}
+
 func readSystemctlFixture(t *testing.T, name string) map[string]string {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("testdata", "systemctl", name))

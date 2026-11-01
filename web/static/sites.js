@@ -524,7 +524,7 @@
       el('p', { className: 'panel-intro' }, 'A quick read on whether this site is healthy: what is deployed, when it last backed up, and what changed most recently.'),
       el('div', { className: 'workspace-panel-actions' }, [el('a', { className: 'primary-action', href: workspaceHash(site, 'journey') }, 'Open guided site workflow')]),
       grid,
-      renderIncidentAssessment({ overview, phpData, phpAvailable: php.ok, resourceData, resourceAvailable: resourceResult.ok, usageData, usageAvailable: usage.ok, recovery: recoveryResult && recoveryResult.ok ? recoveryResult.value : null, recoveryAvailable: Boolean(recoveryResult && recoveryResult.ok), lastDeployment, webLogResult, phpLogResult, accessLogResult, canReadLogs: ctx.can('logs:read'), latestChange: activityResult && activityResult.ok ? (activityResult.value.events || [])[0] : null, databaseDiagnostics: databaseResult && databaseResult.ok ? databaseResult.value : null, databaseDiagnosticsAvailable: databaseResult && databaseResult.ok, siteDiagnostics: siteDiagnosticResult && siteDiagnosticResult.ok ? siteDiagnosticResult.value : null, siteDiagnosticsAvailable: siteDiagnosticResult && siteDiagnosticResult.ok }),
+      renderIncidentAssessment({ overview, phpData, phpAvailable: php.ok, resourceData, resourceAvailable: resourceResult.ok, usageData, usageAvailable: usage.ok, recovery: recoveryResult && recoveryResult.ok ? recoveryResult.value : null, recoveryAvailable: Boolean(recoveryResult && recoveryResult.ok), lastDeployment, deployments, webLogResult, phpLogResult, accessLogResult, canReadLogs: ctx.can('logs:read'), latestChange: activityResult && activityResult.ok ? (activityResult.value.events || [])[0] : null, databaseDiagnostics: databaseResult && databaseResult.ok ? databaseResult.value : null, databaseDiagnosticsAvailable: databaseResult && databaseResult.ok, siteDiagnostics: siteDiagnosticResult && siteDiagnosticResult.ok ? siteDiagnosticResult.value : null, siteDiagnosticsAvailable: siteDiagnosticResult && siteDiagnosticResult.ok }),
     );
 
     if (ctx.isAdministrator) {
@@ -552,7 +552,9 @@
       .replace(/((?:password|passwd|token|secret|api[_-]?key)\s*[=:]\s*)[^\s&,;]+/ig, '$1[redacted]')
       .replace(/(authorization\s*[=:]\s*)[^,;]+/ig, '$1[redacted]')
       .slice(0, 260);
-    const { overview, phpData, phpAvailable, resourceData, resourceAvailable, usageData, usageAvailable, recovery, recoveryAvailable, lastDeployment, webLogResult, phpLogResult, accessLogResult, canReadLogs, latestChange, databaseDiagnostics, databaseDiagnosticsAvailable, siteDiagnostics, siteDiagnosticsAvailable } = signals;
+    const { overview, phpData, phpAvailable, resourceData, resourceAvailable, usageData, usageAvailable, recovery, recoveryAvailable, lastDeployment, deployments = [], webLogResult, phpLogResult, accessLogResult, canReadLogs, latestChange, databaseDiagnostics, databaseDiagnosticsAvailable, siteDiagnostics, siteDiagnosticsAvailable } = signals;
+    const accessLines = accessLogResult && accessLogResult.ok ? (accessLogResult.value.lines || []) : [];
+    const http503 = accessLines.filter((line) => /"[^\"]+"\s+503(?:\s|$)/.test(line));
     const applications = overview.applications || [];
     const unhealthy = applications.filter((app) => !['applied', 'running'].includes(String(app.state || '').toLowerCase()));
     if (unhealthy.length) add('critical', 'Application is not reported as running', unhealthy.map((app) => `${app.domain}: ${app.state || 'unknown state'}`).join('; '), 'Review the deployment history and application logs before retrying activation.');
@@ -760,8 +762,65 @@
     inspectLog(webLogResult, 'Web-server', false);
     inspectLog(phpLogResult, 'PHP-FPM', true);
     if (accessLogResult && accessLogResult.ok) {
-      const failures = (accessLogResult.value.lines || []).filter((line) => /"\s*[45]\d\d\s/.test(line));
+      const failures = accessLines.filter((line) => /"\s*[45]\d\d\s/.test(line));
       if (failures.length) excerpts.push({ label: 'Recent HTTP 4xx/5xx requests', lines: failures.slice(-4).map(safeExcerpt) });
+    }
+    const outageEvidence = [];
+    let outageLevel = 'guidance';
+    if (http503.length) {
+      outageLevel = 'warning';
+      const latest503Timestamp = http503[http503.length - 1].match(/\[([^\]]+)\]/);
+      const apacheDate = http503[http503.length - 1].match(/\[(\d{2})\/([A-Za-z]{3})\/(\d{4}):(\d{2}:\d{2}:\d{2}) ([+-]\d{4})\]/);
+      const latest503At = apacheDate ? Date.parse(`${apacheDate[1]} ${apacheDate[2]} ${apacheDate[3]} ${apacheDate[4]} ${apacheDate[5]}`) : NaN;
+      outageEvidence.push({
+        level: 'warning', label: 'Web requests',
+        text: `${http503.length} HTTP 503 response(s) in the latest ${accessLines.length} access-log lines${latest503Timestamp ? `; latest logged at ${latest503Timestamp[1]}` : ''}. Request paths and client addresses are omitted here. This is a bounded sample, not a complete request history.`,
+      });
+      const observed = resourceData && resourceData.observed || {};
+      const oomKills = Number(observed.OOMKillEvents);
+      if (observed.state === 'unavailable' || observed.state === 'unknown') {
+        outageEvidence.push({ level: 'unknown', label: 'systemd / cgroup', text: 'Site slice state and cgroup OOM counters could not be read.' });
+      } else {
+        const state = `${observed.ActiveState || observed.state}${observed.SubState ? ` (${observed.SubState})` : ''}${observed.Result && observed.Result !== 'success' ? `; last result ${observed.Result}` : ''}`;
+        outageEvidence.push({
+          level: observed.ActiveState && observed.ActiveState !== 'active' || observed.Result && observed.Result !== 'success' || Number.isFinite(oomKills) && oomKills > 0 ? 'warning' : 'guidance',
+          label: 'systemd / cgroup',
+          text: `Site resource slice ${state}. ${Number.isFinite(oomKills) ? `${oomKills} cgroup OOM kill(s) recorded since this cgroup was created` : 'OOM-kill count unavailable'}${observed.OOMEvidence === 'unavailable' ? '; kernel counter is not readable' : ''}. The counter is cumulative and does not identify which request or process was killed.`,
+        });
+      }
+      const fpmPools = resourceData && resourceData.fpm_status && resourceData.fpm_status.pools || [];
+      const saturated = fpmPools.filter((pool) => pool.state === 'available' && pool.saturated);
+      const usablePools = fpmPools.filter((pool) => pool.state === 'available');
+      outageEvidence.push(usablePools.length
+        ? { level: saturated.length ? 'critical' : 'guidance', label: 'PHP-FPM', text: saturated.length ? saturated.map((pool) => `PHP ${pool.php_version || 'default'}: ${pool.active_processes}/${pool.max_children} workers active, queue ${pool.listen_queue}`).join('; ') + (resourceData.fpm_status.collected_at ? `; sampled ${new Date(resourceData.fpm_status.collected_at).toLocaleString()}` : '') : `No pool is saturated in the latest sample${resourceData.fpm_status.collected_at ? ` (${new Date(resourceData.fpm_status.collected_at).toLocaleString()})` : ''}. A point-in-time sample cannot rule out earlier saturation.` }
+        : { level: 'unknown', label: 'PHP-FPM', text: 'Live FPM counters are unavailable; worker saturation cannot be confirmed or ruled out.' });
+      const db = siteDiagnostics && siteDiagnostics.database_connectivity || {};
+      const appDB = siteDiagnostics && siteDiagnostics.application_database_connectivity || {};
+      outageEvidence.push({ level: db.status === 'unavailable' || appDB.status === 'failed' ? 'critical' : db.status === 'connected' && appDB.status === 'connected' ? 'guidance' : 'unknown', label: 'Database', text: `Host probe: ${db.status || 'not available'}${db.collected_at ? ` at ${new Date(db.collected_at).toLocaleString()}` : ''}; WordPress credentials: ${appDB.status || 'not verified'}${appDB.collected_at ? ` at ${new Date(appDB.collected_at).toLocaleString()}` : ''}.` });
+      const quota = usageData && usageData.quota || {};
+      const diskRatio = Number(quota.limit_bytes) > 0 ? Number(quota.tree_bytes) / Number(quota.limit_bytes) : NaN;
+      const inodeRatio = Number(quota.inode_limit) > 0 ? Number(quota.tree_inodes) / Number(quota.inode_limit) : NaN;
+      const hasQuotaEvidence = Number.isFinite(diskRatio) || Number.isFinite(inodeRatio);
+      outageEvidence.push({ level: diskRatio >= 0.9 || inodeRatio >= 0.9 ? 'warning' : hasQuotaEvidence ? 'guidance' : 'unknown', label: 'Disk / quota', text: hasQuotaEvidence ? `Measured site tree: ${Number.isFinite(diskRatio) ? `${Math.round(diskRatio * 100)}% of byte allowance` : 'byte quota unknown'}; ${Number.isFinite(inodeRatio) ? `${Math.round(inodeRatio * 100)}% of inode allowance` : 'inode quota unknown'}. Tree usage may omit other account-owned files.` : 'Quota headroom is unavailable in this snapshot.' });
+      const relevantWebErrors = webLogResult && webLogResult.ok ? (webLogResult.value.lines || []).filter((line) => /\b(503|upstream|connect\(\)|no space|permission denied|failed|error)\b/i.test(line)).length : null;
+      outageEvidence.push({ level: relevantWebErrors === null ? 'unknown' : relevantWebErrors ? 'warning' : 'guidance', label: 'Web server', text: relevantWebErrors === null ? 'Recent web-server error log is unavailable or access is not authorized.' : `${relevantWebErrors} relevant upstream/error line(s) in the bounded web-server log sample${webLogResult.value.collected_at ? ` collected ${new Date(webLogResult.value.collected_at).toLocaleString()}` : ''}.` });
+      const tls = siteDiagnostics && siteDiagnostics.tls || [];
+      const tlsProblems = tls.filter((cert) => ['expired', 'expiring', 'missing', 'hostname_mismatch', 'failed'].includes(cert.status) || ['failed', 'dead-letter'].includes(cert.renewal));
+      const tlsUnknown = tls.filter((cert) => cert.status === 'unknown' || cert.renewal === 'unknown');
+      outageEvidence.push({ level: tlsProblems.length ? 'warning' : tlsUnknown.length || !tls.length ? 'unknown' : 'guidance', label: 'TLS', text: tlsProblems.length ? tlsProblems.map((cert) => `${cert.domain}: ${cert.status}${cert.renewal ? `; renewal ${cert.renewal}` : ''}`).join('; ') : tlsUnknown.length ? `Not verified for ${tlsUnknown.map((cert) => cert.domain).join(', ')}. A missing TLS signal does not establish certificate health.` : tls.length ? `${tls.length} route certificate(s) have no reported expiry/renewal failure. TLS checks do not explain an origin-side 503 by themselves.` : 'Certificate state unavailable.' });
+      if (lastDeployment && lastDeployment.created_at) {
+        const deployedAt = new Date(lastDeployment.created_at);
+        if (Number.isFinite(deployedAt.getTime())) {
+          const candidates = deployments.map((deployment) => ({ deployment, at: new Date(deployment.created_at || deployment.started_at || '').getTime() })).filter((entry) => Number.isFinite(entry.at));
+          const nearest = Number.isFinite(latest503At) ? candidates.sort((a, b) => Math.abs(a.at - latest503At) - Math.abs(b.at - latest503At))[0] : null;
+          const nearDeployment = nearest && Math.abs(nearest.at - latest503At) <= 30 * 60 * 1000;
+          const relation = nearDeployment
+            ? `${nearest.deployment.stage || 'Deployment'} · ${nearest.deployment.state || 'unknown'} was recorded ${Math.round(Math.abs(nearest.at - latest503At) / 60000)} minute(s) ${nearest.at <= latest503At ? 'before' : 'after'} the latest parseable 503.`
+            : Number.isFinite(latest503At) ? 'No recorded deployment falls within 30 minutes of the latest parseable 503.' : 'The access-log timestamp could not be parsed, so temporal correlation is unavailable.';
+          outageEvidence.push({ level: nearDeployment && ['failed', 'dead-letter'].includes(String(nearest.deployment.state).toLowerCase()) ? 'warning' : 'guidance', label: 'Deployment history', text: `${relation} Latest recorded deployment overall: ${lastDeployment.stage || 'operation'} · ${lastDeployment.state || 'unknown'} at ${deployedAt.toLocaleString()}. Timing is correlation evidence, not proof the deployment caused the 503.` });
+        }
+      }
+      if (outageEvidence.some((item) => item.level === 'critical')) outageLevel = 'critical';
     }
     const unknowns = ['Application-level database login and query latency are not tested with the customer’s credentials. The database inventory confirms helper access and ownership only.'];
     if (!canReadLogs) unknowns.push('Recent web-server and PHP-FPM logs are hidden because this account lacks logs:read.');
@@ -769,6 +828,11 @@
     const levelLabel = { critical: 'Action needed', warning: 'Review', unknown: 'Not verified', guidance: 'Performance guidance' };
     return el('section', { className: 'incident-assessment', 'aria-label': 'Site incident assessment' }, [
       el('div', { className: 'section-heading' }, [el('h3', {}, 'Why this site may be failing'), el('small', {}, `Snapshot · ${siteDiagnostics && siteDiagnostics.collected_at ? new Date(siteDiagnostics.collected_at).toLocaleString() : new Date().toLocaleTimeString()}`)]),
+      http503.length ? el('section', { className: `incident-503 incident-${outageLevel}`, 'aria-label': 'HTTP 503 diagnosis' }, [
+        el('div', { className: 'incident-503-heading' }, [el('strong', {}, `${http503.length} HTTP 503 response(s) observed`), el('small', {}, `Access-log sample · ${accessLines.length} recent lines`)]),
+        el('p', {}, 'Correlated host evidence is shown below. These signals are collected at different times; they indicate plausible contributors and do not establish causation unless timestamps and service behavior align.'),
+        el('ul', {}, outageEvidence.map((item) => el('li', { className: `incident-${item.level}` }, [el('strong', {}, item.label), el('span', {}, item.text)]))),
+      ]) : null,
       findings.length ? el('ul', { className: 'incident-findings' }, findings.map((finding) => el('li', { className: `incident-finding incident-${finding.level}` }, [
         el('strong', {}, `${levelLabel[finding.level]} · ${finding.title}`),
         el('p', {}, finding.evidence),

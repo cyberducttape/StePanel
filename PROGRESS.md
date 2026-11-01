@@ -1,5 +1,27 @@
 # Production-readiness progress
 
+## HTTP 503 incident correlation — 2026-10-31
+
+- Extended the site systemd resource snapshot with active/substate/result and
+  cgroup v2 `memory.events` OOM/OOM-kill counters. The helper validates the
+  systemd-provided cgroup path before reading it; unsupported/unreadable
+  counters remain explicitly unavailable.
+- Added a compact 503 evidence panel to the site incident view. It summarizes
+  the bounded access-log sample and relates it to current PHP-FPM counters,
+  systemd/cgroup state, host and WordPress database probes, quota headroom,
+  recent web-server errors, TLS status, and the most recent deployment.
+  Cumulative counters and independent sample times are called out; the view
+  does not claim causation or render request paths/client addresses in the
+  summary.
+- Added a status-parsing regression and extended the browser journey with 503,
+  saturated FPM, OOM-counter, and deployment evidence fixtures.
+- Initial local checks passed: `bash -n deploy/integrations/stepanel-appctl`,
+  `node --check web/static/sites.js`, `git diff --check`, focused Go tests,
+  full `make check`, and all 17 JavaScript unit tests. The Playwright journey
+  was discovered but skipped because this environment has no seeded E2E server
+  and credentials. Exact-source CI remains pending. Cgroup/systemd behavior
+  still needs installed-host checks on supported distributions.
+
 ## Risky configuration change plans and after-state proof — 2026-10-31
 
 - Expanded the shared preview contract used by PHP runtime/resources, route

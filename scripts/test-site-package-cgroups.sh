@@ -23,6 +23,15 @@ require "trap 'stop_package_unit_on_signal 143' TERM"
 require 'exit "$1"'
 require 'systemctl stop "$active_package_unit"'
 
+# The administrator incident probe must report the managed site slice and
+# read OOM evidence only beneath the ControlGroup path returned by systemd.
+require 'unit="stepanel-site-$site.slice"'
+require '--property=ActiveState --property=SubState --property=Result'
+require '[[ $control_group == /* && $control_group != *..* && $control_group =~'
+require 'cgroup_dir="/sys/fs/cgroup$control_group"'
+require 'memory.events'
+require 'OOMKillEvents=%s'
+
 # These entry points execute package-provided scripts or build backends.
 require 'run_site_package_command "$root" /usr/bin/env -i HOME="$site_private"'
 require '"$venv_stage/bin/pip" install --quiet --require-hashes -r "$lockfile"'

@@ -116,6 +116,8 @@ test('site overview makes backup failures explicit', async ({ page }) => {
 
 test('site guided workflow connects lifecycle checks and practical diagnostics', async ({ page }) => {
   const site = { site: 'e2e-journey', routes: [{ domain: 'journey.example.test', state: 'applied' }, { domain: 'quiet.example.test', state: 'applied' }], applications: [], database_count: 1 };
+  const accessAt = new Date();
+  const accessTimestamp = `[${String(accessAt.getUTCDate()).padStart(2, '0')}/${accessAt.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' })}/${accessAt.getUTCFullYear()}:${accessAt.toISOString().slice(11, 19)} +0000]`;
   let backupScheduleEnabled = true;
   let backupHasRun = false;
   const json = (body) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
@@ -143,13 +145,15 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
     quota: { enforced: true, limit_bytes: 1000, tree_bytes: 950, estimated_remaining_bytes: 50, inode_limit: 100, tree_inodes: 100, estimated_remaining_inodes: 0, scope_note: 'Measured site tree; account quota is shared.' },
   })));
   await page.route('**/api/sites/php/e2e-journey', (route) => route.fulfill(json({ configured: true, profile: { version: '8.3', state: 'applied' } })));
-  await page.route('**/api/sites/resources/e2e-journey', (route) => route.fulfill(json({ configured: true, fpm_status: { available: true, collected_at: new Date().toISOString(), pools: [{ php_version: '8.3', state: 'available', saturated: true, active_processes: 8, max_children: 8, listen_queue: 3, slow_requests: 2 }] } })));
+  await page.route('**/api/sites/resources/e2e-journey', (route) => route.fulfill(json({ configured: true, observed: { state: 'active', ActiveState: 'active', SubState: 'running', Result: 'success', OOMEvents: '3', OOMKillEvents: '2', OOMEvidence: 'available' }, fpm_status: { available: true, collected_at: new Date().toISOString(), pools: [{ php_version: '8.3', state: 'available', saturated: true, active_processes: 8, max_children: 8, listen_queue: 3, slow_requests: 2 }] } })));
   await page.route('**/api/sites/recovery/e2e-journey', (route) => route.fulfill(json({ confidence: 'unverified', last_backup: null, last_passed_rehearsal: null, summary: 'No verified recovery point.' })));
   await page.route('**/api/backups?site=e2e-journey&limit=100', (route) => route.fulfill(json({ backups: [] })));
   await page.route('**/api/wordpress/status/e2e-journey', (route) => route.fulfill(json({ installed: true, wp_cli: true })));
   await page.route('**/api/sites/logs/e2e-journey?source=error&lines=40', (route) => route.fulfill(json({ lines: ['PHP Fatal error: test failure in plugin.php'], available: true })));
   await page.route('**/api/sites/logs/e2e-journey?source=php-fpm&lines=40', (route) => route.fulfill(json({ lines: [], available: true })));
-  await page.route('**/api/deployments?site=e2e-journey', (route) => route.fulfill(json({ deployments: [] })));
+  await page.route('**/api/sites/logs/e2e-journey?source=access&lines=100', (route) => route.fulfill(json({ lines: [`198.51.100.7 - - ${accessTimestamp} "GET / HTTP/1.1" 503 211`], available: true })));
+  await page.route('**/api/sites/logs/e2e-journey?source=error&lines=100', (route) => route.fulfill(json({ lines: ['upstream connect() failed while connecting to PHP-FPM'], available: true, collected_at: new Date().toISOString() })));
+  await page.route('**/api/deployments?site=e2e-journey', (route) => route.fulfill(json({ deployments: [{ stage: 'activation', state: 'completed', created_at: accessAt.toISOString() }] })));
   await page.route('**/api/wordpress/e2e-journey', (route) => route.fulfill(json({ output: 'Success: WordPress is installed.' })));
 
   await page.reload();
@@ -162,6 +166,11 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
   await expect(diagnosis).toContainText('free bytes below 10% and free inodes below 10%');
   await expect(diagnosis).toContainText('1.0 KB of 1.0 MB bytes');
   await expect(diagnosis).toContainText('PHP-FPM pool is currently saturated');
+  await expect(diagnosis.getByRole('region', { name: 'HTTP 503 diagnosis' })).toContainText('1 HTTP 503 response(s) observed');
+  await expect(diagnosis.getByRole('region', { name: 'HTTP 503 diagnosis' })).toContainText('8/8 workers active, queue 3');
+  await expect(diagnosis.getByRole('region', { name: 'HTTP 503 diagnosis' })).toContainText('2 cgroup OOM kill(s) recorded since this cgroup was created');
+  await expect(diagnosis.getByRole('region', { name: 'HTTP 503 diagnosis' })).toContainText('Deployment history');
+  await expect(diagnosis.getByRole('region', { name: 'HTTP 503 diagnosis' })).toContainText('Timing is correlation evidence');
   await expect(diagnosis).toContainText('8/8 active, queue 3, 2 slow request(s)');
   await expect(diagnosis).toContainText('Sampled');
   await expect(diagnosis).toContainText('Site tree is near its configured storage allowance');
