@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,15 +31,16 @@ var (
 	ErrIdempotencyConflict      = errors.New("idempotency key was already used with a different request")
 	ErrDurableWorkerUnavailable = errors.New("no compatible durable worker is available")
 	// ErrJobQueueFull refuses new work while the pending backlog is at the
-	// configured limit (STEPANEL_MAX_PENDING_JOBS). Claim latency grows
-	// linearly with queued rows (docs/CAPACITY.md), so an unbounded backlog
-	// would slow every worker; refusing early keeps the queue serviceable.
+	// configured limit (STEPANEL_MAX_PENDING_JOBS). A blocked backlog no
+	// longer slows claims, but the owner-head walk, listings and worker drain
+	// time still grow with it (docs/CAPACITY.md); refusing early keeps the
+	// queue serviceable.
 	ErrJobQueueFull = errors.New("the durable job queue is at its pending-job limit; retry after queued work drains")
 )
 
-// defaultMaxPendingJobs keeps the measured adverse-fixture claim latency near
-// 21 ms (2026-10-31 benchmark: 10,000 queued rows); maxPendingJobsLimit is the
-// largest backlog that has been measured (100,000 rows, about 211 ms).
+// defaultMaxPendingJobs bounds the owner-head claim walk to about 70 ms even
+// if every pending job had a different blocked owner (2026-11-01 benchmark);
+// maxPendingJobsLimit is the largest backlog that has been measured.
 const (
 	defaultMaxPendingJobs = 10_000
 	maxPendingJobsLimit   = 100_000
@@ -752,6 +754,76 @@ func (j *Jobs) lookupIdempotentJob(kind, owner, operationKey string, payload []b
 	return existing, true, nil
 }
 
+// claimNextQuery selects among owner queue heads. Jobs of one owner run in
+// order, so only an owner's oldest queued job can ever be eligible: it must
+// be past its retry backoff, and the owner must have no running job with a
+// live lease. Instead of testing every queued row against those rules (cost
+// proportional to the backlog, about 211 ms at 100,000 queued rows), the
+// query walks the distinct owners with queued work through
+// jobs_state_owner_started_idx, takes each owner's head with one index seek,
+// and picks the oldest eligible head: cost proportional to the number of
+// owners with queued work (about 7 µs each on the benchmark host), not to
+// the backlog. ClaimNext runs it only when the claim-order prefix is
+// entirely blocked. The eligibility rules are unchanged.
+const claimNextQuery = `WITH RECURSIVE queued_owners(owner) AS (
+	SELECT (SELECT MIN(owner) FROM jobs WHERE state = 'queued')
+	UNION ALL
+	SELECT (SELECT MIN(owner) FROM jobs WHERE state = 'queued' AND owner > queued_owners.owner)
+	FROM queued_owners WHERE queued_owners.owner IS NOT NULL
+), heads(id) AS (
+	SELECT (SELECT head.id FROM jobs AS head WHERE head.state = 'queued' AND head.owner = queued_owners.owner ORDER BY head.started_at, head.id LIMIT 1)
+	FROM queued_owners WHERE queued_owners.owner IS NOT NULL
+)
+SELECT candidate.id, candidate.payload, candidate.kind, candidate.owner, candidate.started_at
+FROM heads JOIN jobs AS candidate ON candidate.id = heads.id
+WHERE (candidate.next_attempt_at IS NULL OR candidate.next_attempt_at <= ?)
+AND NOT EXISTS (SELECT 1 FROM jobs AS active WHERE active.owner = candidate.owner AND active.state = 'running' AND (active.lease_expires_at IS NULL OR active.lease_expires_at > ?))`
+
+// claimPrefixLength bounds the claim-order prefix ClaimNext checks before it
+// falls back to the owner-head search.
+const claimPrefixLength = 64
+
+// claimPrefixQuery applies the full eligibility rules to the oldest queued
+// jobs only (jobs_state_started_idx), so its cost does not depend on the
+// backlog behind them. The running-owner and older-queued checks are
+// separate so each is an exact seek on jobs_owner_state_idx; combined with
+// OR, SQLite can use only the owner prefix and walks the owner's whole
+// queue for every candidate.
+var claimPrefixQuery = `SELECT candidate.id, candidate.payload, candidate.kind, candidate.owner, candidate.started_at
+FROM (SELECT * FROM jobs WHERE state = 'queued' ORDER BY started_at, id LIMIT ` + strconv.Itoa(claimPrefixLength) + `) AS candidate
+WHERE (candidate.next_attempt_at IS NULL OR candidate.next_attempt_at <= ?)
+AND NOT EXISTS (SELECT 1 FROM jobs AS active WHERE active.owner = candidate.owner AND active.state = 'running' AND (active.lease_expires_at IS NULL OR active.lease_expires_at > ?))
+AND NOT EXISTS (SELECT 1 FROM jobs AS older WHERE older.owner = candidate.owner AND older.state = 'queued' AND (older.started_at < candidate.started_at OR (older.started_at = candidate.started_at AND older.id < candidate.id)))`
+
+// selectClaimCandidate returns the oldest eligible queued job (optionally of
+// the given kinds), or sql.ErrNoRows. Eligible means: past its retry
+// backoff, its owner has no running job with a live lease, and no older job
+// of the same owner is queued.
+func selectClaimCandidate(q interface {
+	QueryRow(string, ...any) *sql.Row
+}, nowNanos int64, kinds []string) (id string, payload []byte, kind, owner string, startedAt int64, err error) {
+	args := []any{nowNanos, nowNanos}
+	filter := ""
+	if len(kinds) > 0 {
+		placeholders := make([]string, len(kinds))
+		for i, kind := range kinds {
+			placeholders[i] = "?"
+			args = append(args, kind)
+		}
+		filter = " AND candidate.kind IN (" + strings.Join(placeholders, ",") + ")"
+	}
+	// The common case: an eligible job near the front of the queue. Scanning
+	// a bounded prefix in claim order is exact, because the first eligible
+	// job in global order is found whenever it lies within the prefix.
+	err = q.QueryRow(claimPrefixQuery+filter+` ORDER BY candidate.started_at, candidate.id LIMIT 1`, args...).Scan(&id, &payload, &kind, &owner, &startedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		// The whole prefix is blocked behind running or backed-off owners:
+		// search owner queue heads instead of every blocked row.
+		err = q.QueryRow(claimNextQuery+filter+` ORDER BY candidate.started_at, candidate.id LIMIT 1`, args...).Scan(&id, &payload, &kind, &owner, &startedAt)
+	}
+	return id, payload, kind, owner, startedAt, err
+}
+
 // ClaimNext atomically claims the oldest eligible queued job directly in SQL.
 // This avoids relying on a stale in-memory snapshot when multiple workers or
 // hosts share the control-plane database.
@@ -776,21 +848,7 @@ func (j *Jobs) ClaimNext(owner string, kinds ...string) (Job, bool, error) {
 	if active >= limit {
 		return Job{}, false, nil
 	}
-	args := []any{nowNanos, nowNanos}
-	filter := ""
-	if len(kinds) > 0 {
-		placeholders := make([]string, len(kinds))
-		for i, kind := range kinds {
-			placeholders[i] = "?"
-			args = append(args, kind)
-		}
-		filter = " AND kind IN (" + strings.Join(placeholders, ",") + ")"
-	}
-	var id string
-	var payload []byte
-	var kind, jobOwner string
-	var startedAt int64
-	err = tx.QueryRow(`SELECT id, payload, kind, owner, started_at FROM jobs AS candidate WHERE candidate.state = 'queued' AND (candidate.next_attempt_at IS NULL OR candidate.next_attempt_at <= ?) AND NOT EXISTS (SELECT 1 FROM jobs AS active WHERE active.owner = candidate.owner AND ((active.state = 'running' AND (active.lease_expires_at IS NULL OR active.lease_expires_at > ?)) OR (active.state = 'queued' AND (active.started_at < candidate.started_at OR (active.started_at = candidate.started_at AND active.id < candidate.id)))))`+filter+` ORDER BY candidate.started_at, candidate.id LIMIT 1`, args...).Scan(&id, &payload, &kind, &jobOwner, &startedAt)
+	id, payload, kind, jobOwner, startedAt, err := selectClaimCandidate(tx, nowNanos, kinds)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Job{}, false, nil
 	}

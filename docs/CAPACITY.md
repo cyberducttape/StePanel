@@ -20,6 +20,13 @@ production schema change. The earlier repeated experiment is retained in the
 These pathological fixtures support regression comparisons, not production
 throughput promises.
 
+**Since 2026-11-01** claim selection checks only the oldest queued jobs and
+otherwise walks owner queue heads, so the blocked-backlog claim is flat at
+about 1 ms p50 / 1.3 ms p99 at 100,000 queued jobs (was 210/221 ms); the
+trade-off is about 7 µs per blocked owner when every queued job belongs to a
+different blocked owner. See the
+[owner-head claim report](lab-results/2026-11-01-owner-head-claim-benchmark.md).
+
 Other measurements cover session validation and job listing at
 [`lab-results/2026-10-02-control-plane-load-baseline.md`](lab-results/2026-10-02-control-plane-load-baseline.md), and synthetic HTTP
 mixes at [`lab-results/2026-10-02-http-load-baseline.md`](lab-results/2026-10-02-http-load-baseline.md).
@@ -43,8 +50,9 @@ which calls for an explicit operating limit rather than a different database.
   range 100–100,000) bounds queued plus running jobs. At the limit, new jobs
   are refused with `503 Service Unavailable` and `Retry-After: 60`, so a
   runaway client or scheduler cannot grow the backlog until every claim slows
-  down. The default keeps the adverse-fixture claim near 21 ms; the ceiling is
-  the largest backlog measured (about 211 ms). The check counts before it
+  down. The ceiling is the largest backlog measured; with owner-head selection
+  a blocked backlog no longer slows claims, so the limit now mainly bounds the
+  owner walk (about 7 µs per blocked owner) and worker drain time. The check counts before it
   inserts, so concurrent submissions can overshoot by a few jobs.
 - **Retention:** completed, failed, and cancelled jobs are removed after 24
   hours; dead-letter jobs are kept until an operator retries or resolves them.

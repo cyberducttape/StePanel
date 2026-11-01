@@ -115,10 +115,11 @@ func reportBenchmarkWAL(b *testing.B, db *sql.DB) {
 	}
 }
 
-// BenchmarkClaimNextQueueSelectionStrategies compares the current ordered
-// candidate scan with an experimental owner-head prefilter. The experimental
-// strategy is benchmark-only until owner ordering, retry timing, lease, and
-// concurrent-claim semantics are covered by contract tests.
+// BenchmarkClaimNextQueueSelectionStrategies compares the original ordered
+// candidate scan with an earlier grouped owner-head experiment. Production
+// now uses selectClaimCandidate (bounded prefix, then owner walk), which
+// TestClaimSelectionMatchesOrderedScanReference holds to the original
+// query's results.
 func BenchmarkClaimNextQueueSelectionStrategies(b *testing.B) {
 	for _, strategy := range []struct {
 		name  string
@@ -254,4 +255,64 @@ func nullableBenchmarkInt(value int64) any {
 		return nil
 	}
 	return value
+}
+
+// BenchmarkClaimNextManyBlockedOwners is the owner walk's worst case: every
+// queued job belongs to a different owner whose earlier job is running, so
+// the claim-order prefix is blocked and every owner head must be checked.
+func BenchmarkClaimNextManyBlockedOwners(b *testing.B) {
+	for _, owners := range []int{1_000, 10_000} {
+		b.Run(fmt.Sprintf("blocked_owners_%d", owners), func(b *testing.B) {
+			db, err := openControlPlaneDB(filepath.Join(b.TempDir(), "control.db"))
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer db.Close()
+			base := time.Now().UTC().Add(-time.Hour).UnixNano()
+			lease := time.Now().UTC().Add(time.Hour).UnixNano()
+			tx, err := db.Begin()
+			if err != nil {
+				b.Fatal(err)
+			}
+			insert := func(id, owner, state string, started int64, expiry any) {
+				if _, err := tx.Exec(`INSERT INTO jobs (id,kind,operation_key,state,owner,started_at,payload,lease_owner,lease_expires_at,cancel_requested,updated_at) VALUES (?,?,?,?,?,?,?,?,?,0,?)`, id, "site.backup", "", state, owner, started, []byte(`{}`), nil, expiry, base); err != nil {
+					b.Fatal(err)
+				}
+			}
+			for i := 0; i < owners; i++ {
+				owner := fmt.Sprintf("owner-%06d", i)
+				insert("running-"+owner, owner, "running", base+int64(i), lease)
+				insert("queued-"+owner, owner, "queued", base+int64(owners+i), nil)
+			}
+			insert("eligible", "zz-idle", "queued", base+int64(3*owners), nil)
+			if err := tx.Commit(); err != nil {
+				b.Fatal(err)
+			}
+			now := time.Now().UTC().UnixNano()
+			for _, strategy := range []string{"owner_heads", "ordered_scan_reference"} {
+				b.Run(strategy, func(b *testing.B) {
+					latencies := make([]time.Duration, 0, b.N)
+					b.ResetTimer()
+					for i := 0; i < b.N; i++ {
+						started := time.Now()
+						var id string
+						var err error
+						if strategy == "owner_heads" {
+							id, _, _, _, _, err = selectClaimCandidate(db, now, []string{"site.backup"})
+						} else {
+							err = db.QueryRow(claimBenchmarkOrderedSelection, now, now, "site.backup").Scan(&id)
+						}
+						latencies = append(latencies, time.Since(started))
+						if err != nil || id != "eligible" {
+							b.Fatalf("selected %q, %v", id, err)
+						}
+					}
+					b.StopTimer()
+					sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
+					b.ReportMetric(float64(benchmarkPercentile(latencies, 50).Microseconds()), "p50_select_µs")
+					b.ReportMetric(float64(benchmarkPercentile(latencies, 99).Microseconds()), "p99_select_µs")
+				})
+			}
+		})
+	}
 }

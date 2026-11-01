@@ -490,6 +490,14 @@ CREATE INDEX recovery_rehearsals_application_proof_idx ON recovery_rehearsals(si
 		)`)
 		return err
 	}),
+	// ClaimNext reads the queue front in claim order (claimPrefixQuery) and
+	// otherwise walks owners with queued work, seeking each owner's head
+	// (claimNextQuery).
+	migration.NewMigration(29, "index owner queue heads for claim", func(tx *sql.Tx) error {
+		_, err := tx.Exec(`CREATE INDEX IF NOT EXISTS jobs_state_owner_started_idx ON jobs(state, owner, started_at, id);
+CREATE INDEX IF NOT EXISTS jobs_state_started_idx ON jobs(state, started_at, id);`)
+		return err
+	}),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {
