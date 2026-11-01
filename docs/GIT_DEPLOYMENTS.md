@@ -36,6 +36,18 @@ clone, install verified provider SSH host keys in root-owned
 `/etc/stepanel/git-known-hosts`; the helper uses strict host-key checking and
 will not trust a host key on first use.
 
+The clone itself never runs as root. `stepanel-gitctl` prepares the
+quota-limited release stage as root, then runs `git` and `ssh` as the
+dedicated `stepanel-git` system account (created by `install.sh`; no login
+shell, no other groups, not the panel or any customer account) with no new
+privileges and an empty capability set. For the duration of the clone the
+stage belongs to that account alone (mode `0700`), so the tenant cannot swap
+entries, and the deploy key and host keys are readable only through a private
+per-clone copy under `/run` that is removed afterwards. Clones are serialized
+host-wide, so the identity never holds two sites' keys or stages at once, and
+any process it left behind is killed before root hands the finished tree to
+the site's owner.
+
 ## Deploy
 
 Send an authenticated JSON request with the session CSRF token:

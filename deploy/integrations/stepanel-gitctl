@@ -207,15 +207,36 @@ case "$action" in
     # is below directories its account controls, so read it from a verified
     # walk rather than a path the account could redirect to another tenant.
     clone_owner=$( if (( site_placed )); then stepanel_cd_dir "$site_home" "$site_private" && stat -c '%u:%g' .; else stat -c '%u:%g' -- "$site_private"; fi ) || { echo 'cannot resolve the site tree owner' >&2; exit 1; }
-    # stage-limit gives the stage to the site account. While root checks out
-    # repository content the account controls, the account could swap a
-    # directory git has just created (and cached as checked) for a link and
-    # redirect root's writes. Take the stage from the account for the clone;
-    # the EXIT trap hands it back, also when the clone fails. The parent is
-    # not tenant-writable, so the stage entry itself cannot be replaced.
+    # Repository data from outside the host is parsed by git and ssh, so the
+    # clone never runs as root: it runs as the dedicated, unprivileged
+    # stepanel-git identity, which is neither the panel nor any customer
+    # account. stage-limit gave the stage to the site account; take it from
+    # the account for the clone (so the tenant cannot swap entries git has
+    # checked for links) and give it to the clone identity alone. The EXIT
+    # trap hands it back, also when the clone fails. The parent is not
+    # tenant-writable, so the stage entry itself cannot be replaced.
+    clone_user=stepanel-git
+    clone_uid=$(id -u "$clone_user" 2>/dev/null) && clone_gid=$(id -g "$clone_user" 2>/dev/null) || { echo 'the stepanel-git clone identity is missing; rerun install.sh' >&2; exit 1; }
+    [[ $clone_uid =~ ^[1-9][0-9]*$ && $clone_gid =~ ^[1-9][0-9]*$ ]] || { echo 'the Git clone identity must not be root' >&2; exit 1; }
+    [[ -z $(id -Gn "$clone_user" | tr ' ' '\n' | grep -vx "$clone_user") ]] || { echo 'the stepanel-git clone identity must not belong to other groups' >&2; exit 1; }
+    # One clone at a time: the shared clone identity must never hold two
+    # sites' deploy keys or stages at once.
+    install -d -m 0755 -o root -g root /run/lock
+    exec 9>/run/lock/stepanel-gitctl-clone.lock
+    flock -w 1800 9 || { echo 'another Git clone is still running' >&2; exit 1; }
+    stop_clone_processes() {
+      pkill -KILL -u "$clone_user" 2>/dev/null || true
+      for _ in {1..50}; do pgrep -u "$clone_user" >/dev/null 2>&1 || return 0; sleep 0.1; done
+      echo 'Git clone processes did not exit' >&2
+      return 1
+    }
+    stop_clone_processes
     stage_owner=$(stat -c '%u:%g' -- "$destination")
     stage_mode=$(stat -c '%a' -- "$destination")
+    clone_work=
     restore_stage() {
+      stop_clone_processes || true
+      [[ -z $clone_work ]] || rm -rf -- "$clone_work"
       chown --no-dereference -- "$stage_owner" "$destination" 2>/dev/null || true
       chmod -- "0$stage_mode" "$destination" 2>/dev/null || true
     }
@@ -230,10 +251,26 @@ case "$action" in
     [[ ${#marker_lines[@]} -eq 3 && ${marker_lines[0]} == "$destination" ]] || { echo 'active Git project quota does not match clone destination' >&2; exit 1; }
     known_hosts=/etc/stepanel/git-known-hosts
     [[ -f $known_hosts && ! -L $known_hosts ]] || { echo 'trusted Git SSH host keys are not configured' >&2; exit 1; }
+    # The clone identity reads this site's deploy key and the trusted host
+    # keys from a private copy that exists only for this clone.
+    clone_work=$(mktemp -d /run/stepanel-git-clone.XXXXXXXX)
+    install -m 0400 -o "$clone_uid" -g "$clone_gid" -- "$key" "$clone_work/deploy-key"
+    install -m 0444 -o root -g root -- "$known_hosts" "$clone_work/known_hosts"
+    chown -- "$clone_uid:$clone_gid" "$clone_work"
+    chmod 0700 "$clone_work"
+    chown --no-dereference -- "$clone_uid:$clone_gid" "$destination"
     # The root-owned marker above binds this clone to an active aggregate
     # project quota; RLIMIT_FSIZE additionally caps each individual file.
-    prlimit --as=2147483648 --fsize="$max_file_bytes" -- git -c credential.helper= -c core.hooksPath=/dev/null -c core.sshCommand="ssh -i $key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known_hosts -F /dev/null" \
+    prlimit --as=2147483648 --fsize="$max_file_bytes" -- \
+      setpriv --reuid="$clone_uid" --regid="$clone_gid" --clear-groups --no-new-privs --inh-caps=-all --bounding-set=-all -- \
+      env -i PATH=/usr/local/bin:/usr/bin:/bin HOME="$clone_work" LANG=C.UTF-8 \
+      git -c credential.helper= -c core.hooksPath=/dev/null -c core.sshCommand="ssh -i $clone_work/deploy-key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$clone_work/known_hosts -F /dev/null" \
       clone --depth 1 --branch "$ref" --single-branch --no-tags "$repository" "$destination"
+    # Nothing the clone identity started may outlive the clone while root
+    # takes the tree.
+    stop_clone_processes
+    chown --no-dereference -- root:root "$destination"
+    chmod 0700 "$destination"
     # The clone takes the ownership of the site's own tree: the legacy site
     # root, or a placed site's private state.
     chown -R --no-dereference -- "$clone_owner" "$destination"

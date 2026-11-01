@@ -1020,6 +1020,9 @@ chmod 0700 /var/lib/stepanel/recovery
 install -d -m 0755 "$APP_DIR/integrations"
 install_journal_record identity_setup started manual "creating or changing the stepanel system account and web-group membership; account database changes are outside file rollback"
 id "$APP_USER" >/dev/null 2>&1 || useradd --system --home-dir "$APP_DIR" --shell /usr/sbin/nologin "$APP_USER"
+# stepanel-gitctl runs private Git clones as this dedicated identity instead
+# of root. It owns nothing persistent and belongs to no other group.
+id stepanel-git >/dev/null 2>&1 || useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin stepanel-git
 install -d -m 0750 -o "$APP_USER" -g "$APP_USER" /var/backups/stepanel
 usermod -a -G "$WEB_GROUP" "$APP_USER"
 install_journal_record identity_setup complete manual "stepanel account and web-group membership established; these host account changes are not automatically removed"

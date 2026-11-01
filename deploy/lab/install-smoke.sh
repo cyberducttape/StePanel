@@ -339,6 +339,62 @@ if [[ ${STEPANEL_QUOTA_SMOKE:-0} == 1 ]]; then
   fi
   /usr/local/sbin/stepanel-gitctl stage-clear "$site" "$site_user" "$quota_stage" "$project_id"
   rm -rf -- "$quota_stage"
+
+  # Private clone through the production helper against a local SSH Git
+  # server: the clone must run as the unprivileged stepanel-git identity and
+  # leave the tree owned by the site with no clone process or key copy left.
+  id stepanel-git >/dev/null 2>&1 || { echo 'installer did not create the stepanel-git clone identity' >&2; exit 1; }
+  if ! command -v sshd >/dev/null 2>&1 && [[ ! -x /usr/sbin/sshd ]]; then
+    if command -v dnf >/dev/null 2>&1; then dnf install -y openssh-server git >/dev/null; else apt-get install -y openssh-server git >/dev/null; fi
+  fi
+  systemctl start sshd 2>/dev/null || systemctl start ssh
+  created_git_user=0
+  if ! id git >/dev/null 2>&1; then useradd --create-home --shell /usr/bin/git-shell git 2>/dev/null || useradd --create-home --shell /bin/sh git; created_git_user=1; fi
+  git_home=$(getent passwd git | cut -d: -f6)
+  known_hosts=/etc/stepanel/git-known-hosts
+  known_hosts_backup=
+  [[ -e $known_hosts ]] && { known_hosts_backup=$(mktemp); cp -p "$known_hosts" "$known_hosts_backup"; }
+  clone_smoke_cleanup() {
+    /usr/local/sbin/stepanel-gitctl delete "$site" >/dev/null 2>&1 || true
+    if [[ -n $known_hosts_backup ]]; then mv -f "$known_hosts_backup" "$known_hosts"; else rm -f "$known_hosts"; fi
+    rm -rf -- "$git_home/smoke.git" "$git_home/.ssh/authorized_keys"
+    (( created_git_user )) && userdel -r git 2>/dev/null || true
+  }
+  /usr/local/sbin/stepanel-gitctl delete "$site" >/dev/null 2>&1 || true
+  deploy_public=$(/usr/local/sbin/stepanel-gitctl generate "$site")
+  install -d -m 0700 -o git -g git "$git_home/.ssh"
+  printf '%s\n' "$deploy_public" > "$git_home/.ssh/authorized_keys"
+  chown git:git "$git_home/.ssh/authorized_keys"; chmod 0600 "$git_home/.ssh/authorized_keys"
+  work_repo=$(mktemp -d)
+  git -C "$work_repo" init -q -b main
+  printf 'cloned by stepanel-git\n' > "$work_repo/README"
+  git -C "$work_repo" -c user.name=smoke -c user.email=smoke@localhost add README
+  git -C "$work_repo" -c user.name=smoke -c user.email=smoke@localhost commit -q -m smoke
+  git clone -q --bare "$work_repo" "$git_home/smoke.git"
+  chown -R git:git "$git_home/smoke.git"
+  rm -rf -- "$work_repo"
+  install -d -m 0755 /etc/stepanel
+  ssh-keyscan -T 10 localhost 2>/dev/null > "$known_hosts"
+  [[ -s $known_hosts ]] || { clone_smoke_cleanup; echo 'could not read the local SSH host keys' >&2; exit 1; }
+  chmod 0644 "$known_hosts"
+  clone_stage="$stage_parent/.stepanel-release-$site-434343"
+  install -d -o stepanel -g stepanel -m 0700 "$clone_stage"
+  clone_project=$(/usr/local/sbin/stepanel-gitctl stage-limit "$site" "$site_user" "$clone_stage" 1048576)
+  if ! STEPANEL_GIT_ALLOWED_HOSTS=localhost /usr/local/sbin/stepanel-gitctl clone "$site" git@localhost:smoke.git main "$clone_stage" localhost 1048576 "$clone_project"; then
+    clone_smoke_cleanup
+    echo 'private Git clone through stepanel-gitctl failed' >&2
+    exit 1
+  fi
+  clone_failures=()
+  grep -qx 'cloned by stepanel-git' "$clone_stage/README" || clone_failures+=('cloned content is missing')
+  [[ $(stat -c '%U' "$clone_stage/README") != root && $(stat -c '%U' "$clone_stage/README") != stepanel-git ]] || clone_failures+=("clone left files owned by $(stat -c '%U' "$clone_stage/README")")
+  ! pgrep -u stepanel-git >/dev/null || clone_failures+=('a stepanel-git process outlived the clone')
+  [[ -z $(find /run -maxdepth 1 -name 'stepanel-git-clone.*' -print -quit) ]] || clone_failures+=('the per-clone key copy was not removed')
+  /usr/local/sbin/stepanel-gitctl stage-clear "$site" "$site_user" "$clone_stage" "$clone_project"
+  rm -rf -- "$clone_stage"
+  clone_smoke_cleanup
+  (( ${#clone_failures[@]} == 0 )) || { printf 'Git clone smoke: %s\n' "${clone_failures[@]}" >&2; exit 1; }
+  echo 'Private Git clone ran as stepanel-git and handed the tree to the site'
 fi
 
 # prepare-root is what the typed broker runs before staged activation: the
