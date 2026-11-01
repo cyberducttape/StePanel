@@ -1,5 +1,25 @@
 # Production-readiness progress
 
+## Separate 1.0 release scope from competitive hosting roadmap — 2026-10-31
+
+- Kept 1.0 focused on the documented operator-managed single-host contract and
+  its existing production gates. Repeated installed-host application recovery
+  remains a 1.0 blocker; file-manager parity, first-party mail, reseller
+  billing, DNSSEC, identity integrations, PITR, and clustering do not become
+  implicit release blockers.
+- Added post-1.0 M7/M8 acceptance criteria for migration fidelity and
+  dispositions, target-side migration proof, the full WordPress lifecycle,
+  customer file-manager parity, DNS zone/DNSSEC support, a mail ownership ADR,
+  provider functions, identity, PITR, clustering, and stronger tenant
+  isolation. Ordered product work starts with migration and WordPress
+  confidence, then panel parity, then enterprise/distributed capabilities.
+- Clarified that the current importer, WordPress beta workflows, offsite
+  backups, and tenant controls are foundations; partial or beta capabilities
+  are not certified end-to-end customer lifecycle support.
+- Documentation link and code-reference checks passed for all 90 current
+  Markdown documents; `git diff --check` passed. No product code or feature
+  behavior changed in this planning update.
+
 ## Node deployment authorization, recovery, and typed execution — 2026-10-31
 
 - Node deployment jobs now persist whether admission used an API token and its

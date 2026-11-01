@@ -240,6 +240,25 @@ These items belong to the 2.0 shared-hosting platform milestone in
 [ROADMAP.md](./ROADMAP.md). They are tracked here so the 1.0 scope stays fixed;
 none of them gates a 1.0 release.
 
+| Capability | Current position | Product direction |
+|---|---|---|
+| cPanel migration | Importer, preflight, cutover tooling, and evidence reporting exist | Improve fidelity comparison and target-side application proof; see M7 |
+| WordPress lifecycle | Creation and staging/promotion are in beta; recovery proof is a 1.0 gate | Certify install, backup, clean-host restore, and promotion end to end |
+| Disaster recovery | Backups, offsite workflows, and recovery journals exist | Repeat installed-host application recovery; archive verification alone is insufficient |
+| Email | Optional/operator-managed integration; no complete customer mail lifecycle | Keep external for 1.0; decide first-party versus provider integration through a 2.0 ADR |
+| File manager | Partial customer-facing workflow | High-priority panel-parity work after 1.0, with strict path/race and quota evidence |
+| DNS | Partial provider integration | Add provider coverage, zone import/export, reconciliation, and DNSSEC lifecycle |
+| Billing and resellers | Incomplete | Build for hosting-provider adoption, not the initial single-host release |
+| WebAuthn and OIDC | Not production-complete | Enterprise identity work after core lifecycle certification |
+| Point-in-time database recovery | WAL/binlog workflows remain operator-managed | Future managed recovery capability with rehearsed RPO/RTO evidence |
+| Multi-server clustering | Outside the certified architecture | Separate distributed 2.0 initiative |
+| Hostile tenant isolation | Shared-kernel controls only | Require per-tenant VMs or comparably strong isolation before supporting mutually untrusted workloads |
+
+The detailed ordered milestones and acceptance criteria are in
+[`DEVELOPMENT_PLAN.md`](../DEVELOPMENT_PLAN.md) (M7–M8) and
+[`ROADMAP.md`](./ROADMAP.md). Existing beta features and partial integrations
+must not be described as certified customer lifecycle support.
+
 Multi-host foundation:
 
 - [ ] High-availability datastore (etcd or PostgreSQL)

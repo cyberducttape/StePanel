@@ -94,24 +94,69 @@ Release criteria are the evidence gates in
 product: high availability, multi-host and multi-region operation, SLA and
 escalation tooling, and automated incident response are 2.0 work.
 
-## 2.0 — Shared-hosting platform
+## Beyond 1.0 — Competitive hosting capabilities
 
-- Tenant/account model with quotas, service plans, scoped RBAC, customer API
-  tokens,
-  OIDC, and phishing-resistant MFA
-- Multi-host agent orchestration with scoped worker credentials
-- Complete domain, DNS, TLS, database, mail, FTP/SFTP, cron, SSH, and billing
-  lifecycle
-- Database PITR/WAL or binlog orchestration, replication topology, controlled
-  switchover, and externally fenced automatic failover
-- Customer portal, file manager, Git-provider App/OAuth integrations,
-  general (non-WordPress) database promotion, notifications, and self-service
-  backup/restore; deploy-key Git webhooks, sandboxed builds, scheduled tasks,
-  operator restore-to-staging, and WordPress staging promotion are already
-  available with documented beta boundaries.
+The 1.0 promise stays deliberately narrow: a credible, operator-managed,
+single-host PHP/WordPress product. Features below improve migration confidence
+or establish parity with established hosting panels; they do not delay 1.0
+unless a specific item is already part of a 1.0 production gate.
 
-  The customer portal now includes a tenant-scoped account/usage view and
-  session security controls, owner/manager/developer/viewer roles, and
-  owner-initiated site creation; the remaining shared-hosting work is the
-  multi-host platform, support/reseller roles, and the provider lifecycle
-  around that portal.
+### 2.0A — Migration and WordPress lifecycle confidence
+
+Prioritize these before broadening the service catalog:
+
+- **Migration fidelity:** strengthen the existing cPanel importer and
+  compatibility report. Every discovered component must be marked imported,
+  transformed, skipped, unsupported, or failed with a reason and evidence.
+  Compare source and target domains, files, databases, mailbox inventory,
+  scheduled tasks, and DNS records; distinguish observed results from
+  assumptions. Export a report tied to the archive digest and StePanel build.
+- **Post-migration proof:** run a target-side database check and HTTP
+  application probe after activation. Show unresolved mail, DNS, TLS, cron,
+  and configuration work as explicit cutover tasks. Do not label a migration
+  verified when an item was only inspected or assumed compatible.
+- **WordPress lifecycle:** treat create, secure, backup, restore, stage, and
+  promote as one supported workflow. Acceptance requires a clean supported-host
+  install, encrypted local/offsite backup, restore to a clean destination,
+  database-backed HTTPS probe, staging clone, and guarded promotion with
+  verified database separation and rollback evidence.
+- **Repeated disaster recovery:** keep repeated installed-host application
+  recovery as a 1.0 release gate. A passing archive check or one successful
+  restore is not a substitute for the repeated evidence contract in
+  [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md).
+
+### 2.0B — Hosting-panel parity for operator-managed fleets
+
+- **Customer file manager:** complete the current partial experience with
+  confined browsing, upload/download, rename, deletion, and permission
+  management. Acceptance requires tenant-scoped authorization, descriptor-rooted
+  filesystem operations, bounded transfers/listings, audit history, and
+  installed-host race and quota tests. This is a high-priority competitive
+  feature, but not a 1.0 release blocker.
+- **DNS lifecycle:** add provider adapters and import/exportable zone
+  management, complete record reconciliation, and DNSSEC key/DS lifecycle
+  support. Each adapter needs provider-contract tests and a read-after-write
+  check; DNSSEC changes need a preview and recovery procedure.
+- **Mail scope decision:** keep mail externally managed for 1.0. Before 2.0
+  implementation, decide through an ADR whether StePanel will own a complete
+  customer mail lifecycle or integrate external mail providers. Do not imply
+  first-party mailbox provisioning, delivery, migration, or recovery while
+  those workflows remain operator-managed.
+- **Provider operations:** add billing, reseller/support roles, customer
+  onboarding, and delegated support only with auditable authorization and
+  lifecycle contracts. The existing tenant portal and owner/manager/developer/
+  viewer roles are foundations, not a complete provider platform.
+
+### 2.0C — Enterprise and distributed operation
+
+- **Identity:** production-complete WebAuthn and OIDC, with recovery and
+  account-transition tests.
+- **Database recovery:** managed point-in-time recovery using verified WAL or
+  binlog retention, with restore-to-new-instance rehearsal and measured RPO/RTO.
+- **Multi-host control plane:** separate architecture work for durable job
+  routing, shared state, upgrades, and failure fencing; do not imply that the
+  current single-host SQLite design provides clustering or HA.
+- **Hostile tenant isolation:** require a tested per-tenant VM or comparably
+  strong isolation boundary before advertising support for mutually
+  untrusted customer code. Unix accounts and cgroups remain useful controls,
+  not a substitute for that boundary.

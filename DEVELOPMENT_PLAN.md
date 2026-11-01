@@ -840,6 +840,49 @@ credential-rotation procedures.
   the overall decision is explicitly changed to GO by review.
 - If any criterion remains unmet, preserve NO-GO and publish the limitations.
 
+### M7 — Competitive migration and WordPress lifecycle (post-1.0 product work)
+
+**Status:** Planned. These capabilities do not replace or defer M1–M6 and are
+not 1.0 release blockers unless called out by an existing production gate.
+Scope and ordering are defined in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
+**Acceptance criteria**
+
+- A cPanel migration report gives every inspected component one explicit
+  disposition (imported, transformed, skipped, unsupported, or failed), a
+  reason, and evidence. It identifies the source archive digest and product
+  build; unknown or assumed values are never presented as verified.
+- A completed migration records target-side filesystem/database checks and an
+  application HTTP probe. Mail, DNS, TLS, cron, and unsupported configuration
+  changes remain visible as incomplete cutover work when they were not
+  migrated or verified.
+- The documented WordPress lifecycle succeeds on every supported runtime
+  combination: create and secure, back up locally and offsite, restore to a
+  clean host, verify database-backed HTTPS behavior, clone to staging, and
+  promote with database-separation checks and a recoverable rollback point.
+- Each claim is backed by repeatable installed-host evidence tied to the exact
+  source. Archive integrity alone does not satisfy application recovery.
+
+### M8 — Hosting-panel parity and platform expansion (2.0+)
+
+**Status:** Planned, intentionally outside the single-host 1.0 contract.
+
+**Acceptance criteria**
+
+- Complete the customer file-manager workflow with tenant authorization,
+  descriptor-rooted filesystem access, bounded transfers, audit events, and
+  installed-host adversarial race and quota evidence.
+- DNS provider adapters support zone inventory/import/export, provider-valid
+  record reconciliation, and DNSSEC lifecycle with preview, read-after-write
+  verification, and recovery instructions.
+- Record an ADR deciding first-party versus externally integrated mail before
+  offering mailbox creation, migration, delivery, or recovery as supported
+  customer workflows.
+- Billing/reseller roles, WebAuthn/OIDC, PITR, multi-host operation, and
+  stronger tenant isolation each have separate threat models, migration plans,
+  and acceptance evidence. Hostile-tenant support requires an isolated VM or
+  equivalently strong boundary; it cannot be inferred from Unix users/cgroups.
+
 ## Current sequencing
 
 1. Continue typed service extraction from high-risk durable operations in
