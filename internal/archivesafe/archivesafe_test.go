@@ -418,6 +418,9 @@ func TestRejectedEntryLeavesPathStateAndAccountingUnchanged(t *testing.T) {
 	if _, err := paths.Claim("dir/file", File); err == nil {
 		t.Fatal("duplicate file admitted")
 	}
+	if len(paths.kinds) != before {
+		t.Fatalf("rejected duplicate recorded %d paths", len(paths.kinds)-before)
+	}
 	if _, err := paths.Claim("x/y/dir", File); err != nil {
 		t.Fatal(err)
 	}
