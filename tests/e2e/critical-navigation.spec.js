@@ -263,6 +263,30 @@ test('navigation: cPanel migration controls render', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Import a cpmove backup' })).toBeVisible();
 });
 
+test('high-risk change confirmation exposes the complete review plan', async ({ page }) => {
+  await page.evaluate(() => {
+    window.__reviewDialog = window.StepanelUI.confirmDangerous({
+      title: 'Review risky change', message: 'Confirm only after reviewing the plan.',
+      confirmText: 'example.test', plan: {
+        before: { php: '8.2', memory_limit: '256M' },
+        proposed: { php: '8.3', memory_limit: '512M' },
+        validation_commands: [{ when: 'before', command: 'php-fpm -t', expected: 'Syntax is valid.', automated: true }],
+        expected_interruptions: [{ point: 'During apply', expected: 'Desired state stays pending.', recovery: 'Reconcile the PHP-FPM pool.' }],
+        desired_state_proof: ['Profile is persisted as applied after helper success.'],
+        recovery_plan: ['Restore the previous profile.'],
+      },
+    });
+  });
+  const dialog = page.locator('dialog.confirm-dialog');
+  await expect(dialog).toContainText('Exact before/after configuration');
+  await dialog.locator('summary').click();
+  await expect(dialog).toContainText('"memory_limit": "256M"');
+  await expect(dialog).toContainText('"memory_limit": "512M"');
+  await expect(dialog).toContainText('php-fpm -t');
+  await expect(dialog).toContainText('During apply');
+  await expect(dialog).toContainText('Restore the previous profile.');
+});
+
 test('cPanel preflight exposes compatibility evidence and downloadable report', async ({ page }) => {
   await page.route('**/api/cpmove/inspect', (route) => route.fulfill({ json: {
     upload_id: 'fixture-upload', archive_bytes: 1024, expanded_bytes: 2048, database_count: 1,

@@ -13,24 +13,27 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
 type PHPProfile struct {
-	Site              string `json:"site"`
-	Version           string `json:"version"`
-	MemoryLimit       string `json:"memory_limit"`
-	MaxExecutionTime  int    `json:"max_execution_time"`
-	UploadMaxFilesize string `json:"upload_max_filesize"`
-	PostMaxSize       string `json:"post_max_size"`
-	MaxInputVars      int    `json:"max_input_vars"`
-	OPcache           bool   `json:"opcache"`
-	DisplayErrors     bool   `json:"display_errors"`
-	ErrorReporting    string `json:"error_reporting"`
-	PreviewToken      string `json:"preview_token,omitempty"`
-	State             string `json:"state,omitempty"`
-	LastError         string `json:"last_error,omitempty"`
+	Site              string    `json:"site"`
+	Version           string    `json:"version"`
+	MemoryLimit       string    `json:"memory_limit"`
+	MaxExecutionTime  int       `json:"max_execution_time"`
+	UploadMaxFilesize string    `json:"upload_max_filesize"`
+	PostMaxSize       string    `json:"post_max_size"`
+	MaxInputVars      int       `json:"max_input_vars"`
+	OPcache           bool      `json:"opcache"`
+	DisplayErrors     bool      `json:"display_errors"`
+	ErrorReporting    string    `json:"error_reporting"`
+	PreviewToken      string    `json:"preview_token,omitempty"`
+	State             string    `json:"state,omitempty"`
+	LastError         string    `json:"last_error,omitempty"`
+	VerifiedAt        time.Time `json:"verified_at,omitempty"`
+	Verification      []string  `json:"verification,omitempty"`
 }
 type PHPProfileStore struct {
 	mu     sync.RWMutex
@@ -217,7 +220,10 @@ func (a *App) phpRuntime(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.php.updated", site, p.Version)
-	writeJSON(w, 202, p)
+	response := p
+	response.VerifiedAt = time.Now().UTC()
+	response.Verification = []string{"PHP-FPM runtime helper returned success", "Desired PHP profile persisted with state applied"}
+	writeJSON(w, 202, response)
 }
 
 // phpProfileResourceImpact turns the per-request PHP memory limit into an

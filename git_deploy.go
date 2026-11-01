@@ -378,17 +378,18 @@ type gitRollbackRequest struct {
 }
 
 type gitRollbackPreview struct {
-	Site             string `json:"site"`
-	CurrentRelease   string `json:"current_release"`
-	TargetRelease    string `json:"target_release"`
-	CurrentFiles     int64  `json:"current_files"`
-	TargetFiles      int64  `json:"target_files"`
-	CurrentBytes     int64  `json:"current_bytes"`
-	TargetBytes      int64  `json:"target_bytes"`
-	DocumentRoot     string `json:"document_root"`
-	ServiceEffect    string `json:"service_effect"`
-	PreservedRelease string `json:"preserved_release"`
-	PreviewToken     string `json:"preview_token"`
+	Site             string        `json:"site"`
+	CurrentRelease   string        `json:"current_release"`
+	TargetRelease    string        `json:"target_release"`
+	CurrentFiles     int64         `json:"current_files"`
+	TargetFiles      int64         `json:"target_files"`
+	CurrentBytes     int64         `json:"current_bytes"`
+	TargetBytes      int64         `json:"target_bytes"`
+	DocumentRoot     string        `json:"document_root"`
+	ServiceEffect    string        `json:"service_effect"`
+	PreservedRelease string        `json:"preserved_release"`
+	PreviewToken     string        `json:"preview_token"`
+	ChangePlan       ChangePreview `json:"change_plan"`
 }
 
 // gitRollbackPreviewHandler describes the release swap and returns a token
@@ -454,13 +455,22 @@ func (a *App) buildGitRollbackPreview(site string) (gitRollbackPreview, error) {
 	}
 	revision += fmt.Sprintf("|%s:%d:%d", filepath.Base(current), currentStat.Dev, currentStat.Ino)
 	token := sha256.Sum256([]byte(site + "\x00" + location.DocRoot + "\x00" + revision))
+	before := map[string]any{"active_release": filepath.Base(current), "document_root": location.DocRoot, "files": currentFiles, "bytes": currentBytes, "directory_device": currentStat.Dev, "directory_inode": currentStat.Ino}
+	proposed := map[string]any{"active_release": filepath.Base(target), "document_root": location.DocRoot, "files": targetFiles, "bytes": targetBytes, "retained_rollback_release": filepath.Base(current)}
+	review, err := a.makeChangePreview("git.rollback:"+site, before, proposed,
+		[]string{"Atomically switch the document root to the selected retained release.", "Keep the current active release as the next rollback point; PHP-FPM and web-server configuration are not changed."},
+		[]string{"If activation fails, the current release remains active.", "After success, the previously active release is retained for a subsequent rollback; verify the application before pruning releases."})
+	if err != nil {
+		return gitRollbackPreview{}, fmt.Errorf("create release rollback review plan: %w", err)
+	}
+	review.PreviewToken, review.ExpiresAt = "", ""
 	return gitRollbackPreview{
 		Site: site, CurrentRelease: filepath.Base(current), TargetRelease: filepath.Base(target),
 		CurrentFiles: currentFiles, TargetFiles: targetFiles, CurrentBytes: currentBytes, TargetBytes: targetBytes,
 		DocumentRoot:     location.DocRoot,
 		ServiceEffect:    "The document root is atomically switched; PHP-FPM and web-server configuration are unchanged, and the service is not restarted.",
 		PreservedRelease: "The currently active release is retained as the next rollback point.",
-		PreviewToken:     hex.EncodeToString(token[:]),
+		PreviewToken:     hex.EncodeToString(token[:]), ChangePlan: review,
 	}, nil
 }
 

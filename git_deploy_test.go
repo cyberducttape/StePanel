@@ -386,6 +386,9 @@ func TestGitRollbackAtomicallySwapsPreviousRelease(t *testing.T) {
 	if preview.CurrentRelease != "public" || preview.TargetRelease != ".stepanel-previous-old" || preview.CurrentFiles != 1 || preview.TargetFiles != 1 || preview.CurrentBytes != int64(len("current")) || preview.TargetBytes != int64(len("previous")) {
 		t.Fatalf("unexpected rollback preview: %+v", preview)
 	}
+	if preview.ChangePlan.Proposed == nil || len(preview.ChangePlan.ValidationCommands) == 0 || len(preview.ChangePlan.InterruptionPoints) == 0 || len(preview.ChangePlan.DesiredStateProof) == 0 {
+		t.Fatalf("rollback review plan is incomplete: %+v", preview.ChangePlan)
+	}
 	body, _ := json.Marshal(gitRollbackRequest{Site: "example", Confirm: "ROLLBACK example", PreviewToken: preview.PreviewToken})
 	request := httptest.NewRequest(http.MethodPost, "/api/sites/git-rollback", bytes.NewReader(body))
 	response := httptest.NewRecorder()

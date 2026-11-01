@@ -1367,8 +1367,15 @@ func (a *App) handleCertificateJob(ctx context.Context, item Job) ([]byte, error
 	if !response.OK {
 		return nil, fmt.Errorf("certificate helper failed: %s", response.Error)
 	}
+	lineage, err = certificateLineageState(request.Domain)
+	if err != nil || !lineage.Exists || !lineage.HostMatch || !time.Now().Before(lineage.NotAfter) {
+		return nil, errors.New("certificate helper completed, but the active lineage did not verify for the requested hostname")
+	}
 	TelemetryAudit(a.Config.AuditLog, request.Actor, "certificate.issued", request.Domain, "Let's Encrypt certificate requested")
-	output, err := json.Marshal(CertificateResult{Domain: request.Domain, Status: "issued"})
+	output, err := json.Marshal(CertificateResult{
+		Domain: request.Domain, Status: "verified", VerifiedAt: time.Now().UTC(), LineageSHA256: lineage.SHA256,
+		Checks: []string{"Active Certbot lineage exists", "Leaf certificate hostname matches request", "Leaf certificate is not expired"},
+	})
 	if err != nil {
 		return nil, err
 	}

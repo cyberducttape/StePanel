@@ -23,6 +23,7 @@
           ['Recovery', preview.recovery_plan.join(' ')],
           ['Preview expires', new Date(preview.expires_at).toLocaleString()],
         ],
+        plan: preview,
         confirmText: body.domain,
         actionLabel: 'Queue certificate issuance',
       });
@@ -30,7 +31,11 @@
       const data = await StepanelForms.submitJSON('/api/certificates/issue', { ...body, preview_token: preview.preview_token });
       StepanelUI.setStatus(status, 'Certificate request queued; follow it in Operations.', 'pending');
       const job = await StepanelJobs.wait(data.job_id);
-      if (job.state === 'completed') StepanelUI.setStatus(status, 'Certificate issued; verify the Apache site configuration.', 'success');
+      if (job.state === 'completed') {
+        const result = job.result || {};
+        const checks = Array.isArray(result.checks) ? result.checks.join('; ') : 'No certificate verification evidence was returned.';
+        StepanelUI.setStatus(status, `Certificate ${result.status || 'job completed'} for ${result.domain || body.domain}. ${checks}${result.verified_at ? ` Verified ${new Date(result.verified_at).toLocaleString()}.` : ''}${result.lineage_sha256 ? ` Active lineage SHA-256 ${result.lineage_sha256}.` : ''} Public HTTPS reachability still requires an external check.`, result.status === 'verified' ? 'success' : 'warning');
+      }
       else throw new Error(job.error || 'Certificate issuance failed');
     } catch (error) {
       StepanelUI.setStatus(status, error.message, 'error');

@@ -758,7 +758,10 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeJSON(w, http.StatusAccepted, map[string]string{"site": input.Site, "domain": input.Domain, "config": filepath.Join(a.Config.VHostRoot, name), "recovery_snapshot": recoverySnapshot})
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"site": input.Site, "domain": input.Domain, "config": filepath.Join(a.Config.VHostRoot, name), "recovery_snapshot": recoverySnapshot,
+		"verification": map[string]any{"desired_state": "applied", "verified_at": time.Now().UTC(), "checks": []string{"Managed web-server validation/reload succeeded", "Applied route state was persisted"}},
+	})
 }
 
 func siteVHostConfigName(webserver, site, domain string) string {
@@ -934,7 +937,10 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "route deletion cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"deleted": name, "recovery_snapshot": recoverySnapshot})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"deleted": name, "recovery_snapshot": recoverySnapshot,
+		"verification": map[string]any{"desired_state": "removed", "verified_at": time.Now().UTC(), "checks": []string{"Managed web-server validation/reload succeeded", "Route desired state was removed"}},
+	})
 }
 
 func (a *App) siteRouteDeletePreview(w http.ResponseWriter, r *http.Request) {

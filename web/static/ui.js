@@ -25,7 +25,7 @@
   // { confirmed, value } instead of a plain boolean. Multiple fields resolve
   // to { confirmed, values } and are used for explicit database restore
   // parameters without falling back to native prompt() dialogs.
-  const confirmDangerous = ({ title, message, facts = [], confirmText, actionLabel = 'Confirm', extraField = null, extraFields = null }) => new Promise((resolve) => {
+  const confirmDangerous = ({ title, message, facts = [], confirmText, actionLabel = 'Confirm', extraField = null, extraFields = null, plan = null }) => new Promise((resolve) => {
     const dialog = el('dialog', { className: 'confirm-dialog' });
     const inputId = `confirm-input-${Math.random().toString(36).slice(2, 8)}`;
     const input = el('input', { id: inputId, type: 'text', autocomplete: 'off', required: true });
@@ -53,11 +53,41 @@
         definition.hint ? el('small', { className: 'hint' }, definition.hint) : null,
       ]);
     });
+    const planNode = plan ? (() => {
+      const section = el('details', { className: 'change-review-plan' }, [el('summary', {}, 'Exact before/after configuration, validation, and recovery plan')]);
+      const addBlock = (titleText, value) => {
+        section.append(el('h4', {}, titleText));
+        section.append(el('pre', { className: 'change-review-code' }, value));
+      };
+      const stringify = (value) => {
+        let encoded;
+        try { encoded = JSON.stringify(value ?? {}, null, 2); } catch { encoded = '[configuration unavailable]'; }
+        return encoded.length > 65536 ? `${encoded.slice(0, 65536)}\n… truncated for display` : encoded;
+      };
+      addBlock('Before', stringify(plan.before));
+      addBlock('Proposed after', stringify(plan.proposed));
+      section.append(el('h4', {}, 'Validation commands and checks'));
+      section.append(el('ul', {}, (plan.validation_commands || []).map((item) => el('li', {}, [
+        el('code', {}, item.command || 'Validation check'),
+        el('span', {}, ` — ${item.when || 'check'}; ${item.expected || ''}${item.automated ? ' (automated by StePanel)' : ' (operator run)'}`),
+      ]))));
+      section.append(el('h4', {}, 'Expected interruption behavior'));
+      section.append(el('ul', {}, (plan.expected_interruptions || []).map((item) => el('li', {}, [
+        el('strong', {}, `${item.point || 'Interruption'}: `),
+        el('span', {}, `${item.expected || ''} Recovery: ${item.recovery || 'inspect operation state before retrying.'}`),
+      ]))));
+      section.append(el('h4', {}, 'Proof expected after the change'));
+      section.append(el('ul', {}, (plan.desired_state_proof || []).map((item) => el('li', {}, item))));
+      section.append(el('h4', {}, 'Recovery plan'));
+      section.append(el('ul', {}, (plan.recovery_plan || []).map((item) => el('li', {}, item))));
+      return section;
+    })() : null;
     const form = el('form', { method: 'dialog', onSubmit: () => { dialog.close('confirm'); } }, [
       el('div', { className: 'confirm-dialog-body' }, [
         el('h3', {}, title),
         el('p', {}, message),
         facts.length ? el('div', { className: 'confirm-dialog-facts' }, facts.map(([label, value]) => el('div', {}, [label, el('strong', {}, value)]))) : null,
+        planNode,
         ...extraFieldNodes,
         el('div', { className: 'field' }, [el('label', { for: inputId }, `Type ${confirmText} to confirm`), input]),
       ]),

@@ -1,5 +1,30 @@
 # Production-readiness progress
 
+## Risky configuration change plans and after-state proof — 2026-10-31
+
+- Expanded the shared preview contract used by PHP runtime/resources, route
+  apply/delete, certificate issuance, Caddy `.htaccess` translation, WordPress
+  staging promotion, and Git release rollback. Confirmation dialogs show
+  structured before/proposed data, effects, validation commands with their
+  automated/manual status, recoverability, expected interruption outcomes,
+  and the proof expected after completion. Preview content is rendered as
+  text, with a 64 KiB display bound.
+- PHP profile and resource UI messages now report returned applied/pending
+  state and the applied values. Route and Caddy mutation responses include
+  verification timestamps/checks. Git rollback reports active and retained
+  releases. Certificate jobs reread the installed lineage and only complete
+  successfully when the leaf certificate matches the requested hostname and
+  is unexpired; results include the lineage digest and verification time.
+- Added change-plan, Git rollback-plan, and certificate evidence regressions
+  plus browser E2E coverage for rendering the review dialog. Focused Go tests,
+  JavaScript syntax checks, all 17 JavaScript unit tests, and final-tree
+  `make check` passed. Playwright discovered the new E2E case but skipped its
+  execution because this environment has no authenticated seeded E2E server.
+- Preview gating is limited to the listed workflows. Other risky mutations
+  that lack an expiring preview remain open work; expected interruption
+  behavior shown in a preview describes the implemented subsystem contract
+  and does not constitute host-level crash certification.
+
 ## cPanel migration plan, TLS inventory, and rollback evidence — 2026-10-31
 
 - Extended the cpmove preflight and downloadable JSON/Markdown reports with

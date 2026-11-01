@@ -817,11 +817,14 @@
           ['Recovery', preview.recovery_plan.join(' ')],
           ['Preview expires', new Date(preview.expires_at).toLocaleString()],
         ],
+        plan: preview,
         confirmText: domain,
         actionLabel: 'Apply domain change',
       });
       if (!confirmed) return false;
-      return await ctx.postJSON('/api/sites/deploy', { site, domain, preview_token: preview.preview_token });
+      const result = await ctx.postJSON('/api/sites/deploy', { site, domain, preview_token: preview.preview_token });
+      output.textContent = `Domain route reached ${result.verification?.desired_state || 'unverified'} state. ${(result.verification?.checks || []).join('; ') || 'No verification evidence returned.'} ${result.recovery_snapshot ? `Recovery snapshot: ${result.recovery_snapshot}.` : ''} Verify public DNS and HTTPS separately.`;
+      return result;
     };
 
     const list = el('ul', { className: 'resource-list' }, routes.length ? routes.map((route) => el('li', { className: 'resource-list-item' }, [
@@ -840,12 +843,13 @@
               ['Recovery', preview.recovery_plan.join(' ')],
               ['Preview expires', new Date(preview.expires_at).toLocaleString()],
             ],
+            plan: preview,
             confirmText: route.domain,
             actionLabel: 'Remove domain route',
           });
           if (!confirmed) return;
           const result = await ctx.deleteJSON(`/api/sites/${encodeURIComponent(name)}`, { preview_token: preview.preview_token });
-          output.textContent = `${route.domain} removed.${result.recovery_snapshot ? ` Recovery snapshot: ${result.recovery_snapshot}` : ''}`;
+          output.textContent = `${route.domain} reached ${result.verification?.desired_state || 'unverified'} state. ${(result.verification?.checks || []).join('; ')}${result.recovery_snapshot ? ` Recovery snapshot: ${result.recovery_snapshot}` : ''}`;
           renderDomainsTab(site, panel, ctx);
         } catch (error) { output.textContent = error.message; }
       }, { className: 'danger' })]) : null,
@@ -965,12 +969,15 @@
                 ['Recovery', preview.recovery_plan.join(' ')],
                 ['Preview expires', new Date(preview.expires_at).toLocaleString()],
               ],
+              plan: preview,
               confirmText: site,
               actionLabel: 'Apply PHP change',
             });
             if (!confirmed) { phpOutput.textContent = 'PHP change cancelled.'; return; }
-            await ctx.putJSON(`/api/sites/php/${encodeURIComponent(site)}`, { ...change, preview_token: preview.preview_token });
-            phpOutput.textContent = 'PHP runtime applied.';
+            const applied = await ctx.putJSON(`/api/sites/php/${encodeURIComponent(site)}`, { ...change, preview_token: preview.preview_token });
+            phpOutput.textContent = applied.state === 'applied'
+              ? `Desired PHP-FPM profile reached: PHP ${applied.version}, memory ${applied.memory_limit}, max execution ${applied.max_execution_time}s, upload ${applied.upload_max_filesize}. The runtime helper succeeded and the applied profile was persisted. ${Array.isArray(applied.verification) ? applied.verification.join('; ') : ''}`
+              : `PHP runtime is ${applied.state || 'unverified'}; do not treat this change as complete. ${applied.last_error || 'Inspect pending reconciliation and PHP-FPM state.'}`;
           } catch (error) { phpOutput.textContent = error.message; }
         },
       }, [
@@ -1119,13 +1126,14 @@
           const confirmed = await ctx.confirmDangerous({
             title: `Roll back ${site}?`,
             message: previewMessage,
+            plan: preview.change_plan,
             confirmText: `ROLLBACK ${site}`,
             actionLabel: 'Roll back',
           });
           if (!confirmed) { output.textContent = 'Rollback cancelled.'; return; }
           output.textContent = 'Rolling back…';
-          await ctx.postJSON('/api/sites/git-rollback', { site, confirm: `ROLLBACK ${site}`, preview_token: preview.preview_token });
-          output.textContent = 'Rollback completed.';
+          const result = await ctx.postJSON('/api/sites/git-rollback', { site, confirm: `ROLLBACK ${site}`, preview_token: preview.preview_token });
+          output.textContent = `Rollback outcome: ${result.outcome || 'committed'}; active release ${result.activated || 'not reported'}; prior release ${result.replaced_release || 'not reported'} retained for recovery.`;
           renderDeploymentsTab(site, panel, ctx);
         } catch (error) { output.textContent = error.message; }
       }, { className: 'danger' }));
@@ -1474,6 +1482,7 @@
           title: `Promote ${source} to ${site}?`,
           message: `${preview.effects.join(' ')} ${preview.recovery_plan.join(' ')}`,
           facts: [['Production domain', preview.proposed.production_domain], ['Staging database', preview.proposed.source_database], ['Current production database', preview.before.active_production_database]],
+          plan: preview,
           confirmText: `PROMOTE ${site}`,
           actionLabel: 'Queue guarded promotion',
         });
@@ -2030,13 +2039,16 @@
                   ...((preview.recovery_plan || []).map((step, index) => [`Recovery ${index + 1}`, step])),
                   ['Preview expires', new Date(preview.expires_at).toLocaleString()],
                 ],
+                plan: preview,
                 confirmText: site,
                 actionLabel: 'Apply worker change',
               });
               if (!confirmed) { workerOutput.textContent = 'PHP-FPM worker change cancelled.'; return; }
               workerOutput.textContent = 'Applying the reviewed PHP-FPM worker change…';
-              await ctx.putJSON(`/api/sites/resources/${encodeURIComponent(site)}`, { ...change, preview_token: preview.preview_token });
-              workerOutput.textContent = 'PHP-FPM worker limit applied.';
+              const applied = await ctx.putJSON(`/api/sites/resources/${encodeURIComponent(site)}`, { ...change, preview_token: preview.preview_token });
+              workerOutput.textContent = applied.state === 'applied'
+                ? `Desired profile reached applied state at ${applied.applied_at || 'an unreported time'}; PHP workers ${applied.php_workers}, memory.max ${applied.memory_mb} MiB, quota ${applied.filesystem_quota_state || 'unknown'}. The broker helper succeeded and applied state was persisted.`
+                : `Resource profile is ${applied.state || 'unverified'}; inspect host enforcement before treating the change as complete.`;
               renderSettingsTab(site, panel, ctx);
             } catch (error) { workerOutput.textContent = error.message; }
           },

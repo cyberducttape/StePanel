@@ -12,6 +12,33 @@ successful one-off smoke does not close a host-certification gate.
 
 ## Milestones
 
+### M0v — Make risky configuration changes reviewable and verifiable (P1)
+
+**Status:** Implemented for PHP runtime, site resource, managed domain route,
+TLS issuance, Caddy `.htaccess` translation, WordPress staging promotion, and
+Git release rollback previews. Local focused checks pass; exact-source CI and
+authenticated browser E2E remain pending. Preview payloads show the exact
+structured before/proposed state and identify manual versus automated checks.
+
+**Acceptance criteria**
+
+- Before confirmation, preview displays the exact structured before/after
+  payload, effects, validation commands/checks, recoverability, and expected
+  outcomes at interruption boundaries. Stale or expired previews are rejected.
+- The confirmation dialog renders this plan as text without interpreting
+  configuration content as HTML and bounds displayed configuration size.
+- Successful mutation responses distinguish applied state from queued or
+  pending state and identify the verification evidence. Certificate issuance
+  is not successful until the active leaf certificate matches the requested
+  hostname and is unexpired.
+- Tests cover plan completeness, stale preview rejection, certificate
+  hostname verification, and post-change proof fields. Full `make check`
+  passes; authenticated browser E2E and exact-source hosted CI pass before
+  release.
+- This standard applies to the enumerated preview workflows. Other destructive
+  workflows without preview-token enforcement remain separate open work; the
+  plan is not a claim that every mutation in the product is now preview-gated.
+
 ### M0t — Report evidence-based site recovery confidence (P1)
 
 **Status:** Implemented locally; exact-source CI and authenticated browser E2E

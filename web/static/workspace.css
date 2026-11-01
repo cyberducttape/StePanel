@@ -1115,8 +1115,10 @@ dialog.confirm-dialog {
   background: var(--panel-surface-raised);
   color: var(--panel-text);
   padding: 0;
-  max-width: 440px;
+  max-width: 760px;
   width: calc(100% - 40px);
+  max-height: 88vh;
+  overflow: auto;
 }
 dialog.confirm-dialog::backdrop { background: rgba(6, 10, 16, .68); }
 .confirm-dialog-body { padding: 24px; }
@@ -1132,6 +1134,13 @@ dialog.confirm-dialog::backdrop { background: rgba(6, 10, 16, .68); }
 .confirm-dialog-facts div { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; font-size: 12px; color: var(--panel-text); border-top: 1px solid var(--panel-line); }
 .confirm-dialog-facts div:first-child { border-top: 0; }
 .confirm-dialog-facts strong { color: var(--panel-text); }
+.change-review-plan { margin: 12px 0 18px; border: 1px solid var(--panel-line); border-radius: 10px; background: var(--panel-surface); padding: 10px 12px; }
+.change-review-plan summary { color: var(--panel-text); font-size: 12px; font-weight: 700; cursor: pointer; }
+.change-review-plan h4 { margin: 14px 0 6px; color: var(--panel-text); font-size: 11px; }
+.change-review-plan ul { margin: 0; padding-left: 19px; color: var(--panel-muted); font-size: 11px; line-height: 1.5; }
+.change-review-plan li { margin: 5px 0; overflow-wrap: anywhere; }
+.change-review-plan code { color: var(--panel-text); overflow-wrap: anywhere; }
+.change-review-code { max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px; border-radius: 7px; background: var(--panel-bg); color: var(--panel-text); font: 11px/1.5 ui-monospace, monospace; }
 .confirm-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; padding: 16px 24px; border-top: 1px solid var(--panel-line); }
 .confirm-dialog-actions button { border-radius: 8px; }
 .confirm-dialog-cancel { border: 1px solid var(--panel-line); background: transparent; color: var(--panel-text); padding: 9px 14px; font: 650 12px system-ui, sans-serif; cursor: pointer; }

@@ -32,15 +32,17 @@ type htaccessRequest struct {
 }
 
 type htaccessConversion struct {
-	CaddyDirectives  string   `json:"caddy_directives"`
-	Warnings         []string `json:"warnings"`
-	Supported        int      `json:"supported_directives"`
-	Applied          bool     `json:"applied"`
-	PreviewToken     string   `json:"preview_token,omitempty"`
-	ExpiresAt        string   `json:"expires_at,omitempty"`
-	Effects          []string `json:"effects,omitempty"`
-	RecoveryPlan     []string `json:"recovery_plan,omitempty"`
-	RecoverySnapshot string   `json:"recovery_snapshot,omitempty"`
+	CaddyDirectives  string         `json:"caddy_directives"`
+	Warnings         []string       `json:"warnings"`
+	Supported        int            `json:"supported_directives"`
+	Applied          bool           `json:"applied"`
+	PreviewToken     string         `json:"preview_token,omitempty"`
+	ExpiresAt        string         `json:"expires_at,omitempty"`
+	Effects          []string       `json:"effects,omitempty"`
+	RecoveryPlan     []string       `json:"recovery_plan,omitempty"`
+	RecoverySnapshot string         `json:"recovery_snapshot,omitempty"`
+	ChangePlan       *ChangePreview `json:"change_plan,omitempty"`
+	Verification     []string       `json:"verification,omitempty"`
 }
 
 func translateHTAccess(content string) (htaccessConversion, error) {
@@ -267,6 +269,7 @@ func (a *App) htaccessMigration(w http.ResponseWriter, r *http.Request) {
 		}
 		conversion.PreviewToken, conversion.ExpiresAt = preview.PreviewToken, preview.ExpiresAt
 		conversion.Effects, conversion.RecoveryPlan = preview.Effects, preview.RecoveryPlan
+		conversion.ChangePlan = &preview
 		writeJSON(w, http.StatusOK, conversion)
 		return
 	}
@@ -311,5 +314,6 @@ func (a *App) htaccessMigration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	conversion.Applied = true
+	conversion.Verification = []string{"Managed Caddy helper returned success after config validation and reload", "Prior configuration recovery snapshot identified above when a vhost existed"}
 	writeJSON(w, http.StatusAccepted, conversion)
 }

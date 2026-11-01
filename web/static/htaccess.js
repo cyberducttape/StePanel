@@ -14,7 +14,8 @@
       + `${warnings}${warnings ? '\n' : ''}\n${directives}`
       + (data.effects ? `\nEffects: ${data.effects.join(' ')}` : '')
       + (data.recovery_plan ? `\nRecovery: ${data.recovery_plan.join(' ')}` : '')
-      + (data.recovery_snapshot ? `\nRecovery snapshot: ${data.recovery_snapshot}` : '');
+      + (data.recovery_snapshot ? `\nRecovery snapshot: ${data.recovery_snapshot}` : '')
+      + (data.verification ? `\nVerified state: ${data.verification.join('; ')}` : '');
   };
 
   const submit = async (action) => {
@@ -49,6 +50,7 @@
           ['Recovery', (preview.recovery_plan || []).join(' ')],
           ['Preview expires', new Date(preview.expires_at).toLocaleString()],
         ],
+        plan: preview.change_plan,
         confirmText: body.domain,
         actionLabel: 'Apply Caddy configuration',
       });

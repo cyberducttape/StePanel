@@ -2,7 +2,10 @@ package stepanel
 
 import (
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,13 +13,17 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/cyberducttape/StePanel/internal/domainname"
 )
 
 type CertificateResult struct {
-	Domain string `json:"domain"`
-	Status string `json:"status"`
+	Domain        string    `json:"domain"`
+	Status        string    `json:"status"`
+	VerifiedAt    time.Time `json:"verified_at,omitempty"`
+	LineageSHA256 string    `json:"lineage_sha256,omitempty"`
+	Checks        []string  `json:"checks,omitempty"`
 }
 
 func (a *App) issueCertificate(w http.ResponseWriter, r *http.Request) {
@@ -97,9 +104,11 @@ func (a *App) issueCertificate(w http.ResponseWriter, r *http.Request) {
 }
 
 type certificateLineageSnapshot struct {
-	Exists bool   `json:"exists"`
-	SHA256 string `json:"sha256,omitempty"`
-	Bytes  int64  `json:"bytes,omitempty"`
+	Exists    bool      `json:"exists"`
+	SHA256    string    `json:"sha256,omitempty"`
+	Bytes     int64     `json:"bytes,omitempty"`
+	NotAfter  time.Time `json:"not_after,omitempty"`
+	HostMatch bool      `json:"host_match,omitempty"`
 }
 
 func certificateLineageState(domain string) (certificateLineageSnapshot, error) {
@@ -133,6 +142,28 @@ func certificateLineageState(domain string) (certificateLineageSnapshot, error) 
 	if len(data) > 4<<20 {
 		return certificateLineageSnapshot{}, fmt.Errorf("certificate lineage exceeds 4 MiB")
 	}
+	evidence, parseErr := certificateLineageEvidence(domain, data)
+	if parseErr != nil {
+		// Preserve a stable before-state fingerprint even if the current
+		// certificate is malformed, so an administrator can preview replacement.
+		return certificateLineageSnapshot{Exists: true, SHA256: fmt.Sprintf("%x", sha256.Sum256(data)), Bytes: int64(len(data))}, nil
+	}
+	return evidence, nil
+}
+
+func certificateLineageEvidence(domain string, data []byte) (certificateLineageSnapshot, error) {
+	if !domainname.Valid(domain) || len(data) == 0 || len(data) > 4<<20 {
+		return certificateLineageSnapshot{}, errors.New("certificate lineage is invalid or exceeds its size limit")
+	}
 	digest := sha256.Sum256(data)
-	return certificateLineageSnapshot{Exists: true, SHA256: fmt.Sprintf("%x", digest), Bytes: int64(len(data))}, nil
+	block, _ := pem.Decode(data)
+	if block == nil || block.Type != "CERTIFICATE" {
+		return certificateLineageSnapshot{}, errors.New("active certificate lineage has no PEM certificate")
+	}
+	certificate, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return certificateLineageSnapshot{}, fmt.Errorf("parse active certificate lineage: %w", err)
+	}
+	hostErr := certificate.VerifyHostname(domain)
+	return certificateLineageSnapshot{Exists: true, SHA256: fmt.Sprintf("%x", digest), Bytes: int64(len(data)), NotAfter: certificate.NotAfter.UTC(), HostMatch: hostErr == nil}, nil
 }
