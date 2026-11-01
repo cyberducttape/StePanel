@@ -371,8 +371,13 @@ then binds the selected account and database choice to a short-lived signed
 preview. The plan reports source-to-site mappings, existing ownership/routes,
 database compatibility, capacity admission, and the durable recovery
 checkpoint. Import is rejected if the preview expires or the selected inputs
-change, and the worker repeats the conflict and capacity checks after taking
-the site mutation lock. cPanel uploads have a separate default 40 GiB ceiling
+change. The queued job stores a digest of the approved domain-to-site mapping;
+after taking the site mutation lock, the worker rebuilds the plan, repeats the
+conflict and capacity checks, and dead-letters the job without retrying if any
+domain would now land somewhere other than the approved destination (for
+example, another operation placed it in a different site meanwhile). Build and
+review the plan again to proceed. Domains already served by the same account
+are imported as `unchanged`, not reported as failures. cPanel uploads have a separate default 40 GiB ceiling
 (`STEPANEL_CPMOVE_MAX_UPLOAD_BYTES`); expanded size, entry count, inode
 overhead, database growth, and free-space reserve remain independently
 bounded.

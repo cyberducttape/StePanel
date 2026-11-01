@@ -1,7 +1,9 @@
 package stepanel
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -150,6 +152,63 @@ func (a *App) makeCPMoveDestinationPlan(upload cpmoveUpload, user string, restor
 		p.RequiredFreeBytes = required
 	}
 	return p, nil
+}
+
+// cpmovePlanDigest is a canonical hash of what an approved destination plan
+// will do: the target account, the database choice, and where each source
+// domain lands. The import stores it in the durable job, and the worker
+// rebuilds the plan immediately before mutating and refuses to run when the
+// digest differs, so a mapping cannot change between approval and execution
+// without a fresh review.
+//
+// Mapping status is deliberately excluded: a domain this job already created
+// on an earlier attempt turns from "planned" into "already served by the same
+// site", which is the same destination and must stay admissible on retry.
+func cpmovePlanDigest(plan cpmoveDestinationPlan) string {
+	type mapping struct {
+		Domain      string `json:"domain"`
+		Kind        string `json:"kind"`
+		Destination string `json:"destination"`
+	}
+	mappings := make([]mapping, 0, len(plan.Mappings))
+	for _, m := range plan.Mappings {
+		mappings = append(mappings, mapping{Domain: strings.ToLower(m.SourceDomain), Kind: m.Kind, Destination: m.Destination})
+	}
+	sort.Slice(mappings, func(i, j int) bool {
+		if mappings[i].Domain != mappings[j].Domain {
+			return mappings[i].Domain < mappings[j].Domain
+		}
+		return mappings[i].Kind < mappings[j].Kind
+	})
+	canonical, err := json.Marshal(struct {
+		Version          int       `json:"v"`
+		TargetAccount    string    `json:"target_account"`
+		RestoreDatabases bool      `json:"restore_databases"`
+		Mappings         []mapping `json:"mappings"`
+	}{1, plan.TargetAccount, plan.RestoreDatabases, mappings})
+	if err != nil {
+		// Marshalling plain strings and bools cannot fail.
+		panic(err)
+	}
+	sum := sha256.Sum256(canonical)
+	return hex.EncodeToString(sum[:])
+}
+
+// revalidateApprovedCPMovePlan rebuilds the destination plan and requires it
+// to be unblocked and identical to the one approved for this job. A changed
+// plan needs a fresh operator review, so it is never retried.
+func (a *App) revalidateApprovedCPMovePlan(upload cpmoveUpload, request durableCPMoveRequest) error {
+	plan, err := a.makeCPMoveDestinationPlan(upload, request.User, request.RestoreDBs)
+	if err != nil {
+		return fmt.Errorf("revalidate cpmove destination: %w", err)
+	}
+	if plan.Status == "blocked" {
+		return errors.New("cpmove destination has a conflict or insufficient capacity; rebuild the migration plan")
+	}
+	if request.PlanDigest == "" || cpmovePlanDigest(plan) != request.PlanDigest {
+		return doNotRetry(errors.New("cpmove destination plan changed after it was approved; build and review the migration plan again"))
+	}
+	return nil
 }
 
 func cpmovePlanPreviewState(upload cpmoveUpload, plan cpmoveDestinationPlan) map[string]any {

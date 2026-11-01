@@ -1097,6 +1097,9 @@ type durableCPMoveRequest struct {
 	User       string `json:"user"`
 	Actor      string `json:"actor"`
 	RestoreDBs bool   `json:"restore_databases"`
+	// PlanDigest binds the job to the destination plan the operator approved
+	// (cpmovePlanDigest).
+	PlanDigest string `json:"plan_digest"`
 }
 
 type durableBackupRequest struct {
@@ -1175,10 +1178,10 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 	if err := operationCtx.Err(); err != nil {
 		return nil, err
 	}
-	if plan, err := a.makeCPMoveDestinationPlan(upload, request.User, request.RestoreDBs); err != nil {
-		return nil, fmt.Errorf("revalidate cpmove destination: %w", err)
-	} else if plan.Status == "blocked" {
-		return nil, errors.New("cpmove destination has a conflict or insufficient capacity; rebuild the migration plan")
+	// Revalidate the approved plan under the site lock, immediately before
+	// the first mutation.
+	if err := a.revalidateApprovedCPMovePlan(upload, request); err != nil {
+		return nil, err
 	}
 	if err := a.reconcileInterruptedSiteWithLease(operationCtx, request.User, a.siteManager); err != nil {
 		return nil, fmt.Errorf("reconcile interrupted cpmove restore: %w", err)
@@ -1586,7 +1589,7 @@ func (a *App) importBackup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid Idempotency-Key", http.StatusUnprocessableEntity)
 		return
 	}
-	payload, err := json.Marshal(durableCPMoveRequest{UploadID: uploadID, Filename: upload.Filename, Size: upload.Size, User: user, Actor: actor, RestoreDBs: databaseRestore})
+	payload, err := json.Marshal(durableCPMoveRequest{UploadID: uploadID, Filename: upload.Filename, Size: upload.Size, User: user, Actor: actor, RestoreDBs: databaseRestore, PlanDigest: cpmovePlanDigest(plan)})
 	if err != nil {
 		http.Error(w, "could not encode restore job", http.StatusInternalServerError)
 		return

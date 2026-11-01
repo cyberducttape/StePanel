@@ -131,3 +131,77 @@ func TestCPMoveDestinationPlanAdmitsReimportOfExistingAccountDomains(t *testing.
 		t.Fatalf("route to a different site was not blocked: %+v", plan)
 	}
 }
+
+func TestApprovedCPMovePlanMustNotChangeBeforeExecution(t *testing.T) {
+	cfg := LoadConfig()
+	cfg.MinFreeBytes = 1
+	cfg.ImportRoot = t.TempDir()
+	cfg.WebRoot = t.TempDir()
+	cfg.HomeRoot = t.TempDir()
+	if err := os.MkdirAll(filepath.Join(cfg.WebRoot, "sites"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if _, err := sitelayout.AllocateAccount(db, "alice"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sitelayout.Place(db, sitelayout.Placement{Site: "alice", Account: "alice", UnixUser: "alice", Kind: sitelayout.KindMain, Directory: sitelayout.MainDirectory}); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Config: cfg, Jobs: &Jobs{db: db}}
+	upload := cpmoveUpload{ID: "upload", Size: 1024, ExpandedBytes: 2048, DomainInventoryStatus: "complete", DomainMappings: []MigrationDomainMapping{
+		{SourceDomain: "example.org", Kind: "main", Status: "planned"},
+		{SourceDomain: "shop.example.org", Kind: "addon", Status: "planned"},
+	}}
+	approved, err := app.makeCPMoveDestinationPlan(upload, "alice", false)
+	if err != nil || approved.Status != "ready" {
+		t.Fatalf("approved plan = %+v, %v", approved, err)
+	}
+	request := durableCPMoveRequest{User: "alice", PlanDigest: cpmovePlanDigest(approved)}
+	if err := app.revalidateApprovedCPMovePlan(upload, request); err != nil {
+		t.Fatalf("unchanged plan refused: %v", err)
+	}
+	if err := app.revalidateApprovedCPMovePlan(upload, durableCPMoveRequest{User: "alice"}); err == nil || !isNonRetryableJobError(err) {
+		t.Fatalf("job without an approved plan digest = %v, want a non-retryable refusal", err)
+	}
+	if err := app.revalidateApprovedCPMovePlan(upload, durableCPMoveRequest{User: "alice", RestoreDBs: true, PlanDigest: request.PlanDigest}); err == nil {
+		t.Fatal("a different database choice matched the approved plan")
+	}
+
+	// Another operation places the approved domain in a different site
+	// before the worker runs: the destination changed, so the job must stop
+	// for a fresh review instead of silently leaving the domain alone.
+	if err := sitelayout.Place(db, sitelayout.Placement{Site: "storefront", Account: "alice", UnixUser: "alice", Kind: sitelayout.KindAddon, Directory: "shop.example.org"}); err != nil {
+		t.Fatal(err)
+	}
+	err = app.revalidateApprovedCPMovePlan(upload, request)
+	if err == nil || !isNonRetryableJobError(err) || !strings.Contains(err.Error(), "changed after it was approved") {
+		t.Fatalf("changed destination = %v, want a non-retryable plan-changed refusal", err)
+	}
+}
+
+func TestCPMovePlanDigestToleratesThisJobsOwnRetry(t *testing.T) {
+	// The first attempt created shop-example-org; on retry the planner
+	// reports the same destination as already served, which is not a change.
+	planned := cpmoveDestinationPlan{TargetAccount: "alice", Mappings: []MigrationDomainMapping{
+		{SourceDomain: "Shop.example.org", Kind: "addon", Destination: "site shop-example-org (account alice)", Status: "planned"},
+		{SourceDomain: "example.org", Kind: "main", Destination: "account alice / public_html", Status: "planned"},
+	}}
+	retried := cpmoveDestinationPlan{TargetAccount: "alice", Mappings: []MigrationDomainMapping{
+		{SourceDomain: "example.org", Kind: "main", Destination: "account alice / public_html", Status: "planned"},
+		{SourceDomain: "shop.example.org", Kind: "addon", Destination: "site shop-example-org (account alice)", Status: "warning", Details: "Already served"},
+	}}
+	if cpmovePlanDigest(planned) != cpmovePlanDigest(retried) {
+		t.Fatal("the same destinations produced different plan digests")
+	}
+	renamed := retried
+	renamed.Mappings = append([]MigrationDomainMapping(nil), retried.Mappings...)
+	renamed.Mappings[1].Destination = "site shop-example-org-2 (account alice)"
+	if cpmovePlanDigest(planned) == cpmovePlanDigest(renamed) {
+		t.Fatal("a renamed destination site kept the approved digest")
+	}
+}
