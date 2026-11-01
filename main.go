@@ -770,6 +770,9 @@ func Main() {
 	}()
 	mux := app.registerRoutes(staticAssets)
 	timeoutCfg := httputil.DefaultTimeouts()
+	// cPanel archives have their own (larger) ceiling; size the upload
+	// deadline for the largest archive this host accepts.
+	timeoutCfg.UploadRead = httputil.UploadReadFor(max(cfg.MaxUpload, cpmoveUploadLimit(cfg)))
 	// Wrap with security headers middleware (must be outermost)
 	// Apply route-aware request deadlines before security/logging middleware so
 	// every handler sees the bounded context. The server-level deadlines below
@@ -1358,7 +1361,7 @@ func (a *App) handleCertificateJob(ctx context.Context, item Job) ([]byte, error
 		return nil, errors.New("invalid durable certificate job payload")
 	}
 	lineage, err := certificateLineageState(request.Domain)
-	if err != nil || lineage != request.Before {
+	if err != nil || !lineage.sameContent(request.Before) {
 		return nil, errors.New("certificate lineage changed after preview and before execution")
 	}
 	certificateCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)

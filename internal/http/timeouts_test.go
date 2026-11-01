@@ -115,3 +115,19 @@ func TestServiceOperationPathsMatchClient(t *testing.T) {
 		t.Fatalf("client service-operation timeout %d minutes must exceed the server's %s", minutes, DefaultTimeouts().ServiceOperation)
 	}
 }
+
+func TestUploadReadForCoversLargestArchiveAt50Mbps(t *testing.T) {
+	for _, tc := range []struct {
+		bytes int64
+		want  time.Duration
+	}{
+		{0, 60 * time.Minute},
+		{20 << 30, 60 * time.Minute},  // ~57.3 min at 50 Mbps
+		{40 << 30, 115 * time.Minute}, // ~114.5 min at 50 Mbps
+		{1 << 50, 4 * time.Hour},
+	} {
+		if got := UploadReadFor(tc.bytes); got != tc.want {
+			t.Errorf("UploadReadFor(%d) = %s, want %s", tc.bytes, got, tc.want)
+		}
+	}
+}

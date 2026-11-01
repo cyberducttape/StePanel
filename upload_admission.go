@@ -28,7 +28,7 @@ var errUploadLengthRequired = errors.New("archive uploads require a Content-Leng
 
 // uploadIdleTimeout bounds how long an admitted upload may receive no body
 // bytes. A stalled client then releases its upload slot and capacity
-// reservation instead of holding them until the 60-minute upload ceiling.
+// reservation instead of holding them until the upload ceiling.
 var uploadIdleTimeout = 2 * time.Minute
 
 var capacityReservationSequence uint64
@@ -930,7 +930,7 @@ type idleDeadlineBody struct {
 }
 
 // guardUploadBody installs the idle deadline on r.Body. The ceiling is the
-// route's context deadline (the 60-minute upload class).
+// route's context deadline (the upload class, sized by httputil.UploadReadFor).
 func guardUploadBody(w http.ResponseWriter, r *http.Request) {
 	ceiling, ok := r.Context().Deadline()
 	if !ok {

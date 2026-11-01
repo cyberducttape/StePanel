@@ -560,14 +560,14 @@ sudo systemctl restart stepanel
 
 **Symptoms:** Upload of 10+ GB cpmove or WordPress backup fails with timeout error partway through.
 
-**Cause:** Reverse proxy (Apache, Nginx, Caddy) has shorter timeout than StePanel. StePanel supports 60-minute uploads, but Apache defaults to 300 seconds (5 minutes).
+**Cause:** Reverse proxy (Apache, Nginx, Caddy) has shorter timeout than StePanel. StePanel allows uploads to run for at least 60 minutes (longer when the configured archive limit needs it at 50 Mbps), but Apache defaults to 300 seconds (5 minutes). The proxy timeouts below bound idle time between reads/writes, not the total transfer.
 
 **Solution:**
 
 For Apache (Debian/Ubuntu):
 ```bash
 # Edit /etc/apache2/stepanel-panel/stepanel.conf
-# Ensure proxy timeout is set to at least 3700 seconds (60-minute requests):
+# Ensure proxy timeout is set to at least 3700 seconds (idle time per proxy read/write):
 
 ProxyPass / http://127.0.0.1:8090/ timeout=3700
 ProxyPassReverse / http://127.0.0.1:8090/

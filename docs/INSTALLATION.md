@@ -444,8 +444,10 @@ served directly or terminated by a trusted ingress. Plain HTTP is intended only
 for local development and isolated installation smoke tests.
 
 **Important:** When proxying StePanel, configure your reverse proxy to allow
-long-running requests. Uploads (20 GB at typical bandwidth requires 30
-minutes) stay open until the transfer finishes. Builds, deployments, and
+long-running requests. Uploads stay open until the transfer finishes; the
+panel allows enough time for the largest configured archive at 50 Mbps (115
+minutes for the default 40 GiB cPanel limit). Proxy timeouts below bound idle
+time between reads/writes, so they do not need to cover the whole transfer. Builds, deployments, and
 restore-to-staging are durable jobs and answer immediately. Set timeouts to
 at least an hour: Apache's
 `ProxyTimeout 3700`, Nginx's `proxy_read_timeout 3700s`, or Caddy's

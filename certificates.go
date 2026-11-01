@@ -111,6 +111,13 @@ type certificateLineageSnapshot struct {
 	HostMatch bool      `json:"host_match,omitempty"`
 }
 
+// sameContent compares the lineage identity. NotAfter and HostMatch are
+// derived from the hashed bytes, so they are excluded: that keeps payloads
+// queued before those fields existed comparable without weakening the check.
+func (s certificateLineageSnapshot) sameContent(other certificateLineageSnapshot) bool {
+	return s.Exists == other.Exists && s.SHA256 == other.SHA256 && s.Bytes == other.Bytes
+}
+
 func certificateLineageState(domain string) (certificateLineageSnapshot, error) {
 	if !domainname.Valid(domain) {
 		return certificateLineageSnapshot{}, fmt.Errorf("invalid certificate domain")

@@ -80,9 +80,10 @@ func DefaultTimeouts() TimeoutConfiguration {
 		StreamWrite:    15 * time.Second,
 		StreamLifetime: 30 * time.Minute,
 
-		// Uploads: large archive transfer with network variance. A 20 GiB
-		// archive takes roughly 27 minutes at 100 Mbps, before overhead.
-		// Includes: cpmove backups (20GB limit), WPress archives, imports
+		// Uploads: large archive transfer with network variance. This is the
+		// floor; the server raises it with UploadReadFor so the largest
+		// configured archive (cPanel defaults to 40 GiB) fits at 50 Mbps.
+		// Includes: cpmove backups, WPress archives, imports
 		// The upload endpoint streams into an immutable staged object and is
 		// separately concurrency-limited; this deadline is not the slowloris
 		// defense for ordinary API requests.
@@ -96,6 +97,30 @@ func DefaultTimeouts() TimeoutConfiguration {
 		// waiting for the site lock.
 		ServiceOperation: 3 * time.Minute,
 	}
+}
+
+// Upload ceiling bounds. The idle-body guard fails a stalled upload after
+// two minutes, so this ceiling only limits slow but active transfers.
+const (
+	uploadReadFloor       = 60 * time.Minute
+	uploadReadCap         = 4 * time.Hour
+	uploadMinBytesPerSec  = 50_000_000 / 8 // 50 Mbps sustained
+	uploadReadGranularity = time.Minute
+)
+
+// UploadReadFor sizes the upload ceiling so the largest configured archive
+// can arrive at a sustained 50 Mbps. It never drops below the 60-minute
+// default and never exceeds four hours.
+func UploadReadFor(maxUploadBytes int64) time.Duration {
+	if maxUploadBytes <= 0 {
+		return uploadReadFloor
+	}
+	seconds := (maxUploadBytes + uploadMinBytesPerSec - 1) / uploadMinBytesPerSec
+	if seconds > int64(uploadReadCap/time.Second) {
+		return uploadReadCap
+	}
+	needed := (time.Duration(seconds)*time.Second + uploadReadGranularity - 1).Truncate(uploadReadGranularity)
+	return max(uploadReadFloor, needed)
 }
 
 // ApplyToServer applies differentiated timeouts to an HTTP server
@@ -127,8 +152,9 @@ func (tc TimeoutConfiguration) ApplyToServer(srv *http.Server) {
 // LONG-POLL (45s):
 //   - Job and activity polling waits for an update, then the client retries
 //
-// UPLOADS (60m ceiling):
-//   - A 20 GiB archive takes about 27 minutes at 100 Mbps
+// UPLOADS (60m floor, sized by UploadReadFor, 4h cap):
+//   - The ceiling fits the largest configured archive at a sustained 50 Mbps
+//     (40 GiB takes about 115 minutes)
 //   - The body streams into a staged object under the upload admission
 //     limits; an idle-body guard fails a stalled upload after 2 minutes, so
 //     the ceiling only bounds slow but active transfers
