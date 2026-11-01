@@ -5,8 +5,10 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"html"
@@ -40,6 +42,9 @@ type CPMoveInfo struct {
 	HasMail                bool                         `json:"has_mail"`
 	Mailboxes              []string                     `json:"mailboxes,omitempty"`
 	DNSZones               []string                     `json:"dns_zones,omitempty"`
+	DNSComparisons         []MigrationDNSComparison     `json:"dns_comparisons,omitempty"`
+	TLSCertificates        []MigrationTLSCertificate    `json:"tls_certificates,omitempty"`
+	TLSCertificatesOmitted int                          `json:"tls_certificate_omitted_count,omitempty"`
 	CronSchedules          []string                     `json:"cron_schedules,omitempty"`
 	DNSZoneOmitted         int                          `json:"dns_zone_omitted_count,omitempty"`
 	CronOmitted            int                          `json:"cron_omitted_count,omitempty"`
@@ -56,26 +61,29 @@ type CPMoveInfo struct {
 // form. Names rendered by the browser are text, and source paths are only
 // exposed as validated document-root evidence in the domain mapping report.
 type CPMoveInspectionResponse struct {
-	UploadID              string                       `json:"upload_id,omitempty"`
-	ArchiveBytes          int64                        `json:"archive_bytes"`
-	ExpandedBytes         int64                        `json:"expanded_bytes"`
-	DatabaseBytes         int64                        `json:"database_bytes"`
-	RequiredFreeBytes     int64                        `json:"required_free_bytes"`
-	Entries               int                          `json:"entries"`
-	HasHome               bool                         `json:"has_home"`
-	HasMySQL              bool                         `json:"has_mysql"`
-	HasMail               bool                         `json:"has_mail"`
-	DatabaseCount         int                          `json:"database_count"`
-	MailboxCount          int                          `json:"mailbox_count"`
-	DNSZoneCount          int                          `json:"dns_zone_count"`
-	CronJobCount          int                          `json:"cron_job_count"`
-	Components            []MigrationPreviewComponent  `json:"components"`
-	Compatibility         []MigrationCheck             `json:"compatibility"`
-	DatabaseVersions      []MigrationDatabaseVersion   `json:"database_versions,omitempty"`
-	DomainMappings        []MigrationDomainMapping     `json:"domain_mappings,omitempty"`
-	MailboxValidation     []MigrationMailboxValidation `json:"mailbox_validation,omitempty"`
-	DNSCutoverChecklist   []MigrationChecklistItem     `json:"dns_cutover_checklist"`
-	SourceScanRecommended bool                         `json:"source_scan_recommended"`
+	UploadID               string                       `json:"upload_id,omitempty"`
+	ArchiveBytes           int64                        `json:"archive_bytes"`
+	ExpandedBytes          int64                        `json:"expanded_bytes"`
+	DatabaseBytes          int64                        `json:"database_bytes"`
+	RequiredFreeBytes      int64                        `json:"required_free_bytes"`
+	Entries                int                          `json:"entries"`
+	HasHome                bool                         `json:"has_home"`
+	HasMySQL               bool                         `json:"has_mysql"`
+	HasMail                bool                         `json:"has_mail"`
+	DatabaseCount          int                          `json:"database_count"`
+	MailboxCount           int                          `json:"mailbox_count"`
+	DNSZoneCount           int                          `json:"dns_zone_count"`
+	CronJobCount           int                          `json:"cron_job_count"`
+	Components             []MigrationPreviewComponent  `json:"components"`
+	Compatibility          []MigrationCheck             `json:"compatibility"`
+	DatabaseVersions       []MigrationDatabaseVersion   `json:"database_versions,omitempty"`
+	DomainMappings         []MigrationDomainMapping     `json:"domain_mappings,omitempty"`
+	MailboxValidation      []MigrationMailboxValidation `json:"mailbox_validation,omitempty"`
+	DNSCutoverChecklist    []MigrationChecklistItem     `json:"dns_cutover_checklist"`
+	DNSComparisons         []MigrationDNSComparison     `json:"dns_comparisons"`
+	TLSCertificates        []MigrationTLSCertificate    `json:"tls_certificates,omitempty"`
+	TLSCertificatesOmitted int                          `json:"tls_certificate_omitted_count,omitempty"`
+	SourceScanRecommended  bool                         `json:"source_scan_recommended"`
 }
 
 func (info CPMoveInfo) response(uploadID string, cfg Config) CPMoveInspectionResponse {
@@ -99,6 +107,9 @@ func (info CPMoveInfo) response(uploadID string, cfg Config) CPMoveInspectionRes
 	response.DomainMappings = append([]MigrationDomainMapping(nil), info.DomainMappings...)
 	response.MailboxValidation = append([]MigrationMailboxValidation(nil), info.MailboxValidation...)
 	response.DNSCutoverChecklist = cpmoveDNSCutoverChecklist(info)
+	response.DNSComparisons = cpmoveDNSComparisons(info)
+	response.TLSCertificates = append([]MigrationTLSCertificate(nil), info.TLSCertificates...)
+	response.TLSCertificatesOmitted = info.TLSCertificatesOmitted
 	response.SourceScanRecommended = true
 	return response
 }
@@ -178,12 +189,76 @@ func cpmoveCompatibilityChecks(cfg Config, info CPMoveInfo) []MigrationCheck {
 		MigrationCheck{Name: "Domain mapping", Status: domainStatus, Details: domainDetails},
 		MigrationCheck{Name: "Mailbox structure", Status: mailStatus, Details: mailDetails},
 		MigrationCheck{Name: "DNS and scheduled tasks", Status: "warning", Details: "DNS records and cron commands are not activated by import; the report includes manual cutover dispositions."},
+		MigrationCheck{Name: "TLS certificate differences", Status: "warning", Details: cpmoveTLSCompatibilityDetails(info)},
 		MigrationCheck{Name: "Mail service", Status: "warning", Details: "Mailbox data can be staged, but mail identities, delivery configuration, aliases, and DNS cutover are not migrated."},
 	)
 	if info.RequiredFreeBytes > 0 {
 		checks = append(checks, MigrationCheck{Name: "Storage admission", Status: "passed", Details: fmt.Sprintf("Current archive staging admission passed at an estimated %s; space is checked again immediately before import.", humanBytes(info.RequiredFreeBytes))})
 	}
 	return checks
+}
+
+func cpmoveTLSCompatibilityDetails(info CPMoveInfo) string {
+	certificates := info.TLSCertificates
+	if len(certificates) == 0 {
+		if info.TLSCertificatesOmitted > 0 {
+			return fmt.Sprintf("%d source certificate file(s) were omitted by inspection limits. Destination certificate coverage has not been compared; issue or install TLS for each mapped hostname and verify HTTPS before DNS cutover.", info.TLSCertificatesOmitted)
+		}
+		return "No readable public certificate was found in the archive. Destination certificate coverage has not been compared; issue or install TLS for each mapped hostname and verify HTTPS before DNS cutover."
+	}
+	valid, expired, invalid := 0, 0, 0
+	for _, certificate := range certificates {
+		switch certificate.Status {
+		case "valid":
+			valid++
+		case "expired":
+			expired++
+		default:
+			invalid++
+		}
+	}
+	return fmt.Sprintf("Found %d public source certificate(s): %d currently valid, %d expired, %d unreadable, %d omitted. Certificates and private keys are not imported. Destination certificate coverage has not been compared; issue or install TLS for each mapped hostname and verify HTTPS before DNS cutover.", len(certificates), valid, expired, invalid, info.TLSCertificatesOmitted)
+}
+
+func inspectCPMoveTLSCertificate(data []byte) MigrationTLSCertificate {
+	result := MigrationTLSCertificate{Status: "invalid", DestinationStatus: "not_imported", Details: "Public source certificate metadata could not be parsed; destination TLS was not compared."}
+	block, _ := pem.Decode(data)
+	if block == nil || block.Type != "CERTIFICATE" {
+		return result
+	}
+	certificate, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return result
+	}
+	domains := make([]string, 0, len(certificate.DNSNames)+1)
+	seen := make(map[string]bool)
+	for _, candidate := range append(append([]string(nil), certificate.DNSNames...), certificate.Subject.CommonName) {
+		candidate = strings.ToLower(strings.TrimSpace(candidate))
+		if strings.HasPrefix(candidate, "*.") {
+			candidate = "*." + strings.TrimPrefix(candidate, "*.")
+			if domainname.Validate(strings.TrimPrefix(candidate, "*.")) != nil {
+				continue
+			}
+		} else if domainname.Validate(candidate) != nil {
+			continue
+		}
+		if !seen[candidate] {
+			seen[candidate] = true
+			domains = append(domains, candidate)
+		}
+	}
+	sort.Strings(domains)
+	fingerprint := sha256.Sum256(certificate.Raw)
+	result.Domains = domains
+	result.FingerprintSHA256 = hex.EncodeToString(fingerprint[:])
+	result.NotAfter = certificate.NotAfter.UTC()
+	result.Status = "valid"
+	result.Details = "Public certificate metadata was inspected only. The certificate, private key, and chain were not installed; verify destination TLS independently."
+	if time.Now().After(certificate.NotAfter) {
+		result.Status = "expired"
+		result.Details = "The source public certificate is expired. It was not imported; issue and verify destination TLS before cutover."
+	}
+	return result
 }
 
 func applyRehearsalCompatibility(checks []MigrationCheck, rehearsal *MigrationRehearsal) {
@@ -316,6 +391,8 @@ const maxCPMoveFilesystemObjectBytes uint64 = 4 << 10
 const maxCPMoveUploadMetadataBytes = 16 << 10
 const maxCPMoveCronFileBytes = 1 << 20
 const maxCPMoveCronInventoryBytes = 8 << 20
+const maxCPMoveTLSCertificateBytes = 256 << 10
+const maxCPMoveTLSCertificates = 500
 
 // randomSecret uses base64.RawURLEncoding, whose first character may be '-'
 // or '_' as well as an alphanumeric. Keep the full URL-safe alphabet valid.
@@ -467,6 +544,10 @@ type ImportResult struct {
 	DomainMappings           []MigrationDomainMapping     `json:"domain_mappings,omitempty"`
 	MailboxValidation        []MigrationMailboxValidation `json:"mailbox_validation,omitempty"`
 	DNSCutoverChecklist      []MigrationChecklistItem     `json:"dns_cutover_checklist,omitempty"`
+	DNSComparisons           []MigrationDNSComparison     `json:"dns_comparisons,omitempty"`
+	TLSCertificates          []MigrationTLSCertificate    `json:"tls_certificates,omitempty"`
+	RollbackCheckpoints      []MigrationCheckpoint        `json:"rollback_checkpoints,omitempty"`
+	RecoveryTransactionID    string                       `json:"recovery_transaction_id,omitempty"`
 	Rehearsal                *MigrationRehearsal          `json:"application_rehearsal,omitempty"`
 	ReportCreatedAt          time.Time                    `json:"report_created_at,omitempty"`
 	SourceArchive            string                       `json:"source_archive,omitempty"`
@@ -543,6 +624,57 @@ type MigrationChecklistItem struct {
 	Step   string `json:"step"`
 	Status string `json:"status"` // required, unknown, pending
 	Detail string `json:"detail"`
+}
+
+type MigrationDNSComparison struct {
+	Zone              string `json:"zone"`
+	SourceStatus      string `json:"source_status"`
+	DestinationStatus string `json:"destination_status"`
+	Details           string `json:"details"`
+}
+
+// MigrationTLSCertificate contains public certificate metadata only. PEM
+// contents and private keys are never included in migration evidence.
+type MigrationTLSCertificate struct {
+	Domains           []string  `json:"domains,omitempty"`
+	FingerprintSHA256 string    `json:"fingerprint_sha256,omitempty"`
+	NotAfter          time.Time `json:"not_after,omitempty"`
+	Status            string    `json:"status"` // valid, expired, invalid
+	DestinationStatus string    `json:"destination_status"`
+	Details           string    `json:"details"`
+}
+
+type MigrationCheckpoint struct {
+	Name      string    `json:"name"`
+	Status    string    `json:"status"` // available, completed, committed, not_needed, not_reached, rolled_back, recovery_required, skipped, failed
+	At        time.Time `json:"at"`
+	JournalID string    `json:"journal_id,omitempty"`
+	Details   string    `json:"details"`
+}
+
+func setMigrationCheckpoint(result *ImportResult, name, status, journalID, details string) {
+	if result == nil {
+		return
+	}
+	now := time.Now().UTC()
+	for i := range result.RollbackCheckpoints {
+		if result.RollbackCheckpoints[i].Name == name {
+			result.RollbackCheckpoints[i] = MigrationCheckpoint{Name: name, Status: status, At: now, JournalID: journalID, Details: details}
+			return
+		}
+	}
+	if len(result.RollbackCheckpoints) < 16 {
+		result.RollbackCheckpoints = append(result.RollbackCheckpoints, MigrationCheckpoint{Name: name, Status: status, At: now, JournalID: journalID, Details: details})
+	}
+}
+
+func hasMigrationCheckpoint(result ImportResult, name string) bool {
+	for _, checkpoint := range result.RollbackCheckpoints {
+		if checkpoint.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 type MigrationCheck struct {
@@ -761,6 +893,25 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 					info.DNSZoneOmitted++
 				}
 				seenZones[zone] = true
+			}
+		}
+		if strings.HasPrefix(name, "ssl/certs/") && kind == archivesafe.File && (strings.HasSuffix(strings.ToLower(name), ".crt") || strings.HasSuffix(strings.ToLower(name), ".pem")) {
+			if h.Size > maxCPMoveTLSCertificateBytes {
+				if len(info.TLSCertificates) < maxCPMoveTLSCertificates {
+					info.TLSCertificates = append(info.TLSCertificates, MigrationTLSCertificate{Status: "invalid", DestinationStatus: "not_imported", Details: "A public certificate file exceeded the inspection size limit and could not be compared."})
+				} else {
+					info.TLSCertificatesOmitted++
+				}
+				continue
+			}
+			certificatePEM, readErr := io.ReadAll(io.LimitReader(tr, maxCPMoveTLSCertificateBytes+1))
+			if readErr != nil || int64(len(certificatePEM)) != h.Size {
+				return info, errors.New("could not safely inspect source TLS certificate")
+			}
+			if len(info.TLSCertificates) < maxCPMoveTLSCertificates {
+				info.TLSCertificates = append(info.TLSCertificates, inspectCPMoveTLSCertificate(certificatePEM))
+			} else {
+				info.TLSCertificatesOmitted++
 			}
 		}
 		if strings.HasPrefix(name, "cron/") && kind == archivesafe.File {
@@ -985,6 +1136,26 @@ func cpmoveDNSCutoverChecklist(info CPMoveInfo) []MigrationChecklistItem {
 	}
 }
 
+func cpmoveDNSComparisons(info CPMoveInfo) []MigrationDNSComparison {
+	comparisons := make([]MigrationDNSComparison, 0, max(1, len(info.DNSZones)))
+	for _, zone := range info.DNSZones {
+		comparisons = append(comparisons, MigrationDNSComparison{
+			Zone: zone, SourceStatus: "archive_zone_found", DestinationStatus: "not_compared",
+			Details: "This archive includes a zone file, but records have not been compared with authoritative destination DNS. No DNS records were changed; compare provider records and TTLs before cutover.",
+		})
+	}
+	if len(comparisons) == 0 {
+		comparisons = append(comparisons, MigrationDNSComparison{
+			Zone: "—", SourceStatus: "not_found", DestinationStatus: "not_compared",
+			Details: "No source zone file was found. Export the authoritative source zone and compare its records with the destination before cutover.",
+		})
+	}
+	if info.DNSZoneOmitted > 0 {
+		comparisons = append(comparisons, MigrationDNSComparison{Zone: fmt.Sprintf("%d additional zones", info.DNSZoneOmitted), SourceStatus: "omitted_by_limit", DestinationStatus: "not_compared", Details: "Additional zone filenames were omitted by the bounded inspection report."})
+	}
+	return comparisons
+}
+
 func RestoreCPMove(cfg Config, file multipart.File, header *multipart.FileHeader, site SiteCapability, databases bool, ledgers ...*capacityLedger) (ImportResult, error) {
 	return RestoreCPMoveContext(context.Background(), cfg, file, header, site, databases, ledgers...)
 }
@@ -1098,7 +1269,7 @@ func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string
 	return restoreCPMoveArchiveContextWithApp(ctx, cfg, archive, header, site, databases, nil, ledgers...)
 }
 
-func restoreCPMoveArchiveContextWithApp(ctx context.Context, cfg Config, archive string, header *multipart.FileHeader, site SiteCapability, databases bool, app *App, ledgers ...*capacityLedger) (ImportResult, error) {
+func restoreCPMoveArchiveContextWithApp(ctx context.Context, cfg Config, archive string, header *multipart.FileHeader, site SiteCapability, databases bool, app *App, ledgers ...*capacityLedger) (result ImportResult, retErr error) {
 	if databases {
 		var ledger *capacityLedger
 		if len(ledgers) > 0 {
@@ -1230,6 +1401,15 @@ func restoreCPMoveArchiveContextWithApp(ctx context.Context, cfg Config, archive
 	if err != nil {
 		return ImportResult{}, err
 	}
+	result = ImportResult{User: user, Home: home, StagedAt: stage, RecoveryTransactionID: txn.ID, StartedAt: time.Now().UTC()}
+	setMigrationCheckpoint(&result, "archive_validation", "completed", txn.ID, "Archive signature, paths, types, and contents passed inspection before destination mutation.")
+	if txn.HadExisting {
+		setMigrationCheckpoint(&result, "pre_import_site_snapshot", "available", txn.ID, "The previous site generation was snapshotted before activation. The snapshot is retained under the recovery journal according to host retention policy; this report is not a one-click rollback command.")
+		setMigrationCheckpoint(&result, "rollback_boundary", "available", txn.ID, "Automatic compensation is available until the site transaction commits. If the worker fails before commit, its journal records the rollback outcome.")
+	} else {
+		setMigrationCheckpoint(&result, "pre_import_site_snapshot", "not_needed", txn.ID, "No existing site generation was present to snapshot; a failed import is removed through the recovery journal.")
+		setMigrationCheckpoint(&result, "rollback_boundary", "available", txn.ID, "The import is protected by a durable recovery journal until the site transaction commits.")
+	}
 	committed := false
 	defer func() {
 		if committed {
@@ -1237,10 +1417,12 @@ func restoreCPMoveArchiveContextWithApp(ctx context.Context, cfg Config, archive
 		}
 		// The operation context may already be cancelled; keep its lease
 		// token so the broker accepts the cleanup.
-		if err := txn.cleanupDatabases(context.WithoutCancel(ctx), cfg); err != nil {
-			log.Printf("defer cpmove database recovery for transaction %s: %v", txn.ID, err)
+		rollbackErr := txn.cleanupDatabases(context.WithoutCancel(ctx), cfg)
+		if rollbackErr != nil {
+			log.Printf("defer cpmove database recovery for transaction %s: %v", txn.ID, rollbackErr)
 		}
 		if err := txn.Rollback(); err != nil {
+			rollbackErr = errors.Join(rollbackErr, err)
 			log.Printf("defer cpmove filesystem recovery for transaction %s: %v", txn.ID, err)
 		}
 		if txn.HadExisting {
@@ -1248,43 +1430,53 @@ func restoreCPMoveArchiveContextWithApp(ctx context.Context, cfg Config, archive
 				log.Printf("defer cpmove site sealing for transaction %s: %v", txn.ID, err)
 			}
 		}
+		if rollbackErr != nil || txn.RecoveryRequired != "" {
+			setMigrationCheckpoint(&result, "rollback_boundary", "recovery_required", txn.ID, "Compensation did not fully converge. Keep the recovery journal and follow the operator recovery procedure before retrying.")
+		} else {
+			setMigrationCheckpoint(&result, "rollback_boundary", "rolled_back", txn.ID, "The failed import was compensated through the durable site recovery transaction.")
+		}
 	}()
 	if err := siteHelperContext(ctx, cfg, "prepare", user); err != nil {
-		return ImportResult{}, fmt.Errorf("prepare isolated site: %w", err)
+		return result, fmt.Errorf("prepare isolated site: %w", err)
 	}
 	source := firstExisting(filepath.Join(root, "homedir", "public_html"), filepath.Join(root, "homedir", user, "public_html"))
 	if source != "" {
 		if err := ctx.Err(); err != nil {
-			return ImportResult{}, err
+			return result, err
 		}
 		if findings, scanErr := scanPHP(source); scanErr != nil {
-			return ImportResult{}, fmt.Errorf("suspicious PHP heuristic scan failed: %w", scanErr)
+			return result, fmt.Errorf("suspicious PHP heuristic scan failed: %w", scanErr)
 		} else if len(findings) > 0 {
-			return ImportResult{}, fmt.Errorf("restore blocked: suspicious PHP heuristic scan found %d file(s) requiring review", len(findings))
+			return result, fmt.Errorf("restore blocked: suspicious PHP heuristic scan found %d file(s) requiring review", len(findings))
 		}
 		if err = copyTreeExcludingContext(ctx, source, managerStage, plan.MainExcludes); err != nil {
-			return ImportResult{}, err
+			return result, err
 		}
 	}
 	if _, err := manager.ActivateStaged(ctx, user, managerStage); err != nil {
-		return ImportResult{}, fmt.Errorf("activate cpmove site through manager: %w", err)
+		return result, fmt.Errorf("activate cpmove site through manager: %w", err)
 	}
 	activated = true
+	result.FilesRestored = source != ""
+	setMigrationCheckpoint(&result, "filesystem_activation", "completed", txn.ID, "The staged site files were activated under the durable recovery transaction.")
 	// The transaction journal is already durable before activation.  Keep a
 	// process-death boundary here so disposable-host recovery drills can kill
 	// the worker after the canonical swap and verify that startup rolls the
 	// interrupted import back safely.
 	processKillInjection("cpmove", "activate")
 
-	result := ImportResult{User: user, Home: home, FilesRestored: source != "", StagedAt: stage}
 	if databases {
 		restored, databaseErrors := restoreSQLContext(ctx, cfg, root, user, txn, ledgers...)
 		result.DatabasesRestoredTotal, result.DatabaseErrorCount = len(restored), len(databaseErrors)
 		result.DatabasesRestored, _ = boundMigrationStrings(restored)
 		result.DatabaseErrors, _ = boundMigrationStrings(databaseErrors)
 		if result.DatabaseErrorCount > 0 {
+			setMigrationCheckpoint(&result, "database_restore", "failed", txn.ID, fmt.Sprintf("Database import reported %d error(s); automatic transaction compensation is being attempted.", result.DatabaseErrorCount))
 			return result, fmt.Errorf("database restore completed with %d error(s)", result.DatabaseErrorCount)
 		}
+		setMigrationCheckpoint(&result, "database_restore", "completed", txn.ID, fmt.Sprintf("Imported %d database(s) into destination-managed identities.", result.DatabasesRestoredTotal))
+	} else {
+		setMigrationCheckpoint(&result, "database_restore", "skipped", txn.ID, "Database restoration was not selected; source databases were not imported.")
 	}
 	if err := ctx.Err(); err != nil {
 		return result, err
@@ -1322,6 +1514,13 @@ func restoreCPMoveArchiveContextWithApp(ctx context.Context, cfg Config, archive
 	result.MailboxesStaged, _ = boundMigrationStrings(result.MailboxesStaged)
 	result.MailErrors, _ = boundMigrationStrings(result.MailErrors)
 	if result.MailErrorCount > 0 {
+		setMigrationCheckpoint(&result, "mailbox_stage", "failed", txn.ID, fmt.Sprintf("Mailbox staging reported %d error(s); transaction compensation is being attempted.", result.MailErrorCount))
+	} else if result.MailStaged {
+		setMigrationCheckpoint(&result, "mailbox_stage", "completed", txn.ID, fmt.Sprintf("Staged %d mailbox(es); delivery, credentials, and DNS remain separate.", result.MailboxesStagedTotal))
+	} else {
+		setMigrationCheckpoint(&result, "mailbox_stage", "skipped", txn.ID, "No mailbox data was staged by this import.")
+	}
+	if result.MailErrorCount > 0 {
 		return result, fmt.Errorf("mail restore completed with %d error(s)", result.MailErrorCount)
 	}
 	if err := siteHelperContext(ctx, cfg, "seal", user); err != nil {
@@ -1332,12 +1531,21 @@ func restoreCPMoveArchiveContextWithApp(ctx context.Context, cfg Config, archive
 	}
 	committed = true
 	importCommitted = true
+	setMigrationCheckpoint(&result, "rollback_boundary", "committed", txn.ID, "Site recovery journal committed. The prior snapshot is linked to this journal and retained according to host retention policy; no one-click rollback is implied.")
+	setMigrationCheckpoint(&result, "recovery_journal", "committed", txn.ID, "Durable site transaction reached its committed state.")
 	if intoAccount {
 		result.Account, result.MainDomain, result.ParkedDomains = user, plan.MainDomain, plan.Parked
 		result.Domains, result.DomainErrors = restoreCPMoveDomainSites(ctx, cfg, db, manager, user, plan)
 		result.DomainsImportedTotal, result.DomainErrorCount = len(result.Domains), len(result.DomainErrors)
 		result.Domains, _ = boundImportedDomains(result.Domains)
 		result.DomainErrors, _ = boundMigrationStrings(result.DomainErrors)
+		if len(result.DomainErrors) > 0 {
+			setMigrationCheckpoint(&result, "domain_routes", "failed", txn.ID, fmt.Sprintf("%d domain route(s) need operator review.", result.DomainErrorCount))
+		} else {
+			setMigrationCheckpoint(&result, "domain_routes", "completed", txn.ID, fmt.Sprintf("Created or reconciled %d domain route(s); DNS records remain unchanged.", result.DomainsImportedTotal))
+		}
+	} else {
+		setMigrationCheckpoint(&result, "domain_routes", "not_reached", txn.ID, "The import used the legacy single-site layout; account domain placement was not run.")
 	}
 	result.Evidence = buildCPMoveMigrationEvidence(archiveInfo, result, databases, plan, domainInventoryErr)
 	result.Compatibility = cpmoveCompatibilityChecks(cfg, archiveInfo)
@@ -1345,6 +1553,8 @@ func restoreCPMoveArchiveContextWithApp(ctx context.Context, cfg Config, archive
 	result.DomainMappings = realizedCPMoveDomainMappings(archiveInfo, result)
 	result.MailboxValidation = append([]MigrationMailboxValidation(nil), archiveInfo.MailboxValidation...)
 	result.DNSCutoverChecklist = cpmoveDNSCutoverChecklist(archiveInfo)
+	result.DNSComparisons = cpmoveDNSComparisons(archiveInfo)
+	result.TLSCertificates = append([]MigrationTLSCertificate(nil), archiveInfo.TLSCertificates...)
 	result.ReportCreatedAt = time.Now().UTC()
 	if app != nil && wordpressProofEnabled(cfg, false) {
 		proofStarted := time.Now()
@@ -1362,6 +1572,11 @@ func restoreCPMoveArchiveContextWithApp(ctx context.Context, cfg Config, archive
 		result.Rehearsal = rehearsal
 	} else if app != nil {
 		result.Rehearsal = &MigrationRehearsal{Status: "skipped", Details: "The built-in WordPress recovery proof is not enabled or its site, database, and web-server helpers are unavailable."}
+	}
+	if result.Rehearsal == nil {
+		setMigrationCheckpoint(&result, "application_rehearsal", "skipped", txn.ID, "No application rehearsal was configured for this import.")
+	} else {
+		setMigrationCheckpoint(&result, "application_rehearsal", result.Rehearsal.Status, txn.ID, result.Rehearsal.Details)
 	}
 	applyRehearsalCompatibility(result.Compatibility, result.Rehearsal)
 	result.PostMigrationChecks = cpmovePostMigrationChecks(archiveInfo, result)

@@ -1,5 +1,33 @@
 # Production-readiness progress
 
+## cPanel migration plan, TLS inventory, and rollback evidence — 2026-10-31
+
+- Extended the cpmove preflight and downloadable JSON/Markdown reports with
+  bounded public TLS certificate metadata: hostnames, expiry, validity, and
+  SHA-256 fingerprint. Certificate PEM and private-key contents are never
+  included, and the report states that destination TLS was not installed or
+  verified.
+- Added explicit DNS source/destination status and preserved the cutover
+  checklist. The archive scan detects zone files, but destination provider
+  records are not queried; reports identify this as `not_compared` and do not
+  claim a record-level diff or DNS verification.
+- Import results now expose recovery transaction IDs and checkpoints for
+  archive validation, prior-site snapshot, filesystem activation, database
+  restore, mailbox staging, route changes, application rehearsal, and rollback
+  boundary. Failure compensation checkpoints now survive function return, and
+  the job response no longer replaces actual rollback evidence with a generic
+  `not_reached` state.
+- Existing migration planning continues to include domain/document-root maps,
+  source/destination database version checks, optional read-only PHP extension
+  comparison, mailbox inventory/validation, per-component dispositions, and
+  staged-vs-unsupported behavior.
+- Validation passed: focused cpmove Go tests, `node --check` for the changed UI
+  and E2E spec, all 17 JavaScript unit tests, and `make check` (API artifacts,
+  shell/cgroup checks, `go vet ./...`, and full serialized `go test ./...`).
+  Authenticated Playwright E2E was not run in this environment. DNS record
+  value comparison and live destination TLS verification remain explicit
+  evidence gaps; exact-source hosted CI is pending.
+
 ## Per-site evidence-based recovery confidence — 2026-10-31
 
 - The recovery API now reports a confidence level and five explicit checks:

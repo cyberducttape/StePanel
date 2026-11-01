@@ -272,6 +272,8 @@ test('cPanel preflight exposes compatibility evidence and downloadable report', 
     database_versions: [{ database: 'acct_wp', source_family: 'MariaDB', source_version: '10.11.6', destination_version: '10.11.6', status: 'passed', details: 'Version line matches.' }],
     domain_mappings: [{ source_domain: 'example.test', kind: 'main', source_document_root: '/home/acct/public_html', destination: 'public_html', status: 'planned', details: 'Provisional.' }],
     mailbox_validation: [{ address: 'web@example.test', maildir_layout: 'complete', message_files: 4, bytes: 2048, status: 'valid', details: 'Staged only.' }],
+    dns_comparisons: [{ zone: 'example.test', source_status: 'archive_zone_found', destination_status: 'not_compared', details: 'Review the authoritative destination zone.' }],
+    tls_certificates: [{ domains: ['example.test', 'www.example.test'], status: 'valid', destination_status: 'not_imported', fingerprint_sha256: 'abc123', details: 'Public metadata only.' }],
     dns_cutover_checklist: [{ step: 'Mail routing', status: 'required', detail: 'Validate MX and mail delivery.' }],
     source_scan_recommended: false,
   } }));
@@ -282,12 +284,16 @@ test('cPanel preflight exposes compatibility evidence and downloadable report', 
   await expect(preview).toContainText('example.test');
   await expect(preview).toContainText('MariaDB 10.11.6');
   await expect(preview).toContainText('Mail routing');
+  await expect(preview).toContainText('DNS source and destination comparison');
+  await expect(preview).toContainText('TLS certificate differences');
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('link', { name: 'Download evidence (JSON)' }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/\.json$/);
   const downloaded = JSON.parse(await fs.readFile(await download.path(), 'utf8'));
   expect(downloaded.domain_mappings[0].source_domain).toBe('example.test');
+  expect(downloaded.dns_comparisons[0].destination_status).toBe('not_compared');
+  expect(downloaded.tls_certificates[0].fingerprint_sha256).toBe('abc123');
   const markdownPromise = page.waitForEvent('download');
   await page.getByRole('link', { name: 'Download evidence (Markdown)' }).click();
   const markdown = await markdownPromise;

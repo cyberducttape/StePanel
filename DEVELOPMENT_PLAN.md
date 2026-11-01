@@ -393,17 +393,20 @@ request.
 
 ### M0c — Exportable cPanel migration compatibility evidence (P1)
 
-**Status:** Feature implemented. The exact-source `c91a88b` CI integration
-passed the serialized Go suite, race tests, and full browser E2E, including the
-migration journey; CodeQL, documentation, and release evidence also passed.
-The earlier isolated complete-browser timeout was not reproduced in the
-passing hosted run.
+**Status:** Core preview/import report is implemented. The current change adds
+bounded source-certificate metadata and durable rollback checkpoint reporting;
+focused and full local checks pass. Exact-source CI and authenticated browser
+E2E for these additions remain pending. Destination DNS records are not
+queried by cPanel import, so the report explicitly marks DNS comparison as
+unknown and requires operator review rather than claiming a record diff.
 
 The cpmove preflight reports bounded domain/document-root mappings, SQL dump
-version evidence, Maildir structure, and explicit DNS/mail/TLS cutover work.
-An optional read-only SSH scan compares source PHP extensions and host
-inventory. The import result records observed post-migration checks and the UI
-exports both preview and final evidence as JSON and Markdown.
+version evidence, Maildir structure, public source certificate metadata, and
+explicit DNS/mail/TLS cutover work. An optional read-only SSH scan compares
+source PHP extensions and host inventory. The import result records observed
+post-migration checks and durable transaction checkpoints. The UI exports
+both preview and final evidence as JSON and Markdown. DNS zone record contents
+and destination TLS are not independently verified by the import workflow.
 
 **Acceptance criteria**
 
@@ -418,6 +421,9 @@ exports both preview and final evidence as JSON and Markdown.
   existing administrator-only, read-only job workflow.
 - Preview and completed import evidence download as valid JSON and readable
   Markdown, without including SSH credentials.
+- Certificate reports expose only bounded public metadata and never PEM or
+  private-key contents. Import reports preserve the recovery journal identity
+  and the final rollback/compensation state, including failed imports.
 - Focused Go tests, JavaScript syntax/unit/E2E checks, full `make check`, and
   exact-source CI pass. This milestone does not close installed-host recovery
   or production certification gates.

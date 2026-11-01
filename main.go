@@ -1195,11 +1195,19 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 			info, inspectErr := inspectCPMove(reportFile, &multipart.FileHeader{Filename: request.Filename, Size: request.Size}, a.Config.MaxEntries)
 			_ = reportFile.Close()
 			if inspectErr == nil {
+				if !hasMigrationCheckpoint(result, "archive_validation") {
+					setMigrationCheckpoint(&result, "archive_validation", "completed", "", "The uploaded archive was re-inspected after the import failed; destination import was not proven complete.")
+				}
+				if !hasMigrationCheckpoint(result, "rollback_boundary") {
+					setMigrationCheckpoint(&result, "rollback_boundary", "not_reached", "", "No durable site transaction checkpoint was returned by the failed import. Inspect host recovery journals before retrying.")
+				}
 				result.Compatibility = cpmoveCompatibilityChecks(a.Config, info)
 				result.DatabaseVersions = assessCPMoveDatabaseVersions(a.Config, info)
 				result.DomainMappings = realizedCPMoveDomainMappings(info, result)
 				result.MailboxValidation = append([]MigrationMailboxValidation(nil), info.MailboxValidation...)
 				result.DNSCutoverChecklist = cpmoveDNSCutoverChecklist(info)
+				result.DNSComparisons = cpmoveDNSComparisons(info)
+				result.TLSCertificates = append([]MigrationTLSCertificate(nil), info.TLSCertificates...)
 				result.Evidence = buildCPMoveMigrationEvidence(info, result, request.RestoreDBs, cpmoveDomainPlan{}, nil)
 				for i := range result.Evidence {
 					result.Evidence[i].Status = "failed"

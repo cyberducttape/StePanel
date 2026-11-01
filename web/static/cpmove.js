@@ -114,6 +114,17 @@
     renderTable(preview, 'DNS cutover checklist', info.dns_cutover_checklist, [
       ['Step', 'step'], ['Status', 'status'], ['Action', 'detail'],
     ]);
+    renderTable(preview, 'DNS source and destination comparison', info.dns_comparisons, [
+      ['Zone', 'zone'], ['Source evidence', 'source_status'], ['Destination comparison', 'destination_status'], ['Details', 'details'],
+    ]);
+    renderTable(preview, 'TLS certificate differences (metadata only)', info.tls_certificates, [
+      ['Hostnames', (item) => (item.domains || []).join(', ') || 'unknown'], ['Source status', 'status'], ['Expires', (item) => item.not_after ? new Date(item.not_after).toLocaleDateString() : 'unknown'], ['Destination', 'destination_status'], ['SHA-256 fingerprint', 'fingerprint_sha256'], ['Details', 'details'],
+    ]);
+    if (info.tls_certificate_omitted_count) {
+      const omitted = document.createElement('p'); omitted.className = 'migration-report-summary';
+      omitted.textContent = `${info.tls_certificate_omitted_count} additional TLS certificate file(s) were omitted by inspection limits.`;
+      preview.append(omitted);
+    }
     if (info.source_scan_recommended) renderSourceScanForm(preview, report);
   };
 
@@ -148,6 +159,9 @@
     addTable('Database versions', report.database_versions, [[(r) => `${r.source_family || ''} ${r.source_version || 'unknown'}`.trim(), 'Source'], ['database', 'Database'], ['destination_version', 'Destination'], ['status', 'Status'], ['details', 'Notes']]);
     addTable('Mailbox validation', report.mailbox_validation, [['address', 'Mailbox'], ['maildir_layout', 'Layout'], ['message_files', 'Messages'], ['status', 'Status'], ['details', 'Notes']]);
     addTable('DNS cutover checklist', report.dns_cutover_checklist, [['step', 'Step'], ['status', 'Status'], ['detail', 'Action']]);
+    addTable('DNS source/destination comparison', report.dns_comparisons, [['zone', 'Zone'], ['source_status', 'Source evidence'], ['destination_status', 'Destination comparison'], ['details', 'Details']]);
+    addTable('TLS certificate differences (public metadata only)', report.tls_certificates, [[(r) => (r.domains || []).join(', ') || 'unknown', 'Hostnames'], ['status', 'Source status'], ['not_after', 'Source expiry'], ['destination_status', 'Destination'], ['fingerprint_sha256', 'SHA-256 fingerprint'], ['details', 'Details']]);
+    addTable('Rollback and recovery checkpoints', report.rollback_checkpoints, [['name', 'Checkpoint'], ['status', 'State'], ['at', 'Recorded'], ['journal_id', 'Recovery journal'], ['details', 'Recovery guidance']]);
     addTable('Post-migration verification', report.post_migration_checks, [['status', 'Status'], ['name', 'Check'], ['details', 'Details']]);
     addTable('Component dispositions', report.components, [['category', 'Component'], ['source', 'Source'], ['target', 'Destination'], ['disposition', 'Disposition'], ['details', 'Notes']]);
     if (report.source_scan) {
@@ -334,6 +348,15 @@
         result.append(summaryLine);
       }
       if (value.compatibility) result.append(renderReportChecks(value.compatibility));
+      renderTable(result, 'DNS source and destination comparison', value.dns_comparisons, [
+        ['Zone', 'zone'], ['Source evidence', 'source_status'], ['Destination comparison', 'destination_status'], ['Details', 'details'],
+      ]);
+      renderTable(result, 'TLS certificate differences (metadata only)', value.tls_certificates, [
+        ['Hostnames', (item) => (item.domains || []).join(', ') || 'unknown'], ['Source status', 'status'], ['Expires', (item) => item.not_after ? new Date(item.not_after).toLocaleDateString() : 'unknown'], ['Destination', 'destination_status'], ['SHA-256 fingerprint', 'fingerprint_sha256'], ['Details', 'details'],
+      ]);
+      renderTable(result, 'Rollback and recovery checkpoints', value.rollback_checkpoints, [
+        ['Checkpoint', 'name'], ['State', 'status'], ['Recorded', (item) => item.at ? new Date(item.at).toLocaleString() : 'unknown'], ['Recovery journal', 'journal_id'], ['Recovery guidance', 'details'],
+      ]);
       if (job.state === 'completed') result.append(renderMigrationEvidence(evidence));
       if (dispositions.length) result.append(renderReportComponents(dispositions));
       if (value.application_rehearsal) {

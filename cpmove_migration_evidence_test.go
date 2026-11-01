@@ -1,11 +1,19 @@
 package stepanel
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"math/big"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCPMoveMigrationEvidenceNamesSkippedAndUninspectedComponents(t *testing.T) {
@@ -125,6 +133,55 @@ func TestCPMoveCompatibilityFlagsUnsupportedDatabaseEngineAndCutover(t *testing.
 	}
 	if byName["Database engine"].Status != "blocked" || byName["DNS and scheduled tasks"].Status != "warning" || byName["Application compatibility"].Status != "unknown" {
 		t.Fatalf("compatibility checks = %#v", checks)
+	}
+}
+
+func TestCPMoveTLSInspectionReportsPublicMetadataOnly(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notAfter := time.Now().Add(24 * time.Hour).UTC().Truncate(time.Second)
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(42),
+		Subject:      pkix.Name{CommonName: "example.test"},
+		DNSNames:     []string{"example.test", "www.example.test", "*.shop.example.test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     notAfter,
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	got := inspectCPMoveTLSCertificate(data)
+	if got.Status != "valid" || got.DestinationStatus != "not_imported" || !got.NotAfter.Equal(notAfter) {
+		t.Fatalf("certificate evidence = %+v", got)
+	}
+	if strings.Join(got.Domains, ",") != "*.shop.example.test,example.test,www.example.test" {
+		t.Fatalf("certificate names = %v", got.Domains)
+	}
+	if len(got.FingerprintSHA256) != 64 || strings.Contains(got.Details, string(data)) {
+		t.Fatalf("public metadata missing or PEM leaked: %+v", got)
+	}
+
+	invalid := inspectCPMoveTLSCertificate([]byte("private key material must not parse"))
+	if invalid.Status != "invalid" || invalid.DestinationStatus != "not_imported" {
+		t.Fatalf("invalid certificate evidence = %+v", invalid)
+	}
+}
+
+func TestCPMovePlanExposesUncomparedDNSAndRollbackBoundaries(t *testing.T) {
+	dns := cpmoveDNSComparisons(CPMoveInfo{DNSZones: []string{"example.test"}})
+	if len(dns) != 1 || dns[0].SourceStatus != "archive_zone_found" || dns[0].DestinationStatus != "not_compared" {
+		t.Fatalf("DNS comparison overclaims evidence: %+v", dns)
+	}
+	var result ImportResult
+	setMigrationCheckpoint(&result, "rollback_boundary", "available", "journal-123", "snapshot recorded")
+	setMigrationCheckpoint(&result, "rollback_boundary", "committed", "journal-123", "journal committed")
+	if len(result.RollbackCheckpoints) != 1 || result.RollbackCheckpoints[0].Status != "committed" || result.RollbackCheckpoints[0].JournalID != "journal-123" {
+		t.Fatalf("checkpoint update is not stable: %+v", result.RollbackCheckpoints)
 	}
 }
 
