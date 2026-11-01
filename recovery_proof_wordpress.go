@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/importer"
+	"github.com/cyberducttape/StePanel/internal/recovery"
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 )
@@ -115,7 +116,11 @@ type wordpressProofResult struct {
 	Database                   string   `json:"database"`
 	Checks                     []string `json:"checks"`
 	SyntheticTransactionPassed bool     `json:"synthetic_transaction_passed"`
-	DurationMS                 int64    `json:"duration_ms"`
+	// TransactionChannel is recovery.TransactionChannelCLI: the canary runs
+	// through WP-CLI, not through an HTTP request.
+	TransactionChannel   string `json:"transaction_channel,omitempty"`
+	TLSHandshakeVerified bool   `json:"tls_handshake_verified"`
+	DurationMS           int64  `json:"duration_ms"`
 }
 
 type wordpressProofPlan struct {
@@ -443,6 +448,9 @@ func (a *App) proveWordPressRestore(ctx context.Context, stage string, databases
 	if err != nil {
 		return result, fmt.Errorf("WordPress HTTP probe: %w", err)
 	}
+	// The probe verifies the certificate chain and hostname, so a passing
+	// HTTPS probe is a verified TLS handshake.
+	result.TLSHandshakeVerified = plan.scheme == "https"
 	// WP-CLI is optional on a host. Without it the proof still establishes
 	// application recovery; it just cannot claim a synthetic transaction,
 	// which recovery status then reports as missing evidence.
@@ -451,7 +459,8 @@ func (a *App) proveWordPressRestore(ctx context.Context, stage string, databases
 			return result, fmt.Errorf("WordPress synthetic transaction: %w", err)
 		}
 		result.SyntheticTransactionPassed = true
-		result.Checks = append(result.Checks, "WordPress wrote and read back a recovery canary through the restored database")
+		result.TransactionChannel = recovery.TransactionChannelCLI
+		result.Checks = append(result.Checks, "WP-CLI wrote and read back a recovery canary through the restored wp-config.php database (not an HTTP workflow)")
 	} else {
 		result.Checks = append(result.Checks, "synthetic write/read transaction skipped: WP-CLI is not installed at "+a.Config.WPCLI)
 	}

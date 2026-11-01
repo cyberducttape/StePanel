@@ -179,7 +179,7 @@ func TestAssessVerified(t *testing.T) {
 	if !strings.Contains(s.LastPassed.LevelDescription, "database import") {
 		t.Fatalf("level description lost its recovery proof: %q", s.LastPassed.LevelDescription)
 	}
-	if s.ConfidenceLevel != EvidenceTransaction || len(s.Checks) != 5 || s.Checks[0].Status != "pass" || s.Checks[1].Status != "pass" || s.Checks[2].Status != "pass" || s.Checks[3].Status != "pass" || s.Checks[4].Status != "pass" {
+	if s.ConfidenceLevel != EvidenceTransaction || len(s.Checks) != 7 || s.Checks[0].Status != "pass" || s.Checks[1].Status != "pass" || s.Checks[2].Status != "pass" || s.Checks[3].Status != "pass" || s.Checks[4].Status != "pass" {
 		t.Fatalf("structured evidence = %+v", s.Checks)
 	}
 	if s.Checks[0].Backup != "b2" || s.Checks[1].At == nil || s.Checks[1].DurationMS != 60000 || s.Checks[4].At == nil {
@@ -306,5 +306,59 @@ func TestHumanAge(t *testing.T) {
 		if got := humanAge(d); got != want {
 			t.Errorf("humanAge(%s) = %q, want %q", d, got, want)
 		}
+	}
+}
+
+// A WP-CLI canary proves a writable restored database, not an HTTP
+// application workflow; TLS and HTTP workflows are separate evidence.
+func TestAssessSeparatesCLITransactionTLSAndHTTPWorkflowEvidence(t *testing.T) {
+	s := assessWith(func(in *Inputs) {
+		passed := *in.LatestPassed
+		passed.TransactionChannel = TransactionChannelCLI
+		passed.TLSHandshakeVerified = true
+		in.LatestPassed, in.LatestRehearsal = &passed, &passed
+	})
+	byName := map[string]EvidenceCheck{}
+	for _, check := range s.Checks {
+		byName[check.Name] = check
+	}
+	transaction := byName["synthetic_transaction"]
+	if transaction.Status != "pass" || !strings.Contains(transaction.Detail, "WP-CLI") || !strings.Contains(transaction.Detail, "not an HTTP application workflow") {
+		t.Fatalf("CLI transaction evidence = %+v", transaction)
+	}
+	if tls := byName["tls_handshake"]; tls.Status != "pass" || tls.At == nil {
+		t.Fatalf("verified TLS handshake evidence = %+v", tls)
+	}
+	if workflow := byName["application_transaction"]; workflow.Status != "not_tested" {
+		t.Fatalf("an HTTP application workflow was claimed without one running: %+v", workflow)
+	}
+	if !strings.Contains(s.Summary, "command-line database write/read") || !strings.Contains(s.Summary, "HTTP application workflows are not exercised") {
+		t.Fatalf("summary overstates the transaction: %q", s.Summary)
+	}
+	if s.Confidence != ConfidenceVerified || s.ConfidenceLevel != EvidenceTransaction {
+		t.Fatalf("confidence = %s / %s", s.Confidence, s.ConfidenceLevel)
+	}
+
+	plain := assessWith(func(*Inputs) {})
+	for _, check := range plain.Checks {
+		if check.Name == "tls_handshake" && check.Status != "not_tested" {
+			t.Fatalf("TLS evidence without a verified handshake: %+v", check)
+		}
+	}
+}
+
+func TestRehearsalStoreKeepsTransactionChannelAndTLSEvidence(t *testing.T) {
+	store := openStore(t)
+	now := time.Now().UTC()
+	record := Rehearsal{Site: "s", Backup: "b", Trigger: TriggerManual, Level: LevelApplication, Outcome: OutcomePassed, SyntheticTransactionPassed: true, TransactionChannel: TransactionChannelCLI, TLSHandshakeVerified: true, StartedAt: now, FinishedAt: now}
+	if err := store.Record(context.Background(), record); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := store.Latest(context.Background(), "s")
+	if err != nil || latest == nil {
+		t.Fatalf("latest = %+v, %v", latest, err)
+	}
+	if latest.TransactionChannel != TransactionChannelCLI || !latest.TLSHandshakeVerified {
+		t.Fatalf("stored rehearsal lost evidence detail: %+v", latest)
 	}
 }

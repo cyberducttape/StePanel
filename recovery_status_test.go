@@ -163,7 +163,7 @@ func TestPassingRehearsalIsRecordedAndVerifiesRecovery(t *testing.T) {
 	if !strings.Contains(passed.LevelDescription, "not yet rehearsed") {
 		t.Fatalf("level description overclaims: %q", passed.LevelDescription)
 	}
-	if len(status.Checks) != 5 || status.Checks[0].Status != "pass" || status.Checks[1].Status != "not_tested" || status.Checks[2].Status != "not_tested" || status.Checks[3].Status != "not_tested" {
+	if len(status.Checks) != 7 || status.Checks[5].Status != "not_tested" || status.Checks[6].Status != "not_tested" || status.Checks[0].Status != "pass" || status.Checks[1].Status != "not_tested" || status.Checks[2].Status != "not_tested" || status.Checks[3].Status != "not_tested" {
 		t.Fatalf("archive rehearsal overstates recovery evidence: %+v", status.Checks)
 	}
 	if len(status.History) != 1 {

@@ -183,6 +183,18 @@ summarizes the evidence:
   change a restore would lose.
 - **Encryption key**: `proven` once a rehearsal has decrypted an encrypted
   backup with a configured key.
+- **Evidence checks**: each kind of proof is reported separately as `pass`,
+  `warning`, or `not_tested`, and one never stands in for another:
+  `archive`, `database` (import), `application` (services activated and pages
+  rendered over HTTP), `synthetic_transaction` (a database write/read canary;
+  the WordPress proof runs it through WP-CLI with the restored
+  `wp-config.php`, which proves a writable database, not an HTTP workflow),
+  `offsite_restore`, `tls_handshake` (the proof probe completed a
+  certificate- and hostname-verified TLS handshake), and
+  `application_transaction` (an application workflow over HTTP such as login,
+  checkout, or a plugin API). No built-in proof exercises HTTP application
+  workflows, so `application_transaction` stays `not_tested`; verify those
+  workflows yourself before cutover.
 
 A successful scheduled backup triggers an automatic rehearsal of that backup
 when the site has not been rehearsed within `STEPANEL_REHEARSAL_INTERVAL_HOURS`

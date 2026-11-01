@@ -85,6 +85,8 @@ type RehearsalStatus struct {
 	LevelDescription           string    `json:"level_description"`
 	DurationMS                 int64     `json:"duration_ms"`
 	SyntheticTransactionPassed bool      `json:"synthetic_transaction_passed"`
+	TransactionChannel         string    `json:"transaction_channel,omitempty"`
+	TLSHandshakeVerified       bool      `json:"tls_handshake_verified"`
 	Error                      string    `json:"error,omitempty"`
 }
 
@@ -127,7 +129,7 @@ func rehearsalStatus(r *Rehearsal) *RehearsalStatus {
 	if r == nil {
 		return nil
 	}
-	return &RehearsalStatus{At: r.FinishedAt, Backup: r.Backup, Outcome: r.Outcome, Trigger: r.Trigger, Level: r.Level, LevelDescription: r.Level.Describe(), DurationMS: r.DurationMS, SyntheticTransactionPassed: r.SyntheticTransactionPassed, Error: r.Error}
+	return &RehearsalStatus{At: r.FinishedAt, Backup: r.Backup, Outcome: r.Outcome, Trigger: r.Trigger, Level: r.Level, LevelDescription: r.Level.Describe(), DurationMS: r.DurationMS, SyntheticTransactionPassed: r.SyntheticTransactionPassed, TransactionChannel: r.TransactionChannel, TLSHandshakeVerified: r.TLSHandshakeVerified, Error: r.Error}
 }
 
 func humanAge(d time.Duration) string {
@@ -158,9 +160,14 @@ func Assess(in Inputs) Status {
 		Checks: []EvidenceCheck{
 			{Name: "archive", Status: "not_tested", Detail: "No backup has been validated."},
 			{Name: "database", Status: "not_tested", Detail: "Database import has not been proven."},
-			{Name: "application", Status: "not_tested", Detail: "Application startup and HTTP health have not been proven."},
-			{Name: "synthetic_transaction", Status: "not_tested", Detail: "No write/read transaction has been tested through the restored application."},
+			{Name: "application", Status: "not_tested", Detail: "Application startup and HTTP rendering have not been proven."},
+			{Name: "synthetic_transaction", Status: "not_tested", Detail: "No write/read transaction against the restored database has been tested."},
 			{Name: "offsite_restore", Status: "not_tested", Detail: "No restore from an offsite copy has been recorded."},
+			{Name: "tls_handshake", Status: "not_tested", Detail: "No verified TLS handshake to the restored site has been recorded."},
+			// No built-in proof drives an application workflow over HTTP;
+			// this check states that gap instead of letting the database
+			// canary imply it.
+			{Name: "application_transaction", Status: "not_tested", Detail: "No application workflow over HTTP (login, checkout, form submission, plugin API) was exercised against the restored site."},
 		},
 		LastRehearsal: rehearsalStatus(in.LatestRehearsal),
 		LastPassed:    rehearsalStatus(in.LatestPassed),
@@ -228,10 +235,19 @@ func Assess(in Inputs) Status {
 				return EvidenceCheck{Name: name, Status: "pass", Detail: detail, At: &checkedAt, Backup: in.LatestPassed.Backup, DurationMS: in.LatestPassed.DurationMS}
 			}
 			s.Checks[1] = proofEvidence("database", "Restored database was imported and verified by the application recovery proof.")
-			s.Checks[2] = proofEvidence("application", "Restored application services activated and returned a successful HTTP response.")
+			s.Checks[2] = proofEvidence("application", "Restored application services activated and rendered successful HTTP responses.")
 			if in.LatestPassed.SyntheticTransactionPassed {
 				s.ConfidenceLevel = EvidenceTransaction
-				s.Checks[3] = proofEvidence("synthetic_transaction", "The restored application wrote a unique canary and read the same value back from its database.")
+				detail := "The restored application wrote a unique canary and read the same value back from its database."
+				if in.LatestPassed.TransactionChannel == TransactionChannelCLI {
+					detail = "A unique canary was written and read back through the application's command-line tooling (WP-CLI) using the restored configuration. This proves a writable database, not an HTTP application workflow."
+				}
+				s.Checks[3] = proofEvidence("synthetic_transaction", detail)
+			}
+			if in.LatestPassed.TLSHandshakeVerified {
+				s.Checks[5] = proofEvidence("tls_handshake", "The proof's HTTP probe completed a certificate- and hostname-verified TLS handshake to the restored site.")
+			} else {
+				s.Checks[5].Detail = "The proof reached the restored site over plain HTTP; TLS was not exercised."
 			}
 		}
 	}
@@ -256,7 +272,11 @@ func Assess(in Inputs) Status {
 		s.Reasons = append(s.Reasons, "Application recovery passed without a synthetic database transaction check.")
 	} else {
 		s.Confidence = ConfidenceVerified
-		s.Summary = fmt.Sprintf("Backup %s passed database, application, and synthetic transaction checks %s ago.", in.LatestPassed.Backup, humanAge(in.Now.Sub(in.LatestPassed.FinishedAt)))
+		transaction := "synthetic transaction"
+		if in.LatestPassed.TransactionChannel == TransactionChannelCLI {
+			transaction = "command-line database write/read"
+		}
+		s.Summary = fmt.Sprintf("Backup %s passed database, HTTP rendering, and %s checks %s ago; HTTP application workflows are not exercised.", in.LatestPassed.Backup, transaction, humanAge(in.Now.Sub(in.LatestPassed.FinishedAt)))
 	}
 
 	degrade := func(reason string) {

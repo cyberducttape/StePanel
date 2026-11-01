@@ -88,15 +88,22 @@ type Rehearsal struct {
 	Outcome                    Outcome   `json:"outcome"`
 	ApplicationProofAttempted  bool      `json:"application_proof_attempted,omitempty"`
 	SyntheticTransactionPassed bool      `json:"synthetic_transaction_passed,omitempty"`
-	StartedAt                  time.Time `json:"started_at"`
-	FinishedAt                 time.Time `json:"finished_at"`
-	DurationMS                 int64     `json:"duration_ms"`
-	Phases                     []Phase   `json:"phases,omitempty"`
-	Error                      string    `json:"error,omitempty"`
-	Encrypted                  bool      `json:"encrypted"`
-	FilesRestored              int       `json:"files_restored"`
-	BytesRestored              int64     `json:"bytes_restored"`
-	Databases                  []string  `json:"databases,omitempty"`
+	// TransactionChannel names how the synthetic transaction reached the
+	// restored database (TransactionChannelCLI), so a direct database canary
+	// is never reported as an HTTP application workflow.
+	TransactionChannel string `json:"transaction_channel,omitempty"`
+	// TLSHandshakeVerified is true when the proof's HTTP probe completed a
+	// certificate- and hostname-verified TLS handshake to the restored site.
+	TLSHandshakeVerified bool      `json:"tls_handshake_verified,omitempty"`
+	StartedAt            time.Time `json:"started_at"`
+	FinishedAt           time.Time `json:"finished_at"`
+	DurationMS           int64     `json:"duration_ms"`
+	Phases               []Phase   `json:"phases,omitempty"`
+	Error                string    `json:"error,omitempty"`
+	Encrypted            bool      `json:"encrypted"`
+	FilesRestored        int       `json:"files_restored"`
+	BytesRestored        int64     `json:"bytes_restored"`
+	Databases            []string  `json:"databases,omitempty"`
 }
 
 // historyPerSite bounds stored rehearsals; older ones are pruned on write.
@@ -141,7 +148,14 @@ type detail struct {
 	BytesRestored              int64    `json:"bytes_restored"`
 	Databases                  []string `json:"databases,omitempty"`
 	SyntheticTransactionPassed bool     `json:"synthetic_transaction_passed,omitempty"`
+	TransactionChannel         string   `json:"transaction_channel,omitempty"`
+	TLSHandshakeVerified       bool     `json:"tls_handshake_verified,omitempty"`
 }
+
+// TransactionChannelCLI is a write/read canary run through the application's
+// command-line tooling (WP-CLI) with its restored configuration: it proves the
+// configuration reaches a writable database, not an HTTP workflow.
+const TransactionChannelCLI = "cli"
 
 // Record stores a finished rehearsal and prunes the site's history to the
 // newest historyPerSite entries in the same transaction.
@@ -149,7 +163,7 @@ func (s *Store) Record(ctx context.Context, r Rehearsal) error {
 	if r.Site == "" || r.Backup == "" || r.Level == "" || (r.Outcome != OutcomePassed && r.Outcome != OutcomeFailed) {
 		return errors.New("invalid rehearsal record")
 	}
-	data, err := json.Marshal(detail{Phases: r.Phases, Error: r.Error, Encrypted: r.Encrypted, FilesRestored: r.FilesRestored, BytesRestored: r.BytesRestored, Databases: r.Databases, SyntheticTransactionPassed: r.SyntheticTransactionPassed})
+	data, err := json.Marshal(detail{Phases: r.Phases, Error: r.Error, Encrypted: r.Encrypted, FilesRestored: r.FilesRestored, BytesRestored: r.BytesRestored, Databases: r.Databases, SyntheticTransactionPassed: r.SyntheticTransactionPassed, TransactionChannel: r.TransactionChannel, TLSHandshakeVerified: r.TLSHandshakeVerified})
 	if err != nil {
 		return fmt.Errorf("encode rehearsal detail: %w", err)
 	}
@@ -211,6 +225,7 @@ func scanRehearsal(row interface{ Scan(...any) error }) (Rehearsal, error) {
 	r.ApplicationProofAttempted = applicationAttempted != 0
 	r.Phases, r.Error, r.Encrypted, r.FilesRestored, r.BytesRestored, r.Databases = d.Phases, d.Error, d.Encrypted, d.FilesRestored, d.BytesRestored, d.Databases
 	r.SyntheticTransactionPassed = d.SyntheticTransactionPassed
+	r.TransactionChannel, r.TLSHandshakeVerified = d.TransactionChannel, d.TLSHandshakeVerified
 	return r, nil
 }
 

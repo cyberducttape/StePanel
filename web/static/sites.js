@@ -1304,7 +1304,7 @@
     archive_verified: 'Archive verified',
     database_restored: 'Database restored',
     application_booted: 'Application booted',
-    synthetic_transaction_passed: 'Synthetic transaction passed',
+    synthetic_transaction_passed: 'Synthetic transaction passed (database write/read)',
   };
 
   const formatDuration = (ms) => {
