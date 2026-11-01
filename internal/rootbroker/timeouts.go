@@ -78,8 +78,13 @@ var typedTimeouts = map[string]map[string]time.Duration{
 		"generate": timeoutConfig, "public": timeoutConfig, "delete": timeoutLifecycle,
 		"clone": timeoutContainer, "verify-key": timeoutConfig, "stage-limit": timeoutConfig, "stage-clear": timeoutConfig,
 	},
-	"vhost":       {"apply": timeoutConfig, "apply-auth": timeoutConfig, "delete": timeoutConfig, "import-htaccess": timeoutConfig},
-	"proxy":       {"apply": timeoutConfig, "reload": timeoutConfig, "delete": timeoutConfig},
+	// Route and proxy changes validate and then reload or restart the web
+	// server; the Caddy route helper restarts Caddy (and unmounts the site's
+	// isolated view) when a mounted view changes, which can take longer than
+	// a config write. A deadline that fires mid-restart SIGKILLs the helper
+	// before its rollback runs.
+	"vhost":       {"apply": timeoutLifecycle, "apply-auth": timeoutLifecycle, "delete": timeoutLifecycle, "import-htaccess": timeoutLifecycle},
+	"proxy":       {"apply": timeoutLifecycle, "reload": timeoutLifecycle, "delete": timeoutLifecycle},
 	"certificate": {"issue": 15 * time.Minute},
 }
 

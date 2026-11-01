@@ -410,14 +410,17 @@ if [[ ${STEPANEL_QUOTA_SMOKE:-0} == 1 ]]; then
     clone_failures+=('a clone with unreaped processes reported success')
   fi
   grep -q 'staging tree is quarantined' "$fake_ps_dir/stderr" || clone_failures+=("an unreaped clone was not quarantined: $(tr '\n' ' ' < "$fake_ps_dir/stderr")")
-  [[ $(stat -c '%U:%a' "$stuck_stage") == root:700 ]] || clone_failures+=("a quarantined stage was handed back as $(stat -c '%U:%a' "$stuck_stage")")
+  # Quarantined: root-owned with no group or other access (chmod keeps a
+  # directory's setgid bit, so the mode may read 2700).
+  stage_quarantined() { [[ $(stat -c '%U' "$1") == root ]] && (( (8#$(stat -c '%a' "$1") & 8#077) == 0 )); }
+  stage_quarantined "$stuck_stage" || clone_failures+=("a quarantined stage was handed back as $(stat -c '%U:%a' "$stuck_stage")")
   compgen -G '/var/lib/stepanel/git-clone-quarantine/clone.*' >/dev/null || clone_failures+=('no quarantine record was written')
   # Recovery refuses while a clone process is still reported alive.
   rm -f "$fake_ps_dir/count"
   if PATH="$fake_ps_dir:$PATH" STEPANEL_SMOKE_PS_COUNT="$fake_ps_dir/count" STEPANEL_SMOKE_PS_ALIVE_FROM=1 /usr/local/sbin/stepanel-gitctl clone-recover 2>/dev/null; then
     clone_failures+=('clone-recover reclaimed a stage while a clone process was alive')
   fi
-  [[ $(stat -c '%U:%a' "$stuck_stage") == root:700 ]] || clone_failures+=('a refused recovery released the stage')
+  stage_quarantined "$stuck_stage" || clone_failures+=('a refused recovery released the stage')
   # With no clone process left, recovery empties the stage and returns it.
   /usr/local/sbin/stepanel-gitctl clone-recover >/dev/null || clone_failures+=('clone-recover failed with no clone process alive')
   [[ $(stat -c '%u:%g:%a' "$stuck_stage") == "$stuck_owner" ]] || clone_failures+=("recovered stage is $(stat -c '%u:%g:%a' "$stuck_stage"), want $stuck_owner")

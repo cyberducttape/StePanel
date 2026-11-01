@@ -48,7 +48,10 @@ func TestRequestTimeoutCoversPanelTimeoutClasses(t *testing.T) {
 		{"python apply", &Request{RequestType: "app", App: &AppRequest{Action: "python-apply"}}, 15 * time.Minute},
 		{"node tool", &Request{RequestType: "app", App: &AppRequest{Action: "node-tool"}}, 15 * time.Minute},
 		{"worker restart typed", &Request{RequestType: "worker", Worker: &WorkerRequest{Action: "restart"}}, 60 * time.Second},
-		{"proxy apply", &Request{RequestType: "proxy", Proxy: &ProxyRequest{Action: "apply"}}, 30 * time.Second},
+		// Route changes reload or restart the web server (installed-host
+		// smoke: a Caddy restart plus view unmount outlasted 30 seconds).
+		{"proxy apply", &Request{RequestType: "proxy", Proxy: &ProxyRequest{Action: "apply"}}, 60 * time.Second},
+		{"vhost delete", &Request{RequestType: "vhost", Vhost: &VhostRequest{Action: "delete"}}, 60 * time.Second},
 		{"file listing", &Request{RequestType: "files", Files: &FilesRequest{Action: "list"}}, 10 * time.Second},
 	}
 	for _, tc := range cases {
