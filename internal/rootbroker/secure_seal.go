@@ -2,83 +2,171 @@ package rootbroker
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
-	"path/filepath"
+	"path"
 
 	"golang.org/x/sys/unix"
 )
 
-// secureSealTree seals only regular files and directories reached through a
-// descriptor-relative, no-symlink path. filepath.Walk is used for enumeration
-// only; the actual chmod uses openat2/fchmod so a customer cannot replace a
-// checked path with a symlink between validation and mutation.
-func secureSealTree(ctx context.Context, root string) error {
-	paths := make([]string, 0)
-	if err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("refusing to seal symlink %q", path)
-		}
-		paths = append(paths, path)
-		return ctx.Err()
-	}); err != nil {
-		return err
-	}
+// sealReadBatch bounds how many directory entries are held at once. Together
+// with one open descriptor per directory level, the walk's memory is
+// proportional to tree depth, not to the number of entries.
+const sealReadBatch = 256
 
+// maxSealDepth bounds directory nesting (and therefore open descriptors).
+const maxSealDepth = 1024
+
+// sealVisitHook, when set by tests, is called for every visited entry.
+var sealVisitHook func()
+
+// secureSealTree seals only regular files and directories reached through
+// descriptor-relative, no-symlink opens, so a customer cannot replace a
+// checked path with a symlink between validation and mutation.
+//
+// It walks the tree twice without retaining it: the first pass validates
+// every entry, so a symlink or special file anywhere refuses the seal before
+// anything changes; the second pass reopens each entry with openat2
+// (RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS), re-checks its type on the opened
+// descriptor and fchmods it. Entries are opened O_NONBLOCK, so a FIFO swapped
+// in between the passes cannot block the broker. Both passes honour ctx.
+func secureSealTree(ctx context.Context, root string) error {
 	rootFD, err := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		return fmt.Errorf("open seal root: %w", err)
 	}
 	defer unix.Close(rootFD)
-	for _, path := range paths {
-		if err := ctx.Err(); err != nil {
+	if err := sealPass(ctx, rootFD, false); err != nil {
+		return err
+	}
+	return sealPass(ctx, rootFD, true)
+}
+
+func sealPass(ctx context.Context, rootFD int, apply bool) error {
+	var stat unix.Stat_t
+	if err := unix.Fstat(rootFD, &stat); err != nil {
+		return fmt.Errorf("stat seal root: %w", err)
+	}
+	if stat.Mode&unix.S_IFMT != unix.S_IFDIR {
+		return errors.New("seal root is not a directory")
+	}
+	if apply {
+		if err := sealEntry(rootFD, unix.S_IFDIR, "."); err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(root, path)
+	}
+	// Each pass reads the root through a fresh open file description: a
+	// dup would share the directory offset and start the second pass at EOF.
+	dirFD, err := unix.Openat2(rootFD, ".", &unix.OpenHow{
+		Flags:   unix.O_RDONLY | unix.O_DIRECTORY | unix.O_CLOEXEC,
+		Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS,
+	})
+	if err != nil {
+		return fmt.Errorf("reopen seal root: %w", err)
+	}
+	return sealDirectory(ctx, dirFD, ".", 1, apply)
+}
+
+// sealDirectory visits the entries of the directory open on dirFD, which it
+// takes ownership of and closes.
+func sealDirectory(ctx context.Context, dirFD int, rel string, depth int, apply bool) error {
+	dir := os.NewFile(uintptr(dirFD), rel)
+	if dir == nil {
+		unix.Close(dirFD)
+		return fmt.Errorf("open seal directory %q", rel)
+	}
+	defer dir.Close()
+	if depth > maxSealDepth {
+		return fmt.Errorf("site tree is nested deeper than %d directories at %q", maxSealDepth, rel)
+	}
+	for {
+		entries, err := dir.ReadDir(sealReadBatch)
+		for _, entry := range entries {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+			if sealVisitHook != nil {
+				sealVisitHook()
+			}
+			if err := sealChild(ctx, dirFD, entry, path.Join(rel, entry.Name()), depth, apply); err != nil {
+				return err
+			}
+		}
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
 		if err != nil {
-			return err
+			return fmt.Errorf("read seal directory %q: %w", rel, err)
 		}
-		fd := rootFD
-		closeFD := false
-		if rel != "." {
-			how := &unix.OpenHow{
-				Flags:   unix.O_RDONLY | unix.O_CLOEXEC,
-				Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS,
-			}
-			fd, err = unix.Openat2(rootFD, rel, how)
-			if err != nil {
-				return fmt.Errorf("open seal entry %q: %w", rel, err)
-			}
-			closeFD = true
+		if len(entries) == 0 {
+			return nil
 		}
+	}
+}
+
+func sealChild(ctx context.Context, dirFD int, entry os.DirEntry, rel string, depth int, apply bool) error {
+	typ := entry.Type()
+	if typ&os.ModeSymlink != 0 {
+		return fmt.Errorf("refusing to seal symlink %q", rel)
+	}
+	if typ&^os.ModeDir != 0 {
+		return fmt.Errorf("unsupported seal entry type %q", rel)
+	}
+	// Validation needs only the type of a non-directory; avoid opening it.
+	if !apply && !typ.IsDir() {
 		var stat unix.Stat_t
-		err = unix.Fstat(fd, &stat)
-		if err == nil {
-			mode := stat.Mode & unix.S_IFMT
-			if mode != unix.S_IFDIR && mode != unix.S_IFREG {
-				err = fmt.Errorf("unsupported seal entry type %q", rel)
-			} else {
-				permissions := uint32(0o640)
-				if mode == unix.S_IFDIR {
-					permissions = 0o750
-				}
-				if chmodErr := unix.Fchmod(fd, permissions); chmodErr != nil {
-					err = fmt.Errorf("chmod seal entry %q: %w", rel, chmodErr)
-				}
-			}
+		if err := unix.Fstatat(dirFD, entry.Name(), &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+			return fmt.Errorf("stat seal entry %q: %w", rel, err)
 		}
-		if closeFD {
-			closeErr := unix.Close(fd)
-			if err == nil {
-				err = closeErr
+		if mode := stat.Mode & unix.S_IFMT; mode != unix.S_IFREG {
+			if mode == unix.S_IFLNK {
+				return fmt.Errorf("refusing to seal symlink %q", rel)
 			}
+			return fmt.Errorf("unsupported seal entry type %q", rel)
 		}
-		if err != nil {
+		return nil
+	}
+	fd, err := unix.Openat2(dirFD, entry.Name(), &unix.OpenHow{
+		Flags:   unix.O_RDONLY | unix.O_CLOEXEC | unix.O_NONBLOCK | unix.O_NOFOLLOW,
+		Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS,
+	})
+	if err != nil {
+		if errors.Is(err, unix.ELOOP) {
+			return fmt.Errorf("refusing to seal symlink %q", rel)
+		}
+		return fmt.Errorf("open seal entry %q: %w", rel, err)
+	}
+	var stat unix.Stat_t
+	if err := unix.Fstat(fd, &stat); err != nil {
+		unix.Close(fd)
+		return fmt.Errorf("stat seal entry %q: %w", rel, err)
+	}
+	mode := stat.Mode & unix.S_IFMT
+	if mode != unix.S_IFDIR && mode != unix.S_IFREG {
+		unix.Close(fd)
+		return fmt.Errorf("unsupported seal entry type %q", rel)
+	}
+	if apply {
+		if err := sealEntry(fd, mode, rel); err != nil {
+			unix.Close(fd)
 			return err
 		}
+	}
+	if mode == unix.S_IFDIR {
+		return sealDirectory(ctx, fd, rel, depth+1, apply)
+	}
+	return unix.Close(fd)
+}
+
+func sealEntry(fd int, mode uint32, rel string) error {
+	permissions := uint32(0o640)
+	if mode == unix.S_IFDIR {
+		permissions = 0o750
+	}
+	if err := unix.Fchmod(fd, permissions); err != nil {
+		return fmt.Errorf("chmod seal entry %q: %w", rel, err)
 	}
 	return nil
 }
