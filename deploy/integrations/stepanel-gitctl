@@ -2,6 +2,69 @@
 set -Eeuo pipefail
 [[ $EUID -eq 0 ]] || { echo 'must run as root' >&2; exit 1; }
 action=${1:-}; site=${2:-}
+
+# Private clones run as the dedicated stepanel-git identity, one at a time
+# under the clone lock. A clone whose processes cannot all be reaped (for
+# example, stuck in uninterruptible I/O) fails closed: its stage stays
+# root-owned and is recorded here until clone_recover confirms that no
+# clone-identity process remains.
+clone_user=stepanel-git
+clone_quarantine=/var/lib/stepanel/git-clone-quarantine
+clone_lock() {
+  install -d -m 0755 -o root -g root /run/lock
+  exec 9>/run/lock/stepanel-gitctl-clone.lock
+  flock -w 1800 9 || { echo 'another Git clone is still running' >&2; exit 1; }
+}
+# clone_processes_alive: whether a non-zombie clone-identity process exists.
+# A zombie holds no descriptors; anything else may still write.
+clone_processes_alive() {
+  ps -u "$clone_user" -o stat= 2>/dev/null | grep -qv '^Z'
+}
+stop_clone_processes() {
+  pkill -KILL -u "$clone_user" 2>/dev/null || true
+  for _ in {1..300}; do clone_processes_alive || return 0; sleep 0.1; done
+  echo 'Git clone processes did not exit' >&2
+  return 1
+}
+# clear_stage DIR: remove a failed clone's contents as root without
+# following links, so the tenant never receives files the clone identity
+# owns.
+clear_stage() {
+  find "$1" -xdev -mindepth 1 -depth -delete
+}
+# clone_recover reclaims quarantined stages once no clone-identity process
+# remains; it refuses (and keeps them quarantined) otherwise.
+clone_recover() {
+  local record destination owner mode work
+  install -d -m 0700 -o root -g root "$clone_quarantine"
+  compgen -G "$clone_quarantine/*" >/dev/null || return 0
+  stop_clone_processes || { echo 'Git clone processes are still running; quarantined stages stay root-owned' >&2; return 1; }
+  for record in "$clone_quarantine"/*; do
+    [[ -f $record && ! -L $record ]] || { echo "untrusted quarantine record $record" >&2; return 1; }
+    mapfile -t fields < "$record"
+    (( ${#fields[@]} == 4 )) || { echo "malformed quarantine record $record" >&2; return 1; }
+    destination=${fields[0]}; owner=${fields[1]}; mode=${fields[2]}; work=${fields[3]}
+    [[ $destination == /*/.stepanel-release-*-* && $destination != *..* && $owner =~ ^[0-9]+:[0-9]+$ && $mode =~ ^[0-7]{3,4}$ ]] || { echo "malformed quarantine record $record" >&2; return 1; }
+    [[ -z $work || $work =~ ^/run/stepanel-git-clone\.[A-Za-z0-9]{8}$ ]] || { echo "malformed quarantine record $record" >&2; return 1; }
+    [[ -z $work ]] || rm -rf -- "$work"
+    if [[ -d $destination && ! -L $destination ]]; then
+      chown --no-dereference -- root:root "$destination"
+      chmod 0700 "$destination"
+      clear_stage "$destination"
+      chown --no-dereference -- "$owner" "$destination"
+      chmod -- "0$mode" "$destination"
+    fi
+    rm -f -- "$record"
+    echo "recovered quarantined Git clone stage $destination"
+  done
+}
+if [[ $action == clone-recover ]]; then
+  (( $# == 1 )) || { echo 'usage: stepanel-gitctl clone-recover' >&2; exit 64; }
+  clone_lock
+  clone_recover
+  exit
+fi
+
 [[ $site =~ ^[a-z0-9_-]{1,32}$ ]] || { echo 'invalid site' >&2; exit 1; }
 location_lib=/usr/local/lib/stepanel/site-location.sh
 [[ -f $location_lib && ! -L $location_lib && $(stat -c '%u' -- "$location_lib") == 0 && $(( 8#$(stat -c '%a' -- "$location_lib") & 022 )) == 0 ]] || { echo 'site location library is missing or unsafe' >&2; exit 1; }
@@ -218,28 +281,44 @@ case "$action" in
     # checked for links) and give it to the clone identity alone. The EXIT
     # trap hands it back, also when the clone fails. The parent is not
     # tenant-writable, so the stage entry itself cannot be replaced.
-    clone_user=stepanel-git
     clone_uid=$(id -u "$clone_user" 2>/dev/null) && clone_gid=$(id -g "$clone_user" 2>/dev/null) || { echo 'the stepanel-git clone identity is missing; rerun install.sh' >&2; exit 1; }
     [[ $clone_uid =~ ^[1-9][0-9]*$ && $clone_gid =~ ^[1-9][0-9]*$ ]] || { echo 'the Git clone identity must not be root' >&2; exit 1; }
     [[ -z $(id -Gn "$clone_user" | tr ' ' '\n' | grep -vx "$clone_user") ]] || { echo 'the stepanel-git clone identity must not belong to other groups' >&2; exit 1; }
     # One clone at a time: the shared clone identity must never hold two
-    # sites' deploy keys or stages at once.
-    install -d -m 0755 -o root -g root /run/lock
-    exec 9>/run/lock/stepanel-gitctl-clone.lock
-    flock -w 1800 9 || { echo 'another Git clone is still running' >&2; exit 1; }
-    stop_clone_processes() {
-      pkill -KILL -u "$clone_user" 2>/dev/null || true
-      for _ in {1..50}; do pgrep -u "$clone_user" >/dev/null 2>&1 || return 0; sleep 0.1; done
-      echo 'Git clone processes did not exit' >&2
-      return 1
-    }
+    # sites' deploy keys or stages at once, so killing its processes by UID
+    # reaches exactly this invocation (it cannot change identity: no new
+    # privileges and no capabilities). A previous clone that left live
+    # processes behind blocks every clone until they are gone.
+    clone_lock
+    clone_recover || exit 1
     stop_clone_processes
     stage_owner=$(stat -c '%u:%g' -- "$destination")
     stage_mode=$(stat -c '%a' -- "$destination")
     clone_work=
+    clone_succeeded=0
     restore_stage() {
-      stop_clone_processes || true
+      if ! stop_clone_processes; then
+        # Fail closed: a surviving clone process may still hold descriptors
+        # into the stage. Keep the stage and the key workspace root-owned
+        # and record them; clone_recover reclaims them only once no
+        # clone-identity process remains.
+        chown --no-dereference -- root:root "$destination" 2>/dev/null || true
+        chmod 0700 "$destination" 2>/dev/null || true
+        if [[ -n $clone_work ]]; then chown -R --no-dereference -- root:root "$clone_work" 2>/dev/null || true; chmod 0700 "$clone_work" 2>/dev/null || true; fi
+        install -d -m 0700 -o root -g root "$clone_quarantine"
+        quarantine_record=$(mktemp "$clone_quarantine/clone.XXXXXXXX")
+        printf '%s\n%s\n%s\n%s\n' "$destination" "$stage_owner" "$stage_mode" "$clone_work" > "$quarantine_record"
+        echo "Git clone processes did not exit; the staging tree is quarantined until stepanel-gitctl clone-recover confirms none remain" >&2
+        exit 1
+      fi
       [[ -z $clone_work ]] || rm -rf -- "$clone_work"
+      if (( ! clone_succeeded )); then
+        # The tenant never receives a failed clone's files, which the clone
+        # identity owns.
+        chown --no-dereference -- root:root "$destination" 2>/dev/null || true
+        chmod 0700 "$destination" 2>/dev/null || true
+        clear_stage "$destination" 2>/dev/null || true
+      fi
       chown --no-dereference -- "$stage_owner" "$destination" 2>/dev/null || true
       chmod -- "0$stage_mode" "$destination" 2>/dev/null || true
     }
@@ -278,6 +357,7 @@ case "$action" in
     # root, or a placed site's private state.
     chown -R --no-dereference -- "$clone_owner" "$destination"
     stage_owner=$clone_owner
+    clone_succeeded=1
     ;;
-  *) echo 'usage: stepanel-gitctl generate|public|delete|stage-limit|stage-clear|clone SITE ...' >&2; exit 64 ;;
+  *) echo 'usage: stepanel-gitctl generate|public|delete|stage-limit|stage-clear|clone SITE ... | clone-recover' >&2; exit 64 ;;
 esac

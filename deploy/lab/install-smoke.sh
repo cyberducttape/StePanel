@@ -392,9 +392,44 @@ if [[ ${STEPANEL_QUOTA_SMOKE:-0} == 1 ]]; then
   [[ -z $(find /run -maxdepth 1 -name 'stepanel-git-clone.*' -print -quit) ]] || clone_failures+=('the per-clone key copy was not removed')
   /usr/local/sbin/stepanel-gitctl stage-clear "$site" "$site_user" "$clone_stage" "$clone_project"
   rm -rf -- "$clone_stage"
+
+  # A clone whose processes cannot be reaped must fail closed. A process in
+  # uninterruptible I/O cannot be produced on demand, so a stub ps reports a
+  # live clone process from its second call on: the clone's own reaping and
+  # its exit cleanup both fail, and the stage must stay root-owned and
+  # quarantined until clone-recover sees no clone process.
+  stuck_stage="$stage_parent/.stepanel-release-$site-545454"
+  install -d -o stepanel -g stepanel -m 0700 "$stuck_stage"
+  stuck_project=$(/usr/local/sbin/stepanel-gitctl stage-limit "$site" "$site_user" "$stuck_stage" 1048576)
+  stuck_owner=$(stat -c '%u:%g:%a' "$stuck_stage")
+  fake_ps_dir=$(mktemp -d)
+  printf '%s\n' '#!/bin/sh' 'n=$(( $(cat "$STEPANEL_SMOKE_PS_COUNT" 2>/dev/null || echo 0) + 1 ))' 'echo "$n" > "$STEPANEL_SMOKE_PS_COUNT"' '[ "$n" -ge "$STEPANEL_SMOKE_PS_ALIVE_FROM" ] && echo S' 'exit 0' > "$fake_ps_dir/ps"
+  chmod 0755 "$fake_ps_dir/ps"
+  if PATH="$fake_ps_dir:$PATH" STEPANEL_SMOKE_PS_COUNT="$fake_ps_dir/count" STEPANEL_SMOKE_PS_ALIVE_FROM=2 STEPANEL_GIT_ALLOWED_HOSTS=localhost \
+    /usr/local/sbin/stepanel-gitctl clone "$site" git@localhost:smoke.git main "$stuck_stage" localhost 1048576 "$stuck_project" 2>"$fake_ps_dir/stderr"; then
+    clone_failures+=('a clone with unreaped processes reported success')
+  fi
+  grep -q 'staging tree is quarantined' "$fake_ps_dir/stderr" || clone_failures+=("an unreaped clone was not quarantined: $(tr '\n' ' ' < "$fake_ps_dir/stderr")")
+  [[ $(stat -c '%U:%a' "$stuck_stage") == root:700 ]] || clone_failures+=("a quarantined stage was handed back as $(stat -c '%U:%a' "$stuck_stage")")
+  compgen -G '/var/lib/stepanel/git-clone-quarantine/clone.*' >/dev/null || clone_failures+=('no quarantine record was written')
+  # Recovery refuses while a clone process is still reported alive.
+  rm -f "$fake_ps_dir/count"
+  if PATH="$fake_ps_dir:$PATH" STEPANEL_SMOKE_PS_COUNT="$fake_ps_dir/count" STEPANEL_SMOKE_PS_ALIVE_FROM=1 /usr/local/sbin/stepanel-gitctl clone-recover 2>/dev/null; then
+    clone_failures+=('clone-recover reclaimed a stage while a clone process was alive')
+  fi
+  [[ $(stat -c '%U:%a' "$stuck_stage") == root:700 ]] || clone_failures+=('a refused recovery released the stage')
+  # With no clone process left, recovery empties the stage and returns it.
+  /usr/local/sbin/stepanel-gitctl clone-recover >/dev/null || clone_failures+=('clone-recover failed with no clone process alive')
+  [[ $(stat -c '%u:%g:%a' "$stuck_stage") == "$stuck_owner" ]] || clone_failures+=("recovered stage is $(stat -c '%u:%g:%a' "$stuck_stage"), want $stuck_owner")
+  [[ -z $(find "$stuck_stage" -mindepth 1 -print -quit) ]] || clone_failures+=('a recovered stage kept the failed clone files')
+  ! compgen -G '/var/lib/stepanel/git-clone-quarantine/clone.*' >/dev/null || clone_failures+=('the quarantine record outlived recovery')
+  [[ -z $(find /run -maxdepth 1 -name 'stepanel-git-clone.*' -print -quit) ]] || clone_failures+=('the quarantined key copy outlived recovery')
+  rm -rf -- "$fake_ps_dir"
+  /usr/local/sbin/stepanel-gitctl stage-clear "$site" "$site_user" "$stuck_stage" "$stuck_project"
+  rm -rf -- "$stuck_stage"
   clone_smoke_cleanup
   (( ${#clone_failures[@]} == 0 )) || { printf 'Git clone smoke: %s\n' "${clone_failures[@]}" >&2; exit 1; }
-  echo 'Private Git clone ran as stepanel-git and handed the tree to the site'
+  echo 'Private Git clone ran as stepanel-git and handed the tree to the site; an unreaped clone was quarantined and recovered'
 fi
 
 # prepare-root is what the typed broker runs before staged activation: the

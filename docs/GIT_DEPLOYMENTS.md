@@ -46,7 +46,18 @@ entries, and the deploy key and host keys are readable only through a private
 per-clone copy under `/run` that is removed afterwards. Clones are serialized
 host-wide, so the identity never holds two sites' keys or stages at once, and
 any process it left behind is killed before root hands the finished tree to
-the site's owner.
+the site's owner. A failed clone's files are removed as root before its stage
+is returned, so the tenant never receives files the clone account owns.
+
+If a clone process cannot be reaped (for example, it is stuck in
+uninterruptible I/O), the clone fails closed: the stage and the per-clone key
+copy stay root-owned, a record is written under
+`/var/lib/stepanel/git-clone-quarantine`, and every later clone refuses to
+start until no `stepanel-git` process remains. Each clone first runs the
+recovery itself; an operator can run it directly with
+`sudo /usr/local/sbin/stepanel-gitctl clone-recover`, which reclaims
+quarantined stages only after confirming that no clone process is alive,
+empties them, and returns them to their previous owner.
 
 ## Deploy
 
