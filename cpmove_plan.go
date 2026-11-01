@@ -1,10 +1,12 @@
 package stepanel
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/cyberducttape/StePanel/internal/sitelayout"
@@ -57,14 +59,42 @@ func (a *App) makeCPMoveDestinationPlan(upload cpmoveUpload, user string, restor
 	if len(upload.DomainMappings) == 0 {
 		p.Warnings = append(p.Warnings, "No source domain mappings were identified; destination routing must be configured and verified manually.")
 	}
+	// Mirror restoreCPMoveDomainSites: a domain already placed in this
+	// account is reported and left untouched by the import, so it is not a
+	// conflict. That keeps re-imports and durable-job retries admissible.
+	existingPlacements := map[string]string{}
+	var layoutDB *sql.DB
+	if a.Jobs != nil {
+		layoutDB = a.Jobs.db
+	}
+	if layoutDB != nil {
+		placements, err := sitelayout.ForAccount(layoutDB, user)
+		if err != nil {
+			return p, fmt.Errorf("list destination account placements: %w", err)
+		}
+		for _, placement := range placements {
+			existingPlacements[strings.ToLower(placement.Directory)] = placement.Site
+		}
+	}
 	plannedSites := map[string]bool{}
+	destinationSites := make([]string, len(p.Mappings))
 	for i := range p.Mappings {
 		m := &p.Mappings[i]
+		destinationSites[i] = user
 		if m.Kind == "main" || m.Kind == "parked" {
 			m.Destination = "account " + user + " / public_html"
 			continue
 		}
 		if m.Kind != "addon" && m.Kind != "subdomain" {
+			destinationSites[i] = ""
+			continue
+		}
+		if site, found := existingPlacements[strings.ToLower(m.SourceDomain)]; found {
+			destinationSites[i] = site
+			m.Destination = "site " + site + " (account " + user + ")"
+			m.Status = "warning"
+			m.Details = "Already served by existing site " + site + " in this account; the import leaves it unchanged."
+			p.Warnings = append(p.Warnings, fmt.Sprintf("%s is already served by site %s and will not be overwritten.", m.SourceDomain, site))
 			continue
 		}
 		name, err := siteNameForDomain(m.SourceDomain, func(candidate string) bool {
@@ -74,8 +104,8 @@ func (a *App) makeCPMoveDestinationPlan(upload cpmoveUpload, user string, restor
 			if candidate == user {
 				return true
 			}
-			if a.Jobs != nil && a.Jobs.db != nil {
-				if _, err := sitelayout.Get(a.Jobs.db, candidate); err == nil {
+			if layoutDB != nil {
+				if _, err := sitelayout.Get(layoutDB, candidate); err == nil {
 					return true
 				}
 			}
@@ -85,32 +115,33 @@ func (a *App) makeCPMoveDestinationPlan(upload cpmoveUpload, user string, restor
 			return false
 		})
 		if err != nil {
+			destinationSites[i] = ""
 			m.Status = "blocked"
 			m.Details = err.Error()
 			p.Blockers = append(p.Blockers, m.SourceDomain+": "+err.Error())
 			continue
 		}
 		plannedSites[name] = true
+		destinationSites[i] = name
 		m.Destination = "site " + name + " (account " + user + ")"
 		if m.Status == "planned" {
 			m.Details = "Destination site name checked against current site placements and filesystem; DNS and route activation remain separate."
 		}
 	}
 	if a.Routes != nil {
-		for _, m := range p.Mappings {
-			destinationSite := user
-			if strings.HasPrefix(m.Destination, "site ") {
-				destinationSite = strings.TrimSuffix(strings.TrimPrefix(m.Destination, "site "), " (account "+user+")")
+		routes := a.Routes.list()
+		sort.Slice(routes, func(i, j int) bool { return routes[i].Name < routes[j].Name })
+		for i, m := range p.Mappings {
+			destinationSite := destinationSites[i]
+			if destinationSite == "" {
+				continue
 			}
-			for _, route := range a.Routes.list() {
+			for _, route := range routes {
 				if strings.EqualFold(route.Domain, m.SourceDomain) && route.Site != destinationSite {
 					p.Blockers = append(p.Blockers, fmt.Sprintf("Domain %s is already routed to site %s (planned destination %s).", m.SourceDomain, route.Site, destinationSite))
 				}
 			}
 		}
-	}
-	if p.Status != "blocked" {
-		p.Status = "ready"
 	}
 	if len(p.Blockers) > 0 {
 		p.Status = "blocked"

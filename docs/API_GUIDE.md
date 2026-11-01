@@ -330,8 +330,20 @@ without `Content-Length` is admitted progressively: the panel reserves
 answers `507` mid-stream (removing the partial upload) if the next step no
 longer fits.
 
-Queue a cPanel restore using the `upload_id` returned by inspection. The
-archive is uploaded once and retained as an immutable server-side object. The
+Build a destination plan for the `upload_id` returned by inspection. The plan
+checks site/domain conflicts, database compatibility, and capacity; when its
+`status` is `ready` it returns a short-lived `preview_token` bound to the
+archive, account, and database choice:
+
+```sh
+token=$(curl -fsS -X POST -b cookies.txt -H "X-CSRF-Token: $csrf" \
+  -H 'Content-Type: application/json' \
+  -d '{"upload_id":"UPLOAD_ID_FROM_INSPECTION","username":"example","restore_databases":true}' \
+  "$PANEL/api/cpmove/plan" | jq -r .preview_token)
+```
+
+Queue the cPanel restore with the same inputs and that token. The archive is
+uploaded once and retained as an immutable server-side object. The
 idempotency key makes client retries safe:
 
 ```sh
@@ -339,7 +351,8 @@ curl -fsS -X POST -b cookies.txt -H "X-CSRF-Token: $csrf" \
   -H 'Idempotency-Key: restore-example-20260907' \
   -F 'upload_id=UPLOAD_ID_FROM_INSPECTION' \
   -F 'username=example' -F 'confirm=IMPORT' \
-  -F 'restore_databases=true' "$PANEL/api/cpmove/import" | jq
+  -F 'restore_databases=on' -F "destination_preview_token=$token" \
+  "$PANEL/api/cpmove/import" | jq
 ```
 
 Other delivery endpoints:

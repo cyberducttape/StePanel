@@ -1151,7 +1151,7 @@ paths:
                 upload_id: {type: string}
                 username: {type: string}
                 confirm: {type: string, example: IMPORT}
-                restore_databases: {type: string}
+                restore_databases: {type: string, enum: ["on"], description: Send on to restore the inspected database dumps; omit to skip them}
                 destination_preview_token: {type: string, description: Short-lived signed token returned by cpmove/plan and bound to the inspected archive, account, and database choice}
       responses:
         '202': {description: Restore job queued}

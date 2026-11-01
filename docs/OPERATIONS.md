@@ -363,8 +363,6 @@ Pending resource enforcement shows in each site's resource profile
 sites that still fail. Do not unsuspend affected accounts until helper state is
 applied and verified.
 
-## HTTP timeouts
-
 ## cPanel migration admission and recovery evidence
 
 The migration UI separates archive inspection from destination admission.
@@ -389,6 +387,8 @@ if the site is to receive recurring application-level restore rehearsals.
 Recovery status reports the age of the latest verified backup as an observed
 RPO indicator and duration of the last passing rehearsal as measured RTO; these
 are measurements, not service guarantees.
+
+## HTTP timeouts
 
 The panel applies one deadline class per request path
 (`internal/http/timeouts.go`). Headers must arrive within 5 seconds and idle
