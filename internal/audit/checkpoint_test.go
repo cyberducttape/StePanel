@@ -173,6 +173,17 @@ func TestCheckpointSigningKeyUsesIndependentKeyAndRejectsReuse(t *testing.T) {
 	}
 }
 
+func TestDedicatedCheckpointKeyRequiresAvailableAuditKey(t *testing.T) {
+	previousKeyPath := auditKeyPath
+	TestSetKeyPath(filepath.Join(t.TempDir(), "missing-audit.key"))
+	t.Setenv("STEPANEL_AUDIT_KEY", "")
+	t.Setenv("STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY", strings.Repeat("c", 64))
+	t.Cleanup(func() { TestSetKeyPath(previousKeyPath) })
+	if _, err := CheckpointSigningKey(); err == nil {
+		t.Fatal("dedicated checkpoint key accepted without the audit-chain key")
+	}
+}
+
 func TestCreateCheckpointRejectsMissingConfiguredSigningKey(t *testing.T) {
 	previousKeyPath := auditKeyPath
 	TestSetKeyPath(filepath.Join(t.TempDir(), "missing-audit.key"))

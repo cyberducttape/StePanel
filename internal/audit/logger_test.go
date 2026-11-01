@@ -32,6 +32,37 @@ func newTestLogger(t *testing.T) (*defaultLogger, string) {
 	return New(filepath.Join(root, "audit.jsonl")).(*defaultLogger), root
 }
 
+func TestLoggerRejectsSymlinkedAuditPath(t *testing.T) {
+	logger, root := newTestLogger(t)
+	target := filepath.Join(root, "outside.jsonl")
+	if err := os.WriteFile(target, []byte("keep this file unchanged"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, logger.path); err != nil {
+		t.Fatal(err)
+	}
+	if err := logger.Log(context.Background(), "site.create", "site-a", "created"); err == nil {
+		t.Fatal("audit append followed a symlinked log path")
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "keep this file unchanged" {
+		t.Fatalf("symlink target changed: %q", data)
+	}
+}
+
+func TestLoggerReturnsAuditPathInspectionFailure(t *testing.T) {
+	logger, _ := newTestLogger(t)
+	previous := auditStat
+	auditStat = func(string) (os.FileInfo, error) { return nil, errors.New("injected audit path inspection failure") }
+	t.Cleanup(func() { auditStat = previous })
+	if err := logger.Log(context.Background(), "site.create", "site-a", "created"); err == nil || !strings.Contains(err.Error(), "injected audit path inspection failure") {
+		t.Fatalf("audit path inspection error = %v", err)
+	}
+}
+
 func TestLoggerWritesVerifiesAndFiltersSignedEvents(t *testing.T) {
 	logger, _ := newTestLogger(t)
 	ctx := context.Background()

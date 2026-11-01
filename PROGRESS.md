@@ -28,6 +28,17 @@
   HTTP handlers. M0s in `DEVELOPMENT_PLAN.md` tracks typed-executor extraction
   and its authorization/recovery acceptance criteria.
 
+## Exact-source CI coverage correction — 2026-10-31
+
+- CI run `41261054648` passed formatting, release checks, vet, the full Go
+  suite, disk-exhaustion drills, and UI E2E, but failed the 95% audit-package
+  coverage gate at 94.8%. CodeQL and documentation checks passed on the same
+  source; installation smoke was still running at the time of this update.
+- Added audit regressions for a symlinked log path, an audit-path inspection
+  failure, and a dedicated checkpoint key with a missing chain key. The audit
+  package now measures 95.0%, and its 95% gate passes locally. Full hosted CI
+  for the correction is pending.
+
 ## Independent audit-checkpoint signing key — 2026-10-31
 
 - Production config validation now refuses an audit checkpoint destination
