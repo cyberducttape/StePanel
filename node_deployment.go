@@ -20,14 +20,15 @@ import (
 )
 
 type nodeDeploymentRequest struct {
-	Site     string                  `json:"site"`
-	Domain   string                  `json:"domain"`
-	Version  string                  `json:"node_version"`
-	Port     int                     `json:"port"`
-	Backend  string                  `json:"backend"`
-	Actor    string                  `json:"actor"`
-	Token    bool                    `json:"token,omitempty"`
-	TokenID  string                  `json:"token_id,omitempty"`
+	Site    string `json:"site"`
+	Domain  string `json:"domain"`
+	Version string `json:"node_version"`
+	Port    int    `json:"port"`
+	Backend string `json:"backend"`
+	Actor   string `json:"actor"`
+	Token   bool   `json:"token,omitempty"`
+	TokenID string `json:"token_id,omitempty"`
+	queuedSession
 	Stage    string                  `json:"stage,omitempty"`
 	Snapshot *nodeDeploymentSnapshot `json:"recovery_snapshot,omitempty"`
 }
@@ -63,6 +64,7 @@ func (a *App) startNodeDeployment(w http.ResponseWriter, r *http.Request) {
 	// accept them from the deployment API request body.
 	input.Token = false
 	input.TokenID = ""
+	input.queuedSession = queuedSession{}
 	input.Stage = ""
 	input.Snapshot = nil
 	input.Site = safeUser(input.Site)
@@ -95,6 +97,12 @@ func (a *App) startNodeDeployment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "API token identity is unavailable; submit the deployment again", http.StatusUnauthorized)
 		return
 	}
+	binding, err := a.bindQueuedSession(r, input.Actor)
+	if err != nil {
+		http.Error(w, "session state is temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	input.queuedSession = binding
 	payload, err := json.Marshal(input)
 	if err != nil {
 		http.Error(w, "could not encode deployment", http.StatusInternalServerError)
@@ -232,6 +240,8 @@ func (a *App) nodeDeploymentPrincipal(input nodeDeploymentRequest) (siteOperatio
 		}
 		principal.Actor = token.Username
 		principal.Scopes = append([]string(nil), token.Scopes...)
+	} else if err := a.revalidateQueuedSession(input.Actor, input.queuedSession); err != nil {
+		return siteOperationPrincipal{}, err
 	}
 	if !a.durableSiteOperationScopeAllowed(principal, "site:deploy") {
 		return siteOperationPrincipal{}, errors.New("Node deployment authorization: site:deploy permission is no longer active")

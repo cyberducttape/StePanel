@@ -645,6 +645,16 @@ func (a *App) webhookConfig(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	case http.MethodPost, http.MethodPut:
+		// Deploy authority is issued only to a site that exists now, under
+		// its mutation lock, so no credential waits for a name to be
+		// allocated later. Disabling (above) works for any name.
+		if exists, err := a.siteExists(site); err != nil {
+			http.Error(w, "could not verify the site", http.StatusServiceUnavailable)
+			return
+		} else if !exists {
+			http.Error(w, "site does not exist", http.StatusNotFound)
+			return
+		}
 		var input webhookConfigRequest
 		if err := decodeJSON(w, r, 8192, &input); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)

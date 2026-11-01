@@ -3,6 +3,7 @@ package stepanel
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	sessionstate "github.com/cyberducttape/StePanel/internal/session"
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 )
 
@@ -148,6 +150,71 @@ type siteOperationPayload struct {
 	// WebhookGeneration is the webhook secret generation that authenticated
 	// a queued delivery (never the secret itself).
 	WebhookGeneration int64 `json:"webhook_generation,omitempty"`
+	queuedSession
+}
+
+// queuedSession binds work accepted from a browser session to that session
+// and to the account's session revocation generation at the time.
+type queuedSession struct {
+	SessionGeneration int64  `json:"session_generation,omitempty"`
+	SessionHash       string `json:"session_hash,omitempty"`
+}
+
+// bindQueuedSession records the queuing browser session for later
+// revalidation. API-token and webhook work is bound to its own credential.
+func (a *App) bindQueuedSession(r *http.Request, actor string) (queuedSession, error) {
+	if a.Auth.sessions == nil || actor == "" || a.Auth.IsAPITokenRequest(r) {
+		return queuedSession{}, nil
+	}
+	generation, err := a.Auth.sessions.generation(actor)
+	if err != nil {
+		return queuedSession{}, fmt.Errorf("read session generation: %w", err)
+	}
+	return queuedSession{SessionGeneration: generation, SessionHash: sessionstate.HashSessionID(a.Auth.sessionID(r))}, nil
+}
+
+// revalidateQueuedSession enforces the queued-work contract for browser
+// sessions, the counterpart of revalidateQueuedToken:
+//
+//   - Logging out ends one session and does not cancel work the user already
+//     queued, like closing a browser tab.
+//   - An account-wide revocation (password change or reset, suspension, MFA
+//     or role change, deletion, "log out other devices") cancels work queued
+//     before it, except work queued by a session that survived it (the
+//     session that logged out the other devices).
+//   - The account must still exist and must not be suspended.
+//
+// An operation already running completes. The handler still re-checks the
+// requester's current role and site ownership.
+func (a *App) revalidateQueuedSession(actor string, binding queuedSession) error {
+	if a.Auth.sessions == nil || actor == "" {
+		return nil
+	}
+	if subtle.ConstantTimeCompare([]byte(actor), []byte(a.Auth.Username)) != 1 && a.Accounts != nil {
+		account, ok := a.Accounts.Get(actor)
+		if !ok {
+			return doNotRetry(errors.New("the account that queued this operation no longer exists"))
+		}
+		if account.Suspended || a.Accounts.TenantSuspended(actor) {
+			return doNotRetry(errors.New("the account that queued this operation is suspended"))
+		}
+	}
+	generation, err := a.Auth.sessions.generation(actor)
+	if err != nil {
+		return fmt.Errorf("revalidate queuing session: %w", err)
+	}
+	if generation == binding.SessionGeneration {
+		return nil
+	}
+	alive, err := a.Auth.sessions.activeSessionHash(actor, binding.SessionHash)
+	if err != nil {
+		return fmt.Errorf("revalidate queuing session: %w", err)
+	}
+	if alive {
+		return nil
+	}
+	TelemetryAudit(a.Config.AuditLog, actor, "session.queued_work.revoked", actor, fmt.Sprintf("queued under session generation %d, current %d", binding.SessionGeneration, generation))
+	return doNotRetry(errors.New("the account's sessions were revoked after this operation was queued; submit it again"))
 }
 
 // replayedIdentityKey carries a browser-session requester into the worker
@@ -199,16 +266,23 @@ func (a *App) siteOperation(name string) http.HandlerFunc {
 			return
 		}
 		scopes, _ := r.Context().Value(apiTokenScopesKey{}).([]string)
+		actor := a.Auth.UsernameForRequest(r)
+		binding, err := a.bindQueuedSession(r, actor)
+		if err != nil {
+			http.Error(w, "session state is temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		a.enqueueSiteOperation(w, r, siteOperationPayload{
-			Operation: name,
-			Path:      r.URL.Path,
-			Query:     r.URL.RawQuery,
-			Body:      body,
-			Site:      site,
-			Actor:     a.Auth.UsernameForRequest(r),
-			Token:     a.Auth.IsAPITokenRequest(r),
-			TokenID:   a.Auth.APITokenID(r),
-			Scopes:    scopes,
+			Operation:     name,
+			Path:          r.URL.Path,
+			Query:         r.URL.RawQuery,
+			Body:          body,
+			Site:          site,
+			Actor:         actor,
+			Token:         a.Auth.IsAPITokenRequest(r),
+			TokenID:       a.Auth.APITokenID(r),
+			Scopes:        scopes,
+			queuedSession: binding,
 		})
 	}
 }
@@ -297,6 +371,9 @@ func (a *App) handleSiteOperationJob(ctx context.Context, item Job) ([]byte, err
 		principal.Actor = token.Username
 		principal.Scopes = append([]string(nil), token.Scopes...)
 	case payload.Actor != "":
+		if err := a.revalidateQueuedSession(payload.Actor, payload.queuedSession); err != nil {
+			return nil, err
+		}
 		operationCtx = context.WithValue(operationCtx, replayedIdentityKey{}, payload.Actor)
 	}
 	if route.execute != nil {

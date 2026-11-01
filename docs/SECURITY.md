@@ -26,6 +26,7 @@ StePanel runs as a privileged control panel for WordPress sites. Security is enf
 - ✅ Session management with secure cookies
 - ✅ Customer token scopes are re-checked against the member's current role and tenant suspension on every request, not only at issuance
 - ✅ Queued work follows the token that queued it: a site operation queued by an API token records the token ID and runs only if that token is still active (not revoked, expired, or deleted, and still owned by the requester) when a worker starts it. Revoking a token cancels its queued operations; an operation already running completes, and its outcome is recorded normally
+- ✅ Queued work from a browser session follows the account: the operation records the account's session revocation generation and a hash of the queuing session (never the session ID). Logging out ends one session and does not cancel work already queued. An account-wide revocation (password change or reset, suspension, MFA or role change, deletion, "log out other devices") cancels work queued before it, except work queued by the session that survived it, and the account must still exist and not be suspended when a worker starts the operation (`session.queued_work.revoked`). An operation already running completes; handlers re-check the requester's current role and site ownership
 
 ### Container Security
 - ✅ Registry allowlist (docker.io, ghcr.io, quay.io only)

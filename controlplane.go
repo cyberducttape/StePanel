@@ -498,6 +498,15 @@ CREATE INDEX recovery_rehearsals_application_proof_idx ON recovery_rehearsals(si
 CREATE INDEX IF NOT EXISTS jobs_state_started_idx ON jobs(state, started_at, id);`)
 		return err
 	}),
+	// An account-wide session revocation advances the account's session
+	// generation; browser-session work queued before it no longer runs.
+	migration.NewMigration(30, "record account session revocation generations", func(tx *sql.Tx) error {
+		_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS session_revocations (
+			username TEXT PRIMARY KEY,
+			generation INTEGER NOT NULL
+		)`)
+		return err
+	}),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {

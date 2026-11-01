@@ -2,7 +2,9 @@
 package session
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -23,11 +25,96 @@ type Registry struct {
 	db      *sql.DB
 	Entries map[string]Entry
 	err     error
+	// generations backs Generation for a file-backed registry (tests and
+	// legacy import); production keeps them in session_revocations.
+	generations map[string]int64
+}
+
+// Generation is the account's session revocation generation: it advances
+// on every account-wide revocation (RevokeUser, RevokeUserExcept), so work
+// accepted from a browser session can tell whether the account's sessions
+// were revoked since. It reads the shared database, so a worker process
+// sees revocations made by the panel.
+func (r *Registry) Generation(username string) (int64, error) {
+	if r.db != nil {
+		var generation int64
+		err := r.db.QueryRow(`SELECT generation FROM session_revocations WHERE username = ?`, username).Scan(&generation)
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, nil
+		}
+		return generation, err
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.generations[username], nil
+}
+
+// ActiveSessionHash reports whether username still has an unexpired session
+// whose hash (see HashSessionID) is hash. It reads the shared database.
+func (r *Registry) ActiveSessionHash(username, hash string) (bool, error) {
+	if hash == "" {
+		return false, nil
+	}
+	now := time.Now().Unix()
+	if r.db != nil {
+		rows, err := r.db.Query(`SELECT id FROM sessions WHERE username = ? AND expiry > ?`, username, now)
+		if err != nil {
+			return false, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				return false, err
+			}
+			if HashSessionID(id) == hash {
+				return true, nil
+			}
+		}
+		return false, rows.Err()
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for id, entry := range r.Entries {
+		if entry.Username == username && entry.Expiry > now && HashSessionID(id) == hash {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// HashSessionID is the non-secret identifier durable work records for the
+// session that queued it; the session ID itself is a credential.
+func HashSessionID(id string) string {
+	if id == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte("stepanel-queued-session\x00" + id))
+	return hex.EncodeToString(sum[:])
+}
+
+// advanceGenerationLocked records an account-wide revocation.
+func (r *Registry) advanceGenerationLocked(username string) error {
+	if r.db != nil {
+		_, err := r.db.Exec(`INSERT INTO session_revocations (username, generation) VALUES (?, 1)
+			ON CONFLICT(username) DO UPDATE SET generation = generation + 1`, username)
+		return err
+	}
+	if r.generations == nil {
+		r.generations = map[string]int64{}
+	}
+	r.generations[username]++
+	return nil
 }
 
 // OpenDB loads the session registry from the shared control-plane database.
 func OpenDB(db *sql.DB, legacyPath ...string) (*Registry, error) {
 	registry := &Registry{db: db, Entries: make(map[string]Entry)}
+	// The control-plane migrations create this table; creating it here too
+	// keeps a registry opened without them from failing revocations.
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS session_revocations (username TEXT PRIMARY KEY, generation INTEGER NOT NULL)`); err != nil {
+		return nil, err
+	}
 	rows, err := db.Query(`SELECT id, username, expiry FROM sessions`)
 	if err != nil {
 		return nil, err
@@ -191,6 +278,10 @@ func (r *Registry) RevokeUser(username string) error {
 		r.err = err
 		return err
 	}
+	if err := r.advanceGenerationLocked(username); err != nil {
+		r.err = err
+		return err
+	}
 	r.err = nil
 	return nil
 }
@@ -211,6 +302,13 @@ func (r *Registry) RevokeUserExcept(username, keepID string) error {
 			delete(r.Entries, id)
 			revoked = append(revoked, id)
 		}
+	}
+	// Even with no other session left, work queued from sessions that have
+	// since expired must not outlive this revocation.
+	if err := r.advanceGenerationLocked(username); err != nil {
+		r.Entries = previous
+		r.err = err
+		return err
 	}
 	if len(revoked) == 0 {
 		r.err = nil

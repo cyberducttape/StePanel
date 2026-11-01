@@ -231,10 +231,25 @@ func TestWebhookConfigEndpointGeneratesPerSiteSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("STEPANEL_SESSION_SECRET", strings.Repeat("s", 32))
+	webRoot := t.TempDir()
 	app := &App{
 		Auth:     Auth{Username: "admin"},
-		Config:   Config{AuditLog: filepath.Join(t.TempDir(), "audit.jsonl"), GitAllowedHosts: "github.com"},
+		Config:   Config{AuditLog: filepath.Join(t.TempDir(), "audit.jsonl"), GitAllowedHosts: "github.com", WebRoot: webRoot},
 		Webhooks: store,
+	}
+	// Deploy authority is issued only for a site that exists.
+	missing := httptest.NewRequest(http.MethodPost, "/api/admin/webhooks/site-a", strings.NewReader(`{"repositories":["https://github.com/example/site-a.git"],"allowed_refs":["refs/heads/main"]}`))
+	missing = missing.WithContext(context.WithValue(missing.Context(), apiTokenUsernameKey{}, "admin"))
+	missingResponse := httptest.NewRecorder()
+	app.webhookConfig(missingResponse, missing)
+	if missingResponse.Code != http.StatusNotFound {
+		t.Fatalf("webhook for an unallocated site = %d %s", missingResponse.Code, missingResponse.Body.String())
+	}
+	if config, err := store.GetWebhookConfig("site-a"); err != nil || config != nil {
+		t.Fatalf("unallocated site received webhook %+v, %v", config, err)
+	}
+	if err := os.MkdirAll(filepath.Join(webRoot, "sites", "site-a"), 0o750); err != nil {
+		t.Fatal(err)
 	}
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/webhooks/site-a", strings.NewReader(`{"repositories":["https://github.com/example/site-a.git"],"allowed_refs":["refs/heads/main"]}`))
 	request = request.WithContext(context.WithValue(request.Context(), apiTokenUsernameKey{}, "admin"))

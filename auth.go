@@ -247,6 +247,14 @@ func (s *sessionRegistry) revokeUserExcept(username, keepID string) error {
 	return s.inner.RevokeUserExcept(username, keepID)
 }
 
+func (s *sessionRegistry) generation(username string) (int64, error) {
+	return s.inner.Generation(username)
+}
+
+func (s *sessionRegistry) activeSessionHash(username, hash string) (bool, error) {
+	return s.inner.ActiveSessionHash(username, hash)
+}
+
 func (a Auth) SessionPersistenceError() error {
 	if a.sessions == nil {
 		return nil
