@@ -62,13 +62,7 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "insufficient token scope for app deployment", http.StatusForbidden)
 		return
 	}
-	var rootErr error
-	app.Root, rootErr = siteDocRoot(a.Config, app.Site)
-	if rootErr != nil {
-		http.Error(w, "invalid site root", 422)
-		return
-	}
-	if info, err := os.Stat(app.Root); err != nil || !info.IsDir() {
+	if _, err := existingManagedDocRoot(a.Config, app.Site); err != nil {
 		http.Error(w, "site document root does not exist", 422)
 		return
 	}
@@ -96,14 +90,14 @@ func (a *App) applyAppDeployment(operationCtx context.Context, principal siteOpe
 	if !a.durableSiteOperationScopeAllowed(principal, "site:deploy") {
 		return AppManifest{}, http.StatusForbidden, "app deployment is not authorized for this principal", errors.New("app deployment is not authorized for this principal")
 	}
-	var rootErr error
-	app.Root, rootErr = siteDocRoot(a.Config, app.Site)
+	// Discover the document root beneath the managed roots rather than
+	// stat a path built from the (request or job payload) site name; this
+	// also refuses a symlinked root.
+	root, rootErr := existingManagedDocRoot(a.Config, app.Site)
 	if rootErr != nil {
-		return AppManifest{}, http.StatusUnprocessableEntity, "invalid site root", rootErr
+		return AppManifest{}, http.StatusUnprocessableEntity, "site document root does not exist", rootErr
 	}
-	if info, err := os.Stat(app.Root); err != nil || !info.IsDir() {
-		return AppManifest{}, http.StatusUnprocessableEntity, "site document root does not exist", errors.New("site document root does not exist")
-	}
+	app.Root = root
 	if err := operationCtx.Err(); err != nil {
 		return AppManifest{}, http.StatusConflict, "app deployment cancelled because the mutation lock was lost", err
 	}

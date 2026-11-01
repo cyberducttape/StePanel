@@ -320,3 +320,30 @@ func TestMetadataCacheInvalidateApps(t *testing.T) {
 		t.Fatal("apps remained cached after invalidation")
 	}
 }
+
+func TestApplyAppDeploymentRefusesSymlinkedDocumentRoot(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	webRoot := filepath.Join(root, "web")
+	siteRoot := filepath.Join(webRoot, "sites", "demo")
+	if err := os.MkdirAll(siteRoot, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(siteRoot, "public")); err != nil {
+		t.Fatal(err)
+	}
+	helper := filepath.Join(root, "appctl")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	appRoot := filepath.Join(root, "apps")
+	a := &App{Config: Config{WebRoot: webRoot, AppRoot: appRoot, AppCtl: helper}, Auth: Auth{Username: "admin"}}
+	principal := siteOperationPrincipal{Actor: "admin"}
+	_, status, _, err := a.applyAppDeployment(context.Background(), principal, AppManifest{Site: "demo", Domain: "demo.example.test", Version: "v22.1.0", Port: 3000})
+	if err == nil || status != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, err = %v; want 422 refusal", status, err)
+	}
+	if _, statErr := os.Stat(filepath.Join(appRoot, "demo.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("manifest written for a symlinked document root: %v", statErr)
+	}
+}
