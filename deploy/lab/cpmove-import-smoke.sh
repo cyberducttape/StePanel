@@ -106,12 +106,25 @@ inspect_response=$(curl --fail --silent --show-error --max-time 30 \
 upload_id=$(printf '%s' "$inspect_response" | sed -n 's/.*"upload_id":"\([^"]*\)".*/\1/p')
 [[ -n $upload_id ]] || { echo "inspection did not return a durable upload: $inspect_response" >&2; exit 1; }
 
+# Import requires a signed destination plan bound to the upload, account, and
+# database choice.
+plan_response=$(curl --fail --silent --show-error --max-time 30 \
+  -H "Cookie: $cookie_header" \
+  -H "X-CSRF-Token: $csrf" \
+  -H 'Content-Type: application/json' \
+  --data "{\"upload_id\":\"$upload_id\",\"username\":\"$CPMOVE_SMOKE_SITE\",\"restore_databases\":false}" \
+  "$PANEL/api/cpmove/plan")
+plan_status=$(printf '%s' "$plan_response" | sed -n 's/^{"status":"\([^"]*\)".*/\1/p')
+preview_token=$(printf '%s' "$plan_response" | sed -n 's/.*"preview_token":"\([^"]*\)".*/\1/p')
+[[ $plan_status == ready && -n $preview_token ]] || { echo "destination plan is not ready: $plan_response" >&2; exit 1; }
+
 response=$(curl --fail --silent --show-error --max-time 30 \
   -H "Cookie: $cookie_header" \
   -H "X-CSRF-Token: $csrf" \
   -F 'confirm=IMPORT' \
   -F "username=$CPMOVE_SMOKE_SITE" \
   -F "upload_id=$upload_id" \
+  -F "destination_preview_token=$preview_token" \
   "$PANEL/api/cpmove/import")
 job_id=$(printf '%s' "$response" | sed -n 's/.*"job_id":"\([^"]*\)".*/\1/p')
 [[ -n $job_id ]] || { echo "upload did not return a durable job: $response" >&2; exit 1; }
