@@ -561,3 +561,30 @@ func TestValidateSiteResourcesAcceptsPanelPHPWorkerRange(t *testing.T) {
 		t.Error("php_workers=513 accepted")
 	}
 }
+
+// Public HTTPS repositories are cloned by the same unprivileged helper as
+// private ones; the broker admits only a strict HTTPS form on an allowed host.
+func TestGitCloneAcceptsOnlyStrictPublicHTTPSOnAllowedHosts(t *testing.T) {
+	v := NewValidator("/var/www")
+	base := func(repository string) *GitRequest {
+		return &GitRequest{Action: "clone", Site: "shop", Repository: repository, Ref: "main", Destination: "/var/www/sites/.stepanel-manager-staging/.stepanel-release-shop-1", MaxFileBytes: 4096, ProjectID: 1000000001, AllowedHosts: []string{"github.com"}}
+	}
+	for _, repository := range []string{
+		"https://evil.example/acme/shop.git",
+		"https://user:pass@github.com/acme/shop.git",
+		"https://github.com:8443/acme/shop.git",
+		"https://github.com/acme/../shop.git",
+		"https://github.com/acme/shop.git?x=1",
+		"http://github.com/acme/shop.git",
+		"https://github.com/acme/shop",
+	} {
+		if err := v.validateGitRequest(base(repository)); err == nil || strings.Contains(err.Error(), "destination") {
+			t.Errorf("public clone of %q = %v, want a repository refusal", repository, err)
+		}
+	}
+	for _, repository := range []string{"https://github.com/acme/shop.git", "https://GitHub.com/acme/shop.git", "git@github.com:acme/shop.git"} {
+		if err := v.validateGitRequest(base(repository)); err != nil {
+			t.Errorf("clone of %q refused: %v", repository, err)
+		}
+	}
+}

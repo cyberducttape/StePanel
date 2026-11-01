@@ -1198,11 +1198,13 @@ func TestValidatorGitCloneBindsDestinationAndShape(t *testing.T) {
 		"unclean path": func(r *GitRequest) {
 			r.Destination = filepath.Join(webRoot, "sites", "alpha") + "/x/../.stepanel-release-1"
 		},
-		"option-like ref":        func(r *GitRequest) { r.Ref = "-upload-pack=x" },
-		"https repository":       func(r *GitRequest) { r.Repository = "https://github.com/user/repo.git" },
-		"missing host allowlist": func(r *GitRequest) { r.AllowedHosts = nil },
-		"missing file limit":     func(r *GitRequest) { r.MaxFileBytes = 0 },
-		"excessive file limit":   func(r *GitRequest) { r.MaxFileBytes = 1<<50 + 1 },
+		"option-like ref": func(r *GitRequest) { r.Ref = "-upload-pack=x" },
+		// Public HTTPS clones are cloned by the same unprivileged identity,
+		// but only from an allowed host.
+		"https repository off the allowlist": func(r *GitRequest) { r.Repository = "https://evil.example/user/repo.git" },
+		"missing host allowlist":             func(r *GitRequest) { r.AllowedHosts = nil },
+		"missing file limit":                 func(r *GitRequest) { r.MaxFileBytes = 0 },
+		"excessive file limit":               func(r *GitRequest) { r.MaxFileBytes = 1<<50 + 1 },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {

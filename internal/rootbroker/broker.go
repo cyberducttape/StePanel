@@ -1989,7 +1989,7 @@ func (b *Broker) runSiteHelper(ctx context.Context, args ...string) (*Response, 
 
 func (b *Broker) gitClone(ctx context.Context, req *GitRequest) (*Response, error) {
 	if strings.TrimSpace(req.Site) == "" || len(req.AllowedHosts) == 0 {
-		return &Response{OK: false, Error: "private Git clone requires a site and host allowlist"}, nil
+		return &Response{OK: false, Error: "Git clone requires a site and host allowlist"}, nil
 	}
 	allowedHosts := make([]string, 0, len(req.AllowedHosts))
 	for _, host := range req.AllowedHosts {
@@ -2003,7 +2003,7 @@ func (b *Broker) gitClone(ctx context.Context, req *GitRequest) (*Response, erro
 	cmd := stepanelhelper.NewCommand(ctx, b.gitctlPath, args...)
 	output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
 	if err != nil {
-		return &Response{OK: false, Error: fmt.Sprintf("private Git clone failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
+		return &Response{OK: false, Error: fmt.Sprintf("Git clone failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
 	}
 	details, marshalErr := json.Marshal(GitResponse{Cloned: true})
 	if marshalErr != nil {

@@ -262,11 +262,18 @@ case "$action" in
     fi
     [[ $project_id =~ ^1[0-9]{9}$ ]] && (( project_id >= 1000000000 && project_id < 2000000000 )) || { echo 'active Git staging quota project ID is required' >&2; exit 1; }
     [[ $allowed_hosts =~ ^[A-Za-z0-9.,-]+$ ]] || { echo 'invalid Git host allowlist' >&2; exit 1; }
-    # Capture the host before any other =~ test: each match replaces
-    # BASH_REMATCH, and the ref check has no capture group.
-    [[ $repository =~ ^git@([A-Za-z0-9.-]+):[A-Za-z0-9._/-]+\.git$ ]] || { echo 'invalid private clone request' >&2; exit 1; }
-    git_host=${BASH_REMATCH[1]}
-    [[ -f $key && ! -L $key && $ref =~ ^[A-Za-z0-9][A-Za-z0-9._/@+-]{0,127}$ && $destination == "$site_stage_root/.stepanel-release-$site-"* ]] || { echo 'invalid private clone request' >&2; exit 1; }
+    # Private repositories are SSH (git@host:path.git) with the site's deploy
+    # key; public ones are HTTPS (https://host/path.git) without credentials.
+    # Both run as the clone identity below. Capture the host before any other
+    # =~ test: each match replaces BASH_REMATCH.
+    if [[ $repository =~ ^git@([A-Za-z0-9.-]+):[A-Za-z0-9._/-]+\.git$ ]]; then
+      git_host=${BASH_REMATCH[1]}; transport=ssh
+    elif [[ $repository =~ ^https://([A-Za-z0-9.-]+)/[A-Za-z0-9._~/-]+\.git$ && $repository != *..* ]]; then
+      git_host=${BASH_REMATCH[1]}; transport=https
+    else
+      echo 'invalid Git clone request' >&2; exit 1
+    fi
+    [[ ( $transport == https || ( -f $key && ! -L $key ) ) && $ref =~ ^[A-Za-z0-9][A-Za-z0-9._/@+-]{0,127}$ && $destination == "$site_stage_root/.stepanel-release-$site-"* ]] || { echo 'invalid Git clone request' >&2; exit 1; }
     git_host_allowed "$git_host" || { echo 'repository host is not in STEPANEL_GIT_ALLOWED_HOSTS' >&2; exit 1; }
     valid_stage_path "$site" "$destination" || { echo 'invalid clone destination' >&2; exit 1; }
     # The site's tree owner receives the clone. A placed site's private state
@@ -331,13 +338,22 @@ case "$action" in
     [[ -d $marker && ! -L $marker && -f $marker/target && ! -L $marker/target && $(stat -c '%u:%a' "$marker") == 0:700 && $(stat -c '%u:%a' "$marker/target") == 0:600 ]] || { echo 'active Git project quota marker is unavailable or untrusted' >&2; exit 1; }
     mapfile -t marker_lines < "$marker/target"
     [[ ${#marker_lines[@]} -eq 3 && ${marker_lines[0]} == "$destination" ]] || { echo 'active Git project quota does not match clone destination' >&2; exit 1; }
-    known_hosts=/etc/stepanel/git-known-hosts
-    [[ -f $known_hosts && ! -L $known_hosts ]] || { echo 'trusted Git SSH host keys are not configured' >&2; exit 1; }
-    # The clone identity reads this site's deploy key and the trusted host
-    # keys from a private copy that exists only for this clone.
+    # Git may speak only this clone's transport, never prompts or uses a
+    # credential helper, and runs no repository hooks.
+    git_config=(-c credential.helper= -c core.hooksPath=/dev/null -c protocol.allow=never)
     clone_work=$(mktemp -d /run/stepanel-git-clone.XXXXXXXX)
-    install -m 0400 -o "$clone_uid" -g "$clone_gid" -- "$key" "$clone_work/deploy-key"
-    install -m 0444 -o root -g root -- "$known_hosts" "$clone_work/known_hosts"
+    if [[ $transport == ssh ]]; then
+      known_hosts=/etc/stepanel/git-known-hosts
+      [[ -f $known_hosts && ! -L $known_hosts ]] || { echo 'trusted Git SSH host keys are not configured' >&2; exit 1; }
+      # The clone identity reads this site's deploy key and the trusted host
+      # keys from a private copy that exists only for this clone.
+      install -m 0400 -o "$clone_uid" -g "$clone_gid" -- "$key" "$clone_work/deploy-key"
+      install -m 0444 -o root -g root -- "$known_hosts" "$clone_work/known_hosts"
+      git_config+=(-c protocol.ssh.allow=always -c core.sshCommand="ssh -i $clone_work/deploy-key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$clone_work/known_hosts -F /dev/null")
+    else
+      # A redirect could lead outside the host allowlist; refuse it.
+      git_config+=(-c protocol.https.allow=always -c http.followRedirects=false)
+    fi
     chown -- "$clone_uid:$clone_gid" "$clone_work"
     chmod 0700 "$clone_work"
     chown --no-dereference -- "$clone_uid:$clone_gid" "$destination"
@@ -345,9 +361,8 @@ case "$action" in
     # project quota; RLIMIT_FSIZE additionally caps each individual file.
     prlimit --as=2147483648 --fsize="$max_file_bytes" -- \
       setpriv --reuid="$clone_uid" --regid="$clone_gid" --clear-groups --no-new-privs --inh-caps=-all --bounding-set=-all -- \
-      env -i PATH=/usr/local/bin:/usr/bin:/bin HOME="$clone_work" LANG=C.UTF-8 \
-      git -c credential.helper= -c core.hooksPath=/dev/null -c core.sshCommand="ssh -i $clone_work/deploy-key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$clone_work/known_hosts -F /dev/null" \
-      clone --depth 1 --branch "$ref" --single-branch --no-tags "$repository" "$destination"
+      env -i PATH=/usr/local/bin:/usr/bin:/bin HOME="$clone_work" LANG=C.UTF-8 GIT_TERMINAL_PROMPT=0 GIT_CONFIG_NOSYSTEM=1 \
+      git "${git_config[@]}" clone --depth 1 --branch "$ref" --single-branch --no-tags "$repository" "$destination"
     # Nothing the clone identity started may outlive the clone while root
     # takes the tree.
     stop_clone_processes

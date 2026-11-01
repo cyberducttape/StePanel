@@ -1115,19 +1115,7 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 	}()
 	ctx, cancel := context.WithTimeout(operationCtx, 10*time.Minute)
 	defer cancel()
-	var cloneOutput []byte
-	if repository.Private {
-		cloneOutput, err = clonePrivateRepository(ctx, a.Config, input.Site, repository.URL, input.Ref, release, a.Config.GitReleaseMaxTreeBytes, projectID)
-	} else {
-		prlimit, lookupErr := exec.LookPath("prlimit")
-		if lookupErr != nil {
-			http.Error(w, "prlimit is required to enforce Git clone memory and per-file limits", http.StatusServiceUnavailable)
-			return
-		}
-		clone := exec.CommandContext(ctx, prlimit, "--as="+strconv.FormatUint(gitCloneAddressSpaceBytes, 10), "--fsize="+strconv.FormatInt(a.Config.GitReleaseMaxTreeBytes, 10), "--", gitPath, "-c", "credential.helper=", "clone", "--depth", "1", "--branch", input.Ref, "--single-branch", "--no-tags", repository.URL, release)
-		clone.Env = gitCommandEnv()
-		cloneOutput, err = runBoundedCommand(ctx, clone)
-	}
+	cloneOutput, err := cloneGitRepository(ctx, a.Config, input.Site, repository.URL, input.Ref, release, a.Config.GitReleaseMaxTreeBytes, projectID)
 	if err != nil {
 		log.Printf("Git clone failed for site %s (repo %s): %v\nOutput: %s", input.Site, input.Repository, err, strings.TrimSpace(string(cloneOutput)))
 		http.Error(w, sanitizeGitError(string(cloneOutput)), http.StatusBadGateway)
@@ -1282,7 +1270,6 @@ func pruneReleasesWithPrefix(siteRoot, prefix string, retain int, maxAge time.Du
 	type candidate struct {
 		path     string
 		modified time.Time
-		bytes    int64
 	}
 	items := []candidate{}
 	for _, entry := range entries {
@@ -1297,43 +1284,43 @@ func pruneReleasesWithPrefix(siteRoot, prefix string, retain int, maxAge time.Du
 		if err != nil {
 			return err
 		}
-		size, err := gitReleaseSize(releasePath)
-		if err != nil {
-			return err
-		}
-		items = append(items, candidate{releasePath, info.ModTime(), size})
+		items = append(items, candidate{releasePath, info.ModTime()})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].modified.After(items[j].modified) })
 	if len(items) == 0 {
 		return nil
 	}
-	remove := make(map[string]bool)
-	for i, item := range items {
-		// The newest previous tree is the immediate rollback target and is
-		// never removed, even when it exceeds age or storage policy.
-		if i == 0 {
-			continue
-		}
-		if i >= retain || maxAge > 0 && time.Since(item.modified) > maxAge {
-			remove[item.path] = true
-		}
+	// Items are newest first, and the count and age rules each remove an
+	// oldest suffix, so they keep a newest prefix. The newest previous tree
+	// is the immediate rollback target and is never removed, even when it
+	// exceeds age or storage policy.
+	keep := 1
+	for keep < len(items) && keep < retain && (maxAge <= 0 || time.Since(items[keep].modified) <= maxAge) {
+		keep++
 	}
+	// The storage rule then trims that prefix from its oldest end. Only the
+	// trees that may be kept are sized; trees already removed by count or
+	// age are not walked for their size.
 	if maxBytes > 0 {
+		sizes := make([]int64, keep)
 		var total int64
-		for _, item := range items {
-			total += item.bytes
-		}
-		for i := len(items) - 1; i > 0 && total > maxBytes; i-- {
-			if !remove[items[i].path] {
-				remove[items[i].path] = true
+		for i := 0; i < keep; i++ {
+			size, err := gitReleaseSize(items[i].path)
+			if err != nil {
+				return err
 			}
-			total -= items[i].bytes
+			sizes[i] = size
+			if total > (1<<63-1)-size {
+				return errors.New("Git release size overflow")
+			}
+			total += size
+		}
+		for keep > 1 && total > maxBytes {
+			keep--
+			total -= sizes[keep]
 		}
 	}
-	for _, item := range items {
-		if !remove[item.path] {
-			continue
-		}
+	for _, item := range items[keep:] {
 		if err := validateGitRelease(item.path, 1000000); err != nil {
 			return fmt.Errorf("refuse to prune invalid release: %w", err)
 		}
@@ -1428,7 +1415,11 @@ func latestPreviousRelease(siteRoot, prefix string) (string, error) {
 // key. Production (and the direct lab broker) use the typed root-broker clone,
 // which binds the destination to the site's release staging directory;
 // development runs the helper directly.
-func clonePrivateRepository(ctx context.Context, cfg Config, site, repositoryURL, ref, release string, maxFileBytes int64, projectID uint32) ([]byte, error) {
+// cloneGitRepository clones a public (HTTPS) or private (SSH, with the
+// site's deploy key) repository into a quota-limited release stage through
+// stepanel-gitctl, which runs Git as the dedicated unprivileged stepanel-git
+// identity, never as root and never as the panel's own service account.
+func cloneGitRepository(ctx context.Context, cfg Config, site, repositoryURL, ref, release string, maxFileBytes int64, projectID uint32) ([]byte, error) {
 	if !cfg.Production && !labDirectRootBrokerEnabled() {
 		output, err, _ := runAllowlistedHelperOutput(ctx, cfg, nil, cfg.GitCtl, "clone", site, repositoryURL, ref, release, cfg.GitAllowedHosts, strconv.FormatInt(maxFileBytes, 10), strconv.FormatUint(uint64(projectID), 10))
 		return output, err

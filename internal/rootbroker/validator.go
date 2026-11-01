@@ -24,10 +24,14 @@ var workerNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
 // the helper accepts so no value can be read as a git option.
 var (
 	gitCloneRepoPattern = regexp.MustCompile(`^git@[A-Za-z0-9.-]+:[A-Za-z0-9._/-]+\.git$`)
-	gitCloneRefPattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/@+-]{0,127}$`)
-	phpVersionPattern   = regexp.MustCompile(`^[0-9]+\.[0-9]+$`)
-	phpSizePattern      = regexp.MustCompile(`^[1-9][0-9]{0,4}M$`)
-	phpErrorPattern     = regexp.MustCompile(`^[A-Z0-9_~& |]{1,80}$`)
+	// gitPublicCloneRepoPattern is a public repository: HTTPS without
+	// credentials, port, query, or fragment. Both kinds are cloned by the
+	// unprivileged stepanel-git identity.
+	gitPublicCloneRepoPattern = regexp.MustCompile(`^https://([A-Za-z0-9.-]+)/[A-Za-z0-9._~/-]+\.git$`)
+	gitCloneRefPattern        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/@+-]{0,127}$`)
+	phpVersionPattern         = regexp.MustCompile(`^[0-9]+\.[0-9]+$`)
+	phpSizePattern            = regexp.MustCompile(`^[1-9][0-9]{0,4}M$`)
+	phpErrorPattern           = regexp.MustCompile(`^[A-Z0-9_~& |]{1,80}$`)
 )
 
 // Compiled once: the validator runs on every broker request.
@@ -1020,11 +1024,23 @@ func (v *Validator) validateGitRequest(req *GitRequest) error {
 		if err := argReleasePath(0)(v, req.Destination, []string{req.Site}); err != nil {
 			return fmt.Errorf("clone destination: %w", err)
 		}
-		if !gitCloneRepoPattern.MatchString(req.Repository) || !gitCloneRefPattern.MatchString(req.Ref) {
-			return fmt.Errorf("private Git clone requires an SSH repository and a plain ref")
+		public := gitPublicCloneRepoPattern.FindStringSubmatch(req.Repository)
+		if (!gitCloneRepoPattern.MatchString(req.Repository) && (public == nil || strings.Contains(req.Repository, ".."))) || !gitCloneRefPattern.MatchString(req.Ref) {
+			return fmt.Errorf("Git clone requires an SSH or HTTPS .git repository and a plain ref")
 		}
 		if len(req.AllowedHosts) == 0 {
 			return fmt.Errorf("Git host allowlist is required")
+		}
+		if public != nil {
+			allowed := false
+			for _, host := range req.AllowedHosts {
+				if strings.EqualFold(strings.TrimSpace(host), public[1]) {
+					allowed = true
+				}
+			}
+			if !allowed {
+				return fmt.Errorf("repository host is not in the Git host allowlist")
+			}
 		}
 	}
 	return nil

@@ -36,8 +36,10 @@ clone, install verified provider SSH host keys in root-owned
 `/etc/stepanel/git-known-hosts`; the helper uses strict host-key checking and
 will not trust a host key on first use.
 
-The clone itself never runs as root. `stepanel-gitctl` prepares the
-quota-limited release stage as root, then runs `git` and `ssh` as the
+The clone itself never runs as root or as the panel's `stepanel` service
+account, for public (HTTPS) and private (SSH) repositories alike.
+`stepanel-gitctl` prepares the quota-limited release stage as root, then runs
+`git` (and, for private repositories, `ssh`) as the
 dedicated `stepanel-git` system account (created by `install.sh`; no login
 shell, no other groups, not the panel or any customer account) with no new
 privileges and an empty capability set. For the duration of the clone the
@@ -46,7 +48,14 @@ entries, and the deploy key and host keys are readable only through a private
 per-clone copy under `/run` that is removed afterwards. Clones are serialized
 host-wide, so the identity never holds two sites' keys or stages at once, and
 any process it left behind is killed before root hands the finished tree to
-the site's owner. A failed clone's files are removed as root before its stage
+the site's owner. Git may use only the clone's own transport (`https` for
+public repositories, `ssh` with the site's deploy key and pinned host keys for
+private ones), never prompts for or stores credentials, ignores system Git
+configuration, runs no repository hooks, and does not follow HTTPS redirects,
+so a redirect cannot lead outside `STEPANEL_GIT_ALLOWED_HOSTS`. Outbound
+network access is limited by that host allowlist, not by a per-identity
+firewall rule; add one for `stepanel-git` if your policy requires it. A failed
+clone's files are removed as root before its stage
 is returned, so the tenant never receives files the clone account owns.
 
 If a clone process cannot be reaped (for example, it is stuck in

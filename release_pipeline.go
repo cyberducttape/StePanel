@@ -457,18 +457,7 @@ func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, 
 			}
 		}
 	}()
-	var output []byte
-	if repository.Private {
-		output, err = clonePrivateRepository(ctx, a.Config, site.Site(), repository.URL, ref, release, a.Config.GitReleaseMaxTreeBytes, projectID)
-	} else {
-		prlimit, lookupErr := exec.LookPath("prlimit")
-		if lookupErr != nil {
-			return "", "", nil, errors.New("prlimit is required to enforce Git clone memory and per-file limits")
-		}
-		cmd := exec.CommandContext(ctx, prlimit, "--as="+strconv.FormatUint(gitCloneAddressSpaceBytes, 10), "--fsize="+strconv.FormatInt(a.Config.GitReleaseMaxTreeBytes, 10), "--", gitPath, "-c", "credential.helper=", "clone", "--depth", "1", "--branch", ref, "--single-branch", "--no-tags", repository.URL, release)
-		cmd.Env = gitCommandEnv()
-		output, err = runBoundedCommand(ctx, cmd)
-	}
+	output, err := cloneGitRepository(ctx, a.Config, site.Site(), repository.URL, ref, release, a.Config.GitReleaseMaxTreeBytes, projectID)
 	if err != nil {
 		return "", "", nil, err
 	}
