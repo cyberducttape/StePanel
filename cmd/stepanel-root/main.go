@@ -36,6 +36,7 @@ func main() {
 	snapshotRecoveryRootFlag := flag.String("snapshot-recovery-root", os.Getenv("STEPANEL_SNAPSHOT_RECOVERY_ROOT"), "panel-owned site transaction snapshot root")
 	socketFlag := flag.String("socket", "", "serve the broker on a Unix socket instead of stdin/stdout")
 	socketGroupFlag := flag.String("socket-group", "", "group allowed to access the Unix socket")
+	socketUserFlag := flag.String("socket-user", "", "the only user allowed to call the broker on the Unix socket (default: the user named like -socket-group)")
 	maxConcurrentFlag := flag.Int("max-concurrent", rootbroker.DefaultMaxConcurrent, "maximum privileged operations executed at once on the Unix socket")
 	flag.Parse()
 
@@ -85,7 +86,7 @@ func main() {
 		if err != nil {
 			logger.Fatalf("failed to create broker scheduler: %v", err)
 		}
-		if err := serveSocket(scheduler, *socketFlag, *socketGroupFlag, logger); err != nil {
+		if err := serveSocket(scheduler, *socketFlag, *socketGroupFlag, *socketUserFlag, logger); err != nil {
 			logger.Fatal(err)
 		}
 		return
@@ -501,7 +502,7 @@ func writeSocketResponse(conn net.Conn, encoder *json.Encoder, resp *rootbroker.
 	return true
 }
 
-func serveSocket(broker executor, socketPath, socketGroup string, logger *log.Logger) error {
+func serveSocket(broker executor, socketPath, socketGroup, socketUser string, logger *log.Logger) error {
 	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove existing broker socket: %w", err)
 	}
@@ -537,13 +538,31 @@ func serveSocket(broker executor, socketPath, socketGroup string, logger *log.Lo
 	if err != nil {
 		return fmt.Errorf("parse broker socket group %q: %w", socketGroup, err)
 	}
+	// Group membership alone is too broad for a root boundary: pin the
+	// exact service account as well. The panel and its worker both run as
+	// this user (deploy/stepanel.service, deploy/stepanel-worker.service).
+	if socketUser == "" {
+		socketUser = socketGroup
+	}
+	account, err := user.Lookup(socketUser)
+	if err != nil {
+		return fmt.Errorf("lookup broker socket user %q: %w", socketUser, err)
+	}
+	allowedUID, err := strconv.Atoi(account.Uid)
+	if err != nil {
+		return fmt.Errorf("parse broker socket user %q: %w", socketUser, err)
+	}
+	if allowedUID == 0 {
+		return errors.New("broker socket user must be the unprivileged StePanel service account, not root")
+	}
+	logger.Printf("broker socket accepts only uid %d gid %d (%s:%s)", allowedUID, allowedGID, socketUser, socketGroup)
 
 	return acceptConnections(listener, broker, func(conn net.Conn) error {
 		unixConn, ok := conn.(*net.UnixConn)
 		if !ok {
 			return fmt.Errorf("not a Unix socket connection")
 		}
-		return authorizeSocketPeer(unixConn, allowedGID)
+		return authorizeSocketPeer(unixConn, peerIdentity{uid: allowedUID, gid: allowedGID})
 	}, logger)
 }
 
@@ -577,7 +596,10 @@ func acceptConnections(listener net.Listener, broker executor, authorize func(ne
 	}
 }
 
-func authorizeSocketPeer(conn *net.UnixConn, allowedGID int) error {
+// peerIdentity is the exact service identity allowed on the broker socket.
+type peerIdentity struct{ uid, gid int }
+
+func authorizeSocketPeer(conn *net.UnixConn, allowed peerIdentity) error {
 	var credential *syscall.Ucred
 	var controlErr error
 	raw, err := conn.SyscallConn()
@@ -592,8 +614,18 @@ func authorizeSocketPeer(conn *net.UnixConn, allowedGID int) error {
 	if controlErr != nil {
 		return fmt.Errorf("read socket peer credentials: %w", controlErr)
 	}
-	if credential == nil || int(credential.Gid) != allowedGID {
-		return fmt.Errorf("peer group is not authorized")
+	return authorizePeerCredential(credential, allowed)
+}
+
+// authorizePeerCredential requires both the service UID and its primary GID.
+// A refusal names the peer's pid, uid and gid so the security log (the
+// broker's journal) records who tried to reach the root boundary.
+func authorizePeerCredential(credential *syscall.Ucred, allowed peerIdentity) error {
+	if credential == nil {
+		return errors.New("peer credentials are unavailable")
+	}
+	if int(credential.Uid) != allowed.uid || int(credential.Gid) != allowed.gid {
+		return fmt.Errorf("security: unauthorized peer pid=%d uid=%d gid=%d (allowed uid=%d gid=%d)", credential.Pid, credential.Uid, credential.Gid, allowed.uid, allowed.gid)
 	}
 	return nil
 }

@@ -2,8 +2,9 @@
 
 Native installs no longer grant the `stepanel` service account a sudoers
 entry. The production path is a root-owned `stepanel-root-broker.service`
-exposed through `/run/stepanel-root-broker.sock`, with peer credentials and a
-typed request validator enforcing the boundary. This document describes the
+exposed through `/run/stepanel-root-broker.sock`, with exact peer credentials
+(service UID and GID), per-request fencing scope, and a typed request validator
+enforcing the boundary (see PRIVILEGE_MODEL.md). This document describes the
 legacy sudo design retained for upgrade history and threat-model comparison;
 upgrading removes `/etc/sudoers.d/stepanel`.
 
