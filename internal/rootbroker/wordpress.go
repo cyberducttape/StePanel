@@ -24,10 +24,11 @@ var (
 	wordPressDBHostPattern    = regexp.MustCompile(`^[A-Za-z0-9_.][A-Za-z0-9_.:/-]{0,254}$`)
 	wordPressDBPrefixPattern  = regexp.MustCompile(`^[A-Za-z0-9_]{1,32}$`)
 	wordPressAdminUserPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,60}$`)
+	wordPressRecoveryNonce    = regexp.MustCompile(`^[a-f0-9]{32}$`)
 )
 
 // wordPressReadOnlyActions do not change the site and need no fencing token.
-var wordPressReadOnlyActions = map[string]bool{"status": true, "db-check": true, "maintenance-status": true, "option-get": true, "config-get": true}
+var wordPressReadOnlyActions = map[string]bool{"status": true, "db-check": true, "maintenance-status": true, "option-get": true, "recovery-probe-read": true, "config-get": true}
 
 // WordPressArgs returns the wp-cli arguments (after --path) for a validated
 // request. It is the single argv builder for the broker and for development
@@ -81,6 +82,13 @@ func WordPressArgs(req *WordPressRequest) ([]string, error) {
 			return nil, errors.New("unsupported WordPress option")
 		}
 		return append(skip, "option", "get", req.Name), nil
+	case "recovery-probe-write":
+		if !wordPressRecoveryNonce.MatchString(req.Value) {
+			return nil, errors.New("invalid recovery transaction nonce")
+		}
+		return append(skip, "option", "update", "stepanel_recovery_probe", req.Value), nil
+	case "recovery-probe-read":
+		return append(skip, "option", "get", "stepanel_recovery_probe"), nil
 	case "config-get":
 		if req.Name != "DB_NAME" && req.Name != "DB_USER" && req.Name != "DB_HOST" {
 			return nil, errors.New("unsupported WordPress configuration value")
@@ -225,7 +233,7 @@ func (b *Broker) handleWordPressRequest(ctx context.Context, req *WordPressReque
 		return &Response{OK: false, Error: err.Error()}, nil
 	}
 	switch req.Action {
-	case "status", "db-check", "core-download", "core-install", "core-update", "plugin-update-all", "theme-update-all", "cron-run-due", "maintenance-activate", "maintenance-deactivate", "maintenance-status", "option-get", "config-get", "option-update", "search-replace", "rewrite-flush", "cache-flush", "config-create", "config-set", "config-set-password":
+	case "status", "db-check", "core-download", "core-install", "core-update", "plugin-update-all", "theme-update-all", "cron-run-due", "maintenance-activate", "maintenance-deactivate", "maintenance-status", "option-get", "recovery-probe-write", "recovery-probe-read", "config-get", "option-update", "search-replace", "rewrite-flush", "cache-flush", "config-create", "config-set", "config-set-password":
 	default:
 		return &Response{OK: false, Error: "unsupported WordPress action"}, nil
 	}

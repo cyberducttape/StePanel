@@ -1,5 +1,36 @@
 # Production-readiness progress
 
+## Per-site evidence-based recovery confidence — 2026-10-31
+
+- The recovery API now reports a confidence level and five explicit checks:
+  archive verification, database restore, application boot/HTTP probe,
+  synthetic database transaction, and offsite restore. Each successful check
+  carries the exact backup identity and timestamp; restore checks also carry
+  measured elapsed time. Remote upload alone remains a warning, not proof of
+  offsite recoverability.
+- Archive-only rehearsals now remain `unverified`; they do not promote the
+  database, application, or synthetic-transaction stages. Application proof
+  is counted only when it covers the newest backup. Configured offsite storage
+  must have a recorded restore for the newest backup before full confidence is
+  reported.
+- Built-in WordPress recovery proof now writes a cryptographically random
+  option value with WP-CLI, reads it back, and requires an exact match. The
+  database belongs to the disposable proof site and is removed during teardown.
+  Broker action validation, mutation fencing, and timeout classifications are
+  covered by regression tests.
+- The site lifecycle view surfaces the confidence and evidence level. The
+  Backups view shows the full evidence ladder, latest successful test time,
+  exact tested recovery point, measured rehearsal duration, and remote restore
+  time.
+- Validation passed: focused recovery and broker Go tests, focused recovery
+  HTTP tests, `go test -race ./internal/recovery ./internal/rootbroker`, all
+  17 JavaScript unit tests, and `make check` (API artifact check, shell/cgroup
+  contracts, `go vet ./...`, and full serialized `go test ./...`). The two
+  changed Playwright recovery tests were discovered but skipped because this
+  environment has no authenticated seeded E2E server. Exact-source hosted CI
+  and authenticated browser E2E remain pending. This feature does not close
+  the installed-host recovery certification gates.
+
 ## Separate 1.0 release scope from competitive hosting roadmap — 2026-10-31
 
 - Kept 1.0 focused on the documented operator-managed single-host contract and

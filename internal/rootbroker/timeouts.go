@@ -55,6 +55,7 @@ var typedTimeouts = map[string]map[string]time.Duration{
 	"wordpress": {
 		"status": timeoutLifecycle, "db-check": timeoutLifecycle, "maintenance-status": timeoutLifecycle, "maintenance-activate": timeoutLifecycle, "maintenance-deactivate": timeoutLifecycle,
 		"option-get": timeoutLifecycle, "option-update": timeoutLifecycle, "config-get": timeoutLifecycle, "config-create": timeoutLifecycle, "config-set": timeoutLifecycle, "config-set-password": timeoutLifecycle, "core-install": timeoutLifecycle,
+		"recovery-probe-write": timeoutLifecycle, "recovery-probe-read": timeoutLifecycle,
 		"rewrite-flush": timeoutLifecycle, "cache-flush": timeoutLifecycle,
 		"core-download": timeoutBuild, "core-update": timeoutBuild, "plugin-update-all": timeoutBuild, "theme-update-all": timeoutBuild, "cron-run-due": timeoutBuild,
 		"search-replace": timeoutDatabase,

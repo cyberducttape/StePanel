@@ -153,7 +153,7 @@ func TestPassingRehearsalIsRecordedAndVerifiesRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	status := f.status(t)
-	if status.Confidence != recovery.ConfidenceVerified {
+	if status.Confidence != recovery.ConfidenceUnverified || status.ConfidenceLevel != recovery.EvidenceArchive {
 		t.Fatalf("confidence = %s, reasons = %v", status.Confidence, status.Reasons)
 	}
 	passed := status.LastPassed
@@ -162,6 +162,9 @@ func TestPassingRehearsalIsRecordedAndVerifiesRecovery(t *testing.T) {
 	}
 	if !strings.Contains(passed.LevelDescription, "not yet rehearsed") {
 		t.Fatalf("level description overclaims: %q", passed.LevelDescription)
+	}
+	if len(status.Checks) != 5 || status.Checks[0].Status != "pass" || status.Checks[1].Status != "not_tested" || status.Checks[2].Status != "not_tested" || status.Checks[3].Status != "not_tested" {
+		t.Fatalf("archive rehearsal overstates recovery evidence: %+v", status.Checks)
 	}
 	if len(status.History) != 1 {
 		t.Fatalf("history = %d", len(status.History))
@@ -192,6 +195,9 @@ func TestApplicationRecoveryProofRaisesRehearsalLevel(t *testing.T) {
 	status := f.status(t)
 	if status.LastPassed == nil || status.LastPassed.Level != recovery.LevelApplication || !strings.Contains(status.LastPassed.LevelDescription, "database import") {
 		t.Fatalf("application proof status = %+v", status.LastPassed)
+	}
+	if status.Confidence != recovery.ConfidenceDegraded || status.ConfidenceLevel != recovery.EvidenceApplication || status.Checks[1].Status != "pass" || status.Checks[2].Status != "pass" || status.Checks[3].Status != "not_tested" {
+		t.Fatalf("application proof without synthetic transaction overstates confidence: %+v", status.Status)
 	}
 	phases := map[string]bool{}
 	for _, phase := range status.History[0].Phases {
@@ -265,7 +271,7 @@ func TestFailedApplicationProofIsRecordedAsAttemptWithoutOverclaimingLevel(t *te
 	}
 }
 
-func TestUnsignedBackupDegradesVerifiedRecovery(t *testing.T) {
+func TestUnsignedBackupDoesNotClaimApplicationRecovery(t *testing.T) {
 	root := t.TempDir()
 	webRoot := filepath.Join(root, "www")
 	backupRoot := filepath.Join(root, "backups")
@@ -280,7 +286,7 @@ func TestUnsignedBackupDegradesVerifiedRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	status := f.status(t)
-	if status.Confidence != recovery.ConfidenceDegraded || status.LastBackup.Integrity != "unsigned" {
+	if status.Confidence != recovery.ConfidenceUnverified || status.ConfidenceLevel != recovery.EvidenceArchive || status.LastBackup.Integrity != "unsigned" || !strings.Contains(strings.Join(status.Reasons, " "), "not signed") {
 		t.Fatalf("status = %+v", status.Status)
 	}
 }

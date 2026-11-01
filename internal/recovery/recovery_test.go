@@ -151,12 +151,15 @@ func assessWith(mutate func(*Inputs)) Status {
 	latest := &BackupFacts{Name: "b2", CreatedAt: base.Add(-2 * time.Hour), Signed: true, Encrypted: true}
 	passed := rehearsal("demo", "b2", OutcomePassed, base.Add(-time.Hour))
 	passed.BackupCreatedAt = latest.CreatedAt
+	passed.Level = LevelApplication
+	passed.SyntheticTransactionPassed = true
 	uploaded := base.Add(-90 * time.Minute)
+	remoteRestored := base.Add(-80 * time.Minute)
 	in := Inputs{
 		Site:            "demo",
 		Now:             base,
 		LatestBackup:    latest,
-		Offsite:         OffsiteFacts{Configured: true, Tracked: true, UploadedAt: &uploaded},
+		Offsite:         OffsiteFacts{Configured: true, Tracked: true, UploadedAt: &uploaded, RestoreVerifiedAt: &remoteRestored},
 		LatestRehearsal: &passed,
 		LatestPassed:    &passed,
 		Policy:          Policy{RehearsalMaxAge: 48 * time.Hour, BackupMaxAge: 48 * time.Hour},
@@ -173,20 +176,48 @@ func TestAssessVerified(t *testing.T) {
 	if s.EncryptionKey != "healthy" || s.MeasuredRecoveryMS != 60000 || s.RecoveryPointAgeSeconds != 7200 || s.Offsite.State != "verified" || s.LastBackup.Integrity != "verified" {
 		t.Fatalf("details = %+v", s)
 	}
-	if !strings.Contains(s.LastPassed.LevelDescription, "not yet rehearsed") {
-		t.Fatalf("level description must state its limits: %q", s.LastPassed.LevelDescription)
+	if !strings.Contains(s.LastPassed.LevelDescription, "database import") {
+		t.Fatalf("level description lost its recovery proof: %q", s.LastPassed.LevelDescription)
 	}
-	if len(s.Checks) != 4 || s.Checks[0].Status != "pass" || s.Checks[1].Status != "not_tested" || s.Checks[2].Status != "not_tested" || s.Checks[3].Status != "pass" {
+	if s.ConfidenceLevel != EvidenceTransaction || len(s.Checks) != 5 || s.Checks[0].Status != "pass" || s.Checks[1].Status != "pass" || s.Checks[2].Status != "pass" || s.Checks[3].Status != "pass" || s.Checks[4].Status != "pass" {
 		t.Fatalf("structured evidence = %+v", s.Checks)
+	}
+	if s.Checks[0].Backup != "b2" || s.Checks[1].At == nil || s.Checks[1].DurationMS != 60000 || s.Checks[4].At == nil {
+		t.Fatalf("evidence is missing its source, timestamp, or measured duration: %+v", s.Checks)
 	}
 }
 
 func TestAssessApplicationProofMarksDatabaseAndApplicationChecks(t *testing.T) {
 	s := assessWith(func(in *Inputs) {
 		in.LatestPassed.Level = LevelApplication
+		in.LatestPassed.SyntheticTransactionPassed = false
 	})
-	if s.Checks[1].Status != "pass" || s.Checks[2].Status != "pass" {
+	if s.ConfidenceLevel != EvidenceApplication || s.Confidence != ConfidenceDegraded || s.Checks[1].Status != "pass" || s.Checks[2].Status != "pass" || s.Checks[3].Status != "not_tested" {
 		t.Fatalf("application evidence = %+v", s.Checks)
+	}
+}
+
+func TestAssessArchiveOnlyDoesNotClaimApplicationRecovery(t *testing.T) {
+	s := assessWith(func(in *Inputs) {
+		in.LatestPassed.Level = LevelArchive
+		in.LatestPassed.SyntheticTransactionPassed = false
+	})
+	if s.Confidence != ConfidenceUnverified || s.ConfidenceLevel != EvidenceArchive {
+		t.Fatalf("archive-only rehearsal overclaims confidence: %+v", s)
+	}
+	for _, index := range []int{1, 2, 3} {
+		if s.Checks[index].Status != "not_tested" {
+			t.Fatalf("archive proof promoted check %q: %+v", s.Checks[index].Name, s.Checks[index])
+		}
+	}
+}
+
+func TestAssessUploadedOffsiteCopyIsNotRestoreEvidence(t *testing.T) {
+	s := assessWith(func(in *Inputs) {
+		in.Offsite.RestoreVerifiedAt = nil
+	})
+	if s.Offsite.State != "verified" || s.Checks[4].Status != "warning" || s.Confidence != ConfidenceDegraded {
+		t.Fatalf("upload alone overclaims offsite recovery: %+v", s)
 	}
 }
 
@@ -206,23 +237,29 @@ func TestAssessRules(t *testing.T) {
 		}, ConfidenceFailing, "decrypt failed"},
 		{"stale rehearsal", func(in *Inputs) {
 			old := rehearsal("demo", "b2", OutcomePassed, base.Add(-72*time.Hour))
+			old.Level = LevelApplication
+			old.SyntheticTransactionPassed = true
 			in.LatestRehearsal, in.LatestPassed = &old, &old
 		}, ConfidenceDegraded, "Last passing rehearsal"},
 		{"old backup", func(in *Inputs) { in.LatestBackup.CreatedAt = base.Add(-96 * time.Hour) }, ConfidenceDegraded, "Newest backup is"},
 		{"unsigned backup", func(in *Inputs) { in.LatestBackup.Signed = false }, ConfidenceDegraded, "not signed"},
 		{"offsite pending", func(in *Inputs) { in.Offsite.UploadedAt = nil }, ConfidenceDegraded, "offsite"},
 		{"offsite not configured is not a defect", func(in *Inputs) { in.Offsite = OffsiteFacts{} }, ConfidenceVerified, ""},
-		{"offsite untracked legacy backup", func(in *Inputs) { in.Offsite.Tracked = false }, ConfidenceVerified, ""},
+		{"offsite untracked legacy backup", func(in *Inputs) { in.Offsite.Tracked = false }, ConfidenceDegraded, "offsite restore proof"},
 		{"policy disabled", func(in *Inputs) {
 			in.Policy = Policy{}
 			old := rehearsal("demo", "b2", OutcomePassed, base.Add(-720*time.Hour))
+			old.Level = LevelApplication
+			old.SyntheticTransactionPassed = true
 			in.LatestRehearsal, in.LatestPassed = &old, &old
 		}, ConfidenceVerified, ""},
 		{"newest backup without a matching rehearsal degrades confidence", func(in *Inputs) {
 			older := rehearsal("demo", "b1", OutcomePassed, base.Add(-time.Hour))
 			older.BackupCreatedAt = base.Add(-30 * time.Hour)
+			older.Level = LevelApplication
+			older.SyntheticTransactionPassed = true
 			in.LatestRehearsal, in.LatestPassed = &older, &older
-		}, ConfidenceDegraded, "has not been rehearsed yet"},
+		}, ConfidenceUnverified, "has not been rehearsed yet"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -498,6 +498,7 @@ func (a *App) rehearseBackupArchive(operationCtx context.Context, request durabl
 			run.record.ApplicationProofAttempted = true
 			run.record.Level = recovery.LevelApplication
 			result.ApplicationProof = &proof
+			run.record.SyntheticTransactionPassed = proof.SyntheticTransactionPassed
 		}
 	} else {
 		result.ApplicationProofSkipped = "no application proof is configured for this rehearsal"

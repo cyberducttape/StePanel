@@ -402,10 +402,11 @@
           ? 'For Caddy, check A/AAAA records, inbound ports 80/443, route status, and Caddy logs. This panel does not claim a live external TLS handshake.'
           : 'For Apache, confirm DNS and virtual-host routing, then use the certificate workflow. Check certificate hostname/expiry and test HTTPS externally.'),
       ]),
-      step(5, 'Create and prove a recovery point', recoveryState, recovery ? (recovery.last_passed_rehearsal ? `${recovery.last_passed_rehearsal.level || 'archive'} rehearsal recorded` : 'No passing rehearsal') : 'Recovery evidence unavailable', recovery
+      step(5, 'Create and prove a recovery point', recoveryState, recovery ? `${String(recovery.confidence || 'unknown').replaceAll('_', ' ')} · ${evidenceLevelLabels[recovery.confidence_level] || 'evidence unknown'}` : 'Recovery evidence unavailable', recovery
         ? `${recovery.last_backup ? `Newest backup: ${recovery.last_backup.name} (${ctx.formatAge(recovery.last_backup.created_at)}).` : 'No backup recorded.'} ${recovery.last_passed_rehearsal ? `Latest passing proof: ${recovery.last_passed_rehearsal.level || 'archive'} for ${recovery.last_passed_rehearsal.backup}.` : 'An archive verification alone does not establish that the restored application works.'}`
         : 'Recovery status could not be loaded or this role cannot view it. Do not assume a backup or restore proof exists.', [
         link('Backups, restore rehearsals, and staging clones', nav('backups')),
+        recovery ? ctx.badge(evidenceLevelLabels[recovery.confidence_level] || 'Evidence unknown', recovery.confidence === 'verified' ? 'ok' : recovery.confidence === 'failing' || recovery.confidence === 'no_backup' ? 'danger' : 'warn') : null,
         latest ? ctx.badge(`Latest integrity-verified backup ${ctx.formatAge(latest.verified_at)}`, 'ok') : ctx.badge(backupResult?.error ? 'Backup inventory unavailable' : 'No verified backup found', 'warn'),
       ]),
       step(6, 'Clone to staging and promote safely', 'next', 'Optional before cutover', 'Create an isolated clone, validate WordPress and database-backed behavior there, and use the guarded promotion preview when ready. Staging is not a substitute for an independent backup.', [
@@ -1226,6 +1227,13 @@
     untracked: 'Not tracked',
     not_configured: 'Not configured',
   };
+  const evidenceLevelLabels = {
+    none: 'No recovery evidence',
+    archive_verified: 'Archive verified',
+    database_restored: 'Database restored',
+    application_booted: 'Application booted',
+    synthetic_transaction_passed: 'Synthetic transaction passed',
+  };
 
   const formatDuration = (ms) => {
     if ((ms || 0) < 1000) return 'Under 1s';
@@ -1310,8 +1318,12 @@
       restoreabilityDetail = `The newest backup is ${last?.name || 'unavailable'}; the most recent proven recovery point is ${passed.backup} (${passed.level || 'archive'} level).`;
     }
     const facts = [
+      ['Evidence level', evidenceLevelLabels[status.confidence_level] || 'Unknown',
+        passed ? `Strongest proof for ${passed.backup}; the offsite restore step is tracked separately.` : 'No successful restore test is recorded.'],
       ['Last successful backup', last ? ctx.formatAge(last.verified_at || last.created_at) : 'None',
         last ? `${last.name} · ${last.integrity === 'verified' ? 'signed' : 'unsigned manifest'} · archive verified${last.encrypted ? ' · encrypted' : ''}` : 'No validated backup is available'],
+      ['Last successful test', passed ? ctxAgeLabel(passed.at) : 'Never',
+        passed ? `${passed.backup} · ${formatDuration(passed.duration_ms || status.measured_recovery_ms)} · ${passed.level === 'application' ? 'application proof' : 'archive-level rehearsal'}` : 'No successful restore test is recorded'],
       ['Can this backup be restored?', last ? restoreability : 'No — no successful backup', restoreabilityDetail],
       ['Offsite copy', offsiteLabels[status.offsite.state] || status.offsite.state,
         status.offsite.uploaded_at ? `Uploaded ${ctx.formatAge(status.offsite.uploaded_at)}; remote access is not being probed live.` : 'No confirmed upload for this backup.',
@@ -1320,7 +1332,7 @@
         status.offsite.restore_verified_at ? 'A files or database restore completed from the offsite copy; this does not by itself prove application health.' : 'No successful restore from this offsite copy is recorded.'],
       ['Last restore rehearsal', latest ? ctx.formatAge(latest.at) : 'Never',
         latest ? `${latest.outcome === 'passed' ? 'Passed' : 'Failed'} · ${latest.trigger} · ${latest.backup} · ${latest.level || 'level unavailable'}` : 'Use “Rehearse restore” on a backup below'],
-      ['Measured recovery time', passed ? formatDuration(status.measured_recovery_ms) : '—',
+      ['Measured recovery time', passed ? formatDuration(passed.duration_ms || status.measured_recovery_ms) : '—',
         passed ? (passed.level === 'application' && status.last_backup?.name === passed.backup ? 'Application proof for the newest backup' : passed.level === 'application' ? 'Proof was for a different backup' : 'Archive-only rehearsal; full-site time unknown') : 'No passing rehearsal yet'],
       ['Proven recovery point', passed ? passed.backup : 'None proven',
         passed ? `${passed.level || 'archive'}-level recovery passed ${ctx.formatAge(passed.at)}. ${passed.level_description || ''}${last && passed.backup !== last.name ? ` Newest backup ${last.name} is not covered by this proof.` : ''}` : 'No backup has passed a restore rehearsal.'],
@@ -1328,13 +1340,30 @@
         status.encryption_key === 'healthy' ? 'A rehearsal decrypted an encrypted backup' : 'No encrypted backup has been rehearsed'],
     ];
     const proof = (passed || latest || {}).level_description;
+    const evidenceChecks = Array.isArray(status.checks) ? status.checks : [];
+    const evidenceLabel = (state) => state === 'pass' ? 'Verified' : state === 'warning' ? 'Needs attention' : 'Not tested';
     return el('section', { className: 'recovery-status', 'aria-label': 'Recovery status' }, [
-      el('div', { className: 'section-heading' }, [el('h3', {}, 'Recovery status'), recoveryBadge(status, ctx)]),
+      el('div', { className: 'section-heading' }, [el('h3', {}, 'Recovery status'), el('div', { className: 'recovery-badges' }, [
+        recoveryBadge(status, ctx),
+        el('span', { className: 'recovery-level' }, evidenceLevelLabels[status.confidence_level] || 'Evidence level unknown'),
+      ])]),
       el('p', { className: 'panel-intro' }, status.summary),
       el('dl', { className: 'recovery-facts' }, facts.map(([label, value, note]) => el('div', {}, [
         el('dt', {}, label),
         el('dd', {}, [el('strong', {}, value), note ? el('small', {}, note) : null]),
       ]))),
+      evidenceChecks.length ? el('div', { className: 'recovery-evidence' }, [
+        el('h4', {}, 'Recovery evidence'),
+        el('ol', { 'aria-label': 'Recovery evidence steps' }, evidenceChecks.map((check) => {
+          const proof = [check.backup ? `Recovery point: ${check.backup}` : '', check.at ? `Tested ${ctxAgeLabel(check.at)}` : '', check.duration_ms ? `Elapsed ${formatDuration(check.duration_ms)}` : ''].filter(Boolean).join(' · ');
+          return el('li', { 'data-state': check.status }, [
+            el('span', { className: 'recovery-evidence-state' }, evidenceLabel(check.status)),
+            el('strong', {}, check.name.replaceAll('_', ' ')),
+            el('small', {}, check.detail),
+            proof ? el('small', {}, proof) : null,
+          ]);
+        })),
+      ]) : null,
       status.reasons.length ? el('ul', { className: 'resource-list', 'aria-label': 'Recovery findings' }, status.reasons.map((reason) => el('li', { className: 'resource-list-item' }, [
         el('div', { className: 'item-meta' }, [el('small', {}, reason)]),
       ]))) : null,

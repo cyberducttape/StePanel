@@ -31,6 +31,19 @@ const (
 	LevelApplication Level = "application"
 )
 
+// EvidenceLevel is the strongest completed proof step for the newest backup.
+// Offsite restoration is reported as a separate check because it may restore
+// only files or a database and does not imply application health.
+type EvidenceLevel string
+
+const (
+	EvidenceNone        EvidenceLevel = "none"
+	EvidenceArchive     EvidenceLevel = "archive_verified"
+	EvidenceDatabase    EvidenceLevel = "database_restored"
+	EvidenceApplication EvidenceLevel = "application_booted"
+	EvidenceTransaction EvidenceLevel = "synthetic_transaction_passed"
+)
+
 // Describe states in plain language what a level proves and what it does
 // not, for display next to the result.
 func (l Level) Describe() string {
@@ -66,23 +79,24 @@ type Phase struct {
 
 // Rehearsal is one recorded attempt to recover a backup.
 type Rehearsal struct {
-	ID                        int64     `json:"id"`
-	Site                      string    `json:"site"`
-	Backup                    string    `json:"backup"`
-	BackupCreatedAt           time.Time `json:"backup_created_at"`
-	Trigger                   Trigger   `json:"trigger"`
-	Level                     Level     `json:"level"`
-	Outcome                   Outcome   `json:"outcome"`
-	ApplicationProofAttempted bool      `json:"application_proof_attempted,omitempty"`
-	StartedAt                 time.Time `json:"started_at"`
-	FinishedAt                time.Time `json:"finished_at"`
-	DurationMS                int64     `json:"duration_ms"`
-	Phases                    []Phase   `json:"phases,omitempty"`
-	Error                     string    `json:"error,omitempty"`
-	Encrypted                 bool      `json:"encrypted"`
-	FilesRestored             int       `json:"files_restored"`
-	BytesRestored             int64     `json:"bytes_restored"`
-	Databases                 []string  `json:"databases,omitempty"`
+	ID                         int64     `json:"id"`
+	Site                       string    `json:"site"`
+	Backup                     string    `json:"backup"`
+	BackupCreatedAt            time.Time `json:"backup_created_at"`
+	Trigger                    Trigger   `json:"trigger"`
+	Level                      Level     `json:"level"`
+	Outcome                    Outcome   `json:"outcome"`
+	ApplicationProofAttempted  bool      `json:"application_proof_attempted,omitempty"`
+	SyntheticTransactionPassed bool      `json:"synthetic_transaction_passed,omitempty"`
+	StartedAt                  time.Time `json:"started_at"`
+	FinishedAt                 time.Time `json:"finished_at"`
+	DurationMS                 int64     `json:"duration_ms"`
+	Phases                     []Phase   `json:"phases,omitempty"`
+	Error                      string    `json:"error,omitempty"`
+	Encrypted                  bool      `json:"encrypted"`
+	FilesRestored              int       `json:"files_restored"`
+	BytesRestored              int64     `json:"bytes_restored"`
+	Databases                  []string  `json:"databases,omitempty"`
 }
 
 // historyPerSite bounds stored rehearsals; older ones are pruned on write.
@@ -120,12 +134,13 @@ func NewStore(db *sql.DB) (*Store, error) {
 
 // detail holds the fields that are displayed but never queried.
 type detail struct {
-	Phases        []Phase  `json:"phases,omitempty"`
-	Error         string   `json:"error,omitempty"`
-	Encrypted     bool     `json:"encrypted"`
-	FilesRestored int      `json:"files_restored"`
-	BytesRestored int64    `json:"bytes_restored"`
-	Databases     []string `json:"databases,omitempty"`
+	Phases                     []Phase  `json:"phases,omitempty"`
+	Error                      string   `json:"error,omitempty"`
+	Encrypted                  bool     `json:"encrypted"`
+	FilesRestored              int      `json:"files_restored"`
+	BytesRestored              int64    `json:"bytes_restored"`
+	Databases                  []string `json:"databases,omitempty"`
+	SyntheticTransactionPassed bool     `json:"synthetic_transaction_passed,omitempty"`
 }
 
 // Record stores a finished rehearsal and prunes the site's history to the
@@ -134,7 +149,7 @@ func (s *Store) Record(ctx context.Context, r Rehearsal) error {
 	if r.Site == "" || r.Backup == "" || r.Level == "" || (r.Outcome != OutcomePassed && r.Outcome != OutcomeFailed) {
 		return errors.New("invalid rehearsal record")
 	}
-	data, err := json.Marshal(detail{Phases: r.Phases, Error: r.Error, Encrypted: r.Encrypted, FilesRestored: r.FilesRestored, BytesRestored: r.BytesRestored, Databases: r.Databases})
+	data, err := json.Marshal(detail{Phases: r.Phases, Error: r.Error, Encrypted: r.Encrypted, FilesRestored: r.FilesRestored, BytesRestored: r.BytesRestored, Databases: r.Databases, SyntheticTransactionPassed: r.SyntheticTransactionPassed})
 	if err != nil {
 		return fmt.Errorf("encode rehearsal detail: %w", err)
 	}
@@ -195,6 +210,7 @@ func scanRehearsal(row interface{ Scan(...any) error }) (Rehearsal, error) {
 	r.Trigger, r.Level, r.Outcome = Trigger(trigger), Level(level), Outcome(outcome)
 	r.ApplicationProofAttempted = applicationAttempted != 0
 	r.Phases, r.Error, r.Encrypted, r.FilesRestored, r.BytesRestored, r.Databases = d.Phases, d.Error, d.Encrypted, d.FilesRestored, d.BytesRestored, d.Databases
+	r.SyntheticTransactionPassed = d.SyntheticTransactionPassed
 	return r, nil
 }
 

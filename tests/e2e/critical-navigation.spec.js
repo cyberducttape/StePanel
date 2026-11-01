@@ -428,7 +428,7 @@ test('site backups tab shows a failing restore rehearsal and what it proves', as
   expect(result.violations.map((violation) => `${violation.id}: ${violation.help}`)).toEqual([]);
 });
 
-test('recovery status identifies a successfully rehearsed point and remote copy limits', async ({ page }) => {
+test('recovery status shows evidence level, successful test, measured recovery, and offsite restore', async ({ page }) => {
   const now = new Date().toISOString();
   const site = { site: 'e2e-recovered', routes: [], applications: [], database_count: 1 };
   await page.route('**/api/sites/overview', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sites: [site] }) }));
@@ -440,15 +440,23 @@ test('recovery status identifies a successfully rehearsed point and remote copy 
     body: JSON.stringify({
       site: site.site,
       confidence: 'verified',
-      summary: 'Backup was recovered in an archive rehearsal.',
+      confidence_level: 'synthetic_transaction_passed',
+      summary: 'The backup passed database, application, and synthetic transaction checks.',
       reasons: [],
       last_backup: { name: 'latest-good', created_at: now, verified_at: now, age_seconds: 1, integrity: 'verified', encrypted: true },
       offsite: { state: 'verified', uploaded_at: now, restore_verified_at: now },
-      last_rehearsal: { at: now, backup: 'latest-good', outcome: 'passed', trigger: 'scheduled', level: 'archive', level_description: 'Files and database dumps were extracted and validated. Database import and application health were not tested.', duration_ms: 42000 },
-      last_passed_rehearsal: { at: now, backup: 'latest-good', outcome: 'passed', trigger: 'scheduled', level: 'archive', level_description: 'Files and database dumps were extracted and validated. Database import and application health were not tested.', duration_ms: 42000 },
+      last_rehearsal: { at: now, backup: 'latest-good', outcome: 'passed', trigger: 'scheduled', level: 'application', synthetic_transaction_passed: true, level_description: 'Database and application recovered and passed a synthetic transaction.', duration_ms: 42000 },
+      last_passed_rehearsal: { at: now, backup: 'latest-good', outcome: 'passed', trigger: 'scheduled', level: 'application', synthetic_transaction_passed: true, level_description: 'Database and application recovered and passed a synthetic transaction.', duration_ms: 42000 },
       measured_recovery_ms: 42000,
       recovery_point_age_seconds: 1,
       encryption_key: 'healthy',
+      checks: [
+        { name: 'archive', status: 'pass', detail: 'Manifest and archive verified.', at: now, backup: 'latest-good' },
+        { name: 'database', status: 'pass', detail: 'Database imported and checked.', at: now, backup: 'latest-good', duration_ms: 42000 },
+        { name: 'application', status: 'pass', detail: 'Application booted and HTTP probe passed.', at: now, backup: 'latest-good', duration_ms: 42000 },
+        { name: 'synthetic_transaction', status: 'pass', detail: 'Unique canary write/read passed.', at: now, backup: 'latest-good', duration_ms: 42000 },
+        { name: 'offsite_restore', status: 'pass', detail: 'Offsite copy restored.', at: now, backup: 'latest-good' },
+      ],
       history: [],
       rehearsal_interval_hours: 24,
       automatic_rehearsals_enabled: true,
@@ -460,7 +468,12 @@ test('recovery status identifies a successfully rehearsed point and remote copy 
   await page.getByRole('button', { name: /Manage site/ }).click();
   await page.getByRole('tab', { name: 'Backups' }).click();
   const panel = page.getByRole('region', { name: 'Recovery status' });
-  await expect(panel).toContainText('Yes — archive recovery passed');
+  await expect(panel).toContainText('Yes — application recovery passed');
+  await expect(panel).toContainText('Synthetic transaction passed');
+  await expect(panel).toContainText('Last successful test');
+  await expect(panel).toContainText('42s');
+  await expect(panel.getByRole('list', { name: 'Recovery evidence steps' })).toContainText('synthetic transaction');
+  await expect(panel.getByRole('list', { name: 'Recovery evidence steps' })).toContainText('offsite restore');
   await expect(panel).toContainText('Proven recovery point');
   await expect(panel).toContainText('latest-good');
   await expect(panel).toContainText('Upload confirmed');

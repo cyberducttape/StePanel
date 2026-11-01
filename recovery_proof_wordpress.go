@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/importer"
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 )
 
@@ -109,11 +110,12 @@ func wordpressProofTreeSize(ctx context.Context, root string) (uint64, error) {
 }
 
 type wordpressProofResult struct {
-	Site       string   `json:"site"`
-	Hostname   string   `json:"hostname"`
-	Database   string   `json:"database"`
-	Checks     []string `json:"checks"`
-	DurationMS int64    `json:"duration_ms"`
+	Site                       string   `json:"site"`
+	Hostname                   string   `json:"hostname"`
+	Database                   string   `json:"database"`
+	Checks                     []string `json:"checks"`
+	SyntheticTransactionPassed bool     `json:"synthetic_transaction_passed"`
+	DurationMS                 int64    `json:"duration_ms"`
 }
 
 type wordpressProofPlan struct {
@@ -441,9 +443,36 @@ func (a *App) proveWordPressRestore(ctx context.Context, stage string, databases
 	if err != nil {
 		return result, fmt.Errorf("WordPress HTTP probe: %w", err)
 	}
+	if err := wordpressSyntheticTransaction(probeCtx, a.Config, plan.site); err != nil {
+		return result, fmt.Errorf("WordPress synthetic transaction: %w", err)
+	}
+	result.SyntheticTransactionPassed = true
+	result.Checks = append(result.Checks, "WordPress wrote and read back a recovery canary through the restored database")
 	result.DurationMS = time.Since(started).Milliseconds()
 	outcome = "restored WordPress served " + plan.hostname
 	return result, nil
+}
+
+// wordpressSyntheticTransaction proves that the restored application can
+// persist and retrieve a disposable option through its own wp-config.php.
+// The option lives only in the throwaway proof database, which teardown drops.
+func wordpressSyntheticTransaction(ctx context.Context, cfg Config, site string) error {
+	var random [16]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return fmt.Errorf("generate canary value: %w", err)
+	}
+	want := hex.EncodeToString(random[:])
+	if _, err := runWordPress(ctx, cfg, rootbroker.WordPressRequest{Action: "recovery-probe-write", Site: site, Value: want}); err != nil {
+		return fmt.Errorf("write canary option: %w", err)
+	}
+	got, err := runWordPress(ctx, cfg, rootbroker.WordPressRequest{Action: "recovery-probe-read", Site: site})
+	if err != nil {
+		return fmt.Errorf("read canary option: %w", err)
+	}
+	if strings.TrimSpace(got.Output) != want {
+		return errors.New("canary option read-back did not match the value written")
+	}
+	return nil
 }
 
 // teardownWordPressProof removes the proof site in dependency order: the

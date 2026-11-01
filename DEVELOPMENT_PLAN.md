@@ -12,6 +12,28 @@ successful one-off smoke does not close a host-certification gate.
 
 ## Milestones
 
+### M0t — Report evidence-based site recovery confidence (P1)
+
+**Status:** Implemented locally; exact-source CI and authenticated browser E2E
+remain pending. This product status summarizes stored evidence; it does not
+certify installed-host recovery.
+
+**Acceptance criteria**
+
+- Each site's recovery response and workspace identify the confidence level
+  and show separate archive, database, application, synthetic-transaction,
+  and offsite-restore checks.
+- Every passing check identifies its backup and evidence timestamp; measured
+  rehearsal duration is shown with the exact successful recovery point.
+- Archive-only validation never implies database or application recovery.
+- An offsite upload never implies that an offsite restore succeeded; an
+  offsite restore claim is tied to the selected backup identity.
+- Built-in WordPress proof writes and reads a unique canary through the
+  disposable restored database and removes it with the disposable database.
+- Focused recovery/broker tests, race tests, `make check`, UI tests, and
+  exact-source CI pass. Full installed-host recovery certification remains a
+  separate release gate.
+
 ### M0r — Isolate recovery-proof execution and reject incompatible workers (P1)
 
 **Status:** Partially implemented locally; exact-source CI pending. Login

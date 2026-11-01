@@ -24,6 +24,8 @@ func TestWordPressArgsAcceptsNamedOperations(t *testing.T) {
 		{WordPressRequest{Action: "config-get", Name: "DB_NAME"}, "config get DB_NAME"},
 		{WordPressRequest{Action: "maintenance-status"}, "--skip-plugins --skip-themes maintenance-mode is-active"},
 		{WordPressRequest{Action: "option-get", Name: "siteurl"}, "--skip-plugins --skip-themes option get siteurl"},
+		{WordPressRequest{Action: "recovery-probe-write", Value: "0123456789abcdef0123456789abcdef"}, "--skip-plugins --skip-themes option update stepanel_recovery_probe 0123456789abcdef0123456789abcdef"},
+		{WordPressRequest{Action: "recovery-probe-read"}, "--skip-plugins --skip-themes option get stepanel_recovery_probe"},
 		{WordPressRequest{Action: "option-update", Name: "home", Value: "https://example.org"}, "--skip-plugins --skip-themes option update home https://example.org"},
 		{WordPressRequest{Action: "option-update", Name: "active_plugins", Value: `["akismet/akismet.php","hello.php"]`}, `--skip-plugins --skip-themes option update active_plugins ["akismet/akismet.php","hello.php"] --format=json`},
 		{WordPressRequest{Action: "search-replace", Search: "http://old.test", Replace: "https://new.test"}, "--skip-plugins --skip-themes search-replace http://old.test https://new.test --all-tables-with-prefix --precise --recurse-objects --skip-columns=guid --quiet"},
@@ -79,22 +81,23 @@ func TestWordPressCoreInstallValidatesHTTPSIdentityAndKeepsPasswordOffArgv(t *te
 // options such as --exec or --require, which would load arbitrary code.
 func TestWordPressArgsRejectsInjectedValues(t *testing.T) {
 	for name, req := range map[string]WordPressRequest{
-		"unknown action":         {Action: "eval"},
-		"theme option":           {Action: "option-update", Name: "template", Value: "--exec=phpinfo();"},
-		"theme traversal":        {Action: "option-update", Name: "stylesheet", Value: "../x"},
-		"arbitrary option":       {Action: "option-update", Name: "admin_email", Value: "a@b.c"},
-		"arbitrary option get":   {Action: "option-get", Name: "admin_email"},
-		"plugin traversal":       {Action: "option-update", Name: "active_plugins", Value: `["../evil.php"]`},
-		"plugin option":          {Action: "option-update", Name: "active_plugins", Value: `["--require=x.php"]`},
-		"plugins not json":       {Action: "option-update", Name: "active_plugins", Value: `akismet/akismet.php`},
-		"url option":             {Action: "option-update", Name: "home", Value: "--url=https://x.test"},
-		"url scheme":             {Action: "search-replace", Search: "javascript:alert(1)", Replace: "https://x.test"},
-		"url newline":            {Action: "search-replace", Search: "https://a.test\n--exec=x", Replace: "https://x.test"},
-		"config constant":        {Action: "config-set", Name: "WP_DEBUG", Value: "true"},
-		"config value option":    {Action: "config-set", Name: "DB_HOST", Value: "--exec=x"},
-		"config create no pass":  {Action: "config-create", DBName: "a", DBUser: "b", DBHost: "localhost", DBPrefix: "wp_"},
-		"config create bad host": {Action: "config-create", DBName: "a", DBUser: "b", DBHost: "-x", DBPrefix: "wp_", Secret: "password1234567890"},
-		"password newline":       {Action: "config-set-password", Secret: "pass\nword"},
+		"unknown action":           {Action: "eval"},
+		"theme option":             {Action: "option-update", Name: "template", Value: "--exec=phpinfo();"},
+		"theme traversal":          {Action: "option-update", Name: "stylesheet", Value: "../x"},
+		"arbitrary option":         {Action: "option-update", Name: "admin_email", Value: "a@b.c"},
+		"arbitrary option get":     {Action: "option-get", Name: "admin_email"},
+		"malformed recovery nonce": {Action: "recovery-probe-write", Value: "--exec=evil"},
+		"plugin traversal":         {Action: "option-update", Name: "active_plugins", Value: `["../evil.php"]`},
+		"plugin option":            {Action: "option-update", Name: "active_plugins", Value: `["--require=x.php"]`},
+		"plugins not json":         {Action: "option-update", Name: "active_plugins", Value: `akismet/akismet.php`},
+		"url option":               {Action: "option-update", Name: "home", Value: "--url=https://x.test"},
+		"url scheme":               {Action: "search-replace", Search: "javascript:alert(1)", Replace: "https://x.test"},
+		"url newline":              {Action: "search-replace", Search: "https://a.test\n--exec=x", Replace: "https://x.test"},
+		"config constant":          {Action: "config-set", Name: "WP_DEBUG", Value: "true"},
+		"config value option":      {Action: "config-set", Name: "DB_HOST", Value: "--exec=x"},
+		"config create no pass":    {Action: "config-create", DBName: "a", DBUser: "b", DBHost: "localhost", DBPrefix: "wp_"},
+		"config create bad host":   {Action: "config-create", DBName: "a", DBUser: "b", DBHost: "-x", DBPrefix: "wp_", Secret: "password1234567890"},
+		"password newline":         {Action: "config-set-password", Secret: "pass\nword"},
 	} {
 		if _, err := WordPressArgs(&req); err == nil {
 			t.Errorf("%s: WordPressArgs accepted %#v", name, req)
@@ -103,8 +106,12 @@ func TestWordPressArgsRejectsInjectedValues(t *testing.T) {
 }
 
 func TestWordPressFencingAndLocking(t *testing.T) {
-	for action, fenced := range map[string]bool{"status": false, "db-check": false, "maintenance-status": false, "option-get": false, "core-update": true, "maintenance-activate": true, "config-set-password": true} {
-		req := &Request{RequestType: "wordpress", WordPress: &WordPressRequest{Action: action, Site: "demo"}}
+	for action, fenced := range map[string]bool{"status": false, "db-check": false, "maintenance-status": false, "option-get": false, "recovery-probe-read": false, "recovery-probe-write": true, "core-update": true, "maintenance-activate": true, "config-set-password": true} {
+		request := &WordPressRequest{Action: action, Site: "demo"}
+		if action == "recovery-probe-write" {
+			request.Value = "0123456789abcdef0123456789abcdef"
+		}
+		req := &Request{RequestType: "wordpress", WordPress: request}
 		if got := requestRequiresFencing(req); got != fenced {
 			t.Errorf("%s requires fencing = %v, want %v", action, got, fenced)
 		}

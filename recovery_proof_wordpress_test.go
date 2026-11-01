@@ -74,6 +74,12 @@ func newWordPressProofFixture(t *testing.T, config string) *wordpressProofFixtur
 esac`)
 	dbctl := writeHelper("dbctl", `[[ "$1" == restore-wordpress ]] && cat > /dev/null`)
 	vhostctl := writeHelper("vhostctl", "")
+	wpState := filepath.Join(root, "wp-recovery-option")
+	wpcli := filepath.Join(root, "wp")
+	wpScript := "#!/usr/bin/env bash\necho \"wp $*\" >> \"" + log + "\"\nif [[ \"$*\" == *'option update stepanel_recovery_probe '* ]]; then value=\"${@: -1}\"; printf '%s' \"$value\" > \"" + wpState + "\"; elif [[ \"$*\" == *'option get stepanel_recovery_probe'* ]]; then cat \"" + wpState + "\"; fi\n"
+	if err := os.WriteFile(wpcli, []byte(wpScript), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	app := &App{
 		Config: Config{
 			WebRoot:                webRoot,
@@ -86,6 +92,7 @@ esac`)
 			WebServer:              "apache",
 			DBEngine:               "mariadb",
 			WordPressRecoveryProof: recoveryProofModeManual,
+			WPCLI:                  wpcli,
 		},
 		Auth: Auth{Username: "admin"},
 	}
@@ -199,7 +206,7 @@ func TestWordPressProofRestoresAndServesThrowawaySite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("proof failed: %v; calls:\n%s", err, f.helperCalls(t))
 	}
-	if !isRecoveryProofSiteName(result.Site) || result.Hostname != result.Site+".localhost" || len(result.Checks) != 5 {
+	if !isRecoveryProofSiteName(result.Site) || result.Hostname != result.Site+".localhost" || len(result.Checks) != 6 || !result.SyntheticTransactionPassed {
 		t.Fatalf("result = %+v", result)
 	}
 	for _, want := range []string{"'DB_NAME', \"" + result.Database + "\"", "'DB_USER', \"" + result.Database + "\"", "'DB_HOST', \"localhost\"", "define('WP_HOME', \"http://" + result.Hostname + "\")", "define('WP_SITEURL', \"http://" + result.Hostname + "\")"} {
