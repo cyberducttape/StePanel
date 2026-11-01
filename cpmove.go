@@ -301,6 +301,13 @@ func realizedCPMoveDomainMappings(info CPMoveInfo, result ImportResult) []Migrat
 		planned[mapping].Status = "imported"
 		planned[mapping].Details = "Domain was created as a separate destination site; verify its route and HTTPS response before DNS cutover."
 	}
+	for _, unchanged := range result.DomainsUnchanged {
+		if i, ok := byDomain[strings.ToLower(unchanged.Domain)]; ok {
+			planned[i].Destination = unchanged.Site
+			planned[i].Status = "unchanged"
+			planned[i].Details = "Domain was already served by site " + unchanged.Site + " in this account; the import left it unchanged."
+		}
+	}
 	for _, domain := range result.DomainErrors {
 		name := strings.TrimSpace(strings.SplitN(domain, ":", 2)[0])
 		if i, ok := byDomain[strings.ToLower(name)]; ok {
@@ -550,6 +557,7 @@ type ImportResult struct {
 	MainDomain               string                       `json:"main_domain,omitempty"`
 	ParkedDomains            []string                     `json:"parked_domains,omitempty"`
 	Domains                  []ImportedDomain             `json:"domains,omitempty"`
+	DomainsUnchanged         []ImportedDomain             `json:"domains_unchanged,omitempty"`
 	DomainErrors             []string                     `json:"domain_errors,omitempty"`
 	Evidence                 []MigrationEvidence          `json:"migration_evidence,omitempty"`
 	Components               []MigrationComponent         `json:"components,omitempty"`
@@ -589,6 +597,10 @@ const (
 	MigrationImported    MigrationDisposition = "imported"
 	MigrationTransformed MigrationDisposition = "transformed"
 	MigrationSkipped     MigrationDisposition = "skipped"
+	// MigrationUnchanged is a component the destination already provides
+	// (for example a domain already served in the account on re-import);
+	// the import deliberately left it as it was.
+	MigrationUnchanged   MigrationDisposition = "unchanged"
 	MigrationUnsupported MigrationDisposition = "unsupported"
 	MigrationFailed      MigrationDisposition = "failed"
 )
@@ -622,7 +634,7 @@ type MigrationDomainMapping struct {
 	Kind               string `json:"kind"`
 	SourceDocumentRoot string `json:"source_document_root,omitempty"`
 	Destination        string `json:"destination"`
-	Status             string `json:"status"` // planned, warning, unknown
+	Status             string `json:"status"` // planned, warning, unknown, imported, unchanged
 	Details            string `json:"details"`
 }
 
@@ -1550,14 +1562,16 @@ func restoreCPMoveArchiveContextWithApp(ctx context.Context, cfg Config, archive
 	setMigrationCheckpoint(&result, "recovery_journal", "committed", txn.ID, "Durable site transaction reached its committed state.")
 	if intoAccount {
 		result.Account, result.MainDomain, result.ParkedDomains = user, plan.MainDomain, plan.Parked
-		result.Domains, result.DomainErrors = restoreCPMoveDomainSites(ctx, cfg, db, manager, user, plan)
+		result.Domains, result.DomainsUnchanged, result.DomainErrors = restoreCPMoveDomainSites(ctx, cfg, db, manager, user, plan)
 		result.DomainsImportedTotal, result.DomainErrorCount = len(result.Domains), len(result.DomainErrors)
+		unchangedTotal := len(result.DomainsUnchanged)
 		result.Domains, _ = boundImportedDomains(result.Domains)
+		result.DomainsUnchanged, _ = boundImportedDomains(result.DomainsUnchanged)
 		result.DomainErrors, _ = boundMigrationStrings(result.DomainErrors)
 		if len(result.DomainErrors) > 0 {
 			setMigrationCheckpoint(&result, "domain_routes", "failed", txn.ID, fmt.Sprintf("%d domain route(s) need operator review.", result.DomainErrorCount))
 		} else {
-			setMigrationCheckpoint(&result, "domain_routes", "completed", txn.ID, fmt.Sprintf("Created or reconciled %d domain route(s); DNS records remain unchanged.", result.DomainsImportedTotal))
+			setMigrationCheckpoint(&result, "domain_routes", "completed", txn.ID, fmt.Sprintf("Created %d domain site(s) and left %d already-served domain(s) unchanged; DNS records remain unchanged.", result.DomainsImportedTotal, unchangedTotal))
 		}
 	} else {
 		setMigrationCheckpoint(&result, "domain_routes", "not_reached", txn.ID, "The import used the legacy single-site layout; account domain placement was not run.")
@@ -1695,6 +1709,12 @@ func buildMigrationComponents(info CPMoveInfo, result ImportResult, databasesSel
 					add("domains", source, result.User+" (route pending)", disposition, details)
 					found = true
 					break
+				}
+			}
+			for _, domain := range result.DomainsUnchanged {
+				if !found && domain.Domain == source {
+					add("domains", source, domain.Site, MigrationUnchanged, "Domain was already served by this site in the destination account; the import left it unchanged.")
+					found = true
 				}
 			}
 			for _, domain := range result.Domains {
@@ -1839,6 +1859,12 @@ func buildCPMoveMigrationEvidence(info CPMoveInfo, result ImportResult, database
 				continue
 			}
 			reason := domain.Domain + ": domain site was not restored"
+			for _, unchanged := range result.DomainsUnchanged {
+				if unchanged.Domain == domain.Domain {
+					reason = domain.Domain + ": already served by site " + unchanged.Site + "; left unchanged"
+					break
+				}
+			}
 			for _, failure := range result.DomainErrors {
 				if strings.HasPrefix(failure, domain.Domain+":") {
 					reason = failure

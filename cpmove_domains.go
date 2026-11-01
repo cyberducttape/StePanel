@@ -268,17 +268,17 @@ func siteNameForDomain(domain string, taken func(string) bool) (string, error) {
 
 // restoreCPMoveDomainSites restores each planned addon and subdomain as its
 // own site in the account. The main site is already committed; a domain that
-// cannot be restored is reported and fully cleaned up, never half-created.
-func restoreCPMoveDomainSites(ctx context.Context, cfg Config, db *sql.DB, manager siteauthority.Manager, account string, plan cpmoveDomainPlan) ([]ImportedDomain, []string) {
-	var restored []ImportedDomain
-	var failures []string
+// cannot be restored is reported and fully cleaned up, never half-created. A
+// domain already served in the account is returned as unchanged, matching the
+// destination planner, which admits it with a warning (re-import, retry).
+func restoreCPMoveDomainSites(ctx context.Context, cfg Config, db *sql.DB, manager siteauthority.Manager, account string, plan cpmoveDomainPlan) (restored, unchanged []ImportedDomain, failures []string) {
 	existing, err := sitelayout.ForAccount(db, account)
 	if err != nil {
-		return nil, []string{"list account sites: " + err.Error()}
+		return nil, nil, []string{"list account sites: " + err.Error()}
 	}
-	used := map[string]string{}
+	used := map[string]sitelayout.Placement{}
 	for _, placement := range existing {
-		used[placement.Directory] = placement.Site
+		used[strings.ToLower(placement.Directory)] = placement
 	}
 	taken := func(name string) bool {
 		if _, err := sitelayout.Get(db, name); err == nil {
@@ -294,8 +294,8 @@ func restoreCPMoveDomainSites(ctx context.Context, cfg Config, db *sql.DB, manag
 			failures = append(failures, domain.Domain+": "+err.Error())
 			continue
 		}
-		if site, found := used[domain.Domain]; found {
-			failures = append(failures, fmt.Sprintf("%s: already served by site %s; not overwritten", domain.Domain, site))
+		if placement, found := used[strings.ToLower(domain.Domain)]; found {
+			unchanged = append(unchanged, ImportedDomain{Domain: domain.Domain, Site: placement.Site, Kind: string(domain.Kind), DocumentRoot: placement.DocRoot(cfg.HomeRoot)})
 			continue
 		}
 		name, err := siteNameForDomain(domain.Domain, taken)
@@ -308,10 +308,10 @@ func restoreCPMoveDomainSites(ctx context.Context, cfg Config, db *sql.DB, manag
 			failures = append(failures, domain.Domain+": "+err.Error())
 			continue
 		}
-		used[domain.Domain] = name
+		used[strings.ToLower(domain.Domain)] = placement
 		restored = append(restored, ImportedDomain{Domain: domain.Domain, Site: name, Kind: string(domain.Kind), DocumentRoot: placement.DocRoot(cfg.HomeRoot)})
 	}
-	return restored, failures
+	return restored, unchanged, failures
 }
 
 func restoreCPMoveDomainSite(ctx context.Context, cfg Config, db *sql.DB, manager siteauthority.Manager, placement sitelayout.Placement, source string) (err error) {

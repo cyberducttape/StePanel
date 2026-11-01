@@ -182,4 +182,42 @@ func TestRestoreCPMoveIntoAHostingAccount(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(webRoot, "sites", "alice")); !os.IsNotExist(err) {
 		t.Fatalf("the restore also wrote the legacy site tree: %v", err)
 	}
+
+	// A re-import admits the already-served domains (the destination planner
+	// marks them as warnings), so the executor must report them as unchanged,
+	// not as domain failures.
+	again, againHeader := openMultipartArchive(t, archive, "cpmove-alice.tar.gz")
+	defer again.Close()
+	reimport, err := RestoreCPMove(cfg, again, againHeader, AuthorizedSite{site: "alice"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reimport.DomainErrors) != 0 || reimport.DomainErrorCount != 0 || len(reimport.Domains) != 0 || len(reimport.DomainsUnchanged) != 3 {
+		t.Fatalf("re-import domains = %+v unchanged = %+v errors = %v", reimport.Domains, reimport.DomainsUnchanged, reimport.DomainErrors)
+	}
+	unchangedComponents := 0
+	for _, component := range reimport.Components {
+		if component.Category != "domains" {
+			continue
+		}
+		if component.Disposition == MigrationFailed {
+			t.Fatalf("re-import reported a failed domain component: %+v", component)
+		}
+		if component.Disposition == MigrationUnchanged {
+			unchangedComponents++
+		}
+	}
+	if unchangedComponents != 3 {
+		t.Fatalf("unchanged domain components = %d, want 3: %+v", unchangedComponents, reimport.Components)
+	}
+	for _, mapping := range reimport.DomainMappings {
+		if mapping.Kind != "main" && mapping.Kind != "parked" && mapping.Status != "unchanged" {
+			t.Fatalf("re-import mapping %+v, want unchanged", mapping)
+		}
+	}
+	for _, check := range reimport.PostMigrationChecks {
+		if check.Name == "Domain routes" && check.Status == "blocked" {
+			t.Fatalf("re-import blocked the domain-route check: %+v", check)
+		}
+	}
 }
