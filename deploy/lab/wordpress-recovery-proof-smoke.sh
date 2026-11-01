@@ -43,10 +43,14 @@ database_created=0
 route_created=0
 database_outage_injected=0
 broker_outage_injected=0
+host_wp_cli_installed=0
 route_file="/etc/caddy/stepanel.d/site-${site}-${domain//./_}.caddy"
 
 cleanup() {
   local status=$?
+  if (( host_wp_cli_installed )); then
+    rm -f -- /usr/local/bin/wp || true
+  fi
   if (( broker_outage_injected )); then
     systemctl start stepanel-root-broker.service || true
   fi
@@ -136,6 +140,15 @@ curl --fail --silent --show-error --location --max-time 120 \
   https://github.com/wp-cli/wp-cli/releases/download/v2.12.0/wp-cli-2.12.0.phar -o "$wp_cli"
 printf '%s  %s\n' 'ce34ddd838f7351d6759068d09793f26755463b4a4610a5a5c0a97b68220d85c' "$wp_cli" \
   | sha256sum --check --status
+
+# stepanel-appctl runs WP-CLI only from the fixed /usr/local/bin/wp path.
+# Install the digest-pinned release there for this smoke (unless the host
+# already has one) so the recovery proof's synthetic write/read canary runs
+# through the root broker; cleanup removes it again.
+if [[ ! -e /usr/local/bin/wp ]]; then
+  install -o root -g root -m 0755 -- "$wp_cli" /usr/local/bin/wp
+  host_wp_cli_installed=1
+fi
 
 /usr/local/sbin/stepanel-sitectl prepare "$site"
 site_prepared=1
@@ -409,8 +422,9 @@ passed = data.get("last_passed_rehearsal") or {}
 assert passed.get("backup") == expected_backup, f"latest passing rehearsal is for {passed.get('backup')!r}"
 assert passed.get("level") == "application", f"recovery level is {passed.get('level')!r}, not application"
 checks = {check.get("name"): check.get("status") for check in data.get("checks", [])}
-for name in ("archive", "database", "application"):
+for name in ("archive", "database", "application", "synthetic_transaction"):
     assert checks.get(name) == "pass", f"{name} recovery check is {checks.get(name)!r}"
+assert passed.get("synthetic_transaction_passed") is True, "synthetic write/read canary did not pass"
 assert data.get("measured_recovery_ms", 0) > 0, "application recovery duration was not recorded"
 print(f"installed WordPress recovery proof passed: backup={expected_backup}, rto_ms={data['measured_recovery_ms']}")
 PY

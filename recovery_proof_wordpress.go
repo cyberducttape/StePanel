@@ -443,11 +443,18 @@ func (a *App) proveWordPressRestore(ctx context.Context, stage string, databases
 	if err != nil {
 		return result, fmt.Errorf("WordPress HTTP probe: %w", err)
 	}
-	if err := wordpressSyntheticTransaction(probeCtx, a.Config, plan.site); err != nil {
-		return result, fmt.Errorf("WordPress synthetic transaction: %w", err)
+	// WP-CLI is optional on a host. Without it the proof still establishes
+	// application recovery; it just cannot claim a synthetic transaction,
+	// which recovery status then reports as missing evidence.
+	if commandAvailable(a.Config.WPCLI) {
+		if err := wordpressSyntheticTransaction(probeCtx, a.Config, plan.site); err != nil {
+			return result, fmt.Errorf("WordPress synthetic transaction: %w", err)
+		}
+		result.SyntheticTransactionPassed = true
+		result.Checks = append(result.Checks, "WordPress wrote and read back a recovery canary through the restored database")
+	} else {
+		result.Checks = append(result.Checks, "synthetic write/read transaction skipped: WP-CLI is not installed at "+a.Config.WPCLI)
 	}
-	result.SyntheticTransactionPassed = true
-	result.Checks = append(result.Checks, "WordPress wrote and read back a recovery canary through the restored database")
 	result.DurationMS = time.Since(started).Milliseconds()
 	outcome = "restored WordPress served " + plan.hostname
 	return result, nil
