@@ -59,6 +59,11 @@ func sealPeakHeap(t *testing.T, root string) (uint64, int) {
 // F-04: sealing must not retain the tree. A tree ten times larger must not
 // need materially more heap, and every entry must still be sealed.
 func TestSecureSealTreeMemoryDoesNotGrowWithEntryCount(t *testing.T) {
+	if raceDetectorEnabled {
+		// The race detector's shadow memory grows with every access and
+		// swamps the measurement; the plain test run enforces this bound.
+		t.Skip("heap growth is not measurable under the race detector")
+	}
 	small, large := 4_000, 40_000
 	if os.Getenv("STEPANEL_SEAL_STRESS") != "" {
 		large = 1_000_000 // million-entry run: STEPANEL_SEAL_STRESS=1

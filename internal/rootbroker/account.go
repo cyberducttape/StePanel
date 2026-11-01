@@ -61,8 +61,15 @@ func (v *Validator) validateAccountRequest(req *AccountRequest) error {
 			return fmt.Errorf("account %s accepts only an account", req.Action)
 		}
 	case "quota":
-		if req.Site != "" || req.Kind != "" || req.Directory != "" {
-			return errors.New("account quota accepts only an account and limits")
+		// quota may name the placed site it is applied for: that site's
+		// lease fences the request when the site is placed in this account.
+		if req.Site != "" {
+			if err := v.ValidateSiteName(req.Site); err != nil {
+				return err
+			}
+		}
+		if req.Kind != "" || req.Directory != "" {
+			return errors.New("account quota accepts only an account, the site it is for, and limits")
 		}
 		if req.DiskMB < 64 || req.DiskMB > 1048576 || req.Inodes < 1000 || req.Inodes > 1000000000 {
 			return errors.New("account quota is out of range")

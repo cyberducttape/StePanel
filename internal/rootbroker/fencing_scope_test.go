@@ -113,6 +113,16 @@ func TestFencingScopeFollowsThePanelLockNames(t *testing.T) {
 		{"unplaced new site ensures its account", "newsite", Request{RequestType: "account", Account: &AccountRequest{Action: "ensure", Account: "carol", Site: "newsite"}}, true},
 		{"unplaced site cannot delete an account", "newsite", Request{RequestType: "account", Account: &AccountRequest{Action: "delete", Account: "carol", Site: "newsite"}}, false},
 		{"account resources", "account:alice", Request{RequestType: "resource", Resource: &ResourceRequest{Action: "apply-account", Account: "alice"}}, true},
+		// Applying a placed site's resource profile, under that site's lease,
+		// reaches its account's envelope and quota (installed-host smoke).
+		{"account quota for a site placed in it", "shop-example-org", Request{RequestType: "account", Account: &AccountRequest{Action: "quota", Account: "alice", Site: "shop-example-org", DiskMB: 64, Inodes: 1000}}, true},
+		{"account quota for a site placed elsewhere", "bob", Request{RequestType: "account", Account: &AccountRequest{Action: "quota", Account: "alice", Site: "bob", DiskMB: 64, Inodes: 1000}}, false},
+		{"account quota under a site lease naming no site", "shop-example-org", Request{RequestType: "account", Account: &AccountRequest{Action: "quota", Account: "alice", DiskMB: 64, Inodes: 1000}}, false},
+		{"account resources for a site placed in it", "shop-example-org", Request{RequestType: "resource", Resource: &ResourceRequest{Action: "apply-account", Account: "alice", Site: "shop-example-org"}}, true},
+		{"account resources for a site placed elsewhere", "bob", Request{RequestType: "resource", Resource: &ResourceRequest{Action: "apply-account", Account: "alice", Site: "bob"}}, false},
+		{"unplaced site cannot apply account resources", "newsite", Request{RequestType: "resource", Resource: &ResourceRequest{Action: "apply-account", Account: "carol", Site: "newsite"}}, false},
+		{"site resources under its account's lease", "account:alice", Request{RequestType: "resource", Resource: &ResourceRequest{Action: "apply-site", Site: "shop-example-org", Account: "alice"}}, true},
+		{"site resources under a claimed account's lease", "account:bob", Request{RequestType: "resource", Resource: &ResourceRequest{Action: "apply-site", Site: "shop-example-org", Account: "bob"}}, false},
 		{"certificate lease", "certificate:shop.example.org", Request{RequestType: "certificate", Certificate: &CertificateRequest{Action: "issue", Domain: "Shop.Example.org"}}, true},
 		{"certificate under a site lease", "alice", Request{RequestType: "certificate", Certificate: &CertificateRequest{Action: "issue", Domain: "shop.example.org"}}, false},
 	}

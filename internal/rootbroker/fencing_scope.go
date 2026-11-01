@@ -178,28 +178,19 @@ func (b *Broker) fencingScopeFor(req *Request) (fencingScope, error) {
 		account := req.Account
 		scope.add("account:"+account.Account, account.Account)
 		scope.target("account " + account.Account)
-		if account.Site != "" {
-			placement, placeErr := b.sitePlacement(account.Site)
-			switch {
-			case placeErr == nil && placement.Account == account.Account:
-				addSite(account.Site)
-			case placeErr == nil:
-				// The site belongs to another account; its lease must not
-				// admit a change to this one.
-			case errors.Is(placeErr, sitelayout.ErrNotPlaced) && account.Action == "ensure":
-				// Creating a site's account precedes its placement record.
-				// ensure only creates the account's identity idempotently.
-				addSite(account.Site)
-			case errors.Is(placeErr, sitelayout.ErrNotPlaced):
-			default:
-				return fencingScope{}, placeErr
-			}
-		}
+		// Creating a site's account precedes its placement record; ensure
+		// only creates the account's identity idempotently.
+		err = b.addAccountSiteScope(&scope, account.Account, account.Site, account.Action == "ensure")
 	case "resource":
-		addSite(req.Resource.Site)
-		if req.Resource.Account != "" {
-			scope.add("account:"+req.Resource.Account, req.Resource.Account)
-			scope.target("account " + req.Resource.Account)
+		resource := req.Resource
+		if resource.Action == "apply-account" {
+			scope.add("account:"+resource.Account, resource.Account)
+			scope.target("account " + resource.Account)
+			err = b.addAccountSiteScope(&scope, resource.Account, resource.Site, false)
+		} else {
+			// The site's own lease, or its placement account's; the
+			// request's account field never widens the scope.
+			addSite(resource.Site)
 		}
 	case "certificate":
 		scope.add("certificate:" + strings.ToLower(req.Certificate.Domain))
@@ -211,6 +202,30 @@ func (b *Broker) fencingScopeFor(req *Request) (fencingScope, error) {
 		return fencingScope{}, err
 	}
 	return scope, nil
+}
+
+// addAccountSiteScope admits, for an account-wide request made on behalf of
+// one site, that site's lease, but only when the site is placed in that very
+// account (or, with allowUnplaced, not placed yet): a site's lease must never
+// admit a change to another account.
+func (b *Broker) addAccountSiteScope(scope *fencingScope, account, site string, allowUnplaced bool) error {
+	if site == "" {
+		return nil
+	}
+	placement, err := b.sitePlacement(site)
+	switch {
+	case err == nil && placement.Account == account:
+		return b.addSiteScope(scope, site)
+	case err == nil:
+		return nil
+	case errors.Is(err, sitelayout.ErrNotPlaced):
+		if allowUnplaced {
+			return b.addSiteScope(scope, site)
+		}
+		return nil
+	default:
+		return err
+	}
 }
 
 // addSiteScope admits the site's own lease and, for a site placed in a

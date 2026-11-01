@@ -524,7 +524,7 @@ func (a *App) applyResourceProfile(ctx context.Context, p ResourceProfile, clear
 	if p.Account != "" {
 		var err error
 		if a.Config.Production {
-			_, err = runTypedResourceOperation(ctx, a.Config, rootbroker.ResourceRequest{Action: "apply-account", Account: p.Account, CPUPercent: p.CPUPercent, CPUWeight: p.CPUWeight, MemoryHighMB: p.MemoryHighMB, MemoryMB: p.MemoryMB, IOWeight: p.IOWeight, TasksMax: p.TasksMax})
+			_, err = runTypedResourceOperation(ctx, a.Config, rootbroker.ResourceRequest{Action: "apply-account", Account: p.Account, Site: p.Site, CPUPercent: p.CPUPercent, CPUWeight: p.CPUWeight, MemoryHighMB: p.MemoryHighMB, MemoryMB: p.MemoryMB, IOWeight: p.IOWeight, TasksMax: p.TasksMax})
 		} else {
 			err = runHelperCommandWithTimeout(ctx, a.Config, helperConfigMutationTimeout, a.Config.AppCtl, "account-resource-apply", p.Account, strconv.Itoa(p.CPUPercent), strconv.Itoa(p.CPUWeight), strconv.Itoa(p.MemoryHighMB), strconv.Itoa(p.MemoryMB), strconv.Itoa(p.IOWeight), strconv.Itoa(p.TasksMax))
 		}
@@ -555,7 +555,7 @@ func (a *App) applyResourceProfile(ctx context.Context, p ResourceProfile, clear
 			return err
 		}
 		if placed {
-			return a.applyAccountFilesystemQuota(ctx, location.Placement.Account, p)
+			return a.applyAccountFilesystemQuota(ctx, location.Placement.Account, p.Site, p)
 		}
 		if p.hasFilesystemQuota() {
 			return runTypedSiteMutation(ctx, a.Config, rootbroker.SiteRequest{Action: "quota", Site: p.Site, DiskMB: p.DiskMB, Inodes: p.Inodes})
@@ -569,7 +569,7 @@ func (a *App) applyResourceProfile(ctx context.Context, p ResourceProfile, clear
 		return err
 	}
 	if placed {
-		return a.applyAccountFilesystemQuota(ctx, location.Placement.Account, p)
+		return a.applyAccountFilesystemQuota(ctx, location.Placement.Account, p.Site, p)
 	}
 	if p.hasFilesystemQuota() {
 		if err := runHelperCommandWithTimeout(ctx, a.Config, helperConfigMutationTimeout, a.Config.SiteCtl, "quota", p.Site, strconv.Itoa(p.DiskMB), strconv.Itoa(p.Inodes)); err != nil {
@@ -601,12 +601,12 @@ func (a *App) accountFilesystemQuota(account string, p ResourceProfile) (diskMB,
 // applyAccountFilesystemQuota enforces a hosting account's limit on its Unix
 // user. It never clears the limit: other sites of the account rely on it, and
 // the account user and its quota go away together with the account.
-func (a *App) applyAccountFilesystemQuota(ctx context.Context, account string, p ResourceProfile) error {
+func (a *App) applyAccountFilesystemQuota(ctx context.Context, account, site string, p ResourceProfile) error {
 	diskMB, inodes, ok := a.accountFilesystemQuota(account, p)
 	if !ok {
 		return nil
 	}
-	if _, err := accountHelperContext(ctx, a.Config, rootbroker.AccountRequest{Action: "quota", Account: account, DiskMB: diskMB, Inodes: inodes}); err != nil {
+	if _, err := accountHelperContext(ctx, a.Config, rootbroker.AccountRequest{Action: "quota", Account: account, Site: site, DiskMB: diskMB, Inodes: inodes}); err != nil {
 		return fmt.Errorf("apply hosting account %s filesystem quota: %w", account, err)
 	}
 	return nil

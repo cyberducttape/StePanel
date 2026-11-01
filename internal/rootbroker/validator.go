@@ -440,6 +440,13 @@ func (v *Validator) validateResourceRequest(req *ResourceRequest) error {
 	var args []string
 	switch req.Action {
 	case "apply-account":
+		// The site it is applied for, if any, only selects the lease that
+		// fences the request; it never reaches the helper.
+		if req.Site != "" {
+			if err := v.ValidateSiteName(req.Site); err != nil {
+				return err
+			}
+		}
 		action = "account-resource-apply"
 		args = []string{req.Account, strconv.Itoa(req.CPUPercent), strconv.Itoa(req.CPUWeight), strconv.Itoa(req.MemoryHighMB), strconv.Itoa(req.MemoryMB), strconv.Itoa(req.IOWeight), strconv.Itoa(req.TasksMax)}
 	case "apply-site":
