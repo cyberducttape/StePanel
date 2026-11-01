@@ -379,3 +379,69 @@ func TestExtractorSetsModesThroughDescriptors(t *testing.T) {
 		t.Fatal("a directory entry over an existing file was accepted")
 	}
 }
+
+// F-03: a rejected entry must leave collision state and accounting exactly as
+// they were, so a caller that continues after a rejection (an inspector or a
+// recovery loop) neither reserves nor charges for paths it never created.
+func TestRejectedEntryLeavesPathStateAndAccountingUnchanged(t *testing.T) {
+	x, err := OpenExtractorWithLimits(t.TempDir(), ExtractorLimits{MaxPathComponents: 2, MaxPathMetadataBytes: 1 << 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer x.Close()
+	snapshot := func() (int, int64, int, int) {
+		return len(x.paths.kinds), x.pathMetadataBytes, x.entries, x.archiveObjects
+	}
+	if _, err := x.Dir("keep", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	kinds, metadata, entries, objects := snapshot()
+
+	// Too many components: new parents "a" and "a/b" must not be recorded.
+	if _, _, err := x.File("a/b/c", 0o600, strings.NewReader("x"), 1); err == nil {
+		t.Fatal("over-deep path was admitted")
+	}
+	if k, m, e, o := snapshot(); k != kinds || m != metadata || e != entries || o != objects {
+		t.Fatalf("component rejection changed state: kinds %d->%d metadata %d->%d entries %d->%d objects %d->%d", kinds, k, metadata, m, entries, e, objects, o)
+	}
+	// The rejected entry's parent must still be free to become a file.
+	if _, _, err := x.File("a", 0o600, strings.NewReader("x"), 1); err != nil {
+		t.Fatalf("path left claimed by a rejected entry: %v", err)
+	}
+
+	// A leaf collision must not record the entry's new parents either.
+	paths := NewPathSet()
+	if _, err := paths.Claim("dir/file", File); err != nil {
+		t.Fatal(err)
+	}
+	before := len(paths.kinds)
+	if _, err := paths.Claim("dir/file", File); err == nil {
+		t.Fatal("duplicate file admitted")
+	}
+	if _, err := paths.Claim("x/y/dir", File); err != nil {
+		t.Fatal(err)
+	}
+	before = len(paths.kinds)
+	if _, err := paths.Claim("x/y/dir/z", File); err == nil {
+		t.Fatal("entry beneath a file admitted")
+	}
+	if len(paths.kinds) != before {
+		t.Fatalf("rejected claim recorded %d paths", len(paths.kinds)-before)
+	}
+
+	// Metadata budget: rejection must not consume budget or record paths.
+	tight, err := OpenExtractorWithLimits(t.TempDir(), ExtractorLimits{MaxPathMetadataBytes: 200})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tight.Close()
+	if _, _, err := tight.File("p/q/r/s", 0o600, strings.NewReader("x"), 1); err == nil {
+		t.Fatal("over-budget path admitted")
+	}
+	if len(tight.paths.kinds) != 0 || tight.pathMetadataBytes != 0 || tight.entries != 0 {
+		t.Fatalf("metadata rejection changed state: %d paths, %d bytes, %d entries", len(tight.paths.kinds), tight.pathMetadataBytes, tight.entries)
+	}
+	if _, _, err := tight.File("p", 0o600, strings.NewReader("x"), 1); err != nil {
+		t.Fatalf("budget consumed by a rejected entry: %v", err)
+	}
+}

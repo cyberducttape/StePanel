@@ -179,42 +179,76 @@ func (p *PathSet) Claim(name string, kind Kind) (string, error) {
 // ClaimWithStats normalizes and records name and reports the number of new
 // filesystem objects and a conservative byte estimate for newly retained
 // path metadata. The estimate includes each map key plus fixed per-entry
-// bookkeeping overhead, and is suitable for bounded archive admission.
+// bookkeeping overhead, and is suitable for bounded archive admission. A
+// rejected name leaves the set unchanged.
 func (p *PathSet) ClaimWithStats(name string, kind Kind) (clean string, objects int, metadataBytes int64, err error) {
-	clean, err = NormalizeName(name)
+	claim, err := p.plan(name, kind)
 	if err != nil {
 		return "", 0, 0, err
 	}
+	p.commit(claim)
+	return claim.clean, claim.objects, claim.metadataBytes, nil
+}
+
+// pathClaim is an admitted but not yet recorded claim: everything a caller
+// needs to evaluate its own limits before the set changes.
+type pathClaim struct {
+	clean         string
+	kind          Kind
+	newParents    []string
+	newLeaf       bool
+	objects       int
+	metadataBytes int64
+}
+
+// plan normalizes name and checks it against the recorded paths without
+// changing the set.
+func (p *PathSet) plan(name string, kind Kind) (pathClaim, error) {
+	clean, err := NormalizeName(name)
+	if err != nil {
+		return pathClaim{}, err
+	}
+	claim := pathClaim{clean: clean, kind: kind}
 	if clean == "." {
 		if kind != Directory {
-			return "", 0, 0, fmt.Errorf("entry %q names the archive root as a file", name)
+			return pathClaim{}, fmt.Errorf("entry %q names the archive root as a file", name)
 		}
-		return clean, 0, 0, nil
+		return claim, nil
 	}
 	// Every ancestor must be (or become) a directory. A recorded directory's
 	// own ancestors were checked when it was recorded.
 	for dir := path.Dir(clean); dir != "."; dir = path.Dir(dir) {
 		existing := p.kinds[dir]
 		if existing == File {
-			return "", objects, metadataBytes, fmt.Errorf("entry %q is inside %q, which the archive already created as a file", name, dir)
+			return pathClaim{}, fmt.Errorf("entry %q is inside %q, which the archive already created as a file", name, dir)
 		}
 		if existing == Directory {
 			break
 		}
-		p.kinds[dir] = Directory
-		objects++
-		metadataBytes += int64(len(dir)) + 64
+		claim.newParents = append(claim.newParents, dir)
+		claim.objects++
+		claim.metadataBytes += int64(len(dir)) + 64
 	}
 	switch existing := p.kinds[clean]; {
 	case existing == 0:
-		p.kinds[clean] = kind
-		objects++
-		metadataBytes += int64(len(clean)) + 64
+		claim.newLeaf = true
+		claim.objects++
+		claim.metadataBytes += int64(len(clean)) + 64
 	case existing == Directory && kind == Directory:
 	default:
-		return "", objects, metadataBytes, fmt.Errorf("entry %q collides with an earlier %s at %q", name, existing, clean)
+		return pathClaim{}, fmt.Errorf("entry %q collides with an earlier %s at %q", name, existing, clean)
 	}
-	return clean, objects, metadataBytes, nil
+	return claim, nil
+}
+
+// commit records a planned claim.
+func (p *PathSet) commit(claim pathClaim) {
+	for _, dir := range claim.newParents {
+		p.kinds[dir] = Directory
+	}
+	if claim.newLeaf {
+		p.kinds[claim.clean] = claim.kind
+	}
 }
 
 // ExtractorLimits bounds archive entries and retained path metadata. Zero
@@ -268,10 +302,13 @@ func (x *Extractor) claim(name string, kind Kind, archiveEntry bool) (string, er
 	if archiveEntry && x.limits.MaxEntries > 0 && x.entries >= x.limits.MaxEntries {
 		return "", fmt.Errorf("archive entry limit exceeded (%d)", x.limits.MaxEntries)
 	}
-	clean, objects, metadata, err := x.paths.ClaimWithStats(name, kind)
+	// Plan first and record only after every limit admits the entry, so a
+	// rejected entry leaves collision state and accounting unchanged.
+	claim, err := x.paths.plan(name, kind)
 	if err != nil {
 		return "", err
 	}
+	clean, objects, metadata := claim.clean, claim.objects, claim.metadataBytes
 	components := 0
 	if clean != "." {
 		components = strings.Count(clean, "/") + 1
@@ -282,6 +319,7 @@ func (x *Extractor) claim(name string, kind Kind, archiveEntry bool) (string, er
 	if x.limits.MaxPathMetadataBytes > 0 && metadata > x.limits.MaxPathMetadataBytes-x.pathMetadataBytes {
 		return "", fmt.Errorf("archive path metadata limit exceeded (%d bytes)", x.limits.MaxPathMetadataBytes)
 	}
+	x.paths.commit(claim)
 	if archiveEntry {
 		x.entries++
 		x.archiveObjects += objects
