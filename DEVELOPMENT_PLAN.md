@@ -224,11 +224,24 @@ publication. The earlier installer smoke on `e8a1889` was canceled after a
 newer source was pushed and is not counted.
 
 Durable fencing prevents stale workers from committing SQLite job state, but
-does not undo an external mutation performed after lease loss. Operation-
-specific idempotency, explicit committing/reconciliation-required states,
-prepare/apply/verify/recover journals at irreversible host boundaries, and
-repeatable SIGKILL recovery evidence remain open. These criteria were retained
-when duplicate M0l sections were consolidated.
+does not undo an external mutation performed after lease loss. The broker's
+legacy site-creation journal also derives its journal ID from the site name
+(`site-create-<site>`) rather than receiving the durable job ID. Treat this as
+a known identity gap; it is not evidence that the other job workflows are
+unsafe, but it prevents claiming a consistent operation-ID contract.
+
+Operation-specific idempotency, explicit committing/reconciliation-required
+states, prepare/apply/verify/recover journals at irreversible host boundaries,
+and repeatable SIGKILL recovery evidence remain open. Before certification,
+inventory every mutating durable job kind, broker action, and provider action
+in a side-effect matrix. For each externally visible effect, record the
+operation ID, idempotency/reconciliation rule, journal transition before and
+after the effect, recovery owner, and injected failure points. On lease loss,
+the successor must inspect actual host/provider state and either safely adopt,
+compensate, or mark operator intervention; it must never infer that fencing
+rolled an external effect back. Require tests that kill the worker immediately
+before and after each effect and prove the final filesystem, database,
+service/provider state, journal, and durable job agree.
 
 Configure `STEPANEL_AUDIT_CHECKPOINT_TARGET` to send checkpoints to a distinct
 rclone destination. Use a separately administered storage account and
@@ -254,12 +267,44 @@ open.
   restrictions and retention behavior.
 - Destructive operations require stable, operation-specific idempotency;
   distinct operations are never silently coalesced.
+- Every mutating durable job, root-broker action, and provider action is
+  inventoried with a durable operation ID and a documented idempotency or
+  reconciliation rule for each external effect. No journal uses a site/resource
+  name as a substitute for the operation ID.
 - Each destructive workflow has a durable state machine and restart-safe
   journal, with operator-intervention state for ambiguous external effects.
-- Crash drills kill workers at irreversible boundaries and prove stale workers
-  cannot commit or repeat unverified side effects.
+- Crash drills kill workers immediately before and after every externally
+  visible effect; the successor reconciles actual state and proves stale
+  workers cannot commit or repeat unverified side effects.
+- The installed-host failure matrix verifies filesystem, database,
+  service/provider state, journal, and durable job convergence, with evidence
+  retained at the exact release-candidate source.
 - Exact-source CI, including race tests, coverage, release evidence, and
   installed-host validation, passes before this implementation is certified.
+
+### M0u — Measure durable queue scale and contention (P2)
+
+**Status:** Current-source local queue-depth and two-worker contention
+measurements are recorded in
+[`2026-10-31-queue-claim-benchmark-ec88c85.md`](docs/lab-results/2026-10-31-queue-claim-benchmark-ec88c85.md).
+No query/index change is justified by those results. This is not a certified
+capacity envelope.
+
+**Acceptance criteria**
+
+- Preserve `EXPLAIN QUERY PLAN` output for `ClaimNext` at 1k, 10k, and 100k
+  queued/history rows, including owner FIFO and retry-delay scenarios.
+- Record repeated p50/p95/p99 claim latency, WAL size/checkpoint behavior,
+  SQLite busy/write errors, and queue throughput with one, two, and the
+  supported maximum number of workers.
+- Repeat under representative backup, restore, migration, and dashboard load
+  on each supported host/filesystem profile. Include a sustained run and
+  post-kill/restart queue reconciliation.
+- Make no index/query optimization without benchmark evidence and regression
+  tests proving owner ordering, lease fencing, retry scheduling, and atomic
+  claims are unchanged.
+- Publish the measured operating envelope and limitations with exact-source
+  release evidence; do not infer site capacity from synthetic queue results.
 
 ### M0a — Bound long-running restore and API-token behavior (P1)
 

@@ -1,5 +1,39 @@
 # Production-readiness progress
 
+## Lease-recovery contract and durable queue measurements — 2026-10-31
+
+- Clarified M0l's recovery contract: lease fencing only prevents stale durable
+  job commits; it cannot undo a filesystem, database, service, or provider side
+  effect. Before production certification, each mutating job/broker/provider
+  action must be inventoried by operation ID, with idempotency or reconciliation
+  rules, journal transitions around each effect, and injected kills immediately
+  before/after effects. Recovery must inspect actual external state and end in
+  completed, compensated, or operator-intervention state.
+- Source inspection found the legacy root-broker site-create journal uses
+  `site-create-<site>` as its journal ID instead of receiving the durable job
+  ID. This is now an explicit open identity-contract gap in
+  `DEVELOPMENT_PLAN.md`; no claim is made that all broker mutations use a
+  unique operation ID or have complete crash certification.
+- Refreshed queue evidence on production source `ec88c85` with 30 claims per
+  queue-depth sample at 1k/10k/100k rows, `EXPLAIN QUERY PLAN`, and three runs
+  each of target and saturated dashboard/two-worker contention. Direct claim
+  p95/p99 measurements are now emitted by the multi-worker benchmark and the
+  report is in
+  [`2026-10-31-queue-claim-benchmark-ec88c85.md`](docs/lab-results/2026-10-31-queue-claim-benchmark-ec88c85.md).
+- At 100k queued rows, production indexes measured 211.1 ms mean, 218.9 ms
+  p95, and 220.8 ms p99; a temporary ordered index was slower (223.1 ms mean,
+  260.4 ms p95, 271.7 ms p99), so no production query/index change was made.
+  Under saturated two-worker/two-poller load, claim p99 ranged 62.7–85.1 ms;
+  no claim, busy, re-arm, or session errors occurred. The 19–20 target-profile
+  claim samples per run are too few for stable tail estimates.
+- This is local synthetic evidence, not queue capacity certification. Real
+  backup/restore/migration load, supported-host measurements, long-duration
+  WAL pressure, and crash/restart validation remain open under M0u and the
+  release gates. No destructive host tests were run. `go vet ./...` and
+  `make check` pass on this change. A custom race-instrumented contention
+  benchmark exceeded 90 seconds under race overhead and was stopped; it is not
+  counted as a passing race result.
+
 ## Recovery proof isolation, worker compatibility, and login limiter capacity — 2026-10-31
 
 - Recovery-proof commands now receive a minimal environment containing only a

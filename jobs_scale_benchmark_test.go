@@ -148,6 +148,8 @@ func BenchmarkSessionValidationUnderJobLoad(b *testing.B) {
 			}
 			stop := make(chan struct{})
 			var background sync.WaitGroup
+			var claimLatencyMu sync.Mutex
+			var claimLatencies []time.Duration
 			var claimErrors, claimBusyErrors, rearmErrors, sessionRejections atomic.Uint64
 			pace := func(interval time.Duration) bool {
 				if interval == 0 {
@@ -180,7 +182,12 @@ func BenchmarkSessionValidationUnderJobLoad(b *testing.B) {
 					defer background.Done()
 					owner := fmt.Sprintf("bench-worker-%d", worker)
 					for pace(load.claimEvery) {
+						claimStarted := time.Now()
 						item, ok, err := jobs.ClaimNext(owner)
+						claimLatency := time.Since(claimStarted)
+						claimLatencyMu.Lock()
+						claimLatencies = append(claimLatencies, claimLatency)
+						claimLatencyMu.Unlock()
 						if err != nil {
 							claimErrors.Add(1)
 							if stateerrors.Classify("benchmark_claim", err, "").Category == stateerrors.Temporary {
@@ -224,6 +231,14 @@ func BenchmarkSessionValidationUnderJobLoad(b *testing.B) {
 			b.ReportMetric(percentile(0.50), "p50_µs")
 			b.ReportMetric(percentile(0.90), "p90_µs")
 			b.ReportMetric(percentile(0.99), "p99_µs")
+			sort.Slice(claimLatencies, func(i, k int) bool { return claimLatencies[i] < claimLatencies[k] })
+			claimPercentile := func(p int) float64 {
+				return float64(benchmarkPercentile(claimLatencies, p).Microseconds())
+			}
+			b.ReportMetric(claimPercentile(50), "claim_p50_µs")
+			b.ReportMetric(claimPercentile(95), "claim_p95_µs")
+			b.ReportMetric(claimPercentile(99), "claim_p99_µs")
+			b.ReportMetric(float64(len(claimLatencies)), "claim_samples")
 			b.ReportMetric(float64(claimErrors.Load()), "claim_errors")
 			b.ReportMetric(float64(claimBusyErrors.Load()), "claim_busy_errors")
 			b.ReportMetric(float64(rearmErrors.Load()), "rearm_errors")
