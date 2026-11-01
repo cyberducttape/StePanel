@@ -158,10 +158,8 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 			log.Printf("database restore %s completed but its in-progress marker remains: %v", item.ID, err)
 		}
 	}
-	if strings.HasPrefix(request.Mode, "offsite-") && a.BackupIndex != nil {
-		if err := a.BackupIndex.MarkOffsiteRestoreVerified(a.Config.OffsiteTarget, request.Site, request.Backup, time.Now().UTC()); err != nil {
-			return nil, fmt.Errorf("restore completed but recording offsite restore verification failed: %w", err)
-		}
+	if strings.HasPrefix(request.Mode, "offsite-") {
+		a.recordOffsiteRestoreEvidence(request.Site, request.Backup, &result)
 	}
 	output, err := json.Marshal(result)
 	if err != nil {
@@ -1432,4 +1430,18 @@ func (a *App) backupRestoreOffsiteDatabaseHTTP(w http.ResponseWriter, r *http.Re
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "status_url": "/api/jobs/" + job.ID, "mode": "offsite-database-only", "schema_rollback": "manual"})
+}
+
+// recordOffsiteRestoreEvidence runs after a live offsite restore has
+// committed. Returning an error from the job here would let the durable worker
+// retry it and restore production a second time, so a failed evidence write is
+// reported as a warning on the completed result instead.
+func (a *App) recordOffsiteRestoreEvidence(site, backupName string, result *BackupRestoreResult) {
+	if a.BackupIndex == nil {
+		return
+	}
+	if err := a.BackupIndex.MarkOffsiteRestoreVerified(a.Config.OffsiteTarget, site, backupName, time.Now().UTC()); err != nil {
+		log.Printf("offsite restore of %s/%s completed but its verification record was not saved: %v", site, backupName, err)
+		result.Warnings = append(result.Warnings, "Restore completed, but the offsite restore verification record could not be saved; recovery status will not show this restore as offsite proof.")
+	}
 }

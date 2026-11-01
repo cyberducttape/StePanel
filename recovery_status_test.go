@@ -447,3 +447,31 @@ func TestBackupVerifyRefusesAnotherSitesBackupLikeAFailedVerification(t *testing
 		}
 	}
 }
+
+// A committed offsite restore must not be reported as a retryable failure when
+// only its evidence write fails: a retry would restore production again.
+func TestOffsiteRestoreEvidenceFailureIsAWarningNotAFailure(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	index, err := metadata.NewBackupIndex(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Config: Config{OffsiteTarget: "s3:bucket/backups"}, BackupIndex: index}
+	var ok BackupRestoreResult
+	if err := index.TrackOffsiteBackup(app.Config.OffsiteTarget, "site", "backup.tar.gz", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	app.recordOffsiteRestoreEvidence("site", "backup.tar.gz", &ok)
+	if len(ok.Warnings) != 0 {
+		t.Fatalf("successful evidence write produced warnings: %v", ok.Warnings)
+	}
+	db.Close()
+	var failed BackupRestoreResult
+	app.recordOffsiteRestoreEvidence("site", "backup.tar.gz", &failed)
+	if len(failed.Warnings) != 1 || !strings.Contains(failed.Warnings[0], "Restore completed") {
+		t.Fatalf("evidence write failure not reported as a warning: %+v", failed)
+	}
+}

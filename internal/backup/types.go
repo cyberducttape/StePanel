@@ -84,6 +84,9 @@ type BackupRestoreResult struct {
 	Consistency       string    `json:"consistency"`
 	SchemaRollback    string    `json:"schema_rollback"`
 	CompletedAt       time.Time `json:"completed_at"`
+	// Warnings report bookkeeping that failed after the restore itself
+	// committed. They never turn a completed restore into a retryable failure.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 type DurableBackupRestoreRequest struct {
