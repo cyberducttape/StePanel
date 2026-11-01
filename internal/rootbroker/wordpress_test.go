@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/cyberducttape/StePanel/internal/siteidentity"
 )
 
 func TestWordPressArgsAcceptsNamedOperations(t *testing.T) {
@@ -179,9 +181,11 @@ func TestBrokerWordPressRunsThroughAppctl(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := string(data)
+	// appctl requires the persisted site Unix account as argv[3].
+	user := siteidentity.UnixUser("demo")
 	for _, want := range []string{
-		"wp demo --skip-plugins --skip-themes option get siteurl\n",
-		"wp demo config set DB_PASSWORD --type=constant --prompt=value\nstdin=s3cret-password!\n",
+		"wp demo " + user + " --skip-plugins --skip-themes option get siteurl\n",
+		"wp demo " + user + " config set DB_PASSWORD --type=constant --prompt=value\nstdin=s3cret-password!\n",
 	} {
 		if !strings.Contains(log, want) {
 			t.Fatalf("appctl log missing %q:\n%s", want, log)

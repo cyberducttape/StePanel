@@ -237,7 +237,14 @@ func (b *Broker) handleWordPressRequest(ctx context.Context, req *WordPressReque
 	default:
 		return &Response{OK: false, Error: "unsupported WordPress action"}, nil
 	}
-	cmd := stepanelhelper.NewCommand(ctx, b.appctlPath, append([]string{"wp", req.Site}, args...)...)
+	// stepanel-appctl requires the persisted site Unix account as argv[3]
+	// for every site action; resolve it from the broker's identity authority
+	// rather than deriving it from request text.
+	siteUser, err := b.resolveSiteUser(&SiteRequest{Site: req.Site}, false)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	cmd := stepanelhelper.NewCommand(ctx, b.appctlPath, append([]string{"wp", req.Site, siteUser}, args...)...)
 	cmd.Stdin = strings.NewReader(req.Secret + "\n")
 	stdout, stderr, runErr := stepanelhelper.RunCappedSeparate(ctx, cmd, maxBrokerCommandOutput, maxBrokerCommandOutput)
 	result := WordPressResponse{Output: string(stdout)}

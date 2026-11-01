@@ -31,6 +31,11 @@ func fencedWordPressBroker(t *testing.T, runFor string) (*Broker, *sql.DB, strin
 	if _, err := db.Exec(`INSERT INTO resource_locks VALUES ('site:demo', 'owner-a', ?, 1, ?)`, time.Now().Add(time.Minute).UnixNano(), time.Now().UnixNano()); err != nil {
 		t.Fatal(err)
 	}
+	// WordPress actions run as the site's persisted Unix account, which a
+	// production broker resolves from the control plane.
+	if _, err := db.Exec(`CREATE TABLE site_identities (site TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL); INSERT INTO site_identities VALUES ('demo', 'sp-demo-0123abcd', 0)`); err != nil {
+		t.Fatal(err)
+	}
 	completed := filepath.Join(root, "completed")
 	started := filepath.Join(root, "started")
 	helper := filepath.Join(root, "appctl")
