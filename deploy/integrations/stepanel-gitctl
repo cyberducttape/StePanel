@@ -199,8 +199,11 @@ case "$action" in
     fi
     [[ $project_id =~ ^1[0-9]{9}$ ]] && (( project_id >= 1000000000 && project_id < 2000000000 )) || { echo 'active Git staging quota project ID is required' >&2; exit 1; }
     [[ $allowed_hosts =~ ^[A-Za-z0-9.,-]+$ ]] || { echo 'invalid Git host allowlist' >&2; exit 1; }
-    [[ -f $key && ! -L $key && $repository =~ ^git@([A-Za-z0-9.-]+):[A-Za-z0-9._/-]+\.git$ && $ref =~ ^[A-Za-z0-9][A-Za-z0-9._/@+-]{0,127}$ && $destination == "$site_stage_root/.stepanel-release-$site-"* ]] || { echo 'invalid private clone request' >&2; exit 1; }
+    # Capture the host before any other =~ test: each match replaces
+    # BASH_REMATCH, and the ref check has no capture group.
+    [[ $repository =~ ^git@([A-Za-z0-9.-]+):[A-Za-z0-9._/-]+\.git$ ]] || { echo 'invalid private clone request' >&2; exit 1; }
     git_host=${BASH_REMATCH[1]}
+    [[ -f $key && ! -L $key && $ref =~ ^[A-Za-z0-9][A-Za-z0-9._/@+-]{0,127}$ && $destination == "$site_stage_root/.stepanel-release-$site-"* ]] || { echo 'invalid private clone request' >&2; exit 1; }
     git_host_allowed "$git_host" || { echo 'repository host is not in STEPANEL_GIT_ALLOWED_HOSTS' >&2; exit 1; }
     valid_stage_path "$site" "$destination" || { echo 'invalid clone destination' >&2; exit 1; }
     # The site's tree owner receives the clone. A placed site's private state

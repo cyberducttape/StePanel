@@ -95,8 +95,12 @@ for broker_unit in deploy/stepanel-root-broker.service deploy/lab/stepanel-root-
     exit 1
   fi
 done
-if ! grep -Fq "prlimit --as=2147483648 --fsize=\"\$max_file_bytes\" -- git " deploy/integrations/stepanel-gitctl; then
-  echo "private Git clone must preserve its 2 GiB address-space limit and enforce the configured per-file limit" >&2
+# The clone keeps its 2 GiB address-space and per-file limits and runs git as
+# the unprivileged stepanel-git identity, never as root.
+if ! grep -Fq "prlimit --as=2147483648 --fsize=\"\$max_file_bytes\" -- \\" deploy/integrations/stepanel-gitctl ||
+   ! grep -Fq 'setpriv --reuid="$clone_uid" --regid="$clone_gid" --clear-groups --no-new-privs --inh-caps=-all --bounding-set=-all --' deploy/integrations/stepanel-gitctl ||
+   grep -Fq 'fsize="$max_file_bytes" -- git ' deploy/integrations/stepanel-gitctl; then
+  echo "private Git clone must preserve its 2 GiB address-space and per-file limits and run git as stepanel-git, not root" >&2
   exit 1
 fi
 if ! grep -Fq "'/dev/vdc /mnt/stepanel-enospc ext4 defaults 0 2' >> /etc/fstab" .github/workflows/quota-install-smoke.yml; then
