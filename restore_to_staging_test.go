@@ -231,7 +231,7 @@ func TestRestoreToStagingCommitFailureRemovesPublishedRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantCalls := "apply example-staging staging.example.org\ndelete site-example-staging-staging_example_org.conf\n"
+	wantCalls := "apply example-staging staging.example.org\ndelete site-example-staging-staging_example_org.conf staging.example.org\n"
 	if string(calls) != wantCalls {
 		t.Fatalf("vhost calls = %q, want route publication then journaled deletion %q", calls, wantCalls)
 	}

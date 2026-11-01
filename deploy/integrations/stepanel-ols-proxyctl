@@ -33,6 +33,12 @@ case "${1:-}" in
     [[ $site =~ ^[a-z0-9_-]{1,32}$ && $domain =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || { echo 'invalid site or domain' >&2; exit 1; }
     valid_backend "$backend" || { echo 'invalid backend' >&2; exit 1; }
     path="$root/${site}-${domain//./_}.conf"
+    # The file name does not identify its site (alice-shop-example_org is
+    # alice's shop-example.org and alice-shop's example.org proxy); never
+    # overwrite a proxy that serves another domain.
+    if [[ -e $path ]]; then
+      [[ $(awk '$1 == "#" && $2 == "StePanel" && $3 == "managed" && $4 == "OpenLiteSpeed" && $5 == "proxy" && $6 == "for" && NF == 7 { print tolower($7); exit }' "$path") == "$domain" ]] || { echo 'proxy file already serves another domain' >&2; exit 1; }
+    fi
     backup=''
     if [[ -f "$path" ]]; then backup=$(mktemp); cp -p "$path" "$backup"; fi
     tmp=$(mktemp "$root/.stepanel.XXXXXX")
@@ -46,9 +52,11 @@ case "${1:-}" in
     fi
     ;;
   delete)
-    (( $# == 2 )) || { echo 'usage: stepanel-ols-proxyctl delete NAME' >&2; exit 64; }
+    (( $# == 2 || $# == 3 )) || { echo 'usage: stepanel-ols-proxyctl delete NAME [DOMAIN]' >&2; exit 64; }
     [[ $2 =~ ^[a-z0-9_-]{1,32}-[a-z0-9_-]+\.conf$ ]] || { echo 'invalid proxy name' >&2; exit 1; }
-    path="$root/$2"; [[ -f "$path" ]] || { echo 'proxy not found' >&2; exit 1; }
+    expected=${3:-}; [[ -z $expected || $expected =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || { echo 'invalid expected domain' >&2; exit 1; }
+    path="$root/$2"; [[ -f "$path" && ! -L "$path" ]] || { echo 'proxy not found' >&2; exit 1; }
+    [[ -z $expected || $(awk '$1 == "#" && $2 == "StePanel" && $3 == "managed" && $4 == "OpenLiteSpeed" && $5 == "proxy" && $6 == "for" && NF == 7 { print tolower($7); exit }' "$path") == "$expected" ]] || { echo 'proxy serves another domain; refusing to delete it' >&2; exit 1; }
     backup=$(mktemp); cp -p "$path" "$backup"; rm -f "$path"
     if ! restart; then mv -f "$backup" "$path"; restart || true; exit 1; fi
     rm -f "$backup"

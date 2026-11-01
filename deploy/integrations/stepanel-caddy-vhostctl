@@ -241,8 +241,9 @@ ensure_view() {
 }
 
 if [[ $action == delete ]]; then
-  (( $# == 2 )) || { echo 'usage: stepanel-caddy-vhostctl delete NAME' >&2; exit 64; }
-  name=$2
+  (( $# == 2 || $# == 3 )) || { echo 'usage: stepanel-caddy-vhostctl delete NAME [DOMAIN]' >&2; exit 64; }
+  name=$2; expected=${3:-}
+  [[ -z $expected || $expected =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || { echo 'invalid expected domain' >&2; exit 1; }
   [[ $name =~ ^site-[a-z0-9_-]{1,32}-[a-z0-9_-]+\.caddy$ ]] || { echo 'invalid site route name' >&2; exit 1; }
   path="$root/$name"
   [[ ! -L $path ]] || { echo 'site route is unsafe' >&2; exit 1; }
@@ -255,6 +256,7 @@ if [[ $action == delete ]]; then
     exit 0
   fi
   [[ -f $path ]] || { echo 'site route is not a regular file' >&2; exit 1; }
+  [[ -z $expected || $(awk '/^[[:space:]]*(#|$)/ { next } { if (NF == 2 && $2 == "{") print tolower($1); exit }' "$path") == "$expected" ]] || { echo 'site route serves another domain; refusing to delete it' >&2; exit 1; }
   configured_root=$(awk '$1 == "root" && $2 == "*" { print $3; exit }' "$path")
   [[ $configured_root =~ ^/var/www/\.stepanel-caddy-views/[a-z0-9_-]{1,32}/[a-z0-9._-]+$ ]] || { echo 'managed route does not use an isolated Caddy view' >&2; exit 1; }
   site=${configured_root#"$view_root/"}; site=${site%%/*}
@@ -317,6 +319,14 @@ for candidate in "${candidates[@]}"; do
   break
 done
 [[ -n $socket ]] || { echo 'an active isolated PHP-FPM socket was not found for this site' >&2; exit 1; }
+
+# The file name does not identify its site (site-alice-shop-example_org is
+# alice's shop-example.org and alice-shop's example.org route); never
+# overwrite a route that serves another domain.
+existing_route="$root/site-${site}-${domain//./_}.caddy"
+if [[ -e $existing_route ]]; then
+  [[ $(awk '/^[[:space:]]*(#|$)/ { next } { if (NF == 2 && $2 == "{") print tolower($1); exit }' "$existing_route") == "$domain" ]] || { echo 'route file already serves another domain' >&2; exit 1; }
+fi
 
 view_root_path=$(view_path "$site")
 document_root="$view_root_path/$site_directory"
@@ -399,5 +409,5 @@ EOF
       exit 1
     fi
     ;;
-  *) echo 'usage: stepanel-caddy-vhostctl apply|import-htaccess SITE DOMAIN | delete NAME' >&2; exit 64 ;;
+  *) echo 'usage: stepanel-caddy-vhostctl apply|import-htaccess SITE DOMAIN | delete NAME [DOMAIN]' >&2; exit 64 ;;
 esac

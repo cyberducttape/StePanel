@@ -35,22 +35,33 @@ case "${1:-}" in
     # Sets public_root for a legacy or hosting-account site (ADR-0007).
     stepanel_site_location "$site" || exit 1
     [[ -d "$public_root" && ! -L "$public_root" ]] || { echo 'site document root is unavailable or unsafe' >&2; exit 1; }
-    path="$root/site-${site}-${domain//./_}.conf"; tmp=$(mktemp "$root/.stepanel.XXXXXX"); backup=$(mktemp)
+    path="$root/site-${site}-${domain//./_}.conf"
+    # The file name does not identify its site (site-alice-shop-example_org is
+    # alice's shop-example.org and alice-shop's example.org route); never
+    # overwrite a route that serves another domain. Routes written before the
+    # header existed name no domain and are replaced.
+    if [[ -e $path ]]; then
+      served=$(awk '$1 == "#" && $2 == "StePanel" && $3 == "managed" && $4 == "OpenLiteSpeed" && $5 == "vhost" && $6 == "for" && NF == 7 { print tolower($7); exit }' "$path")
+      [[ -z $served || $served == "$domain" ]] || { echo 'route file already serves another domain' >&2; exit 1; }
+    fi
+    tmp=$(mktemp "$root/.stepanel.XXXXXX"); backup=$(mktemp)
     existed=0; [[ ! -f "$path" ]] || { cp -p "$path" "$backup"; existed=1; }
     trap 'rm -f "$tmp" "$backup"' EXIT
-    render > "$tmp"; chmod 0644 "$tmp"; chown root:root "$tmp"; mv -f "$tmp" "$path"
+    { printf '# StePanel managed OpenLiteSpeed vhost for %s\n' "$domain"; render; } > "$tmp"; chmod 0644 "$tmp"; chown root:root "$tmp"; mv -f "$tmp" "$path"
     if ! restart; then
       if (( existed )); then mv -f "$backup" "$path"; else rm -f "$path"; fi
       restart || true; exit 1
     fi
     ;;
   delete)
-    (( $# == 2 )) || { echo 'usage: stepanel-ols-vhostctl delete NAME' >&2; exit 64; }
+    (( $# == 2 || $# == 3 )) || { echo 'usage: stepanel-ols-vhostctl delete NAME [DOMAIN]' >&2; exit 64; }
     [[ $2 =~ ^site-[a-z0-9_-]{1,32}-[a-z0-9_-]+\.conf$ ]] || { echo 'invalid vhost name' >&2; exit 1; }
+    expected=${3:-}; [[ -z $expected || $expected =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || { echo 'invalid expected domain' >&2; exit 1; }
     path="$root/$2"; [[ -f "$path" && ! -L "$path" ]] || { echo 'vhost not found or unsafe' >&2; exit 1; }
+    [[ -z $expected || $(awk '$1 == "#" && $2 == "StePanel" && $3 == "managed" && $4 == "OpenLiteSpeed" && $5 == "vhost" && $6 == "for" && NF == 7 { print tolower($7); exit }' "$path") == "$expected" ]] || { echo 'vhost serves another domain, or names none; refusing to delete it' >&2; exit 1; }
     backup=$(mktemp); cp -p "$path" "$backup"; rm -f "$path"
     if ! restart; then mv -f "$backup" "$path"; restart || true; exit 1; fi
     rm -f "$backup"
     ;;
-  *) echo 'usage: stepanel-ols-vhostctl apply SITE DOMAIN | delete NAME' >&2; exit 64 ;;
+  *) echo 'usage: stepanel-ols-vhostctl apply SITE DOMAIN | delete NAME [DOMAIN]' >&2; exit 64 ;;
 esac

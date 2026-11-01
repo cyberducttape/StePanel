@@ -332,7 +332,7 @@ func runVhostMutation(ctx context.Context, cfg Config, action string, args ...st
 			if len(args) != 1 {
 				return errors.New("invalid vhost delete arguments")
 			}
-			request.Name = args[0]
+			return deleteSiteRoute(ctx, cfg, args[0], "", "")
 		default:
 			return errors.New("unsupported vhost action")
 		}
@@ -354,7 +354,7 @@ func runProxyMutation(ctx context.Context, cfg Config, action string, args ...st
 			if len(args) != 1 {
 				return errors.New("invalid proxy delete arguments")
 			}
-			request.Name = args[0]
+			return deleteProxyRoute(ctx, cfg, args[0], "", "")
 		case "reload":
 			if len(args) != 0 {
 				return errors.New("invalid proxy reload arguments")
@@ -365,6 +365,43 @@ func runProxyMutation(ctx context.Context, cfg Config, action string, args ...st
 		return runTypedProxyOperation(ctx, cfg, request)
 	}
 	return runHelperCommandWithTimeout(ctx, cfg, helperConfigMutationTimeout, cfg.ProxyCtl, append([]string{action}, args...)...)
+}
+
+// deleteSiteRoute removes a managed site route file. A caller fenced only by
+// the owning site's lease names that site and the route's domain: the broker
+// admits the site's lease only for exactly the file the site's apply writes
+// for that domain, and the helper refuses a file that serves another domain.
+// A caller holding the route's own "vhost:<name>" lease may omit both.
+func deleteSiteRoute(ctx context.Context, cfg Config, name, site, domain string) error {
+	if (site == "") != (domain == "") {
+		return errors.New("a route deletion names both its site and domain, or neither")
+	}
+	domain = strings.ToLower(domain)
+	if cfg.Production {
+		return runTypedVhostOperation(ctx, cfg, rootbroker.VhostRequest{Action: "delete", WebServer: cfg.WebServer, Name: name, Site: site, Domain: domain})
+	}
+	args := []string{"delete", name}
+	if domain != "" {
+		args = append(args, domain)
+	}
+	return runHelperCommandWithTimeout(ctx, cfg, helperConfigMutationTimeout, cfg.VHostCtl, args...)
+}
+
+// deleteProxyRoute is deleteSiteRoute for managed reverse-proxy files, whose
+// exact lease is "proxy:<name>".
+func deleteProxyRoute(ctx context.Context, cfg Config, name, site, domain string) error {
+	if (site == "") != (domain == "") {
+		return errors.New("a proxy deletion names both its site and domain, or neither")
+	}
+	domain = strings.ToLower(domain)
+	if cfg.Production {
+		return runTypedProxyOperation(ctx, cfg, rootbroker.ProxyRequest{Action: "delete", WebServer: cfg.WebServer, Name: name, Site: site, Domain: domain})
+	}
+	args := []string{"delete", name}
+	if domain != "" {
+		args = append(args, domain)
+	}
+	return runHelperCommandWithTimeout(ctx, cfg, helperConfigMutationTimeout, cfg.ProxyCtl, args...)
 }
 
 func runRunnerBuild(ctx context.Context, cfg Config, request rootbroker.RunnerRequest) error {

@@ -950,7 +950,7 @@ func TestBrokerProxyOperationsUseConcreteHelperContract(t *testing.T) {
 	script := "#!/bin/sh\ncase \"$1\" in\n" +
 		"apply) [ \"$2\" = demo ] && [ \"$3\" = app.example.com ] && [ \"$4\" = 127.0.0.1:3000 ] ;;\n" +
 		"reload) [ \"$#\" -eq 1 ] ;;\n" +
-		"delete) [ \"$2\" = demo-app_example_com.conf ] ;;\n*) exit 1 ;;\nesac\n"
+		"delete) [ \"$2\" = demo-app_example_com.caddy ] && { [ \"$#\" -eq 2 ] || { [ \"$#\" -eq 3 ] && [ \"$3\" = app.example.com ]; }; } ;;\n*) exit 1 ;;\nesac\n"
 	if err := os.WriteFile(helper, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -962,7 +962,8 @@ func TestBrokerProxyOperationsUseConcreteHelperContract(t *testing.T) {
 	cases := []*ProxyRequest{
 		{Action: "apply", Site: "demo", Domain: "app.example.com", Backend: "127.0.0.1:3000", WebServer: "caddy"},
 		{Action: "reload", WebServer: "caddy"},
-		{Action: "delete", Name: "demo-app_example_com.conf", WebServer: "caddy"},
+		{Action: "delete", Name: "demo-app_example_com.caddy", WebServer: "caddy"},
+		{Action: "delete", Name: "demo-app_example_com.caddy", Site: "demo", Domain: "app.example.com", WebServer: "caddy"},
 	}
 	for _, request := range cases {
 		response, err := broker.Execute(context.Background(), &Request{RequestType: "proxy", Proxy: request})

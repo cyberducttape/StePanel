@@ -430,7 +430,7 @@ func (a *App) proveWordPressRestore(ctx context.Context, stage string, databases
 	}
 	result.Checks = append(result.Checks, "database imported with the credentials written to wp-config.php")
 
-	if err := txn.TrackRoute(plan.route); err != nil {
+	if err := txn.TrackRoute(plan.route, plan.hostname); err != nil {
 		return result, fmt.Errorf("record proof route: %w", err)
 	}
 	if err := runVhostMutation(lockCtx, a.Config, "apply", plan.site, plan.hostname); err != nil {

@@ -216,7 +216,7 @@ func TestCrashDrill_Termination(t *testing.T) {
 			vhostRoot := filepath.Join(f.root, "vhosts")
 			terminationHelpers(t, f.root, vhostRoot)
 			routeName := siteVHostConfigName("caddy", f.site.Site(), "www.example.com")
-			writeTestFile(t, filepath.Join(vhostRoot, routeName), "managed")
+			writeTestFile(t, filepath.Join(vhostRoot, routeName), "www.example.com {\n}\n")
 			routes, err := OpenRouteStore(filepath.Join(f.root, "routes.json"))
 			if err != nil {
 				t.Fatal(err)

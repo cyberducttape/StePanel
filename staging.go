@@ -283,7 +283,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 	routeApplied := false
 	stateRollback := func() {
 		if routeApplied {
-			if err := runVhostMutation(operationCtx, a.Config, "delete", routeName); err != nil {
+			if err := deleteSiteRoute(operationCtx, a.Config, routeName, input.Site, input.Domain); err != nil {
 				log.Printf("staging route cleanup failed for %s: %v", input.Site, err)
 			}
 		}
@@ -451,7 +451,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 	if basicAuth {
 		args = append(args, input.AuthUser, authHash)
 	}
-	if err := txn.TrackRoute(routeName); err != nil {
+	if err := txn.TrackRoute(routeName, input.Domain); err != nil {
 		http.Error(w, "could not record staging route recovery intent", http.StatusServiceUnavailable)
 		return
 	}

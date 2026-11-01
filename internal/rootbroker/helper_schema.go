@@ -24,7 +24,7 @@ type fixedCommandAction struct {
 var (
 	schemaSitePattern       = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
 	schemaSessionPattern    = regexp.MustCompile(`^[1-9][0-9]{0,18}$`)
-	schemaProxyNamePattern  = regexp.MustCompile(`^[a-z0-9_-]{1,32}-[a-z0-9_-]+\.conf$`)
+	schemaProxyNamePattern  = regexp.MustCompile(`^[a-z0-9_-]{1,32}-[a-z0-9_-]+\.(conf|caddy)$`)
 	schemaRouteNamePattern  = regexp.MustCompile(`^site-[a-z0-9_-]{1,32}-[a-z0-9_-]+\.(conf|caddy)$`)
 	schemaAuthUserPattern   = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 	schemaBcryptPattern     = regexp.MustCompile(`^\$2[aby]\$[0-9]{2}\$[./A-Za-z0-9]{53}$`)

@@ -865,7 +865,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		}
 	}
 	routeName := siteVHostConfigName(a.Config.WebServer, input.Site, input.Domain)
-	if e = txn.TrackRoute(routeName); e != nil {
+	if e = txn.TrackRoute(routeName, input.Domain); e != nil {
 		http.Error(w, "could not journal staging route", 503)
 		return
 	}

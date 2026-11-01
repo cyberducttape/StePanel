@@ -375,7 +375,7 @@ func (a *App) rollbackNodeDeployment(ctx context.Context, item Job, input nodeDe
 			}
 		} else {
 			if err = a.verifyNodeDeploymentOwnership(cleanupCtx, ctx, item); err == nil {
-				err = runProxyMutation(cleanupCtx, a.Config, "delete", strings.TrimSuffix(filepath.Base(snapshot.ProxyPath), filepath.Ext(snapshot.ProxyPath)))
+				err = deleteProxyRoute(cleanupCtx, a.Config, filepath.Base(snapshot.ProxyPath), input.Site, input.Domain)
 			}
 			if err != nil && strings.Contains(err.Error(), "proxy not found") {
 				err = nil

@@ -524,9 +524,18 @@ func siteRoutesForWithError(root, site string) ([]siteRoute, error) {
 		if entry.IsDir() || !siteVHostNamePattern.MatchString(name) || !strings.HasPrefix(name, prefix) {
 			continue
 		}
-		domain := strings.TrimPrefix(name, prefix)
-		domain = strings.TrimSuffix(strings.TrimSuffix(domain, ".conf"), ".caddy")
-		domain = strings.ReplaceAll(domain, "_", ".")
+		// The prefix also matches another site's routes (site-alice-
+		// matches alice-shop's): a route is this site's only when its name
+		// is exactly the one the site's apply writes for the domain it
+		// serves.
+		domain, err := managedRouteServedDomain(filepath.Join(root, name))
+		if err != nil {
+			return nil, fmt.Errorf("identify managed route %s: %w", name, err)
+		}
+		stem := strings.TrimSuffix(strings.TrimSuffix(name, ".conf"), ".caddy")
+		if stem != "site-"+site+"-"+strings.ReplaceAll(domain, ".", "_") {
+			continue
+		}
 		routes = append(routes, siteRoute{Site: site, Domain: domain})
 	}
 	return routes, nil
@@ -547,7 +556,19 @@ func siteProxiesForWithError(root, site string) ([]proxyInfo, error) {
 		if entry.IsDir() || !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, ".conf") && !strings.HasSuffix(name, ".caddy") {
 			continue
 		}
-		proxies = append(proxies, proxyInfo{Name: strings.TrimSuffix(strings.TrimSuffix(name, ".conf"), ".caddy"), Config: filepath.Join(root, name)})
+		// The prefix also matches another site's proxies (alice- matches
+		// alice-shop's): a proxy is this site's only when its name is
+		// exactly the one the site's apply writes for the domain it serves.
+		path := filepath.Join(root, name)
+		domain, err := managedRouteServedDomain(path)
+		if err != nil {
+			return nil, fmt.Errorf("identify managed proxy %s: %w", name, err)
+		}
+		stem := strings.TrimSuffix(strings.TrimSuffix(name, ".conf"), ".caddy")
+		if stem != site+"-"+strings.ReplaceAll(domain, ".", "_") {
+			continue
+		}
+		proxies = append(proxies, proxyInfo{Name: stem, Domain: domain, Config: path})
 	}
 	sort.Slice(proxies, func(i, j int) bool { return proxies[i].Name < proxies[j].Name })
 	return proxies, nil

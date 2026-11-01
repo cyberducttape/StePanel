@@ -455,7 +455,7 @@ func TestWorkflowInterruption_RouteUpdateThenTermination(t *testing.T) {
 			// A route update whose helper failed: the live file exists and
 			// the desired state is pending with an error.
 			routeName := siteVHostConfigName(f.cfg.WebServer, f.site.Site(), "www.example.com")
-			writeTestFile(t, filepath.Join(vhostRoot, routeName), "managed")
+			writeTestFile(t, filepath.Join(vhostRoot, routeName), "www.example.com {\n}\n")
 			routes, err := OpenRouteStore(filepath.Join(f.root, "routes.json"))
 			if err != nil {
 				t.Fatal(err)

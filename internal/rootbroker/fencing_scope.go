@@ -102,6 +102,11 @@ func (b *Broker) checkFencingScope(req *Request) error {
 	return nil
 }
 
+// databaseCreatingActions create a database for the request's site and
+// register it to that site; stepanel-dbctl refuses them for a database that
+// already exists or is registered.
+var databaseCreatingActions = map[string]bool{"provision": true, "restore": true, "restore-wordpress": true}
+
 // fencingScopeFor derives the acceptable lease keys for a validated request.
 func (b *Broker) fencingScopeFor(req *Request) (fencingScope, error) {
 	var scope fencingScope
@@ -131,48 +136,65 @@ func (b *Broker) fencingScopeFor(req *Request) (fencingScope, error) {
 	case "git":
 		addSite(req.Git.Site)
 	case "db":
+		// The database (or session) the helper acts on decides the scope;
+		// the request's site field is only a claim. A site's lease admits a
+		// database operation when the root-owned registry records that site
+		// as the database's owner, or when the action creates the database
+		// for that site (the helper refuses a database that already exists
+		// or is registered, and records the site as its owner).
 		db := req.DB
-		addSite(db.Site)
-		if db.Action == "reconcile" {
+		switch {
+		case db.Action == "reconcile":
 			scope.add("database:reconcile")
 			scope.target("database reconcile")
-		}
-		if db.SessionID != "" {
+		case db.SessionID != "":
 			scope.add("database:session:" + db.SessionID)
 			scope.target("database session " + db.SessionID)
-		}
-		if db.Database != "" {
+		case db.Database != "":
 			scope.add("database:" + db.Database)
 			scope.target("database " + db.Database)
 			owner, ownerErr := b.databaseRegistrySite(db.Database)
 			if ownerErr != nil {
 				return fencingScope{}, ownerErr
 			}
-			addSite(owner)
+			switch {
+			case owner != "" && db.Site != "" && db.Site != owner:
+				return fencingScope{}, fmt.Errorf("database %s is registered to site %s, not %s", db.Database, owner, db.Site)
+			case owner != "":
+				addSite(owner)
+			case databaseCreatingActions[db.Action]:
+				addSite(db.Site)
+			}
+		default:
+			addSite(db.Site)
 		}
 	case "vhost":
-		addSite(req.Vhost.Site)
-		if req.Vhost.Name != "" {
-			scope.add("vhost:" + req.Vhost.Name)
-			scope.target("vhost " + req.Vhost.Name)
-			if rest, ok := strings.CutPrefix(req.Vhost.Name, "site-"); ok {
-				for _, site := range configNameSites(rest) {
-					addSite(site)
-				}
-			}
+		vhost := req.Vhost
+		if vhost.Action == "delete" {
+			// Deletion names a file, which never proves its owner by its
+			// shape (site-alice-shop-example_org is alice's shop-example.org
+			// or alice-shop's example.org). Only the exact route lease, or
+			// the lease of the site and domain the validator matched to the
+			// file's canonical name, admits it.
+			scope.add("vhost:" + vhost.Name)
+			scope.target("vhost " + vhost.Name)
+			addSite(vhost.Site)
+		} else {
+			addSite(vhost.Site)
 		}
 	case "proxy":
-		addSite(req.Proxy.Site)
-		if req.Proxy.Name != "" {
-			scope.add("proxy:" + req.Proxy.Name)
-			scope.target("proxy " + req.Proxy.Name)
-			for _, site := range configNameSites(req.Proxy.Name) {
-				addSite(site)
-			}
-		}
-		if req.Proxy.Action == "reload" {
+		proxy := req.Proxy
+		switch proxy.Action {
+		case "delete":
+			scope.add("proxy:" + proxy.Name)
+			scope.target("proxy " + proxy.Name)
+			addSite(proxy.Site)
+		case "reload":
+			addSite(proxy.Site)
 			scope.add("proxy:reload")
 			scope.target("proxy reload")
+		default:
+			addSite(proxy.Site)
 		}
 	case "account":
 		account := req.Account
@@ -256,25 +278,6 @@ func (b *Broker) sitePlacement(site string) (sitelayout.Placement, error) {
 	return placement, err
 }
 
-// configNameSites lists the sites a managed config name can belong to. Names
-// are "<site>-<domain with dots as underscores>.<ext>" (vhosts add a "site-"
-// prefix, stripped by the caller). Site names may contain '-', so every
-// prefix ending before a '-' is a candidate.
-func configNameSites(name string) []string {
-	name = strings.TrimSuffix(strings.TrimSuffix(name, ".conf"), ".caddy")
-	var sites []string
-	for i := 0; i < len(name) && i <= 32; i++ {
-		if name[i] != '-' || i == 0 {
-			continue
-		}
-		candidate := name[:i]
-		if fencingSiteName.MatchString(candidate) {
-			sites = append(sites, candidate)
-		}
-	}
-	return sites
-}
-
 var fencingSiteName = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
 
 // databaseRegistrySite returns the site recorded as the owner of a managed
@@ -326,7 +329,12 @@ func registryRecordSite(record string) string {
 	default:
 		return ""
 	}
-	site, _, _ := strings.Cut(rest, ":")
+	site, tail, hasTail := strings.Cut(rest, ":")
+	// panel and wordpress records are KIND:SITE:USER; a legacy
+	// wordpress:USER record names no site, only the database user.
+	if kind != "cpmove" && !hasTail || kind != "cpmove" && tail == "" {
+		return ""
+	}
 	if !fencingSiteName.MatchString(site) {
 		return ""
 	}

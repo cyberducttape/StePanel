@@ -85,7 +85,7 @@ func TestSiteVHostConfigNameMatchesWebserverRouteConvention(t *testing.T) {
 
 func TestSiteListFiltersUnmanagedFiles(t *testing.T) {
 	root := t.TempDir()
-	writeTestFile(t, filepath.Join(root, "site-account-example_com.conf"), "managed")
+	writeTestFile(t, filepath.Join(root, "site-account-example_com.conf"), "ServerName example.com\n")
 	writeTestFile(t, filepath.Join(root, "site-caddy-caddy_example_com.caddy"), "managed")
 	writeTestFile(t, filepath.Join(root, "unmanaged.conf"), "unmanaged")
 	app := &App{Config: Config{VHostRoot: root}}
@@ -103,8 +103,8 @@ func TestSiteOverviewGroupsManagedResources(t *testing.T) {
 		t.Fatal(err)
 	}
 	vhostRoot := filepath.Join(root, "vhosts")
-	writeTestFile(t, filepath.Join(vhostRoot, "site-account-example_com.conf"), "managed")
-	writeTestFile(t, filepath.Join(vhostRoot, "site-account-caddy_example_com.caddy"), "managed")
+	writeTestFile(t, filepath.Join(vhostRoot, "site-account-example_com.conf"), "ServerName example.com\n")
+	writeTestFile(t, filepath.Join(vhostRoot, "site-account-caddy_example_com.caddy"), "caddy.example.com {\n}\n")
 	appRoot := filepath.Join(root, "apps")
 	writeTestFile(t, filepath.Join(appRoot, "account.json"), `{"site":"account","domain":"app.example.com","node_version":"v20.1.0","port":3000,"state":"running"}`)
 	app := &App{Config: Config{WebRoot: webRoot, VHostRoot: vhostRoot, AppRoot: appRoot}}
@@ -161,8 +161,8 @@ func TestSiteOverviewResourceIncludesHyphenatedSiteResources(t *testing.T) {
 	vhostRoot := filepath.Join(root, "vhosts")
 	proxyRoot := filepath.Join(root, "proxies")
 	appRoot := filepath.Join(root, "apps")
-	writeTestFile(t, filepath.Join(vhostRoot, "site-my-site-www_example_com.conf"), "managed")
-	writeTestFile(t, filepath.Join(proxyRoot, "my-site-api_example_com.conf"), "managed")
+	writeTestFile(t, filepath.Join(vhostRoot, "site-my-site-www_example_com.conf"), "ServerName www.example.com\n")
+	writeTestFile(t, filepath.Join(proxyRoot, "my-site-api_example_com.conf"), "ServerName api.example.com\n")
 	writeTestFile(t, filepath.Join(appRoot, "my-site.json"), `{"site":"my-site","domain":"api.example.com","node_version":"v20.1.0","port":3000,"state":"running"}`)
 	app := &App{Config: Config{WebRoot: webRoot, VHostRoot: vhostRoot, ProxyRoot: proxyRoot, AppRoot: appRoot}}
 	response := httptest.NewRecorder()

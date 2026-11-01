@@ -407,7 +407,7 @@ func TestStartupRecoveryRemovesInterruptedWordPressProof(t *testing.T) {
 		t.Fatal(err)
 	}
 	route := "site-" + site + "-" + site + "_localhost.conf"
-	if err := txn.TrackRoute(route); err != nil {
+	if err := txn.TrackRoute(route, site+".localhost"); err != nil {
 		t.Fatal(err)
 	}
 	if err := txn.MarkRouteApplied(route); err != nil {

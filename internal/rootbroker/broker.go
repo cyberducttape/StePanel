@@ -1640,7 +1640,12 @@ func (b *Broker) vhostApplyAuth(ctx context.Context, req *VhostRequest) (*Respon
 }
 
 func (b *Broker) vhostDelete(ctx context.Context, req *VhostRequest) (*Response, error) {
-	return b.runVhostCommand(ctx, []string{"delete", req.Name}, VhostResponse{Deleted: true, Domain: req.Domain})
+	args := []string{"delete", req.Name}
+	if req.Domain != "" {
+		// The helper refuses to delete a file that serves another domain.
+		args = append(args, strings.ToLower(req.Domain))
+	}
+	return b.runVhostCommand(ctx, args, VhostResponse{Deleted: true, Domain: req.Domain})
 }
 
 func (b *Broker) vhostImportHtaccess(ctx context.Context, req *VhostRequest) (*Response, error) {
@@ -1704,7 +1709,12 @@ func (b *Broker) proxyReload(ctx context.Context, req *ProxyRequest) (*Response,
 }
 
 func (b *Broker) proxyDelete(ctx context.Context, req *ProxyRequest) (*Response, error) {
-	return b.runProxyCommand(ctx, []string{"delete", req.Name}, ProxyResponse{Deleted: true})
+	args := []string{"delete", req.Name}
+	if req.Domain != "" {
+		// The helper refuses to delete a file that serves another domain.
+		args = append(args, strings.ToLower(req.Domain))
+	}
+	return b.runProxyCommand(ctx, args, ProxyResponse{Deleted: true})
 }
 
 func (b *Broker) runProxyCommand(ctx context.Context, args []string, result ProxyResponse) (*Response, error) {

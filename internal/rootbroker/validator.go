@@ -837,7 +837,7 @@ func (v *Validator) validateVhostRequest(req *VhostRequest) error {
 		if !schemaRouteNamePattern.MatchString(req.Name) || !strings.HasSuffix(req.Name, extension) {
 			return errors.New("invalid site route name")
 		}
-		return nil
+		return v.validateRouteOwner(req.Site, req.Domain, req.Name, SiteRouteName(req.WebServer, req.Site, req.Domain))
 	}
 	if req.Action == "import-htaccess" {
 		if err := v.ValidateSiteName(req.Site); err != nil {
@@ -865,6 +865,48 @@ func (v *Validator) validateVhostRequest(req *VhostRequest) error {
 	return nil
 }
 
+// routeExtension is the managed route file extension for a web server:
+// Caddy includes *.caddy files; Apache and OpenLiteSpeed use *.conf.
+func routeExtension(webserver string) string {
+	if webserver == "caddy" {
+		return ".caddy"
+	}
+	return ".conf"
+}
+
+// SiteRouteName is the managed site route file a site's apply writes for a
+// domain; it mirrors the vhost helpers.
+func SiteRouteName(webserver, site, domain string) string {
+	return "site-" + site + "-" + strings.ReplaceAll(strings.ToLower(domain), ".", "_") + routeExtension(webserver)
+}
+
+// ProxyRouteName is the managed proxy file a site's apply writes for a
+// domain; it mirrors the proxy helpers.
+func ProxyRouteName(webserver, site, domain string) string {
+	return site + "-" + strings.ReplaceAll(strings.ToLower(domain), ".", "_") + routeExtension(webserver)
+}
+
+// validateRouteOwner checks the optional owner of a route deletion. A delete
+// that names its site and domain must name exactly the file that site's
+// apply writes for that domain; the helper then confirms, under its own
+// lock, that the file still serves the domain. Naming only one of the two is
+// contradictory and refused.
+func (v *Validator) validateRouteOwner(site, domain, name, canonical string) error {
+	if site == "" && domain == "" {
+		return nil
+	}
+	if err := v.ValidateSiteName(site); err != nil {
+		return err
+	}
+	if err := v.ValidateDomain(domain); err != nil {
+		return err
+	}
+	if name != canonical {
+		return fmt.Errorf("route %s is not the route of site %s for %s", name, site, strings.ToLower(domain))
+	}
+	return nil
+}
+
 func (v *Validator) validateProxyRequest(req *ProxyRequest) error {
 	if req == nil {
 		return fmt.Errorf("proxy request is nil")
@@ -884,9 +926,10 @@ func (v *Validator) validateProxyRequest(req *ProxyRequest) error {
 			return err
 		}
 	case "delete":
-		if !schemaProxyNamePattern.MatchString(req.Name) {
+		if !schemaProxyNamePattern.MatchString(req.Name) || !strings.HasSuffix(req.Name, routeExtension(req.WebServer)) {
 			return errors.New("invalid proxy name")
 		}
+		return v.validateRouteOwner(req.Site, req.Domain, req.Name, ProxyRouteName(req.WebServer, req.Site, req.Domain))
 	case "reload":
 	default:
 		return errors.New("unsupported proxy action")

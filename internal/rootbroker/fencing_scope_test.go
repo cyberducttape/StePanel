@@ -99,14 +99,23 @@ func TestFencingScopeFollowsThePanelLockNames(t *testing.T) {
 		{"owning site of a registered database", "shop-example-org", Request{RequestType: "db", DB: &DBRequest{Action: "drop-managed", Database: "shop_db", Username: "u"}}, true},
 		{"pending registry record", "bob", Request{RequestType: "db", DB: &DBRequest{Action: "drop-managed", Database: "pending_db", Username: "u"}}, true},
 		{"unrelated site for a registered database", "bob", Request{RequestType: "db", DB: &DBRequest{Action: "drop-managed", Database: "shop_db", Username: "u"}}, false},
+		{"site naming a database registered to another site", "bob", Request{RequestType: "db", DB: &DBRequest{Action: "drop", Database: "shop_db", Site: "bob"}}, false},
+		{"site naming an unregistered database it does not create", "alice", Request{RequestType: "db", DB: &DBRequest{Action: "drop", Database: "other_db", Site: "alice"}}, false},
+		{"site creating an unregistered database", "alice", Request{RequestType: "db", DB: &DBRequest{Action: "provision", Database: "new_db", Site: "alice", Username: "u"}}, true},
+		{"site creating a database registered to another site", "bob", Request{RequestType: "db", DB: &DBRequest{Action: "provision", Database: "shop_db", Site: "bob", Username: "u"}}, false},
+		{"owning site restoring its database", "shop-example-org", Request{RequestType: "db", DB: &DBRequest{Action: "restore-dump", Database: "shop_db", Site: "shop-example-org"}}, true},
+		{"site lease terminating a session", "alice", Request{RequestType: "db", DB: &DBRequest{Action: "terminate", SessionID: "42", Site: "alice"}}, false},
 		{"session lease", "database:session:42", Request{RequestType: "db", DB: &DBRequest{Action: "terminate", SessionID: "42"}}, true},
 		{"reconcile lease", "database:reconcile", Request{RequestType: "db", DB: &DBRequest{Action: "reconcile"}}, true},
 		{"reconcile under a site lease", "alice", Request{RequestType: "db", DB: &DBRequest{Action: "reconcile"}}, false},
-		{"vhost delete by its site", "shop-example-org", Request{RequestType: "vhost", Vhost: &VhostRequest{Action: "delete", Name: "site-shop-example-org-shop_example_org.caddy"}}, true},
-		{"vhost delete by another site", "bob", Request{RequestType: "vhost", Vhost: &VhostRequest{Action: "delete", Name: "site-shop-example-org-shop_example_org.caddy"}}, false},
-		{"proxy delete by its site", "alice", Request{RequestType: "proxy", Proxy: &ProxyRequest{Action: "delete", Name: "alice-app_example_org.conf"}}, true},
-		{"proxy lease", "proxy:alice-app_example_org.conf", Request{RequestType: "proxy", Proxy: &ProxyRequest{Action: "delete", Name: "alice-app_example_org.conf"}}, true},
-		{"proxy delete by another site", "bob", Request{RequestType: "proxy", Proxy: &ProxyRequest{Action: "delete", Name: "alice-app_example_org.conf"}}, false},
+		{"vhost lease", "vhost:site-shop-example-org-shop_example_org.caddy", Request{RequestType: "vhost", Vhost: &VhostRequest{Action: "delete", Name: "site-shop-example-org-shop_example_org.caddy", WebServer: "caddy"}}, true},
+		{"vhost delete by its site and domain", "shop-example-org", Request{RequestType: "vhost", Vhost: &VhostRequest{Action: "delete", Name: "site-shop-example-org-shop_example_org.caddy", Site: "shop-example-org", Domain: "shop.example.org", WebServer: "caddy"}}, true},
+		{"vhost delete naming no owner under a site lease", "shop-example-org", Request{RequestType: "vhost", Vhost: &VhostRequest{Action: "delete", Name: "site-shop-example-org-shop_example_org.caddy", WebServer: "caddy"}}, false},
+		{"vhost delete by another site", "bob", Request{RequestType: "vhost", Vhost: &VhostRequest{Action: "delete", Name: "site-shop-example-org-shop_example_org.caddy", Site: "shop-example-org", Domain: "shop.example.org", WebServer: "caddy"}}, false},
+		{"proxy lease", "proxy:alice-app_example_org.conf", Request{RequestType: "proxy", Proxy: &ProxyRequest{Action: "delete", Name: "alice-app_example_org.conf", WebServer: "apache"}}, true},
+		{"proxy delete by its site and domain", "alice", Request{RequestType: "proxy", Proxy: &ProxyRequest{Action: "delete", Name: "alice-app_example_org.conf", Site: "alice", Domain: "app.example.org", WebServer: "apache"}}, true},
+		{"proxy delete naming no owner under a site lease", "alice", Request{RequestType: "proxy", Proxy: &ProxyRequest{Action: "delete", Name: "alice-app_example_org.conf", WebServer: "apache"}}, false},
+		{"proxy delete by another site", "bob", Request{RequestType: "proxy", Proxy: &ProxyRequest{Action: "delete", Name: "alice-app_example_org.conf", Site: "alice", Domain: "app.example.org", WebServer: "apache"}}, false},
 		{"account lease", "account:bob", Request{RequestType: "account", Account: &AccountRequest{Action: "quota", Account: "bob"}}, true},
 		{"site placed in the account", "shop-example-org", Request{RequestType: "account", Account: &AccountRequest{Action: "unplace", Account: "alice", Site: "shop-example-org"}}, true},
 		{"site placed in another account", "shop-example-org", Request{RequestType: "account", Account: &AccountRequest{Action: "unplace", Account: "bob", Site: "shop-example-org"}}, false},
@@ -143,8 +152,12 @@ func TestFencingScopeFollowsThePanelLockNames(t *testing.T) {
 
 func TestRegistryRecordSiteMirrorsDbctl(t *testing.T) {
 	for record, want := range map[string]string{
-		"panel:shop:owner\n":        "shop",
-		"wordpress:blog\n":          "blog",
+		"panel:shop:owner\n": "shop",
+		// A legacy wordpress:USER record names the database user
+		// (<site>_<suffix>), never a site.
+		"wordpress:blog_ab12\n":     "",
+		"wordpress:blog:blog_ab12":  "blog",
+		"cpmove:alice":              "alice",
 		"pending-cpmove:alice:x":    "alice",
 		"stepanel_restore:whatever": "",
 		"panel:../etc:x":            "",
@@ -155,5 +168,122 @@ func TestRegistryRecordSiteMirrorsDbctl(t *testing.T) {
 		if got := registryRecordSite(record); got != want {
 			t.Errorf("registryRecordSite(%q) = %q, want %q", record, got, want)
 		}
+	}
+}
+
+// NEW-02: a route file name never proves its owner. site-alice-shop-example_org
+// is both alice's shop-example.org route and alice-shop's example.org route,
+// so alice's lease must not admit deleting it as anything but its own
+// shop-example.org route, and the validator refuses a site/domain pair that
+// does not produce the named file. Apache, Caddy and proxy names alike.
+func TestRouteDeletionDoesNotInferOwnersFromNestedSiteNames(t *testing.T) {
+	broker, _, _ := fencedWordPressBroker(t, "0")
+	token := func(key string) []operations.FencingToken {
+		return []operations.FencingToken{{ResourceKey: key, OwnerID: "owner-a", Generation: 1}}
+	}
+	for _, webserver := range []string{"apache", "caddy", "openlitespeed"} {
+		ext := ".conf"
+		if webserver == "caddy" {
+			ext = ".caddy"
+		}
+		vhost := "site-alice-shop-example_org" + ext
+		proxy := "alice-shop-example_org" + ext
+		for _, req := range []Request{
+			{RequestType: "vhost", Vhost: &VhostRequest{Action: "delete", Name: vhost, WebServer: webserver}},
+			{RequestType: "proxy", Proxy: &ProxyRequest{Action: "delete", Name: proxy, WebServer: webserver}},
+		} {
+			req.Fencing = token("alice")
+			if err := broker.checkFencingScope(&req); err == nil {
+				t.Fatalf("%s: alice's lease admitted deleting %s/%s by its name alone", webserver, req.RequestType, routeName(req))
+			}
+		}
+		// alice-shop's example.org route, claimed by alice as hers: the
+		// names agree, but the claimed domain differs.
+		for _, req := range []Request{
+			{RequestType: "vhost", Vhost: &VhostRequest{Action: "delete", Name: vhost, Site: "alice", Domain: "example.org", WebServer: webserver}},
+			{RequestType: "proxy", Proxy: &ProxyRequest{Action: "delete", Name: proxy, Site: "alice", Domain: "example.org", WebServer: webserver}},
+			{RequestType: "vhost", Vhost: &VhostRequest{Action: "delete", Name: vhost, Site: "alice", WebServer: webserver}},
+		} {
+			if err := broker.validator.ValidateRequest(&req); err == nil {
+				t.Fatalf("%s: validator accepted %s %s owned by alice for %v", webserver, req.RequestType, routeName(req), routeDomain(req))
+			}
+		}
+		// Each reading admits only its own site's lease.
+		for _, owner := range []struct{ site, domain string }{{"alice", "shop-example.org"}, {"alice-shop", "example.org"}} {
+			for _, req := range []Request{
+				{RequestType: "vhost", Vhost: &VhostRequest{Action: "delete", Name: vhost, Site: owner.site, Domain: owner.domain, WebServer: webserver}},
+				{RequestType: "proxy", Proxy: &ProxyRequest{Action: "delete", Name: proxy, Site: owner.site, Domain: owner.domain, WebServer: webserver}},
+			} {
+				if err := broker.validator.ValidateRequest(&req); err != nil {
+					t.Fatalf("%s: canonical %s owner %s refused: %v", webserver, req.RequestType, owner.site, err)
+				}
+				for _, lease := range []string{"alice", "alice-shop"} {
+					req.Fencing = token(lease)
+					err := broker.checkFencingScope(&req)
+					if (lease == owner.site) != (err == nil) {
+						t.Fatalf("%s: %s of %s under %s's lease = %v", webserver, req.RequestType, owner.site, lease, err)
+					}
+				}
+			}
+		}
+	}
+}
+
+func routeName(req Request) string {
+	if req.Vhost != nil {
+		return req.Vhost.Name
+	}
+	return req.Proxy.Name
+}
+
+func routeDomain(req Request) string {
+	if req.Vhost != nil {
+		return req.Vhost.Domain
+	}
+	return req.Proxy.Domain
+}
+
+// NEW-01: a site's lease must not reach another site's database through the
+// request's unverified site field. The database helper must never run.
+func TestBrokerDatabaseScopeIgnoresAClaimedSite(t *testing.T) {
+	broker, db, _ := fencedWordPressBroker(t, "0")
+	registry := t.TempDir()
+	broker.databaseRegistryRoot = registry
+	if err := os.WriteFile(filepath.Join(registry, "bobdb"), []byte("cpmove:bob\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ran := filepath.Join(t.TempDir(), "dbctl-ran")
+	helper := filepath.Join(t.TempDir(), "dbctl")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> "+ran+"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	broker.dbctlPath = helper
+	aliceLease := grantLease(t, db, "alice")
+	for _, req := range []*DBRequest{
+		{Action: "drop", Site: "alice", Database: "bobdb"},
+		{Action: "drop", Site: "alice", Database: "unregistered_db"},
+	} {
+		response, err := broker.Execute(context.Background(), &Request{RequestType: "db", Fencing: []operations.FencingToken{aliceLease}, DB: req})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if response.OK || !strings.Contains(response.Error, "fencing token rejected") {
+			t.Fatalf("drop %s under alice's lease = %#v", req.Database, response)
+		}
+	}
+	if _, err := os.Stat(ran); err == nil {
+		data, _ := os.ReadFile(ran)
+		t.Fatalf("database helper ran under another site's lease: %s", data)
+	}
+
+	// bob's own lease, or the database's lease, admits the drop.
+	bobLease := grantLease(t, db, "bob")
+	response, err := broker.Execute(context.Background(), &Request{RequestType: "db", Fencing: []operations.FencingToken{bobLease}, DB: &DBRequest{Action: "drop", Database: "bobdb"}})
+	if err != nil || !response.OK {
+		t.Fatalf("owner's drop = %#v, %v", response, err)
+	}
+	data, err := os.ReadFile(ran)
+	if err != nil || strings.TrimSpace(string(data)) != "drop bobdb" {
+		t.Fatalf("helper calls = %q, %v", data, err)
 	}
 }

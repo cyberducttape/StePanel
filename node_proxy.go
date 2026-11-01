@@ -28,6 +28,7 @@ type proxyRequest struct {
 
 type proxyInfo struct {
 	Name   string `json:"name"`
+	Domain string `json:"domain"`
 	Config string `json:"config"`
 }
 

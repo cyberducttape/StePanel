@@ -169,7 +169,7 @@ func (a *App) provisionWordPressOnNewSite(ctx context.Context, req durableSiteCr
 
 func (a *App) publishWordPressRoute(ctx context.Context, req durableSiteCreationRequest, txn *SiteTransaction) (string, error) {
 	name := siteVHostConfigName(a.Config.WebServer, req.Site, req.WordPress.Domain)
-	if err := txn.TrackRoute(name); err != nil {
+	if err := txn.TrackRoute(name, req.WordPress.Domain); err != nil {
 		return "", fmt.Errorf("record WordPress route recovery intent: %w", err)
 	}
 	if err := runVhostMutation(ctx, a.Config, "apply", req.Site, req.WordPress.Domain); err != nil {

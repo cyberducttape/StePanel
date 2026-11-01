@@ -318,7 +318,7 @@ func (h *terminationHost) RemoveRoutes(ctx context.Context) error {
 		return fmt.Errorf("inspect managed routes before termination: %w", err)
 	}
 	for _, route := range routes {
-		if err := h.app.deleteManagedRoute(ctx, h.app.Config.VHostCtl, routeConfigName(h.app.Config, route)); err != nil {
+		if err := h.app.deleteManagedRoute(ctx, h.app.Config.VHostCtl, routeConfigName(h.app.Config, route), route.Site, route.Domain); err != nil {
 			return err
 		}
 	}
@@ -331,7 +331,7 @@ func (h *terminationHost) RemoveProxies(ctx context.Context) error {
 		return fmt.Errorf("inspect managed proxies before termination: %w", err)
 	}
 	for _, proxy := range proxies {
-		if err := h.app.deleteManagedRoute(ctx, h.app.Config.ProxyCtl, filepath.Base(proxy.Config)); err != nil {
+		if err := h.app.deleteManagedRoute(ctx, h.app.Config.ProxyCtl, filepath.Base(proxy.Config), h.site, proxy.Domain); err != nil {
 			return err
 		}
 	}
@@ -415,26 +415,23 @@ func runDatabaseTermination(ctx context.Context, cfg Config, database DatabaseRe
 	return nil
 }
 
-func (a *App) deleteManagedRoute(ctx context.Context, helper, name string) error {
+// deleteManagedRoute removes a site's route or proxy under the site's lease,
+// naming the site and served domain so the broker and helper can prove the
+// file is this site's.
+func (a *App) deleteManagedRoute(ctx context.Context, helper, name, site, domain string) error {
 	if helper == "" {
 		return fmt.Errorf("cannot remove managed route %s: helper is unavailable", name)
 	}
-	if a.Config.Production {
-		var err error
-		switch filepath.Clean(helper) {
-		case filepath.Clean(a.Config.VHostCtl):
-			err = runVhostMutation(ctx, a.Config, "delete", name)
-		case filepath.Clean(a.Config.ProxyCtl):
-			err = runProxyMutation(ctx, a.Config, "delete", name)
-		default:
-			err = errors.New("managed route helper has no typed root-broker operation")
-		}
-		if err != nil {
-			return fmt.Errorf("remove managed route %s: %w", name, err)
-		}
-		return nil
+	var err error
+	switch filepath.Clean(helper) {
+	case filepath.Clean(a.Config.VHostCtl):
+		err = deleteSiteRoute(ctx, a.Config, name, site, domain)
+	case filepath.Clean(a.Config.ProxyCtl):
+		err = deleteProxyRoute(ctx, a.Config, name, site, domain)
+	default:
+		err = errors.New("managed route helper has no typed root-broker operation")
 	}
-	if err := runHelperCommandWithTimeout(ctx, a.Config, helperConfigMutationTimeout, helper, "delete", name); err != nil {
+	if err != nil {
 		return fmt.Errorf("remove managed route %s: %w", name, err)
 	}
 	return nil

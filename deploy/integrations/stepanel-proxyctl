@@ -62,6 +62,12 @@ case "$action" in
     valid_backend "$backend" || { echo 'invalid backend' >&2; exit 1; }
     name="${site}-${domain//./_}.conf"
     path="$CONFIG_ROOT/$name"
+    # The file name does not identify its site (alice-shop-example_org is
+    # alice's shop-example.org and alice-shop's example.org proxy); never
+    # overwrite a proxy that serves another domain.
+    if [[ -e $path ]]; then
+      [[ $(awk 'tolower($1) == "servername" { print tolower($2); exit }' "$path") == "$domain" ]] || { echo 'proxy file already serves another domain' >&2; exit 1; }
+    fi
     domain_in_use "$domain" "$path" && { echo 'domain is already assigned to another managed route' >&2; exit 1; }
     backup=$(mktemp)
     existed=0
@@ -82,13 +88,15 @@ case "$action" in
     fi
     ;;
   delete)
-    (( $# == 2 )) || { echo 'usage: stepanel-proxyctl delete NAME' >&2; exit 64; }
-    name=${2:-}
+    (( $# == 2 || $# == 3 )) || { echo 'usage: stepanel-proxyctl delete NAME [DOMAIN]' >&2; exit 64; }
+    name=${2:-}; expected=${3:-}
+    [[ -z $expected || $expected =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || { echo 'invalid expected domain' >&2; exit 1; }
     [[ $name =~ ^[a-z0-9_-]{1,32}-[a-z0-9_-]+\.conf$ ]] || { echo 'invalid proxy name' >&2; exit 1; }
     path="$CONFIG_ROOT/$name"
     [[ -f $path ]] || { echo 'proxy not found' >&2; exit 1; }
     domain=$(awk 'tolower($1) == "servername" { print tolower($2); exit }' "$path")
     [[ $domain =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || { echo 'managed proxy has an invalid ServerName' >&2; exit 1; }
+    [[ -z $expected || $domain == "$expected" ]] || { echo 'proxy serves another domain; refusing to delete it' >&2; exit 1; }
     domain_in_use "$domain" "$path" && { echo 'another Apache vhost still serves this domain; remove its TLS or external vhost first' >&2; exit 1; }
     backup=$(mktemp)
     trap 'rm -f "$backup"' EXIT
@@ -97,5 +105,5 @@ case "$action" in
     if ! apache_test; then mv -f "$backup" "$path"; exit 1; fi
     if ! apache_reload; then mv -f "$backup" "$path"; if apache_test; then apache_reload || true; fi; exit 1; fi
     ;;
-  *) echo 'usage: stepanel-proxyctl apply SITE DOMAIN BACKEND | delete NAME' >&2; exit 64 ;;
+  *) echo 'usage: stepanel-proxyctl apply SITE DOMAIN BACKEND | delete NAME [DOMAIN]' >&2; exit 64 ;;
 esac

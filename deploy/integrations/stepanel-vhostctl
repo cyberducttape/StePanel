@@ -64,6 +64,12 @@ case "$action" in
     public_root_pattern=${public_root//./\\.}
     name="site-${site}-${domain//./_}.conf"
     path="$config_root/$name"
+    # The file name does not identify its site (site-alice-shop-example_org is
+    # alice's shop-example.org and alice-shop's example.org route); never
+    # overwrite a route that serves another domain.
+    if [[ -e $path ]]; then
+      [[ $(awk 'tolower($1) == "servername" { print tolower($2); exit }' "$path") == "$domain" ]] || { echo 'route file already serves another domain' >&2; exit 1; }
+    fi
     domain_in_use "$domain" "$path" && { echo 'domain is already assigned to another managed route' >&2; exit 1; }
     if [[ -d /etc/apache2 ]]; then
       pool=
@@ -153,8 +159,9 @@ EOF
     if [[ $action == apply ]]; then rm -f "$auth_file"; fi
     ;;
   delete)
-    (( $# == 2 )) || { echo 'usage: stepanel-vhostctl delete NAME' >&2; exit 64; }
-    name=$2
+    (( $# == 2 || $# == 3 )) || { echo 'usage: stepanel-vhostctl delete NAME [DOMAIN]' >&2; exit 64; }
+    name=$2; expected=${3:-}
+    [[ -z $expected || $expected =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || { echo 'invalid expected domain' >&2; exit 1; }
     [[ $name =~ ^site-[a-z0-9_-]{1,32}-[a-z0-9_-]+\.conf$ ]] || { echo 'invalid site route name' >&2; exit 1; }
     path="$config_root/$name"
     [[ ! -L $path ]] || { echo 'site route is unsafe' >&2; exit 1; }
@@ -169,6 +176,7 @@ EOF
     [[ -f $path ]] || { echo 'site route is not a regular file' >&2; exit 1; }
     domain=$(awk 'tolower($1) == "servername" { print tolower($2); exit }' "$path")
     [[ $domain =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || { echo 'managed route has an invalid ServerName' >&2; exit 1; }
+    [[ -z $expected || $domain == "$expected" ]] || { echo 'site route serves another domain; refusing to delete it' >&2; exit 1; }
     domain_in_use "$domain" "$path" && { echo 'another Apache vhost still serves this domain; remove its TLS or external vhost first' >&2; exit 1; }
     backup=$(mktemp)
     trap 'rm -f "$backup"' EXIT
@@ -177,5 +185,5 @@ EOF
     if ! apache_test; then mv -f "$backup" "$path"; exit 1; fi
     if ! apache_reload; then mv -f "$backup" "$path"; if apache_test; then apache_reload || true; fi; exit 1; fi
     ;;
-  *) echo 'usage: stepanel-vhostctl apply SITE DOMAIN | delete NAME' >&2; exit 64 ;;
+  *) echo 'usage: stepanel-vhostctl apply SITE DOMAIN | delete NAME [DOMAIN]' >&2; exit 64 ;;
 esac

@@ -54,8 +54,22 @@ type SiteTransaction struct {
 // removes a pending one on a best-effort basis because a crash may have
 // interrupted it either before or after the web server published it.
 type TrackedRoute struct {
-	Name    string `json:"name"`
+	Name string `json:"name"`
+	// Domain is the domain the route serves. Recovery names it, with the
+	// site, so the broker admits the site's lease for exactly this file.
+	// Journals written before it was recorded read it from the route file.
+	Domain  string `json:"domain,omitempty"`
 	Applied bool   `json:"applied,omitempty"`
+}
+
+// trackedRouteServes reports whether name is the route file the site's apply
+// writes for domain.
+func trackedRouteServes(site, name, domain string) bool {
+	if !managedRouteDomain.MatchString(domain) {
+		return false
+	}
+	stem := strings.TrimSuffix(strings.TrimSuffix(name, ".conf"), ".caddy")
+	return stem == "site-"+site+"-"+strings.ReplaceAll(domain, ".", "_")
 }
 
 func validTrackedRouteName(site, name string) bool {
@@ -76,8 +90,9 @@ func validTrackedRouteName(site, name string) bool {
 }
 
 // TrackRoute records name as a pending route before it is applied.
-func (t *SiteTransaction) TrackRoute(name string) error {
-	if !validTrackedRouteName(t.Site, name) {
+func (t *SiteTransaction) TrackRoute(name, domain string) error {
+	domain = strings.ToLower(domain)
+	if !validTrackedRouteName(t.Site, name) || !trackedRouteServes(t.Site, name, domain) {
 		return errors.New("invalid tracked route name")
 	}
 	for _, existing := range t.Routes {
@@ -85,7 +100,7 @@ func (t *SiteTransaction) TrackRoute(name string) error {
 			return nil
 		}
 	}
-	t.Routes = append(t.Routes, TrackedRoute{Name: name})
+	t.Routes = append(t.Routes, TrackedRoute{Name: name, Domain: domain})
 	if err := t.persist(); err != nil {
 		t.Routes = t.Routes[:len(t.Routes)-1]
 		return err
@@ -124,7 +139,31 @@ func (t *SiteTransaction) cleanupRoutes(ctx context.Context, cfg Config) error {
 				return fmt.Errorf("inspect pending route %s: %w", route.Name, statErr)
 			}
 		}
-		if err := runVhostMutation(ctx, cfg, "delete", route.Name); err != nil {
+		domain := route.Domain
+		if domain == "" {
+			// A journal written before routes recorded their domain: the
+			// root-written file names the domain it serves.
+			path, pathErr := safePath(cfg.VHostRoot, route.Name)
+			if pathErr != nil {
+				return fmt.Errorf("inspect route %s: %w", route.Name, pathErr)
+			}
+			served, servedErr := managedRouteServedDomain(path)
+			switch {
+			case errors.Is(servedErr, os.ErrNotExist):
+				// Already removed; nothing is left to delete.
+				t.Routes = t.Routes[1:]
+				if err := t.persist(); err != nil {
+					return fmt.Errorf("record absent route cleanup: %w", err)
+				}
+				continue
+			case servedErr != nil:
+				return fmt.Errorf("identify route %s: %w", route.Name, servedErr)
+			case !trackedRouteServes(t.Site, route.Name, served):
+				return fmt.Errorf("route %s serves %s, which is not site %s's route", route.Name, served, t.Site)
+			}
+			domain = served
+		}
+		if err := deleteSiteRoute(ctx, cfg, route.Name, t.Site, domain); err != nil {
 			return fmt.Errorf("remove route %s: %w", route.Name, err)
 		}
 		t.Routes = t.Routes[1:]
