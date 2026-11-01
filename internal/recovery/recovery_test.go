@@ -216,8 +216,14 @@ func TestAssessUploadedOffsiteCopyIsNotRestoreEvidence(t *testing.T) {
 	s := assessWith(func(in *Inputs) {
 		in.Offsite.RestoreVerifiedAt = nil
 	})
-	if s.Offsite.State != "verified" || s.Checks[4].Status != "warning" || s.Confidence != ConfidenceDegraded {
+	if s.Offsite.State != "verified" || s.Checks[4].Status != "warning" || s.Checks[4].At != nil {
 		t.Fatalf("upload alone overclaims offsite recovery: %+v", s)
+	}
+	// A configured, uploaded offsite copy must not rank below a site with no
+	// offsite durability at all.
+	without := assessWith(func(in *Inputs) { in.Offsite = OffsiteFacts{} })
+	if s.Confidence != without.Confidence || s.Confidence != ConfidenceVerified {
+		t.Fatalf("offsite upload lowered confidence: with=%s without=%s", s.Confidence, without.Confidence)
 	}
 }
 

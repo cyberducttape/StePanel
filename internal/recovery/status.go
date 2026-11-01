@@ -278,9 +278,10 @@ func Assess(in Inputs) Status {
 	if s.Offsite.State == "pending" || s.Offsite.State == "untracked" {
 		degrade("Newest backup has no recorded offsite restore proof.")
 	}
-	if s.Offsite.State == "verified" && s.Offsite.RestoreVerifiedAt == nil {
-		degrade("Newest offsite copy has not been restored and verified.")
-	}
+	// An uploaded offsite copy without a recorded offsite restore stays a
+	// warning in Checks but does not lower confidence: the only recorder of
+	// that proof is a live restore from offsite, so degrading here would make
+	// sites with offsite backups permanently score below sites without them.
 	if in.LatestPassed != nil && in.LatestPassed.Backup != in.LatestBackup.Name {
 		// A previous recovery point passing does not prove that the current
 		// newest backup can be restored. Degrade the aggregate status so the
