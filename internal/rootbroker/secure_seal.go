@@ -70,7 +70,11 @@ func sealPass(ctx context.Context, rootFD int, apply bool) error {
 }
 
 // sealDirectory visits the entries of the directory open on dirFD, which it
-// takes ownership of and closes.
+// takes ownership of and closes. It reads names only: d_type is unreliable
+// (filesystems may report DT_UNKNOWN), and Go's ReadDir resolves an unknown
+// type with a path lstat relative to the working directory, which would skip
+// or misclassify entries. Every entry is classified by a descriptor-relative
+// fstatat instead.
 func sealDirectory(ctx context.Context, dirFD int, rel string, depth int, apply bool) error {
 	dir := os.NewFile(uintptr(dirFD), rel)
 	if dir == nil {
@@ -82,15 +86,15 @@ func sealDirectory(ctx context.Context, dirFD int, rel string, depth int, apply 
 		return fmt.Errorf("site tree is nested deeper than %d directories at %q", maxSealDepth, rel)
 	}
 	for {
-		entries, err := dir.ReadDir(sealReadBatch)
-		for _, entry := range entries {
+		names, err := dir.Readdirnames(sealReadBatch)
+		for _, name := range names {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return ctxErr
 			}
 			if sealVisitHook != nil {
 				sealVisitHook()
 			}
-			if err := sealChild(ctx, dirFD, entry, path.Join(rel, entry.Name()), depth, apply); err != nil {
+			if err := sealChild(ctx, dirFD, name, path.Join(rel, name), depth, apply); err != nil {
 				return err
 			}
 		}
@@ -100,35 +104,39 @@ func sealDirectory(ctx context.Context, dirFD int, rel string, depth int, apply 
 		if err != nil {
 			return fmt.Errorf("read seal directory %q: %w", rel, err)
 		}
-		if len(entries) == 0 {
+		if len(names) == 0 {
 			return nil
 		}
 	}
 }
 
-func sealChild(ctx context.Context, dirFD int, entry os.DirEntry, rel string, depth int, apply bool) error {
-	typ := entry.Type()
-	if typ&os.ModeSymlink != 0 {
-		return fmt.Errorf("refusing to seal symlink %q", rel)
+// sealClassify returns the file type of name in dirFD without following a
+// symlink, refusing anything but a regular file or directory.
+func sealClassify(dirFD int, name, rel string) (uint32, error) {
+	var stat unix.Stat_t
+	if err := unix.Fstatat(dirFD, name, &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+		return 0, fmt.Errorf("stat seal entry %q: %w", rel, err)
 	}
-	if typ&^os.ModeDir != 0 {
-		return fmt.Errorf("unsupported seal entry type %q", rel)
+	switch mode := stat.Mode & unix.S_IFMT; mode {
+	case unix.S_IFREG, unix.S_IFDIR:
+		return mode, nil
+	case unix.S_IFLNK:
+		return 0, fmt.Errorf("refusing to seal symlink %q", rel)
+	default:
+		return 0, fmt.Errorf("unsupported seal entry type %q", rel)
+	}
+}
+
+func sealChild(ctx context.Context, dirFD int, name, rel string, depth int, apply bool) error {
+	kind, err := sealClassify(dirFD, name, rel)
+	if err != nil {
+		return err
 	}
 	// Validation needs only the type of a non-directory; avoid opening it.
-	if !apply && !typ.IsDir() {
-		var stat unix.Stat_t
-		if err := unix.Fstatat(dirFD, entry.Name(), &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil {
-			return fmt.Errorf("stat seal entry %q: %w", rel, err)
-		}
-		if mode := stat.Mode & unix.S_IFMT; mode != unix.S_IFREG {
-			if mode == unix.S_IFLNK {
-				return fmt.Errorf("refusing to seal symlink %q", rel)
-			}
-			return fmt.Errorf("unsupported seal entry type %q", rel)
-		}
+	if !apply && kind == unix.S_IFREG {
 		return nil
 	}
-	fd, err := unix.Openat2(dirFD, entry.Name(), &unix.OpenHow{
+	fd, err := unix.Openat2(dirFD, name, &unix.OpenHow{
 		Flags:   unix.O_RDONLY | unix.O_CLOEXEC | unix.O_NONBLOCK | unix.O_NOFOLLOW,
 		Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS,
 	})
@@ -138,6 +146,8 @@ func sealChild(ctx context.Context, dirFD int, entry os.DirEntry, rel string, de
 		}
 		return fmt.Errorf("open seal entry %q: %w", rel, err)
 	}
+	// Re-check the type on the opened descriptor: the entry may have been
+	// replaced since it was classified.
 	var stat unix.Stat_t
 	if err := unix.Fstat(fd, &stat); err != nil {
 		unix.Close(fd)

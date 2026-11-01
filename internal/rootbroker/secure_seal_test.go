@@ -42,10 +42,13 @@ func sealPeakHeap(t *testing.T, root string) (uint64, int) {
 	sealVisitHook = func() {
 		visited++
 		if visited%2048 == 0 {
+			// Measure live bytes the walk retains, not garbage awaiting
+			// collection, whose amount depends on GC timing.
+			runtime.GC()
 			var now runtime.MemStats
 			runtime.ReadMemStats(&now)
-			if now.HeapInuse > base.HeapInuse && now.HeapInuse-base.HeapInuse > peak {
-				peak = now.HeapInuse - base.HeapInuse
+			if now.HeapAlloc > base.HeapAlloc && now.HeapAlloc-base.HeapAlloc > peak {
+				peak = now.HeapAlloc - base.HeapAlloc
 			}
 		}
 	}
@@ -79,8 +82,9 @@ func TestSecureSealTreeMemoryDoesNotGrowWithEntryCount(t *testing.T) {
 	}
 	// A retained path list for the large tree would need well over 2 MiB
 	// (40,000 names of ~60 bytes plus string headers); the streaming walk
-	// stays within a small constant of the small tree's peak.
-	const allowance = 1 << 20
+	// stays within 256 KiB of the small tree's live peak.
+	const allowance = 256 << 10
+	t.Logf("peak live heap: %d bytes for %d entries, %d bytes for %d", smallPeak, small, largePeak, large)
 	if largePeak > smallPeak+allowance {
 		t.Fatalf("peak heap grew with the tree: %d bytes for %d entries vs %d bytes for %d", largePeak, large, smallPeak, small)
 	}
@@ -178,5 +182,63 @@ func TestSecureSealTreeBoundsDepthAndHonoursCancellation(t *testing.T) {
 	defer func() { sealVisitHook = nil }()
 	if err := secureSealTree(ctx, wide); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled seal = %v", err)
+	}
+}
+
+// NEW-03: entries are classified by a descriptor-relative fstatat, never by
+// the directory entry's d_type, which a filesystem may report as unknown.
+func TestSealClassifiesEntriesByDescriptorNotDirentType(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "dir"), 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "file"), nil, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("file", filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(root, "pipe"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fd, err := syscall.Open(root, syscall.O_RDONLY|syscall.O_DIRECTORY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Close(fd)
+	for name, want := range map[string]uint32{"dir": syscall.S_IFDIR, "file": syscall.S_IFREG} {
+		if got, err := sealClassify(fd, name, name); err != nil || got != want {
+			t.Errorf("sealClassify(%s) = %o, %v", name, got, err)
+		}
+	}
+	for name, want := range map[string]string{"link": "symlink", "pipe": "unsupported", "missing": "no such file"} {
+		if _, err := sealClassify(fd, name, name); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("sealClassify(%s) = %v, want %q", name, err, want)
+		}
+	}
+
+	// The walk resolves entries against the directory descriptor, not the
+	// working directory: a same-named entry of another type in the cwd
+	// must not change how the tree is sealed.
+	tree := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tree, "nested", "deeper"), 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tree, "nested", "deeper", "page.php"), nil, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	decoy := t.TempDir()
+	if err := os.WriteFile(filepath.Join(decoy, "nested"), nil, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(decoy)
+	if err := secureSealTree(context.Background(), tree); err != nil {
+		t.Fatal(err)
+	}
+	for rel, want := range map[string]os.FileMode{"nested": 0o750, "nested/deeper": 0o750, "nested/deeper/page.php": 0o640} {
+		info, err := os.Lstat(filepath.Join(tree, rel))
+		if err != nil || info.Mode().Perm() != want {
+			t.Errorf("%s = %v, %v; want %o", rel, info.Mode(), err, want)
+		}
 	}
 }
