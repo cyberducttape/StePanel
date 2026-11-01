@@ -1,6 +1,8 @@
 package http
 
 import (
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,7 +21,12 @@ func TestTimeoutMiddlewareUsesRouteClass(t *testing.T) {
 		want   time.Duration
 		margin time.Duration
 	}{
-		{name: "upload", path: "/api/cpmove/import", want: 60 * time.Minute, margin: 2 * time.Second},
+		{name: "cpmove upload", path: "/api/cpmove/inspect", want: 60 * time.Minute, margin: 2 * time.Second},
+		{name: "wpress upload", path: "/api/wpress/import", want: 60 * time.Minute, margin: 2 * time.Second},
+		{name: "cpmove plan", path: "/api/cpmove/plan", want: 30 * time.Second, margin: 2 * time.Second},
+		{name: "cpmove import confirmation", path: "/api/cpmove/import", want: 30 * time.Second, margin: 2 * time.Second},
+		{name: "wpress preflight", path: "/api/wpress/preflight", want: 30 * time.Second, margin: 2 * time.Second},
+		{name: "upload path prefix", path: "/api/cpmove/inspect/extra", want: 30 * time.Second, margin: 2 * time.Second},
 		{name: "long poll", path: "/api/jobs/123", want: 45 * time.Second, margin: 2 * time.Second},
 		{name: "ordinary api", path: "/api/sites", want: 30 * time.Second, margin: 2 * time.Second},
 	}
@@ -129,5 +136,71 @@ func TestUploadReadForCoversLargestArchiveAt50Mbps(t *testing.T) {
 		if got := UploadReadFor(tc.bytes); got != tc.want {
 			t.Errorf("UploadReadFor(%d) = %s, want %s", tc.bytes, got, tc.want)
 		}
+	}
+}
+
+// TestSmallCPMoveRequestsCannotTrickleBodies drives a real connection: a
+// client that sends a small-route body slower than the API read deadline is
+// cut off at that deadline instead of the multi-hour upload window, while an
+// archive upload route keeps the long server read timeout.
+func TestSmallCPMoveRequestsCannotTrickleBodies(t *testing.T) {
+	tc := DefaultTimeouts()
+	tc.APIRead = 300 * time.Millisecond
+	tc.UploadRead = time.Hour
+	type outcome struct {
+		err     error
+		elapsed time.Duration
+	}
+	results := make(chan outcome, 1)
+	handler := tc.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
+		_, err := io.Copy(io.Discard, r.Body)
+		results <- outcome{err: err, elapsed: time.Since(started)}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	server := httptest.NewUnstartedServer(handler)
+	server.Config.ReadTimeout = tc.UploadRead
+	server.Start()
+	defer server.Close()
+
+	trickle := func(path string, total time.Duration) outcome {
+		t.Helper()
+		conn, err := net.Dial("tcp", server.Listener.Addr().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		const chunks = 10
+		if _, err := io.WriteString(conn, "POST "+path+" HTTP/1.1\r\nHost: test\r\nContent-Type: application/json\r\nContent-Length: "+strconv.Itoa(chunks)+"\r\n\r\n"); err != nil {
+			t.Fatal(err)
+		}
+		go func() {
+			for i := 0; i < chunks; i++ {
+				time.Sleep(total / chunks)
+				if _, err := conn.Write([]byte("x")); err != nil {
+					return
+				}
+			}
+		}()
+		select {
+		case result := <-results:
+			return result
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%s: handler never returned", path)
+			return outcome{}
+		}
+	}
+
+	for _, path := range []string{"/api/cpmove/plan", "/api/cpmove/import"} {
+		result := trickle(path, 2*time.Second)
+		if result.err == nil {
+			t.Fatalf("%s: a body trickled past the API read deadline was accepted", path)
+		}
+		if result.elapsed > time.Second {
+			t.Fatalf("%s: trickled body held the handler for %s, want about %s", path, result.elapsed, tc.APIRead)
+		}
+	}
+	if result := trickle("/api/cpmove/inspect", time.Second); result.err != nil {
+		t.Fatalf("archive upload route was cut off by the API read deadline: %v", result.err)
 	}
 }

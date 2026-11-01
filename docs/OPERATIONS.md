@@ -404,7 +404,7 @@ keep-alive connections close after 30 seconds on every path.
 | Ordinary API | `/api/*`, `/livez`, `/readyz` not listed below | 30 s request read, 2 min response write |
 | Long poll | `/api/jobs/` | 45 s |
 | Event stream | `/api/jobs/events` and other server-sent event streams | no request deadline; each write must drain in 15 s and the stream closes after 25–30 min so the client reconnects and re-authenticates |
-| Upload | `/api/cpmove/import`, `/api/cpmove/inspect`, `/api/wpress/import`, `/api/wpress/preflight` | Ceiling sized for the largest configured archive (`STEPANEL_MAX_UPLOAD_BYTES` or `STEPANEL_CPMOVE_MAX_UPLOAD_BYTES`) at a sustained 50 Mbps: at least 60 min, at most 4 h (115 min for the default 40 GiB cPanel limit); a body that stops arriving for 2 min fails earlier |
+| Upload | `/api/cpmove/inspect`, `/api/wpress/import` (exact paths; the cPanel plan and import-confirmation forms and the WordPress preflight are ordinary API requests) | Ceiling sized for the largest configured archive (`STEPANEL_MAX_UPLOAD_BYTES` or `STEPANEL_CPMOVE_MAX_UPLOAD_BYTES`) at a sustained 50 Mbps: at least 60 min, at most 4 h (115 min for the default 40 GiB cPanel limit); a body that stops arriving for 2 min fails earlier |
 | Download class | no registered route currently uses it | 5 min response write; also the server-wide write ceiling for every response |
 | Service operation | `/api/python/` | 3 min: the helper's 60-second service lifecycle bound plus the site lock wait |
 

@@ -47,10 +47,24 @@ var ServiceOperationPaths = []string{
 	"/api/python/",
 }
 
-// IsUploadPath reports whether path receives a large archive upload. Uploads
-// keep the server-wide read timeout and their own idle-body guard.
+// UploadPaths are the routes that receive a large archive body. They keep the
+// server-wide read timeout (sized by UploadReadFor) and install their own
+// idle-body guard in the handler. Every other route, including the small
+// cPanel plan and import-confirmation forms, gets an ordinary API deadline,
+// so a trickled body cannot hold a small handler for the upload window.
+var UploadPaths = []string{
+	"/api/cpmove/inspect",
+	"/api/wpress/import",
+}
+
+// IsUploadPath reports whether path receives a large archive upload.
 func IsUploadPath(path string) bool {
-	return startsWith(path, "/api/cpmove/") || startsWith(path, "/api/wpress/")
+	for _, upload := range UploadPaths {
+		if path == upload {
+			return true
+		}
+	}
+	return false
 }
 
 // IsServiceOperationPath reports whether path is a synchronous service action.
