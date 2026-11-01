@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -58,6 +59,22 @@ func TestCrashDrillChild(t *testing.T) {
 		job := Job{ID: "crash-terminate", StartedAt: time.Unix(1_800_000_000, 0).UTC()}
 		job.Payload, _ = json.Marshal(durableSiteTerminationRequest{Site: f.site.Site(), Actor: "admin"})
 		_, _ = app.handleSiteTermination(ctx, job)
+	case "deploy-seal":
+		// The release activates, then the panel dies while the site helper
+		// is part-way through sealing the new tree (seal-crash-helper).
+		if err := os.WriteFile(filepath.Join(root, "panel.pid"), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		f.cfg.SiteCtl = filepath.Join(root, "fake-sitectl")
+		app := &App{Config: f.cfg}
+		release, owner, err := app.createSiteReleaseStaging(ctx, f.site.Site(), ".stepanel-release-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer owner.Close()
+		writeTestFile(t, filepath.Join(release, "index.html"), "v3")
+		writeTestFile(t, filepath.Join(release, "late.html"), "v3 only")
+		_, _ = app.activatePipelineRelease(ctx, f.site.Site(), release)
 	case "suspend":
 		accounts, err := OpenAccountStore(filepath.Join(root, "accounts.json"))
 		if err != nil {
@@ -284,4 +301,63 @@ func TestCrashDrill_AccountSuspension(t *testing.T) {
 			}
 		})
 	}
+}
+
+// NEW-05: sealing is not atomic. A panel that dies while the new release is
+// part-way sealed leaves its activation journal in "activated"; startup
+// recovery must restore the previous release, untouched by the partial
+// seal, and the next deploy must succeed.
+func TestCrashDrill_DeployDiesDuringSeal(t *testing.T) {
+	f := crashDrillFixture(t.TempDir())
+	f.writeSite(t, versionOne)
+	before := map[string]os.FileMode{}
+	for name := range versionOne {
+		info, err := os.Stat(filepath.Join(f.public(), name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		before[name] = info.Mode().Perm()
+	}
+	// The fake site helper seals one entry of the new tree, then kills the
+	// panel process mid-seal, as a crash or OOM kill would.
+	helper := "#!/bin/sh\n" +
+		"[ \"$1\" = seal ] || exit 0\n" +
+		"chmod 0640 \"" + f.public() + "/index.html\"\n" +
+		"kill -KILL \"$(cat \"" + filepath.Join(f.root, "panel.pid") + "\")\"\n" +
+		"sleep 5\n"
+	if err := os.WriteFile(filepath.Join(f.root, "fake-sitectl"), []byte(helper), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runCrashChild(t, "deploy-seal", f.root, "none:none")
+	restartRecovery(t, f)
+
+	f.assertSite(t, versionOne)
+	for name, mode := range before {
+		info, err := os.Stat(filepath.Join(f.public(), name))
+		if err != nil || info.Mode().Perm() != mode {
+			t.Fatalf("%s mode after recovery = %v, %v; want the previous release's %o", name, info.Mode(), err, mode)
+		}
+	}
+	if recovered, err := recoverReleaseActivationJournals(f.cfg); err != nil || len(recovered) != 0 {
+		t.Fatalf("activation journal left after recovery: recovered=%v err=%v", recovered, err)
+	}
+	ageStagingBeyondLiveOperations(t, f)
+	restartRecovery(t, f)
+	if err := CleanupImportStages(f.cfg.ImportRoot, orphanedStagingMinAge); err != nil {
+		t.Fatal(err)
+	}
+	f.assertQuiescent(t)
+
+	// The next deploy activates cleanly over the recovered site.
+	app := &App{Config: f.cfg}
+	release, owner, err := app.createSiteReleaseStaging(context.Background(), f.site.Site(), ".stepanel-release-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close()
+	writeTestFile(t, filepath.Join(release, "index.html"), "v4")
+	if _, err := app.activatePipelineRelease(context.Background(), f.site.Site(), release); err != nil {
+		t.Fatalf("deploy after crash recovery: %v", err)
+	}
+	f.assertSite(t, map[string]string{"index.html": "v4"})
 }

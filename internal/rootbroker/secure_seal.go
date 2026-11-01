@@ -22,16 +22,33 @@ const maxSealDepth = 1024
 // sealVisitHook, when set by tests, is called for every visited entry.
 var sealVisitHook func()
 
+// sealApplyHook, when set by tests, runs before each permission change and
+// may fail it, to exercise interruption of the apply pass.
+var sealApplyHook func(rel string) error
+
 // secureSealTree seals only regular files and directories reached through
 // descriptor-relative, no-symlink opens, so a customer cannot replace a
 // checked path with a symlink between validation and mutation.
 //
 // It walks the tree twice without retaining it: the first pass validates
-// every entry, so a symlink or special file anywhere refuses the seal before
-// anything changes; the second pass reopens each entry with openat2
-// (RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS), re-checks its type on the opened
-// descriptor and fchmods it. Entries are opened O_NONBLOCK, so a FIFO swapped
-// in between the passes cannot block the broker. Both passes honour ctx.
+// every entry, so a symlink or special file present when the seal starts
+// refuses it before anything changes; the second pass reopens each entry
+// with openat2 (RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS), re-checks its type on
+// the opened descriptor and fchmods it. Entries are opened O_NONBLOCK, so a
+// FIFO swapped in between the passes cannot block the broker. Both passes
+// honour ctx.
+//
+// The seal is not atomic. If the apply pass is interrupted (cancellation, a
+// failed fchmod, or an unsafe entry created after validation), entries
+// already visited keep their sealed mode and the rest keep their previous
+// one; no other mode is ever written, and nothing outside the tree changes.
+// The target state depends only on each entry's type (directories 0750,
+// files 0640), so the seal is convergent: running it again completes it
+// from any partial state. Callers own recovery through their lifecycle
+// journals: a release activation interrupted before its journal commits is
+// rolled back to the previous release on startup, and site creation,
+// restore and promotion fail and discard or roll back the tree on a seal
+// error.
 func secureSealTree(ctx context.Context, root string) error {
 	rootFD, err := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
@@ -171,6 +188,11 @@ func sealChild(ctx context.Context, dirFD int, name, rel string, depth int, appl
 }
 
 func sealEntry(fd int, mode uint32, rel string) error {
+	if sealApplyHook != nil {
+		if err := sealApplyHook(rel); err != nil {
+			return fmt.Errorf("chmod seal entry %q: %w", rel, err)
+		}
+	}
 	permissions := uint32(0o640)
 	if mode == unix.S_IFDIR {
 		permissions = 0o750

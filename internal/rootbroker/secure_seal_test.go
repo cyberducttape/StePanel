@@ -242,3 +242,145 @@ func TestSealClassifiesEntriesByDescriptorNotDirentType(t *testing.T) {
 		}
 	}
 }
+
+// sealTestTree builds a tree whose modes differ from the sealed ones, so a
+// partial seal is visible, and returns every entry's original mode.
+func sealTestTree(t *testing.T) (string, map[string]os.FileMode) {
+	t.Helper()
+	root := t.TempDir()
+	original := map[string]os.FileMode{}
+	for d := 0; d < 6; d++ {
+		dir := filepath.Join(root, "d"+strconv.Itoa(d))
+		if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		for _, rel := range []string{"d" + strconv.Itoa(d), filepath.Join("d"+strconv.Itoa(d), "sub")} {
+			if err := os.Chmod(filepath.Join(root, rel), 0o705); err != nil {
+				t.Fatal(err)
+			}
+			original[rel] = 0o705
+		}
+		for f := 0; f < 20; f++ {
+			rel := filepath.Join("d"+strconv.Itoa(d), "sub", "f"+strconv.Itoa(f))
+			if err := os.WriteFile(filepath.Join(root, rel), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(filepath.Join(root, rel), 0o604); err != nil {
+				t.Fatal(err)
+			}
+			original[rel] = 0o604
+		}
+	}
+	return root, original
+}
+
+// assertSealPartial checks that every entry has either its original mode or
+// its sealed mode, never another, and returns how many are sealed.
+func assertSealPartial(t *testing.T, root string, original map[string]os.FileMode) int {
+	t.Helper()
+	sealed := 0
+	for rel, before := range original {
+		info, err := os.Lstat(filepath.Join(root, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := os.FileMode(0o640)
+		if info.IsDir() {
+			want = 0o750
+		}
+		switch info.Mode().Perm() {
+		case want:
+			sealed++
+		case before:
+		default:
+			t.Fatalf("%s has mode %o, neither its original %o nor sealed %o", rel, info.Mode().Perm(), before, want)
+		}
+	}
+	return sealed
+}
+
+// NEW-05: the seal is not atomic, but it is convergent. Interrupting the
+// apply pass anywhere leaves each entry at its original or sealed mode, and
+// running the seal again completes it.
+func TestSealApplyInterruptionLeavesOnlyOriginalOrSealedModesAndResumes(t *testing.T) {
+	_, original := sealTestTree(t)
+	entries := len(original)
+	for _, stopAfter := range []int{0, 1, entries / 3, 2 * entries / 3, entries - 1} {
+		for _, how := range []string{"cancel", "chmod-failure", "late-symlink"} {
+			t.Run(how+"/"+strconv.Itoa(stopAfter), func(t *testing.T) {
+				root, original := sealTestTree(t)
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				// A file outside the tree the planted symlink points at; the
+				// seal must never change it.
+				outside := filepath.Join(t.TempDir(), "outside")
+				if err := os.WriteFile(outside, nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Chmod(outside, 0o604); err != nil {
+					t.Fatal(err)
+				}
+				applied := 0
+				visited := map[string]bool{}
+				var planted string
+				sealApplyHook = func(rel string) error {
+					visited[rel] = true
+					if applied == stopAfter {
+						switch how {
+						case "cancel":
+							cancel()
+						case "chmod-failure":
+							return errors.New("injected fchmod failure")
+						case "late-symlink":
+							// Replace a file the apply pass has not reached
+							// with a symlink, as a customer could.
+							for rel, mode := range original {
+								if mode == 0o604 && !visited[rel] && planted == "" {
+									planted = rel
+								}
+							}
+							if planted != "" {
+								path := filepath.Join(root, planted)
+								if err := os.Remove(path); err != nil {
+									t.Fatal(err)
+								}
+								if err := os.Symlink(outside, path); err != nil {
+									t.Fatal(err)
+								}
+							}
+						}
+					}
+					applied++
+					return nil
+				}
+				err := secureSealTree(ctx, root)
+				sealApplyHook = nil
+				if how != "late-symlink" || planted != "" {
+					if err == nil {
+						t.Fatal("interrupted seal reported success")
+					}
+				}
+				if planted != "" {
+					delete(original, planted)
+				}
+				assertSealPartial(t, root, original)
+				if info, err := os.Stat(outside); err != nil || info.Mode().Perm() != 0o604 {
+					t.Fatalf("the seal changed a file outside the tree: %v, %v", info.Mode(), err)
+				}
+				if planted != "" {
+					// The operator (or the retried operation) removes the
+					// unsafe entry; the rerun then completes the seal.
+					if err := os.Remove(filepath.Join(root, planted)); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := secureSealTree(context.Background(), root); err != nil {
+					t.Fatalf("resumed seal: %v", err)
+				}
+				if sealed := assertSealPartial(t, root, original); sealed != len(original) {
+					t.Fatalf("resumed seal sealed %d of %d entries", sealed, len(original))
+				}
+			})
+		}
+	}
+}

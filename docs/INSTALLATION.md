@@ -420,7 +420,13 @@ and PHP socket root in the root-owned `/etc/ste-panel.env`; the root broker and
 site helper consume that same identity. The Caddy vhost helper and site
 sealing refuse a document root that contains a symlink (`node_modules`, which
 managed routes never serve, is exempt), so a published route cannot follow a
-link out of its site. Python virtualenvs live beside the document root at
+link out of its site. Sealing is not atomic: it sets directories to `0750`
+and files to `0640` one entry at a time, so an interrupted seal leaves some
+entries sealed and the rest unchanged (never any other mode). Running it
+again completes it, and every operation that seals owns the recovery: an
+interrupted release activation is rolled back to the previous release on
+startup, and site creation, restore, and promotion fail and discard or roll
+back the tree. Python virtualenvs live beside the document root at
 `/var/www/sites/<site>/.venv`. The installer does not install Python: managed
 Python applications need `python3.12` or `python3.13` with its `venv` module.
 RHEL-family packages include it; on Debian and Ubuntu also install the
