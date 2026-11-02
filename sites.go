@@ -690,6 +690,10 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "route publication cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
+	if !a.customerRouteStillAuthorized(r, input.Site, input.Domain) {
+		http.Error(w, "site access or domain ownership changed before the route could be published", http.StatusConflict)
+		return
+	}
 	beforeFile, err := a.snapshotVhost(name)
 	if err != nil {
 		http.Error(w, "could not safely inspect current web-server configuration", http.StatusServiceUnavailable)

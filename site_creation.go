@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -216,6 +217,51 @@ type durableSiteCreationRequest struct {
 	Kind      string                     `json:"kind,omitempty"`
 	Directory string                     `json:"directory,omitempty"`
 	WordPress *wordpressProvisionRequest `json:"wordpress,omitempty"`
+	// RequestDigest identifies the normalized request that queued the job,
+	// so a retry with the same Idempotency-Key replays the original job
+	// even after the site exists, and a different request is refused.
+	RequestDigest string `json:"request_digest,omitempty"`
+}
+
+// siteCreationRequestDigest is the SHA-256 of the normalized creation
+// request and its requester. It deliberately excludes anything derived from
+// current state (placement, existence), which changes once the job runs.
+func siteCreationRequestDigest(actor string, fields ...string) string {
+	digest := sha256.New()
+	_, _ = digest.Write([]byte("stepanel-site-create-v1"))
+	for _, field := range append([]string{actor}, fields...) {
+		_, _ = digest.Write([]byte{0})
+		_, _ = digest.Write([]byte(field))
+	}
+	return hex.EncodeToString(digest.Sum(nil))
+}
+
+// replaySiteCreation answers a retried Idempotency-Key with the job it
+// queued. It reports whether it wrote a response.
+func (a *App) replaySiteCreation(w http.ResponseWriter, site, operationKey, digest string) bool {
+	if a.Jobs == nil || operationKey == "" {
+		return false
+	}
+	job, found, err := a.Jobs.IdempotentJob("site.create", site, operationKey)
+	if err != nil {
+		http.Error(w, "site creation state is unavailable", http.StatusServiceUnavailable)
+		return true
+	}
+	if !found {
+		return false
+	}
+	var queued durableSiteCreationRequest
+	if err := json.Unmarshal(job.Payload, &queued); err != nil || queued.RequestDigest == "" || subtle.ConstantTimeCompare([]byte(queued.RequestDigest), []byte(digest)) != 1 {
+		http.Error(w, ErrIdempotencyConflict.Error(), http.StatusConflict)
+		return true
+	}
+	response := map[string]string{"job_id": job.ID, "site": queued.Site, "template": queued.Template, "status_url": "/api/jobs/" + job.ID}
+	if queued.Account != "" {
+		placement := sitelayout.Placement{Site: queued.Site, Account: queued.Account, UnixUser: queued.Account, Kind: sitelayout.Kind(queued.Kind), Directory: queued.Directory}
+		response["account"], response["kind"], response["document_root"] = queued.Account, queued.Kind, placement.DocRoot(a.Config.HomeRoot)
+	}
+	writeJSON(w, http.StatusAccepted, response)
+	return true
 }
 
 type wordpressProvisionRequest struct {
@@ -309,6 +355,14 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unsupported site template", http.StatusUnprocessableEntity)
 		return
 	}
+	// Resolve a retried Idempotency-Key before anything that depends on
+	// current state: once the first request's job has created the site, a
+	// retry must get that job back, not "site already exists".
+	passwordDigest := sha256.Sum256([]byte(input.AdminPassword))
+	requestDigest := siteCreationRequestDigest(a.Auth.AuditActor(r), input.Site, input.Template, strings.TrimSpace(input.Account), strings.TrimSpace(input.Kind), strings.ToLower(strings.TrimSpace(input.Domain)), strings.TrimSpace(input.Title), strings.TrimSpace(input.AdminUser), strings.TrimSpace(input.AdminEmail), hex.EncodeToString(passwordDigest[:]))
+	if a.replaySiteCreation(w, input.Site, operationKey, requestDigest) {
+		return
+	}
 	var wordpress *wordpressProvisionRequest
 	if input.Template == "wordpress" {
 		input.Domain = strings.ToLower(strings.TrimSpace(input.Domain))
@@ -338,6 +392,15 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 			cancel()
 			if verifyErr != nil {
 				http.Error(w, "verify the site's domain ownership before WordPress provisioning", http.StatusConflict)
+				return
+			}
+			// A new site's domain is claimed and verified before the site
+			// exists (a reservation, domainClaimAccess); that claim must be
+			// this customer's tenant's own.
+			tenant, _ := a.requesterTenant(r)
+			claimTenant, claimed := a.Domains.tenantOf(input.Site, input.Domain)
+			if !claimed || claimTenant != tenant && !a.Accounts.OwnsSite(actor, input.Site) {
+				http.Error(w, "the domain claim belongs to another account", http.StatusConflict)
 				return
 			}
 		}
@@ -375,6 +438,14 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		placed = true
 	}
+	// Another tenant's live domain reservation holds this site name.
+	if a.Domains != nil {
+		requester, _ := a.requesterTenant(r)
+		if holder, reserved := a.Domains.reservedBy(input.Site); reserved && holder != requester {
+			http.Error(w, "site name is reserved by another account", http.StatusConflict)
+			return
+		}
+	}
 	assigned := false
 	if !admin {
 		if _, newlyAssigned, err := a.Accounts.EnsureSiteAssigned(actor, input.Site); err != nil {
@@ -383,8 +454,19 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 		} else {
 			assigned = newlyAssigned
 		}
+		// The site is now assigned to the customer: its domain reservation
+		// becomes an ordinary claim. A failed creation re-arms it.
+		if a.Domains != nil {
+			if err := a.Domains.setReservation(input.Site, false); err != nil {
+				if assigned {
+					a.releaseSiteReservation(actor, input.Site)
+				}
+				http.Error(w, "could not confirm the domain reservation", http.StatusServiceUnavailable)
+				return
+			}
+		}
 	}
-	request := durableSiteCreationRequest{Site: input.Site, Template: input.Template, Actor: a.Auth.AuditActor(r), CustomerProvisioning: !admin, WordPress: wordpress}
+	request := durableSiteCreationRequest{Site: input.Site, Template: input.Template, Actor: a.Auth.AuditActor(r), CustomerProvisioning: !admin, WordPress: wordpress, RequestDigest: requestDigest}
 	if placed {
 		request.Account, request.Kind, request.Directory = placement.Account, string(placement.Kind), placement.Directory
 	}
@@ -417,6 +499,18 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 func (a *App) releaseSiteReservation(actor, site string) {
 	if err := a.Accounts.UnassignSite(actor, site); err != nil {
 		log.Printf("release site creation reservation for %s/%s: %v", actor, site, err)
+	}
+	a.rearmDomainReservation(site)
+}
+
+// rearmDomainReservation gives a site name whose creation failed its
+// reservation expiry back, so an abandoned name is released on schedule.
+func (a *App) rearmDomainReservation(site string) {
+	if a.Domains == nil {
+		return
+	}
+	if err := a.Domains.setReservation(site, true); err != nil {
+		log.Printf("re-arm domain reservation for %s: %v", site, err)
 	}
 }
 
@@ -466,6 +560,7 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 		if err := a.Accounts.UnassignSite(req.Actor, req.Site); err != nil {
 			log.Printf("release site creation reservation for %s/%s: %v", req.Actor, req.Site, err)
 		}
+		a.rearmDomainReservation(req.Site)
 	}()
 	if !validSiteName(req.Site) || safeUser(req.Site) != req.Site {
 		return nil, errors.New("invalid site name in site creation payload")
@@ -508,6 +603,11 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 		customerAccount, found = a.Accounts.Get(req.Actor)
 		if !found || !a.Accounts.OwnsSite(req.Actor, req.Site) || a.Accounts.TenantSuspended(req.Actor) {
 			return nil, errors.New("customer site assignment is no longer active")
+		}
+		// The domain was verified when the request was accepted, outside
+		// this lock; it must still be this site's verified claim now.
+		if req.WordPress != nil && (a.Domains == nil || !a.Domains.verifiedFor(req.Site, req.WordPress.Domain)) {
+			return nil, doNotRetry(errors.New("the site's domain ownership is no longer verified"))
 		}
 	}
 	if exists, err := a.siteExists(req.Site); err != nil {

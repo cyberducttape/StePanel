@@ -274,6 +274,21 @@ curl -fsS -X POST -H "Authorization: Bearer $STEPANEL_TOKEN" \
   "$PANEL/api/sites/domains/verify" | jq
 ```
 
+A tenant owner creating a **new** WordPress site claims and verifies its
+domain first, naming the site that does not exist yet. That claim reserves
+the site name for the owner's tenant for 72 hours (`reserved_until` in the
+response): no other account can claim, verify, or create that name meanwhile.
+Then `POST /api/sites` with `"template":"wordpress"` and the same site and
+domain creates the site and assigns it to the owner; an unused reservation
+expires, and a failed creation re-arms it. A DNS verification result is
+applied only if the claim it started for is still current, and route
+publication and site creation re-check access and ownership once they hold
+the site's lock.
+
+`POST /api/sites` honours `Idempotency-Key`: a retry with the same key and
+the same request returns the original job, even after the site was created;
+the same key with a different request is refused with `409`.
+
 The TXT record is revalidated when the customer activates the route. This is
 panel ownership proof, not registrar, DNS-zone, DNSSEC, or ACME lifecycle
 management. Administrators have an explicit operator bypass where documented.

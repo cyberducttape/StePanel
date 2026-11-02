@@ -175,6 +175,10 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseUnlock()
+	if !a.customerRouteStillAuthorized(r, input.Site, input.Domain) {
+		http.Error(w, "site access or domain ownership changed before staging could be activated", http.StatusConflict)
+		return
+	}
 	if input.Database {
 		if a.Config.DBCtl == "" || !validManagedDatabaseIdentifier(input.SourceDatabase, databaseNameLimit(a.Config)) || !validManagedDatabaseIdentifier(input.TargetDatabase, databaseNameLimit(a.Config)) || !validManagedDatabaseIdentifier(input.TargetUser, 32) || input.TargetUser[0] < 'a' || input.TargetUser[0] > 'z' || !validDatabasePassword(input.TargetPassword) {
 			http.Error(w, "source_database, target_database, target_user, and target_password are required for database cloning", 422)

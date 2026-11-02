@@ -732,6 +732,25 @@ func (j *Jobs) releaseExpiredIdempotencyKey(kind, owner, operationKey string, no
 	return nil
 }
 
+// IdempotentJob returns the job recorded under operationKey for kind and
+// owner, without comparing payloads. Callers that derive part of the payload
+// from state that changes once the job succeeds use it to replay the
+// original response, comparing their own request digest.
+func (j *Jobs) IdempotentJob(kind, owner, operationKey string) (Job, bool, error) {
+	if j.db == nil || strings.TrimSpace(operationKey) == "" {
+		return Job{}, false, nil
+	}
+	var existingID string
+	err := j.db.QueryRow(`SELECT id FROM jobs WHERE kind = ? AND owner = ? AND operation_key = ? LIMIT 1`, kind, owner, operationKey).Scan(&existingID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Job{}, false, nil
+	}
+	if err != nil {
+		return Job{}, false, err
+	}
+	return j.loadDurableJob(existingID)
+}
+
 func (j *Jobs) lookupIdempotentJob(kind, owner, operationKey string, payload []byte) (Job, bool, error) {
 	var existingID string
 	err := j.db.QueryRow(`SELECT id FROM jobs WHERE kind = ? AND owner = ? AND operation_key = ? LIMIT 1`, kind, owner, operationKey).Scan(&existingID)
