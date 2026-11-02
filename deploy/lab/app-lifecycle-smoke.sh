@@ -151,17 +151,19 @@ if [[ -f $nvm_dir/nvm.sh ]]; then
 else
   stub_runtime=1
   version=22.0.0
-  install -d -m 0755 "$nvm_dir" "$nvm_dir/smoke-bin"
-  cat > "$nvm_dir/nvm.sh" <<EOF
-nvm() { return 0; }
-export PATH="$nvm_dir/smoke-bin:\$PATH"
-EOF
-  cat > "$nvm_dir/smoke-bin/npm" <<'EOF'
+  # A stand-in runtime in nvm's layout. stepanel-appctl resolves
+  # versions/node/vVERSION, checks that node reports that version, and runs
+  # "node npm-cli.js start"; this node serves the site instead.
+  stub_dir="$nvm_dir/versions/node/v$version"
+  install -d -m 0755 "$nvm_dir" "$stub_dir/bin" "$stub_dir/lib/node_modules/npm/bin"
+  cat > "$stub_dir/bin/node" <<STUB
 #!/bin/sh
-exec python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$PWD"
-EOF
-  chmod 0644 "$nvm_dir/nvm.sh"
-  chmod 0755 "$nvm_dir/smoke-bin/npm"
+if [ "\$1" = --version ]; then echo v$version; exit 0; fi
+exec python3 -m http.server "\$PORT" --bind 127.0.0.1 --directory "\$PWD"
+STUB
+  printf '// stand-in npm\n' > "$stub_dir/lib/node_modules/npm/bin/npm-cli.js"
+  chmod 0755 "$stub_dir/bin/node"
+  chmod 0644 "$stub_dir/lib/node_modules/npm/bin/npm-cli.js"
 fi
 # The durable site-creation workflow already sealed this tree with its
 # persisted collision-safe Unix identity. Do not call the legacy two-argument

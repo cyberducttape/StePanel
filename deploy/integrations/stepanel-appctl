@@ -227,6 +227,34 @@ if [[ $action == delete ]]; then
   systemd_unlock
   exit 0
 fi
+# BEGIN resolve_node_runtime
+# resolve_node_runtime NVM_ROOT VERSION SITE_USER prints the directory of the
+# exact installed Node.js VERSION, or fails: the version must be installed,
+# its node executable and npm entry point must be regular, non-symlink files
+# owned by root or by the runtime owner (the panel identity that installs
+# Node) and writable by nobody else, and node, run as the site user (never
+# root), must report exactly vVERSION.
+resolve_node_runtime() {
+  local nvm_root=$1 version=$2 user=$3 dir node npm owner file reported
+  [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'invalid Node.js version' >&2; return 1; }
+  [[ -d $nvm_root && ! -L $nvm_root ]] || { echo 'the managed Node.js runtime directory is missing' >&2; return 1; }
+  dir="$nvm_root/versions/node/v$version"
+  node="$dir/bin/node"
+  npm="$dir/lib/node_modules/npm/bin/npm-cli.js"
+  [[ -d $dir && ! -L $dir ]] || { echo "Node.js $version is not installed" >&2; return 1; }
+  owner=$(stat -c %u -- "$nvm_root") || return 1
+  for file in "$node" "$npm"; do
+    if [[ ! -f $file || -L $file ]] || [[ $(stat -c %u -- "$file") != 0 && $(stat -c %u -- "$file") != "$owner" ]] || (( (8#$(stat -c %a -- "$file") & 022) != 0 )); then
+      echo "Node.js $version is incomplete or unsafe: ${file#"$dir/"}" >&2
+      return 1
+    fi
+  done
+  [[ -x $node ]] || { echo "Node.js $version has no executable node" >&2; return 1; }
+  reported=$(runuser -u "$user" -- env -i PATH=/usr/bin:/bin "$node" --version 2>/dev/null) || { echo "Node.js $version does not run" >&2; return 1; }
+  [[ $reported == "v$version" ]] || { echo "Node.js runtime reports ${reported:-nothing}, not v$version" >&2; return 1; }
+  printf '%s\n' "$dir"
+}
+# END resolve_node_runtime
 case "$action" in
   apply)
     (( $# == 5 )) || { echo 'usage: stepanel-appctl apply SITE VERSION ROOT PORT' >&2; exit 64; }
@@ -234,6 +262,12 @@ case "$action" in
     [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && $port =~ ^[0-9]+$ ]] || { echo 'invalid app parameters' >&2; exit 1; }
     (( port >= 1024 && port <= 65535 )) || { echo 'invalid app port' >&2; exit 1; }
     [[ $root == "$public_root" ]] || { echo 'invalid app root' >&2; exit 1; }
+    # Resolve the exact installed runtime now and run it by absolute path:
+    # the unit must never fall back to another node or npm on the host when
+    # the requested version is missing or broken.
+    node_dir=$(resolve_node_runtime /opt/stepanel/.nvm "$version" "$site_user") || exit 1
+    node_bin="$node_dir/bin/node"
+    npm_cli="$node_dir/lib/node_modules/npm/bin/npm-cli.js"
     path="/etc/systemd/system/$unit"
     staged=$(mktemp "/etc/systemd/system/.stepanel-app.XXXXXX")
     backup=$(mktemp)
@@ -271,7 +305,10 @@ Slice=stepanel-site-$site.slice
 WorkingDirectory=$root
 Environment=PORT=$port NODE_ENV=production HOME=$site_home
 EnvironmentFile=-/etc/stepanel/environment/$site.env
-ExecStart=/bin/bash -lc 'export NVM_DIR=/opt/stepanel/.nvm; . "\$NVM_DIR/nvm.sh"; nvm use $version >/dev/null; exec npm start'
+# The resolved runtime comes first on PATH, so npm scripts that run "node"
+# use the same version.
+Environment=PATH=$node_dir/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=$node_bin $npm_cli start
 Restart=on-failure
 RestartSec=5s
 NoNewPrivileges=true

@@ -55,6 +55,7 @@ api-check:
 shell-contract-check:
 	bash -n deploy/integrations/stepanel-appctl
 	bash scripts/test-site-package-cgroups.sh
+	bash scripts/test-node-runtime-resolution.sh
 
 check: fmt-check api-check shell-contract-check vet test
 
