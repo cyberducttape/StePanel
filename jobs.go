@@ -171,6 +171,33 @@ var encryptedJobPayloadPrefix = []byte("SPJ1")
 // untouched so another correctly configured worker can process it later.
 var errJobPayloadKeyUnavailable = errors.New("job payload encryption key is unavailable")
 
+// persistedJobRecord decodes a current durable row in one pass: its payload
+// is a JSON base64 string, decoded straight into bytes. Rows written before
+// payload encoding fall back to persistedJob (decodeDurableJobRecord).
+type persistedJobRecord struct {
+	Job
+	Payload []byte `json:"payload,omitempty"`
+}
+
+// decodeDurableJobRecord decodes a durable job row and its payload. Startup
+// decodes every pending job, so the common case avoids re-scanning the
+// payload: decoding into RawMessage and then into bytes scans it again.
+func decodeDurableJobRecord(data []byte) (Job, error) {
+	var record persistedJobRecord
+	if err := json.Unmarshal(data, &record); err == nil {
+		item := record.Job
+		item.Payload = record.Payload
+		return item, nil
+	}
+	var legacy persistedJob
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return Job{}, err
+	}
+	item := legacy.Job
+	item.Payload = decodePersistedJobPayload(legacy.Payload)
+	return item, nil
+}
+
 func decodePersistedJobPayload(raw json.RawMessage) []byte {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil
@@ -609,15 +636,15 @@ func (j *Jobs) enqueue(kind, owner, operationKey string, payload []byte, maxAtte
 	if err := j.admissionWorkerReady(); err != nil {
 		return Job{}, err
 	}
-	if err := j.admissionQueueCapacity(); err != nil {
-		return Job{}, err
-	}
 	id, err := newJobID(kind)
 	if err != nil {
 		return Job{}, err
 	}
 	item := &Job{ID: id, Kind: kind, OperationKey: operationKey, IdempotencyExpiresAt: expiresAt, State: "queued", User: owner, Payload: append([]byte(nil), payload...), MaxAttempts: maxAttempts, StartedAt: time.Now().UTC()}
-	if err := j.add(item); err != nil {
+	// The queue limit is checked and the job inserted in one write
+	// transaction, so concurrent enqueues (also from other processes) can
+	// never overshoot it.
+	if err := j.addWith(item, j.persistAdmittedItem); err != nil {
 		return Job{}, err
 	}
 	return *item, nil
@@ -1764,22 +1791,54 @@ func (j *Jobs) SetMaxPending(limit int) {
 	j.maxPending.Store(int64(limit))
 }
 
-// admissionQueueCapacity refuses a new job while the pending backlog is at
-// the limit. The count and the insert are not one transaction, so concurrent
-// enqueues can overshoot by a few jobs; the limit bounds growth, it is not an
-// exact quota.
-func (j *Jobs) admissionQueueCapacity() error {
+// pendingLimit is the configured cap on queued and running jobs.
+func (j *Jobs) pendingLimit() int64 {
 	limit := j.maxPending.Load()
 	if limit <= 0 {
 		limit = defaultMaxPendingJobs
 	}
+	return limit
+}
+
+// persistAdmittedItem inserts a newly queued job only if the pending backlog
+// is below the limit, as one write transaction. BEGIN IMMEDIATE takes
+// SQLite's writer reservation before the count, so no other enqueue (in this
+// or another process) can commit between the count and the insert, and no
+// stale WAL snapshot has to be upgraded. The limit is therefore exact.
+func (j *Jobs) persistAdmittedItem(item *Job) error {
+	data, finished, leaseExpires, nextAttempt, err := j.encodeDurableItem(item)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	conn, err := j.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("open job admission connection: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return fmt.Errorf("begin job admission: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
 	var pending int64
-	if err := j.db.QueryRow(`SELECT COUNT(*) FROM jobs WHERE state IN ('queued', 'running')`).Scan(&pending); err != nil {
+	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM jobs WHERE state IN ('queued', 'running')`).Scan(&pending); err != nil {
 		return fmt.Errorf("count pending durable jobs: %w", err)
 	}
-	if pending >= limit {
+	if limit := j.pendingLimit(); pending >= limit {
 		return fmt.Errorf("%w (%d pending, limit %d)", ErrJobQueueFull, pending, limit)
 	}
+	if _, err := conn.ExecContext(ctx, `INSERT INTO jobs (id, kind, operation_key, idempotency_expires_at, state, owner, started_at, finished_at, payload, lease_owner, lease_token, lease_expires_at, next_attempt_at, cancel_requested, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`, item.ID, item.Kind, item.OperationKey, nullableTimeNano(item.IdempotencyExpiresAt), item.State, item.User, item.StartedAt.UnixNano(), finished, data, nullString(item.LeaseOwner), nullString(item.LeaseToken), leaseExpires, nextAttempt, boolInt(item.Cancel)); err != nil {
+		return err
+	}
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return fmt.Errorf("commit job admission: %w", err)
+	}
+	committed = true
 	return nil
 }
 
@@ -2178,16 +2237,14 @@ func (j *Jobs) load() error {
 			if len(data) > maxJobStateBytes {
 				return errors.New("durable job payload exceeds 16 MiB")
 			}
-			var persisted persistedJob
-			if err := json.Unmarshal(data, &persisted); err != nil || persisted.ID == "" {
+			item, decodeErr := decodeDurableJobRecord(data)
+			if decodeErr != nil || item.ID == "" {
 				return errors.New("durable job state contains an invalid job")
 			}
-			item := persisted.Job
 			if state != "queued" && state != "running" && state != "completed" && state != "failed" && state != "cancelled" && state != "dead-letter" {
 				return fmt.Errorf("durable job state contains invalid SQL state %q", state)
 			}
 			item.State = state
-			item.Payload = decodePersistedJobPayload(persisted.Payload)
 			openedPayload, err := j.openPayload(&item, item.Payload)
 			if err != nil {
 				return fmt.Errorf("open durable job payload: %w", err)
@@ -2426,6 +2483,11 @@ func (j *Jobs) persistLocked() error {
 }
 
 func (j *Jobs) add(item *Job) error {
+	return j.addWith(item, j.persistDurableItem)
+}
+
+// addWith records item, persisting it to the durable store with persist.
+func (j *Jobs) addWith(item *Job, persist func(*Job) error) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if _, exists := j.items[item.ID]; exists {
@@ -2447,13 +2509,16 @@ func (j *Jobs) add(item *Job) error {
 	j.items[item.ID] = item
 	var err error
 	if j.db != nil {
-		err = j.persistDurableItem(item)
+		err = persist(item)
 	} else {
 		err = j.persistLocked()
 	}
 	if err != nil {
-		j.observePersistFailureLocked("persist_job_admission", err)
 		delete(j.items, item.ID)
+		// A full queue is an admission refusal, not a storage failure.
+		if !errors.Is(err, ErrJobQueueFull) {
+			j.observePersistFailureLocked("persist_job_admission", err)
+		}
 		return err
 	}
 	j.persistErr = nil
@@ -3446,6 +3511,74 @@ func (j *Jobs) cleanupDurableJobs(cutoff time.Time, batch int) ([]string, error)
 		return nil, fmt.Errorf("commit durable job cleanup: %w", err)
 	}
 	return removed, nil
+}
+
+// ExpiredDeadLetter identifies a dead-letter job deleted by retention.
+type ExpiredDeadLetter struct {
+	ID, Kind, Owner string
+	FinishedAt      time.Time
+}
+
+// ExpireDeadLetters deletes dead-letter jobs that finished before
+// now-maxAge, in one bounded batch, and returns them so the caller can audit
+// each deletion. Dead letters wait for operator review; without a bound they
+// would accumulate forever and every restart would load them all. The
+// conditional delete rechecks state and age, so a job an operator requeued
+// meanwhile is never removed.
+func (j *Jobs) ExpireDeadLetters(maxAge time.Duration, batch int) ([]ExpiredDeadLetter, error) {
+	if j.db == nil || maxAge <= 0 {
+		return nil, nil
+	}
+	if batch <= 0 || batch > 500 {
+		return nil, errors.New("dead-letter expiry batch must be between 1 and 500")
+	}
+	cutoff := time.Now().Add(-maxAge).UnixNano()
+	tx, err := j.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("begin dead-letter expiry: %w", err)
+	}
+	defer tx.Rollback()
+	rows, err := tx.Query(`SELECT id, kind, owner, finished_at FROM jobs WHERE state = 'dead-letter' AND finished_at IS NOT NULL AND finished_at < ? ORDER BY finished_at, id LIMIT ?`, cutoff, batch)
+	if err != nil {
+		return nil, fmt.Errorf("select expired dead letters: %w", err)
+	}
+	var candidates []ExpiredDeadLetter
+	for rows.Next() {
+		var item ExpiredDeadLetter
+		var finished int64
+		if err := rows.Scan(&item.ID, &item.Kind, &item.Owner, &finished); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("select expired dead letters: %w", err)
+		}
+		item.FinishedAt = time.Unix(0, finished).UTC()
+		candidates = append(candidates, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("select expired dead letters: %w", err)
+	}
+	rows.Close()
+	expired := make([]ExpiredDeadLetter, 0, len(candidates))
+	for _, item := range candidates {
+		result, err := tx.Exec(`DELETE FROM jobs WHERE id = ? AND state = 'dead-letter' AND finished_at < ?`, item.ID, cutoff)
+		if err != nil {
+			return nil, fmt.Errorf("delete expired dead letter %s: %w", item.ID, err)
+		}
+		if count, err := result.RowsAffected(); err != nil {
+			return nil, err
+		} else if count > 0 {
+			expired = append(expired, item)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit dead-letter expiry: %w", err)
+	}
+	j.mu.Lock()
+	for _, item := range expired {
+		delete(j.items, item.ID)
+	}
+	j.mu.Unlock()
+	return expired, nil
 }
 
 // persistCleanupLocked durably removes the given finished jobs. With SQLite all

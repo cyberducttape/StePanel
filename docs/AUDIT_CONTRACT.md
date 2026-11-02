@@ -100,6 +100,7 @@ and never affects the operation; failures are logged.
 | Queuing a long site operation (`site.operation` job) | A (request ledger) | the `http.request` event `Auth.Require` writes; the operation's own events are written by the worker with the original actor |
 | Webhook configuration update | A, intent-first | `webhook.config.updated` |
 | Webhook disable | A, revocation | `webhook.config.disabled` |
+| Dead-letter job deleted after `STEPANEL_DEAD_LETTER_RETENTION_DAYS` | B | `job.dead_letter.expired` |
 | Queued browser-session operation refused because the account's sessions were revoked after it was queued | B | `session.queued_work.revoked` |
 | Queued webhook delivery refused because the signing secret was rotated, re-enabled, or revoked (site termination) after it was accepted | B | `webhook.deploy.revoked` |
 | Site creation | A, intent-first | `site.created` |

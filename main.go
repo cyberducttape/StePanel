@@ -749,6 +749,13 @@ func Main() {
 					app.observeStateError(state.NewCleanupError("wordpress_maintenance_recovery", errors.Join(failures...), "WordPress maintenance recovery"))
 				}
 				app.Jobs.Cleanup(24 * time.Hour)
+				if expired, err := app.Jobs.ExpireDeadLetters(time.Duration(app.Config.DeadLetterRetentionDays)*24*time.Hour, 500); err != nil {
+					app.observeStateError(state.NewCleanupError("dead_letter_expiry", err, "dead-letter retention"))
+				} else {
+					for _, item := range expired {
+						TelemetryAudit(app.Config.AuditLog, "system", "job.dead_letter.expired", item.ID, fmt.Sprintf("kind=%s owner=%s dead-lettered=%s retention_days=%d", item.Kind, item.Owner, item.FinishedAt.Format(time.RFC3339), app.Config.DeadLetterRetentionDays))
+					}
+				}
 				if err := CleanupImportStages(app.Config.ImportRoot, time.Duration(app.Config.StageRetentionHours)*time.Hour); err != nil {
 					app.observeStateError(state.NewCleanupError("import_stage_cleanup", err, "import stage cleanup"))
 				}

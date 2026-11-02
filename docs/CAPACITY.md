@@ -52,10 +52,23 @@ which calls for an explicit operating limit rather than a different database.
   runaway client or scheduler cannot grow the backlog until every claim slows
   down. The ceiling is the largest backlog measured; with owner-head selection
   a blocked backlog no longer slows claims, so the limit now mainly bounds the
-  owner walk (about 7 µs per blocked owner) and worker drain time. The check counts before it
-  inserts, so concurrent submissions can overshoot by a few jobs.
+  owner walk (about 7 µs per blocked owner) and worker drain time. The count
+  and the insert are one `BEGIN IMMEDIATE` transaction, so the limit is exact
+  even for concurrent submissions from the panel and the worker
+  (`TestPendingLimitIsExactUnderConcurrentEnqueues`; before, 80 concurrent
+  submissions against a limit of 25 were all admitted).
 - **Retention:** completed, failed, and cancelled jobs are removed after 24
-  hours; dead-letter jobs are kept until an operator retries or resolves them.
+  hours. Dead-letter jobs wait for an operator to retry or resolve them for
+  `STEPANEL_DEAD_LETTER_RETENTION_DAYS` (default 90), then are deleted, each
+  deletion audited as `job.dead_letter.expired`.
+- **Restart cost:** startup loads every queued, running, and dead-letter job
+  (and the 500 most recent finished ones) into memory. With 2 KiB payloads
+  (`BenchmarkJobsStartupLoad`, developer workstation) loading takes 61 ms and
+  retains 2.4 MiB at 1,000 queued jobs, 0.43 s and 24 MiB at 10,000 (the
+  default limit), and 4.6 s and 235 MiB at 100,000 (the maximum limit); JSON
+  decoding of the payloads dominates. The admission limit and dead-letter
+  retention are what bound it; loading payloads lazily would remove the
+  per-job cost and is the next step if larger limits are needed.
 - **Watch:** `stepanel_jobs_queued`, `stepanel_jobs_running`,
   `stepanel_jobs_oldest_queued_age_seconds`, and `stepanel_jobs_dead_letter`. A backlog that stays near the limit means workers cannot keep up;
   raise `STEPANEL_MAX_CONCURRENT_JOBS` or reduce scheduled work rather than
