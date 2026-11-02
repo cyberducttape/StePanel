@@ -238,7 +238,7 @@ func siteCreationRequestDigest(actor string, fields ...string) string {
 
 // replaySiteCreation answers a retried Idempotency-Key with the job it
 // queued. It reports whether it wrote a response.
-func (a *App) replaySiteCreation(w http.ResponseWriter, site, operationKey, digest string) bool {
+func (a *App) replaySiteCreation(w http.ResponseWriter, site, operationKey, digest, adminPassword string) bool {
 	if a.Jobs == nil || operationKey == "" {
 		return false
 	}
@@ -251,7 +251,11 @@ func (a *App) replaySiteCreation(w http.ResponseWriter, site, operationKey, dige
 		return false
 	}
 	var queued durableSiteCreationRequest
-	if err := json.Unmarshal(job.Payload, &queued); err != nil || queued.RequestDigest == "" || subtle.ConstantTimeCompare([]byte(queued.RequestDigest), []byte(digest)) != 1 {
+	queuedPassword := ""
+	if err := json.Unmarshal(job.Payload, &queued); err == nil && queued.WordPress != nil {
+		queuedPassword = queued.WordPress.AdminPassword
+	}
+	if queued.RequestDigest == "" || subtle.ConstantTimeCompare([]byte(queued.RequestDigest), []byte(digest)) != 1 || subtle.ConstantTimeCompare([]byte(queuedPassword), []byte(adminPassword)) != 1 {
 		http.Error(w, ErrIdempotencyConflict.Error(), http.StatusConflict)
 		return true
 	}
@@ -358,9 +362,10 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 	// Resolve a retried Idempotency-Key before anything that depends on
 	// current state: once the first request's job has created the site, a
 	// retry must get that job back, not "site already exists".
-	passwordDigest := sha256.Sum256([]byte(input.AdminPassword))
-	requestDigest := siteCreationRequestDigest(a.Auth.AuditActor(r), input.Site, input.Template, strings.TrimSpace(input.Account), strings.TrimSpace(input.Kind), strings.ToLower(strings.TrimSpace(input.Domain)), strings.TrimSpace(input.Title), strings.TrimSpace(input.AdminUser), strings.TrimSpace(input.AdminEmail), hex.EncodeToString(passwordDigest[:]))
-	if a.replaySiteCreation(w, input.Site, operationKey, requestDigest) {
+	// The digest covers only non-secret fields; the administrator password
+	// is compared with the queued job's own copy instead of being hashed.
+	requestDigest := siteCreationRequestDigest(a.Auth.AuditActor(r), input.Site, input.Template, strings.TrimSpace(input.Account), strings.TrimSpace(input.Kind), strings.ToLower(strings.TrimSpace(input.Domain)), strings.TrimSpace(input.Title), strings.TrimSpace(input.AdminUser), strings.TrimSpace(input.AdminEmail))
+	if a.replaySiteCreation(w, input.Site, operationKey, requestDigest, input.AdminPassword) {
 		return
 	}
 	var wordpress *wordpressProvisionRequest

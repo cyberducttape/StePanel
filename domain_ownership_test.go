@@ -274,3 +274,31 @@ func TestSiteCreationRetryAfterSuccessReturnsTheOriginalJob(t *testing.T) {
 		t.Fatalf("keyless create of an existing site = %d", response.Code)
 	}
 }
+
+// A WordPress creation retried with the same Idempotency-Key replays the job
+// only if the administrator password matches too; the password is compared
+// with the queued job's copy, never hashed into the request digest.
+func TestWordPressCreationRetryMustRepeatThePassword(t *testing.T) {
+	j := newCustomerJourney(t)
+	post := func(body string) (int, map[string]any) {
+		request := httptest.NewRequest(http.MethodPost, "/api/sites", strings.NewReader(body))
+		request.Header.Set("Idempotency-Key", "wordpress-once")
+		request = request.WithContext(context.WithValue(request.Context(), apiTokenUsernameKey{}, "admin"))
+		response := httptest.NewRecorder()
+		j.f.app.siteCreate(response, request)
+		var decoded map[string]any
+		_ = json.Unmarshal(response.Body.Bytes(), &decoded)
+		return response.Code, decoded
+	}
+	code, first := post(journeyWordPress)
+	if code != http.StatusAccepted {
+		t.Fatalf("first create = %d %v", code, first)
+	}
+	if code, again := post(journeyWordPress); code != http.StatusAccepted || again["job_id"] != first["job_id"] {
+		t.Fatalf("identical retry = %d %v", code, again)
+	}
+	changed := strings.Replace(journeyWordPress, "a-very-long-admin-password-123", "another-long-admin-password-456", 1)
+	if code, _ := post(changed); code != http.StatusConflict {
+		t.Fatalf("retry with another password = %d, want 409", code)
+	}
+}
