@@ -1545,3 +1545,11 @@ does not close a current-source or power-loss gate.
   package completed in 664.618 seconds; internal packages passed afterward.
   This is local evidence and does not replace hosted CI or installed-host
   certification.
+- After the Makefile change, `make check` also passed on the updated tree:
+  generated API artifacts, shell contracts, vet, and all Go packages (root
+  package 92.370 seconds). `git diff --check` passed before commit.
+- Exact-source evidence for `63e84358c2fa08843053859c185429baa91be628`
+  reports 0 of 9 hosted checks as equivalent because this source changed the
+  Makefile; their latest results are context only. Hosted CI must run against
+  this code before its CI status is considered current. The P0 table remains
+  at 17 incomplete gates and production remains **NO-GO**.
