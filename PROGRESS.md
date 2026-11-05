@@ -1530,3 +1530,18 @@ does not close a current-source or power-loss gate.
 3. Run current-source installed-host recovery and repeated failure matrices
    on a runner that satisfies the KVM resource preflight; retain the exact
    source SHA and artifacts.
+
+## Race-gate timeout alignment — 2026-11-04
+
+- The first local `make test-race` run hit the Makefile's inherited 10-minute
+  package timeout in the root package. The test process was still CPU-active;
+  the timeout stack was in the site-operation test fixture opening and
+  migrating SQLite databases, not in a reported race.
+- `Makefile` now has an independent `RACE_TIMEOUT` default of 15 minutes,
+  matching `.github/workflows/ci-integration.yml` and
+  `scripts/production-gate.sh`. The ordinary unit-test timeout remains 10
+  minutes.
+- `make test-race` then passed on this checkout across all packages. The root
+  package completed in 664.618 seconds; internal packages passed afterward.
+  This is local evidence and does not replace hosted CI or installed-host
+  certification.

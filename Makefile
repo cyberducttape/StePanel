@@ -12,6 +12,7 @@ TEST_PARALLELISM ?= 1
 TEST_PROCS ?= 2
 RACE_PROCS ?= 1
 TEST_TIMEOUT ?= 10m
+RACE_TIMEOUT ?= 15m
 
 all: check build
 
@@ -22,7 +23,7 @@ test:
 	GOMAXPROCS=$(TEST_PROCS) $(GO) test -p $(TEST_PARALLELISM) -timeout $(TEST_TIMEOUT) ./...
 
 test-race:
-	GOMAXPROCS=$(RACE_PROCS) $(GO) test -p $(TEST_PARALLELISM) -race -timeout $(TEST_TIMEOUT) ./...
+	GOMAXPROCS=$(RACE_PROCS) $(GO) test -p $(TEST_PARALLELISM) -race -timeout $(RACE_TIMEOUT) ./...
 
 fmt:
 	$(GO) fmt ./...
