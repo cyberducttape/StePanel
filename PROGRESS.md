@@ -1481,3 +1481,38 @@ does not close a current-source or power-loss gate.
   group, so directory creation now relies on kernel setgid inheritance under
   a bounded temporary umask. The rerun for this final correction is pending;
   no host certification is claimed from either failed run.
+
+## Current continuation checkpoint — 2026-11-04
+
+- Exact checked-out source: `633da3d6` (`main`, equal to `origin/main` at
+  inspection); worktree was clean before this documentation update.
+- `make check` passed on this source: generated API artifacts, shell syntax
+  and cgroup/Node runtime contracts, `go vet ./...`, and the full serialized
+  Go test suite (`GOMAXPROCS=2`, `-p 1`, 10-minute package timeout).
+- The remaining local typed-operation milestone is M0s in
+  `DEVELOPMENT_PLAN.md`: six durable site-operation routes still replay HTTP
+  handlers. No route was changed in this checkpoint; the staging and restore
+  handlers each own multi-resource rollback logic, so their extraction needs
+  dedicated service-boundary work and regression tests rather than a dispatch
+  shim.
+- Installed-host recovery certification was not run. The local KVM harness
+  requires a 4 GiB guest plus 2 GiB host reserve; available host memory was
+  below that preflight. No KVM certification process was active at inspection.
+  A local `gh auth status` also reported an invalid GitHub token, so current
+  hosted-run status could not be queried. Neither limitation affects the
+  passing local `make check` result.
+- Production remains **NO-GO**. This software check does not close repeated
+  installed-host recovery, physical power-loss/ENOSPC, current-source
+  application recovery, live alert delivery, capacity, upgrade, or
+  independent security-review gates.
+
+### Next actions
+
+1. Continue M0s by extracting one operation into a typed service with explicit
+   principal, lock, audit, and recovery contracts; add direct worker and HTTP
+   adapter regression coverage before converting another route.
+2. Run the corrected descriptor-rooted file-manager smoke on an installed
+   host and reconcile its outstanding setgid regression evidence.
+3. Run current-source installed-host recovery and repeated failure matrices
+   on a runner that satisfies the KVM resource preflight; retain the exact
+   source SHA and artifacts.
