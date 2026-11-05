@@ -1489,6 +1489,19 @@ does not close a current-source or power-loss gate.
 - `make check` passed on this source: generated API artifacts, shell syntax
   and cgroup/Node runtime contracts, `go vet ./...`, and the full serialized
   Go test suite (`GOMAXPROCS=2`, `-p 1`, 10-minute package timeout).
+- Exact-source evidence generated from commit
+  `d462aae7450ae8cfc92de33d45def715109325ef` found that the code content is
+  equivalent to passing CodeQL and CI integration runs on `633da3d`, plus a
+  7/7 installation-smoke run and ext4 quota smoke. Documentation has no
+  equivalent run because this checkpoint changed `PROGRESS.md`. The report
+  counted 4 executable checks passed and 5 incomplete, with 17 of 21 P0 gates
+  incomplete. It is recorded in the command output, not checked in as a
+  release artifact.
+- The latest repeated recovery cohort is not equivalent to this source. Its
+  run `41191938794` had one failed host job in repeat 2, AlmaLinux 9/Apache/
+  MariaDB; GitHub returned 403 for unauthenticated job logs and 401 for its
+  diagnostics artifact, so the failure cause remains unknown and must not be
+  guessed or marked resolved.
 - The remaining local typed-operation milestone is M0s in
   `DEVELOPMENT_PLAN.md`: six durable site-operation routes still replay HTTP
   handlers. No route was changed in this checkpoint; the staging and restore
@@ -1499,8 +1512,9 @@ does not close a current-source or power-loss gate.
   requires a 4 GiB guest plus 2 GiB host reserve; available host memory was
   below that preflight. No KVM certification process was active at inspection.
   A local `gh auth status` also reported an invalid GitHub token, so current
-  hosted-run status could not be queried. Neither limitation affects the
-  passing local `make check` result.
+  hosted-run status could not be queried through `gh`; the unauthenticated
+  exact-source evidence generator did retrieve the public workflow summary.
+  Neither limitation affects the passing local `make check` result.
 - Production remains **NO-GO**. This software check does not close repeated
   installed-host recovery, physical power-loss/ENOSPC, current-source
   application recovery, live alert delivery, capacity, upgrade, or
