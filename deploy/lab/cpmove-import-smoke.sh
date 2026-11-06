@@ -44,6 +44,15 @@ print(f"{code:06d}")
 PY
 }
 
+# A preceding recovery drill may have just killed and restarted the worker;
+# the panel refuses durable work (503) until a fresh worker heartbeat exists.
+# Readiness includes that check, so wait for it instead of racing it.
+ready=0
+for _ in $(seq 1 120); do
+  if curl --fail --silent --max-time 5 "$PANEL/readyz" >/dev/null; then ready=1; break; fi
+  sleep 1
+done
+(( ready )) || { echo 'panel did not report ready (including a durable worker) within 120 s' >&2; curl --silent --max-time 5 "$PANEL/readyz" >&2 || true; exit 1; }
 login_status=''
 for attempt in 1 2; do
   if (( attempt == 2 )); then
