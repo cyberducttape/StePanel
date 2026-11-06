@@ -236,6 +236,82 @@ set +a
 /opt/stepanel/stepanel backup-control-plane /tmp/stepanel-upgrade-control.db
 /opt/stepanel/stepanel restore-control-plane /tmp/stepanel-upgrade-control.db --dry-run
 
+# The upgrade drain must not cut off a running job. Hold a backup in the
+# worker (lab pause injection), then reinstall the candidate with a short
+# drain wait: the installer must refuse before stopping anything, leave the
+# release serving and accepting changes, and the backup must still finish.
+drain_cookies=$(mktemp)
+drain_login() {
+  local totp
+  sleep $((31 - $(date +%s) % 30))
+  totp=$(python3 -c '
+import base64, hashlib, hmac, struct, sys, time
+secret = sys.argv[1].strip().upper()
+secret += "=" * ((8 - len(secret) % 8) % 8)
+digest = hmac.new(base64.b32decode(secret), struct.pack(">Q", int(time.time()) // 30), hashlib.sha1).digest()
+offset = digest[-1] & 0x0f
+code = (struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7fffffff) % 1000000
+print("%06d" % code)
+' "$STEPANEL_ADMIN_TOTP_SECRET")
+  rm -f -- "$drain_cookies"
+  curl --fail --silent --show-error --max-time 10 -c "$drain_cookies" http://127.0.0.1:8090/login >/dev/null
+  curl --fail --silent --show-error --max-time 10 -L -b "$drain_cookies" -c "$drain_cookies" \
+    --data-urlencode "username=${STEPANEL_ADMIN_USERNAME:-admin}" \
+    --data-urlencode "password=$STEPANEL_ADMIN_PASSWORD" \
+    --data-urlencode "totp=$totp" http://127.0.0.1:8090/login >/dev/null
+}
+drain_api() {
+  local method=$1 path=$2 body=${3:-} csrf
+  local -a data=()
+  csrf=$(awk '$6 == "stepanel_csrf" {print $7}' "$drain_cookies")
+  [[ -z $body ]] || data=(-H 'Content-Type: application/json' --data "$body")
+  curl --fail --silent --show-error --max-time 60 -X "$method" -b "$drain_cookies" -H "X-CSRF-Token: $csrf" \
+    "${data[@]}" "http://127.0.0.1:8090$path"
+}
+drain_job_state() { drain_api GET "/api/jobs/$1" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("state", ""))'; }
+drain_dropin=/run/systemd/system/stepanel-worker.service.d/upgrade-drain-smoke.conf
+drain_pause_dir=/var/lib/ste-panel/pause-markers
+rm -rf -- "$drain_pause_dir"
+install -d -m 0755 "$(dirname "$drain_dropin")"
+printf '%s\n' '[Service]' 'Environment=STEPANEL_UNSAFE_LAB=1' 'Environment=STEPANEL_PAUSE_AT=backup:init' "Environment=STEPANEL_PAUSE_MARKER_DIR=$drain_pause_dir" > "$drain_dropin"
+systemctl daemon-reload
+systemctl restart stepanel-worker.service
+wait_ready 'the candidate with a held worker'
+drain_login
+drain_job=$(drain_api POST /api/backups "{\"site\":\"$legacy_site\",\"include_databases\":false}" | python3 -c 'import json, sys; print(json.load(sys.stdin)["job_id"])')
+for _ in $(seq 1 120); do [[ -f $drain_pause_dir/backup-init ]] && break; sleep 0.5; done
+[[ -f $drain_pause_dir/backup-init ]] || { echo "backup $drain_job never reached its held point" >&2; exit 1; }
+[[ $(drain_job_state "$drain_job") == running ]] || { echo "held backup $drain_job is not running" >&2; exit 1; }
+binary_before_drain=$(sha256sum /opt/stepanel/stepanel)
+if (cd "$candidate_root" && STEPANEL_UPGRADE_DRAIN_SECONDS=20 ./install.sh --unsafe-lab) > /tmp/stepanel-drain-refusal.log 2>&1; then
+  echo 'an upgrade started although a job was running past the drain wait' >&2
+  exit 1
+fi
+grep -q 'still running after' /tmp/stepanel-drain-refusal.log || { echo 'the upgrade failed, but not by the drain:' >&2; tail -20 /tmp/stepanel-drain-refusal.log >&2; exit 1; }
+systemctl is-active --quiet stepanel.service stepanel-worker.service || { echo 'a refused upgrade stopped StePanel' >&2; exit 1; }
+[[ $(sha256sum /opt/stepanel/stepanel) == "$binary_before_drain" ]] || { echo 'a refused upgrade replaced the binary' >&2; exit 1; }
+[[ $(drain_job_state "$drain_job") == running ]] || { echo "a refused upgrade disturbed backup $drain_job" >&2; exit 1; }
+# The refused drain is cleared (the gate caches it for a second): the panel
+# accepts changes again.
+sleep 2
+drain_api PUT /api/backup-schedules "{\"site\":\"$legacy_site\",\"interval_minutes\":60,\"keep_last\":2}" >/dev/null || { echo 'the panel refuses changes after a refused upgrade' >&2; exit 1; }
+drain_api DELETE "/api/backup-schedules?site=$legacy_site" >/dev/null
+# Release the held backup: crash recovery resumes it in the restarted worker.
+rm -f -- "$drain_dropin"
+systemctl daemon-reload
+systemctl restart stepanel-worker.service
+wait_ready 'the candidate after releasing the held worker'
+drain_state=''
+for _ in $(seq 1 180); do
+  drain_state=$(drain_job_state "$drain_job" || true)
+  [[ $drain_state == queued || $drain_state == running || -z $drain_state ]] || break
+  sleep 2
+done
+[[ $drain_state == completed ]] || { echo "backup $drain_job ended ${drain_state:-unknown} after the refused upgrade" >&2; exit 1; }
+rm -f -- "$drain_cookies"
+assert_populated_upgrade_fixture
+echo 'upgrade drain refused while a job ran, and the job completed afterwards'
+
 # Exercise the installer's transaction rollback using a release tree whose
 # service binary damages the control-plane database and fails its
 # post-install health check (deploy/lab/broken-candidate.sh). The previously
