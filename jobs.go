@@ -480,7 +480,7 @@ func (j *Jobs) RequeueExpired() (int, error) {
 	}
 	now := time.Now().UTC()
 	j.mu.Lock()
-	tx, err := j.db.Begin()
+	tx, err := beginImmediate(context.Background(), j.db)
 	if err != nil {
 		j.mu.Unlock()
 		return 0, err
@@ -692,7 +692,7 @@ func (j *Jobs) enqueueIdempotent(kind, owner, operationKey string, payload []byt
 }
 
 func (j *Jobs) releaseExpiredIdempotencyKey(kind, owner, operationKey string, now time.Time) error {
-	tx, err := j.db.Begin()
+	tx, err := beginImmediate(context.Background(), j.db)
 	if err != nil {
 		return err
 	}
@@ -877,7 +877,7 @@ func (j *Jobs) ClaimNext(owner string, kinds ...string) (Job, bool, error) {
 	if j.db == nil || strings.TrimSpace(owner) == "" {
 		return Job{}, false, errors.New("durable claim requires a worker owner")
 	}
-	tx, err := j.db.Begin()
+	tx, err := beginImmediate(context.Background(), j.db)
 	if err != nil {
 		return Job{}, false, err
 	}
@@ -1359,8 +1359,15 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 	if poll <= 0 {
 		poll = time.Second
 	}
-	if _, err := j.RequeueExpired(); err != nil {
-		return err
+	backoff := workerBackoff{base: poll}
+	// Startup database steps retry like the loop's: the panel's embedded
+	// worker is never restarted, so it must not give up on a momentary lock.
+	for {
+		if _, err := j.RequeueExpired(); err == nil {
+			break
+		} else if !j.workerTransientFailure(ctx, owner, "requeue expired jobs at startup", err, &backoff) {
+			return ctx.Err()
+		}
 	}
 	startedAt := time.Now().UTC()
 	heartbeat := &workerHeartbeatState{currentJobs: make(map[string]bool)}
@@ -1375,8 +1382,12 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 		return result
 	}
 	hostID := workerHostID()
-	if err := j.publishWorkerHeartbeat(owner, hostID, os.Getpid(), startedAt, kinds, currentJobs()); err != nil {
-		return fmt.Errorf("publish worker heartbeat: %w", err)
+	for {
+		if err := j.publishWorkerHeartbeat(owner, hostID, os.Getpid(), startedAt, kinds, currentJobs()); err == nil {
+			break
+		} else if !j.workerTransientFailure(ctx, owner, "publish its heartbeat at startup", err, &backoff) {
+			return ctx.Err()
+		}
 	}
 	heartbeatStop := make(chan struct{})
 	heartbeatDone := make(chan struct{})
@@ -1420,7 +1431,10 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 			return ctx.Err()
 		case <-requeueTicker.C:
 			if _, err := j.RequeueExpired(); err != nil {
-				return err
+				if !j.workerTransientFailure(ctx, owner, "requeue expired jobs", err, &backoff) {
+					return ctx.Err()
+				}
+				continue
 			}
 			j.mu.Lock()
 			j.pruneFinishedCacheLocked(time.Now().Add(-finishedCacheRetention))
@@ -1444,8 +1458,12 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 		}
 		item, claimed, err := j.ClaimNext(owner, kinds...)
 		if err != nil {
-			return err
+			if !j.workerTransientFailure(ctx, owner, "claim a job", err, &backoff) {
+				return ctx.Err()
+			}
+			continue
 		}
+		j.workerRecovered(owner, &backoff)
 		if claimed {
 			heartbeat.mu.Lock()
 			heartbeat.currentJobs[item.ID] = true
@@ -1455,7 +1473,11 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 				heartbeat.mu.Lock()
 				delete(heartbeat.currentJobs, item.ID)
 				heartbeat.mu.Unlock()
-				return fmt.Errorf("verify cancellation state for job %s: %w", item.ID, cancelErr)
+				// The claim's lease expires and the job is requeued.
+				if !j.workerTransientFailure(ctx, owner, "verify cancellation state for job "+item.ID, cancelErr, &backoff) {
+					return ctx.Err()
+				}
+				continue
 			}
 			if cancelRequested {
 				if err := j.finishClaim(item.ID, item.LeaseToken, func(job *Job) {
@@ -1472,7 +1494,10 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 					heartbeat.mu.Lock()
 					delete(heartbeat.currentJobs, item.ID)
 					heartbeat.mu.Unlock()
-					return err
+					if !j.workerTransientFailure(ctx, owner, "cancel job "+item.ID, err, &backoff) {
+						return ctx.Err()
+					}
+					continue
 				}
 				heartbeat.mu.Lock()
 				delete(heartbeat.currentJobs, item.ID)
@@ -1500,7 +1525,11 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 						// for completing or retrying the durable operation.
 						continue
 					}
-					return failErr
+					// The claim's lease expires and the job is retried.
+					if !j.workerTransientFailure(ctx, owner, "record failure of job "+item.ID, failErr, &backoff) {
+						return ctx.Err()
+					}
+					continue
 				}
 				if ctx.Err() != nil {
 					return ctx.Err()
@@ -1515,7 +1544,14 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 				heartbeat.mu.Lock()
 				delete(heartbeat.currentJobs, item.ID)
 				heartbeat.mu.Unlock()
-				return err
+				if errors.Is(err, errJobLeaseNotHeld) {
+					continue
+				}
+				// The claim's lease expires and the job is retried.
+				if !j.workerTransientFailure(ctx, owner, "record completion of job "+item.ID, err, &backoff) {
+					return ctx.Err()
+				}
+				continue
 			}
 			heartbeat.mu.Lock()
 			delete(heartbeat.currentJobs, item.ID)
@@ -1532,12 +1568,86 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 			// the only place that can observe the recovery ticker; omitting it
 			// leaves abandoned jobs in running forever after their leases expire.
 			if _, err := j.RequeueExpired(); err != nil {
-				return err
+				if !j.workerTransientFailure(ctx, owner, "requeue expired jobs", err, &backoff) {
+					return ctx.Err()
+				}
+				continue
 			}
 			j.mu.Lock()
 			j.pruneFinishedCacheLocked(time.Now().Add(-finishedCacheRetention))
 			j.mu.Unlock()
 		}
+	}
+}
+
+// workerBackoff spaces retries of a worker step that failed with a
+// control-plane database error.
+type workerBackoff struct {
+	base     time.Duration
+	delay    time.Duration
+	failures int
+	// recorded is the error the worker last reported for readiness.
+	recorded error
+}
+
+const maxWorkerBackoff = 30 * time.Second
+
+func (b *workerBackoff) next() time.Duration {
+	if b.delay <= 0 {
+		b.delay = b.base
+	} else if b.delay *= 2; b.delay > maxWorkerBackoff {
+		b.delay = maxWorkerBackoff
+	}
+	b.failures++
+	return b.delay
+}
+
+func (b *workerBackoff) reset() {
+	b.delay, b.failures = 0, 0
+}
+
+// workerRecovered clears the readiness error a worker reported once its
+// loop works again, unless a different failure has replaced it since.
+func (j *Jobs) workerRecovered(owner string, backoff *workerBackoff) {
+	if backoff.failures == 0 {
+		return
+	}
+	log.Printf("worker %s recovered after %d failed attempts", owner, backoff.failures)
+	j.mu.Lock()
+	if backoff.recorded != nil && j.persistErr != nil && errors.Is(j.persistErr, backoff.recorded) {
+		j.persistErr = nil
+	}
+	j.mu.Unlock()
+	backoff.recorded = nil
+	backoff.reset()
+}
+
+// workerTransientFailure handles a database error inside the worker loop.
+// Such errors are transient (a lock race with another process, a brief
+// outage): the worker logs, records the failure for readiness, waits with
+// backoff, and keeps running. Exiting instead would kill the worker process
+// (or silently stop the panel's embedded worker for good) and cancel the
+// jobs its sibling consumers are running. A claim whose bookkeeping failed
+// is not lost: its lease expires and the job is requeued. It reports false
+// only when ctx ended.
+func (j *Jobs) workerTransientFailure(ctx context.Context, owner, step string, err error, backoff *workerBackoff) bool {
+	delay := backoff.next()
+	if backoff.failures == 1 || backoff.failures%20 == 0 {
+		log.Printf("worker %s could not %s (attempt %d, retrying in %s): %v", owner, step, backoff.failures, delay, err)
+	}
+	j.mu.Lock()
+	// A fixed operation name: the step can name a job and must not become
+	// an unbounded metrics or log label.
+	j.observePersistFailureLocked("durable_worker_loop", err)
+	backoff.recorded = j.persistErr
+	j.mu.Unlock()
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
 	}
 }
 
@@ -3463,7 +3573,7 @@ func (j *Jobs) cleanupDurableJobs(cutoff time.Time, batch int) ([]string, error)
 	if batch <= 0 || batch > 500 {
 		return nil, errors.New("durable job cleanup batch must be between 1 and 500")
 	}
-	tx, err := j.db.Begin()
+	tx, err := beginImmediate(context.Background(), j.db)
 	if err != nil {
 		return nil, fmt.Errorf("begin durable job cleanup: %w", err)
 	}
@@ -3533,7 +3643,7 @@ func (j *Jobs) ExpireDeadLetters(maxAge time.Duration, batch int) ([]ExpiredDead
 		return nil, errors.New("dead-letter expiry batch must be between 1 and 500")
 	}
 	cutoff := time.Now().Add(-maxAge).UnixNano()
-	tx, err := j.db.Begin()
+	tx, err := beginImmediate(context.Background(), j.db)
 	if err != nil {
 		return nil, fmt.Errorf("begin dead-letter expiry: %w", err)
 	}

@@ -284,7 +284,9 @@ func TestJobsCleanupBusyDatabaseKeepsJobsConsistent(t *testing.T) {
 	if _, err := holder.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
 		t.Fatal(err)
 	}
-	assertCleanupFailureKeepsJob(t, jobs, nil, "delete completed durable job expired")
+	// Cleanup takes the write lock first, so contention refuses it before
+	// any delete.
+	assertCleanupFailureKeepsJob(t, jobs, nil, "begin durable job cleanup")
 	if _, err := holder.ExecContext(ctx, `ROLLBACK`); err != nil {
 		t.Fatal(err)
 	}

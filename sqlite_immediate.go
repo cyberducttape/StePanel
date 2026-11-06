@@ -34,6 +34,10 @@ func (t *immediateTx) Exec(query string, args ...any) (sql.Result, error) {
 	return t.conn.ExecContext(t.ctx, query, args...)
 }
 
+func (t *immediateTx) Query(query string, args ...any) (*sql.Rows, error) {
+	return t.conn.QueryContext(t.ctx, query, args...)
+}
+
 func (t *immediateTx) QueryRow(query string, args ...any) *sql.Row {
 	return t.conn.QueryRowContext(t.ctx, query, args...)
 }
