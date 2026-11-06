@@ -762,3 +762,66 @@ func TestLoginPageEscapesMessage(t *testing.T) {
 		t.Fatal("login page rendered message without HTML escaping")
 	}
 }
+
+// Another process committing a write while a login consumes its TOTP code
+// (the worker restarting, for example) must not refuse the login. Reading
+// the replay counter in a transaction and then writing it made SQLite fail
+// the write upgrade immediately once the other commit invalidated the read
+// snapshot; the single conditional write waits for the lock instead.
+func TestTOTPReplayConsumptionSurvivesAConcurrentWriter(t *testing.T) {
+	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")
+	t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")
+	t.Setenv("STEPANEL_SESSION_SECRET", "12345678901234567890123456789012")
+	t.Setenv("STEPANEL_ADMIN_TOTP_SECRET", "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ")
+	path := filepath.Join(t.TempDir(), "control-plane.db")
+	db, err := openControlPlaneDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	other, err := openControlPlaneDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	auth, err := NewAuth(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.ConfigureTOTPReplayDB(db); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_234_567_890, 0)
+	// An earlier login gives the account a stored counter to read.
+	if !auth.consumeTOTP(totpCode([]byte("12345678901234567890"), uint64(now.Unix()/30-1)), now) {
+		t.Fatal("earlier login was rejected")
+	}
+	ctx := context.Background()
+	conn, err := other.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, `INSERT INTO totp_replay (username, last_counter, updated_at) VALUES ('someone-else', 1, unixepoch())`); err != nil {
+		t.Fatal(err)
+	}
+	accepted := make(chan bool, 1)
+	go func() {
+		accepted <- auth.consumeTOTP(totpCode([]byte("12345678901234567890"), uint64(now.Unix()/30)), now)
+	}()
+	time.Sleep(200 * time.Millisecond)
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case ok := <-accepted:
+		if !ok {
+			t.Fatal("a valid TOTP was refused because another process committed meanwhile")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("TOTP consumption did not finish")
+	}
+}

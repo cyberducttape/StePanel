@@ -991,30 +991,24 @@ func (a Auth) consumeTOTPFor(username string, secret []byte, code string, now ti
 		a.totpReplay.mu.Lock()
 		defer a.totpReplay.mu.Unlock()
 		if a.totpReplay.db != nil {
-			tx, err := a.totpReplay.db.BeginTx(context.Background(), &sql.TxOptions{Isolation: sql.LevelSerializable})
+			// One conditional write consumes the code: it records candidate
+			// only if it is newer than the last counter used for this
+			// account (a missing row is first use; a negative stored counter
+			// is invalid state and never advanced). A single write statement
+			// takes the database write lock up front and so honours the busy
+			// timeout. Reading in a transaction and then writing could not:
+			// another process (the worker restarting, for example) committing
+			// in between made the upgrade fail at once, refusing a valid
+			// login.
+			result, err := a.totpReplay.db.Exec(`INSERT INTO totp_replay (username, last_counter, updated_at) VALUES (?, ?, unixepoch())
+				ON CONFLICT(username) DO UPDATE SET last_counter = excluded.last_counter, updated_at = excluded.updated_at
+				WHERE totp_replay.last_counter >= 0 AND totp_replay.last_counter < excluded.last_counter`, username, int64(candidate))
 			if err != nil {
+				log.Printf("TOTP replay state is unavailable: %v", err)
 				return false
 			}
-			defer tx.Rollback()
-
-			var lastCounter int64
-			err = tx.QueryRow(`SELECT last_counter FROM totp_replay WHERE username = ?`, username).Scan(&lastCounter)
-			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return false
-			}
-			// A missing row is the normal first-use case. Existing negative
-			// counters are invalid persisted state; never convert them to uint64,
-			// where -1 would become the largest possible counter.
-			if err == nil && (lastCounter < 0 || candidate <= uint64(lastCounter)) {
-				return false
-			}
-
-			_, err = tx.Exec(`INSERT INTO totp_replay (username, last_counter, updated_at) VALUES (?, ?, unixepoch()) ON CONFLICT(username) DO UPDATE SET last_counter=excluded.last_counter, updated_at=excluded.updated_at`, username, candidate)
-			if err != nil {
-				return false
-			}
-
-			return tx.Commit() == nil
+			consumed, err := result.RowsAffected()
+			return err == nil && consumed == 1
 		}
 		if candidate <= a.totpReplay.lastCounter[username] {
 			return false

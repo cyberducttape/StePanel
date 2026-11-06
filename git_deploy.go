@@ -1094,12 +1094,9 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInsufficientStorage)
 		return
 	}
-	reservation, err := a.capacityLedger().reserve(a.Config, "git-release-staging", release, []capacityDemand{{Path: release, Bytes: uint64(stageLimit)}})
-	if err != nil {
-		http.Error(w, "insufficient capacity for aggregate Git clone staging", http.StatusInsufficientStorage)
-		return
-	}
-	defer reservation.release()
+	// A host without enforceable project quotas can never run a Git deploy;
+	// report that before the capacity reservation, whose outcome depends on
+	// how full the disk happens to be.
 	projectID, err := a.enableGitStageQuota(operationCtx, input.Site, release, stageLimit)
 	if err != nil {
 		http.Error(w, "Git deployment requires enforceable project quotas on its staging filesystem: "+err.Error(), http.StatusServiceUnavailable)
@@ -1113,6 +1110,12 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}()
+	reservation, err := a.capacityLedger().reserve(a.Config, "git-release-staging", release, []capacityDemand{{Path: release, Bytes: uint64(stageLimit)}})
+	if err != nil {
+		http.Error(w, "insufficient capacity for aggregate Git clone staging", http.StatusInsufficientStorage)
+		return
+	}
+	defer reservation.release()
 	ctx, cancel := context.WithTimeout(operationCtx, 10*time.Minute)
 	defer cancel()
 	cloneOutput, err := cloneGitRepository(ctx, a.Config, input.Site, repository.URL, input.Ref, release, a.Config.GitReleaseMaxTreeBytes, projectID)
@@ -1684,7 +1687,7 @@ func (wcs *WebhookConfigStore) ConfigureWebhook(site, secret string, repos, refP
 	wcs.mu.Lock()
 	defer wcs.mu.Unlock()
 
-	tx, err := wcs.db.BeginTx(context.Background(), nil)
+	tx, err := beginImmediate(context.Background(), wcs.db)
 	if err != nil {
 		return "", err
 	}
@@ -1852,7 +1855,7 @@ func (wcs *WebhookConfigStore) RevokeWebhookConfig(site string) error {
 	wcs.mu.Lock()
 	defer wcs.mu.Unlock()
 
-	tx, err := wcs.db.BeginTx(context.Background(), nil)
+	tx, err := beginImmediate(context.Background(), wcs.db)
 	if err != nil {
 		return err
 	}

@@ -440,11 +440,9 @@ func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, 
 	if err != nil {
 		return "", "", nil, err
 	}
-	reservation, err := a.capacityLedger().reserve(a.Config, "git-pipeline-checkout", release, []capacityDemand{{Path: release, Bytes: uint64(stageLimit)}})
-	if err != nil {
-		return "", "", nil, fmt.Errorf("admit aggregate Git clone staging: %w", err)
-	}
-	defer reservation.release()
+	// A host without enforceable project quotas can never run a Git deploy;
+	// report that before the capacity reservation, whose outcome depends on
+	// how full the disk happens to be.
 	projectID, err := a.enableGitStageQuota(ctx, site.Site(), release, stageLimit)
 	if err != nil {
 		return "", "", nil, fmt.Errorf("Git pipeline requires enforceable project quotas: %w", err)
@@ -457,6 +455,11 @@ func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, 
 			}
 		}
 	}()
+	reservation, err := a.capacityLedger().reserve(a.Config, "git-pipeline-checkout", release, []capacityDemand{{Path: release, Bytes: uint64(stageLimit)}})
+	if err != nil {
+		return "", "", nil, fmt.Errorf("admit aggregate Git clone staging: %w", err)
+	}
+	defer reservation.release()
 	output, err := cloneGitRepository(ctx, a.Config, site.Site(), repository.URL, ref, release, a.Config.GitReleaseMaxTreeBytes, projectID)
 	if err != nil {
 		return "", "", nil, err

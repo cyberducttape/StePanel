@@ -114,8 +114,11 @@ func acquireImportStageCoordination(root string) (*os.File, error) {
 func removeImportStage(path string, lock *os.File) {
 	// The held stage lock already keeps cleanup away from this tree, so remove
 	// it before taking the root-wide coordination lock: a large delete must not
-	// stall every other import, restore and backup stage.
-	_ = os.RemoveAll(path)
+	// stall every other import, restore and backup stage. A failed delete
+	// leaves the tree for the age-based cleanup, which reports its errors.
+	if err := os.RemoveAll(path); err != nil {
+		log.Printf("remove import stage %s: %v (left for stage cleanup)", filepath.Base(path), err)
+	}
 	coordination, err := acquireImportStageCoordination(filepath.Dir(path))
 	if err != nil {
 		// Keep the lock pathname if coordination cannot be established;
