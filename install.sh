@@ -885,6 +885,21 @@ systemctl is-active --quiet stepanel-worker.service 2>/dev/null && STEPANEL_WORK
 systemctl is-enabled --quiet stepanel-worker.service 2>/dev/null && STEPANEL_WORKER_WAS_ENABLED=1
 systemctl is-active --quiet stepanel-root-broker.service 2>/dev/null && STEPANEL_BROKER_WAS_ACTIVE=1
 systemctl is-enabled --quiet stepanel-root-broker.service 2>/dev/null && STEPANEL_BROKER_WAS_ENABLED=1
+UPGRADE_DRAIN_ACTIVE=0
+
+# upgrade_cli runs the candidate release's binary as the service user, so the
+# upgrade commands open the live control-plane database with the service's
+# own identity (never leaving root-owned SQLite side files) and the source
+# tree need not be readable by that user.
+upgrade_cli() {
+  local tool_dir status=0
+  tool_dir=$(mktemp -d /run/stepanel-upgrade-cli.XXXXXX)
+  chmod 0755 "$tool_dir"
+  install -m 0755 "$ROOT_DIR/stepanel" "$tool_dir/stepanel"
+  runuser -u "$APP_USER" -- "$tool_dir/stepanel" "$@" || status=$?
+  rm -rf -- "$tool_dir"
+  return "$status"
+}
 
 backup_managed_target() {
   local target=$1 index backup existing=0
@@ -909,6 +924,11 @@ rollback_install() {
   if (( CONTROL_PLANE_TXN_ACTIVE )); then
     systemctl stop stepanel.service stepanel-worker.service 2>/dev/null || true
     control_plane_txn_rollback || echo 'Restoring the control-plane database failed; restore it from the snapshot in the install transaction.' >&2
+  fi
+  # The snapshot was taken while the upgrade drain was set; the restored
+  # release must accept changes again (the flag would otherwise expire).
+  if (( UPGRADE_DRAIN_ACTIVE )); then
+    upgrade_cli upgrade-drain end "$DATA_DIR/stepanel-control.db" || echo 'Could not clear the upgrade drain; it expires on its own.' >&2
   fi
   for (( index=${#TXN_TARGETS[@]}-1; index>=0; index-- )); do
     rm -f "${TXN_TARGETS[$index]}"
@@ -1000,6 +1020,18 @@ for managed_target in "${managed_targets[@]}"; do
   backup_managed_target "$managed_target"
   install_journal_record configuration snapshot_ready reversible "target=$managed_target"
 done
+# Upgrading a running installation: check that the control-plane database is
+# healthy and has room for its snapshot, then drain. The running panel and
+# workers stop taking new jobs and changes, and the upgrade waits for running
+# jobs to finish rather than killing them mid-operation.
+if [[ -f "$DATA_DIR/stepanel-control.db" ]] && (( STEPANEL_WAS_ACTIVE || STEPANEL_WORKER_WAS_ACTIVE )); then
+  install_journal_record configuration upgrade_preflight_started reversible "control-plane integrity and capacity"
+  upgrade_cli upgrade-preflight "$DATA_DIR/stepanel-control.db"
+  UPGRADE_DRAIN_ACTIVE=1
+  install_journal_record configuration upgrade_drain_started reversible "waiting up to ${STEPANEL_UPGRADE_DRAIN_SECONDS:-900}s for running jobs"
+  upgrade_cli upgrade-drain begin "$DATA_DIR/stepanel-control.db" "${STEPANEL_UPGRADE_DRAIN_SECONDS:-900}"
+  install_journal_record configuration upgrade_drain_complete reversible "no jobs running; claims and changes paused"
+fi
 if (( STEPANEL_WAS_ACTIVE )); then systemctl stop stepanel.service; fi
 if (( STEPANEL_WORKER_WAS_ACTIVE )); then systemctl stop stepanel-worker.service; fi
 if (( STEPANEL_BROKER_WAS_ACTIVE )); then systemctl stop stepanel-root-broker.service; fi
@@ -1472,6 +1504,10 @@ fi
 install_journal_record post_install planned retained "actions=$POST_INSTALL_PLAN_TEXT"
 INSTALL_COMMITTED=1
 control_plane_txn_commit
+if (( UPGRADE_DRAIN_ACTIVE )); then
+  "$APP_DIR/stepanel" version >/dev/null 2>&1 && runuser -u "$APP_USER" -- "$APP_DIR/stepanel" upgrade-drain end "$DATA_DIR/stepanel-control.db" \
+    || echo "Warning: could not clear the upgrade drain; changes resume when it expires. Run: runuser -u $APP_USER -- $APP_DIR/stepanel upgrade-drain end $DATA_DIR/stepanel-control.db" >&2
+fi
 INSTALL_JOURNAL_TERMINAL=1
 trap - ERR EXIT INT TERM
 install_journal_record commit complete manual "core installation committed; optional integrations are reported separately and package changes remain" || echo 'Could not append installer commit record; preserve installer output as evidence.' >&2

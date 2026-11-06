@@ -56,6 +56,39 @@ installer keeps the explicitly listed operator runtime settings in
 `/etc/ste-panel.env` and rewrites installer-owned settings
 ([INSTALLATION.md](INSTALLATION.md)).
 
+### Upgrade sequence
+
+When it upgrades a running installation, the installer:
+
+1. **Checks health and capacity.** `stepanel upgrade-preflight` (run from
+   the candidate release as the service user, without migrating anything)
+   requires the control-plane database to pass SQLite's integrity check and
+   its filesystem to have room for twice the database plus 512 MiB (the
+   installer's snapshot and the migrated copy). Otherwise the upgrade stops
+   before anything changes.
+2. **Drains running work.** `stepanel upgrade-drain begin` sets a durable
+   flag: running panels and workers stop claiming new jobs, and new
+   mutating requests get `503` with `Retry-After` while reads stay
+   available. The installer waits up to `STEPANEL_UPGRADE_DRAIN_SECONDS`
+   (default 900) for running jobs to finish. If they do not, it clears the
+   flag and refuses the upgrade; `STEPANEL_UPGRADE_DRAIN_FORCE=1` proceeds
+   anyway, and the interrupted jobs resume through crash recovery. The flag
+   expires two hours after the wait on its own, so an installer that dies
+   cannot leave changes paused. A running release from before the drain
+   ignores the flag; the installer still waits for its running jobs.
+3. **Snapshots** the registered files and the control-plane database with
+   every StePanel process stopped.
+4. **Installs and migrates**, then starts the services.
+5. **Probes** `/readyz` until it reports ready, before the commit point.
+6. **Reverts automatically** if anything fails before the commit point:
+   files, the control-plane database, and unit state are restored, and the
+   drain is cleared on the restored database.
+7. **Commits** and clears the drain. After the commit point there is no
+   automatic revert; see the second rollback case below. Undoing a committed
+   upgrade by restoring the pre-migration snapshot is a disaster-recovery
+   restore that loses the control-plane changes made after the upgrade, not
+   a rollback.
+
 ## What an upgrade changes
 
 - **Control-plane schema.** On first start, the new binary applies every

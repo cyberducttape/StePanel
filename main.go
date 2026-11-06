@@ -91,6 +91,9 @@ type App struct {
 	stagingPromotionHost stagingPromotionHost
 	// capacity holds free space promised to in-progress archive uploads.
 	capacity *capacityLedger
+	// upgradeDrain pauses new claims and mutations while an upgrade waits
+	// for running jobs (upgrade_drain.go).
+	upgradeDrain *upgradeDrainGate
 	// streams bounds open server-sent event streams.
 	streams streamLimiter
 }
@@ -247,6 +250,18 @@ func Main() {
 			log.Fatal(err)
 		}
 		_, _ = fmt.Fprintln(os.Stdout, string(data))
+		return
+	}
+	if len(os.Args) == 3 && os.Args[1] == "upgrade-preflight" {
+		if err := runUpgradePreflight(os.Args[2]); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	if len(os.Args) >= 2 && os.Args[1] == "upgrade-drain" {
+		if err := runUpgradeDrainCommand(os.Args[2:]); err != nil {
+			log.Fatal(err)
+		}
 		return
 	}
 	if len(os.Args) == 3 && os.Args[1] == "verify-audit" {
@@ -615,7 +630,17 @@ func Main() {
 	// Workers in this and the external worker process claim jobs only once
 	// the panel's startup recovery has succeeded.
 	barrier := startupBarrier{db: controlPlaneDB}
-	jobs.SetClaimGate(barrier.status)
+	app.upgradeDrain = &upgradeDrainGate{db: controlPlaneDB}
+	jobs.SetClaimGate(func() (bool, string) {
+		if open, reason := barrier.status(); !open {
+			return false, reason
+		}
+		// An upgrade drain stops new claims; running jobs finish.
+		if draining, reason := app.upgradeDrain.status(); draining {
+			return false, "upgrade drain: " + reason
+		}
+		return true, ""
+	})
 	var startupEpoch int64
 	if !workerMode {
 		if startupEpoch, err = barrier.begin(fmt.Sprintf("panel-%d", os.Getpid())); err != nil {

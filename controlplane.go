@@ -507,6 +507,12 @@ CREATE INDEX IF NOT EXISTS jobs_state_started_idx ON jobs(state, started_at, id)
 		)`)
 		return err
 	}),
+	// The installer sets this flag before an upgrade so running panels and
+	// workers drain (upgrade_drain.go).
+	migration.NewMigration(31, "record upgrade drain state", func(tx *sql.Tx) error {
+		_, err := tx.Exec(upgradeDrainTable)
+		return err
+	}),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {

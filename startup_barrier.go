@@ -104,6 +104,12 @@ func (a *App) startupMutationGate(next http.Handler) http.Handler {
 		}
 		open, inProgress := a.startup.mutationsOpen()
 		if open {
+			// An upgrade drain pauses new changes while running jobs finish.
+			if draining, _ := a.upgradeDrain.status(); draining {
+				w.Header().Set("Retry-After", "60")
+				writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "StePanel is being upgraded, so changes are paused; retry shortly", "retryable": true})
+				return
+			}
 			next.ServeHTTP(w, r)
 			return
 		}
