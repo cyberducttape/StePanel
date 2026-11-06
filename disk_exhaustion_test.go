@@ -1,10 +1,14 @@
 package stepanel
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -195,5 +199,164 @@ func TestDiskExhaustion_DurableJobs(t *testing.T) {
 	}
 	if listed := reopened.List(10); len(listed) != 1 {
 		t.Fatalf("durable jobs after recovery = %d, want 1", len(listed))
+	}
+}
+
+func sameFiles(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for name, content := range a {
+		if b[name] != content {
+			return false
+		}
+	}
+	return true
+}
+
+func freeBytes(t *testing.T, path string) uint64 {
+	t.Helper()
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(path, &stat); err != nil {
+		t.Fatal(err)
+	}
+	return stat.Bavail * uint64(stat.Bsize)
+}
+
+// Release activation on a full disk either does not happen (the original
+// release stays live and no activation journal is left) or completes; never
+// a mix. Once space returns, activation succeeds.
+func TestDiskExhaustion_ReleaseActivation(t *testing.T) {
+	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("k", 32))
+	f := diskExhaustionFixture(t)
+	f.writeSite(t, versionOne)
+	app := &App{Config: f.cfg}
+	release, owner, err := app.createSiteReleaseStaging(context.Background(), f.site.Site(), ".stepanel-release-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close()
+	next := map[string]string{"index.html": "v3", "media.bin": incompressible(t, 256<<10)}
+	for name, content := range next {
+		writeTestFile(t, filepath.Join(release, name), content)
+	}
+
+	free := fillDisk(t, f.root, 0)
+	_, activateErr := app.activatePipelineRelease(context.Background(), f.site.Site(), release)
+	live := f.siteFiles(t)
+	switch {
+	case activateErr != nil && !sameFiles(live, versionOne):
+		t.Fatalf("failed activation on a full disk changed the live site: %v", live)
+	case activateErr == nil && !sameFiles(live, next):
+		t.Fatalf("activation reported success but the live site is %v", live)
+	}
+	free()
+	restartRecovery(t, f)
+	if recovered, err := recoverReleaseActivationJournals(f.cfg); err != nil || len(recovered) != 0 {
+		t.Fatalf("activation journal left after recovery: %v, %v", recovered, err)
+	}
+	if activateErr != nil {
+		if !sameFiles(f.siteFiles(t), versionOne) {
+			t.Fatal("startup recovery changed the original release")
+		}
+		if _, err := app.activatePipelineRelease(context.Background(), f.site.Site(), release); err != nil {
+			t.Fatalf("activation after space was freed: %v", err)
+		}
+	}
+	f.assertSite(t, next)
+}
+
+// A rollback on a full disk leaves either the current or the previous
+// release live, never a mix, and succeeds once space returns.
+func TestDiskExhaustion_ReleaseRollback(t *testing.T) {
+	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("k", 32))
+	f := diskExhaustionFixture(t)
+	f.writeSite(t, versionOne)
+	app := &App{Config: f.cfg}
+	release, owner, err := app.createSiteReleaseStaging(context.Background(), f.site.Site(), ".stepanel-release-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close()
+	writeTestFile(t, filepath.Join(release, "index.html"), "v3")
+	if _, err := app.activatePipelineRelease(context.Background(), f.site.Site(), release); err != nil {
+		t.Fatal(err)
+	}
+	current := map[string]string{"index.html": "v3"}
+	f.assertSite(t, current)
+
+	rollback := func() int {
+		preview, err := app.buildGitRollbackPreview(f.site.Site())
+		if err != nil {
+			return http.StatusServiceUnavailable
+		}
+		body, _ := json.Marshal(gitRollbackRequest{Site: f.site.Site(), Confirm: "ROLLBACK " + f.site.Site(), PreviewToken: preview.PreviewToken})
+		response := httptest.NewRecorder()
+		app.gitRollback(response, httptest.NewRequest(http.MethodPost, "/api/sites/git-rollback", bytes.NewReader(body)))
+		return response.Code
+	}
+	free := fillDisk(t, f.root, 0)
+	code := rollback()
+	live := f.siteFiles(t)
+	if !sameFiles(live, current) && !sameFiles(live, versionOne) {
+		t.Fatalf("rollback on a full disk left a mixed site: %v", live)
+	}
+	if code == http.StatusOK && !sameFiles(live, versionOne) {
+		t.Fatalf("rollback reported success but the live site is %v", live)
+	}
+	free()
+	restartRecovery(t, f)
+	if recovered, err := recoverReleaseActivationJournals(f.cfg); err != nil || len(recovered) != 0 {
+		t.Fatalf("activation journal left after recovery: %v, %v", recovered, err)
+	}
+	if code != http.StatusOK {
+		if !sameFiles(f.siteFiles(t), current) {
+			t.Fatal("startup recovery changed the current release after a failed rollback")
+		}
+		if code := rollback(); code != http.StatusOK {
+			t.Fatalf("rollback after space was freed = %d", code)
+		}
+	}
+	f.assertSite(t, versionOne)
+}
+
+// Cleanup of abandoned temporary stages must work on a full disk and give
+// the space back: deleting never needs new space, and a cleanup that failed
+// when the disk is full would make the outage worse.
+func TestDiskExhaustion_TemporaryCleanup(t *testing.T) {
+	f := diskExhaustionFixture(t)
+	for _, root := range []string{f.cfg.ImportRoot, f.cfg.BackupRoot} {
+		if err := os.MkdirAll(root, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	importStage, importLock, err := createImportStage(f.cfg.ImportRoot, "backup-restore-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(importStage, "payload.bin"), incompressible(t, 512<<10))
+	if err := importLock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	backupStage := filepath.Join(f.cfg.BackupRoot, ".backup-abandoned")
+	writeTestFile(t, filepath.Join(backupStage, "archive.part"), incompressible(t, 512<<10))
+	ageStagingBeyondLiveOperations(t, f)
+
+	free := fillDisk(t, f.root, 0)
+	defer free()
+	before := freeBytes(t, f.root)
+	if err := CleanupImportStages(f.cfg.ImportRoot, orphanedStagingMinAge); err != nil {
+		t.Fatalf("import stage cleanup on a full disk: %v", err)
+	}
+	if err := CleanupBackupStages(f.cfg.BackupRoot, orphanedStagingMinAge); err != nil {
+		t.Fatalf("backup stage cleanup on a full disk: %v", err)
+	}
+	for _, stage := range []string{importStage, backupStage} {
+		if _, err := os.Stat(stage); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("abandoned stage %s remains after cleanup on a full disk: %v", filepath.Base(stage), err)
+		}
+	}
+	if after := freeBytes(t, f.root); after < before+(900<<10) {
+		t.Fatalf("cleanup freed %d bytes, want at least 900 KiB", after-before)
 	}
 }
