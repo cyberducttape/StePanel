@@ -349,6 +349,11 @@ fi
 # HTTP, not only readiness. See deploy/lab/abrupt-loss-operation-drill.sh.
 if has_phase abrupt-loss-operations; then
   for scenario in ${ABRUPT_LOSS_SCENARIOS:-file-restore database-restore git-deploy control-plane}; do
+    # The name reaches a root command in the guest; accept only known ones.
+    case $scenario in
+      file-restore|database-restore|git-deploy|control-plane) ;;
+      *) echo "unknown abrupt-loss scenario: $scenario" >&2; exit 64 ;;
+    esac
     start=$SECONDS
     drill="sudo env DRILL_RUN_SUFFIX=$drill_suffix bash /work/deploy/lab/abrupt-loss-operation-drill.sh $scenario"
     log_prefix="$run_dir/abrupt-loss-$scenario"

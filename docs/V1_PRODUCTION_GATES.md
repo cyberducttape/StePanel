@@ -170,7 +170,13 @@ These items do not silently become release claims. They are tracked separately:
   reporting.
 - First-class blank PHP, WordPress, Git, and Node site creation workflows.
   Blank PHP sites: implemented (`POST /api/sites`, durable `site.create` job,
-  `site_creation_test.go`); WordPress, Git and Node templates are open.
+  `site_creation_test.go`). WordPress sites: implemented (`"template":
+  "wordpress"`); a customer claims and verifies the new site's domain first,
+  which reserves the site name for their tenant
+  (`TestCustomerReservesClaimsVerifiesAndCreatesAWordPressSite`). An
+  installed-host customer WordPress run that serves HTTP needs a DNS TXT
+  answer in the lab and is open. Git and Node site templates are open
+  (deployment into an existing site is available).
 - The operator-supplied `STEPANEL_RECOVERY_PROOF_COMMAND` hook remains
   available for non-WordPress applications. It receives `<site> <stage>`,
   and a rehearsal records the `application` level only when the command
