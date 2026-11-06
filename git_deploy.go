@@ -1112,6 +1112,9 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 	}()
 	reservation, err := a.capacityLedger().reserve(a.Config, "git-release-staging", release, []capacityDemand{{Path: release, Bytes: uint64(stageLimit)}})
 	if err != nil {
+		// The detail names host paths and byte counts; log it for the
+		// operator and give the requester the generic refusal.
+		log.Printf("Git clone staging admission refused for site %s: %v", input.Site, err)
 		http.Error(w, "insufficient capacity for aggregate Git clone staging", http.StatusInsufficientStorage)
 		return
 	}

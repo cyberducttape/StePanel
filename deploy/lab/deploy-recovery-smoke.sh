@@ -151,6 +151,17 @@ for _ in $(seq 1 120); do
   case $job_state in
     failed|dead-letter|completed|cancelled)
       echo "Git deploy job $job_id reached terminal state '$job_state' before the injected activation kill: $job_status" >&2
+      if grep -q 'insufficient capacity' <<< "$job_status"; then
+        echo 'capacity diagnostics:' >&2
+        df -B1 /var/www /var/lib/ste-panel >&2 || true
+        python3 -I - /var/lib/ste-panel/stepanel-control.db >&2 <<'PY' || true
+import sqlite3, sys
+db = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+for row in db.execute("SELECT workflow, device, bytes, staging_path, owner_pid, created_at FROM capacity_reservations"):
+    print("reservation:", row)
+PY
+        journalctl -u stepanel -u stepanel-worker --since '-15 min' --no-pager -q | grep -E 'admission refused|insufficient free space' | tail -5 >&2 || true
+      fi
       exit 1
       ;;
   esac
