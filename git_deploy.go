@@ -43,6 +43,16 @@ const (
 	gitCloneMaxStageBytes     = int64(1 << 40)
 )
 
+// gitStageCapacityPath is where Git staging capacity is measured: the
+// stage's parent directory. Once the stage has its project quota, statfs on
+// the stage itself reports that quota's limit as the filesystem's size and
+// free space (ext4 and XFS with project quotas), so the stage can never
+// appear to have room for the quota plus the free-space reserve. The parent
+// is on the same filesystem and outside the project.
+func gitStageCapacityPath(stage string) string {
+	return filepath.Dir(stage)
+}
+
 func gitCloneStageLimit(treeLimit int64) (int64, error) {
 	if treeLimit < 1 || uint64(treeLimit) > uint64(gitCloneMaxStageBytes)/gitCloneStageMultiplier {
 		return 0, errors.New("configured Git release limit cannot be safely admitted within the 1 TiB staging quota ceiling")
@@ -1110,7 +1120,7 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}()
-	reservation, err := a.capacityLedger().reserve(a.Config, "git-release-staging", release, []capacityDemand{{Path: release, Bytes: uint64(stageLimit)}})
+	reservation, err := a.capacityLedger().reserve(a.Config, "git-release-staging", release, []capacityDemand{{Path: gitStageCapacityPath(release), Bytes: uint64(stageLimit)}})
 	if err != nil {
 		// The detail names host paths and byte counts; log it for the
 		// operator and give the requester the generic refusal.

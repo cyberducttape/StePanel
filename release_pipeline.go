@@ -193,7 +193,7 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not create release staging directory", 500)
 		return
 	}
-	artifactReservation, err := a.capacityLedger().reserve(a.Config, "git-pipeline-artifact", release, []capacityDemand{{Path: release, Bytes: uint64(artifactBytes)}})
+	artifactReservation, err := a.capacityLedger().reserve(a.Config, "git-pipeline-artifact", release, []capacityDemand{{Path: gitStageCapacityPath(release), Bytes: uint64(artifactBytes)}})
 	if err != nil {
 		log.Printf("release pipeline artifact admission failed for site %s: %v", input.Site, err)
 		_ = a.recordDeployment(input.Site, "build", "failed", err.Error(), result, artifact)
@@ -455,7 +455,7 @@ func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, 
 			}
 		}
 	}()
-	reservation, err := a.capacityLedger().reserve(a.Config, "git-pipeline-checkout", release, []capacityDemand{{Path: release, Bytes: uint64(stageLimit)}})
+	reservation, err := a.capacityLedger().reserve(a.Config, "git-pipeline-checkout", release, []capacityDemand{{Path: gitStageCapacityPath(release), Bytes: uint64(stageLimit)}})
 	if err != nil {
 		return "", "", nil, fmt.Errorf("admit aggregate Git clone staging: %w", err)
 	}
