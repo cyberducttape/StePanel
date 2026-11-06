@@ -666,7 +666,7 @@ Prometheus exposes `stepanel_git_release_bytes` and
 changes. See [`GIT_DEPLOYMENTS.md`](GIT_DEPLOYMENTS.md).
 
 Each checkout and build artifact is also limited by
-`STEPANEL_GIT_RELEASE_MAX_TREE_BYTES` (default 5 GiB). The configured amount is
+`STEPANEL_GIT_RELEASE_MAX_TREE_BYTES` (default 1 GiB). The configured amount is
 reserved during checkout and the unpacked tree is checked before activation.
 Before cloning, the root broker also assigns the stage a filesystem project
 quota of three times that limit, covering the packed object store, checkout,

@@ -327,7 +327,7 @@ In an interactive terminal, the installer asks for the database engine and versi
 | `STEPANEL_GIT_RELEASE_RETENTION` | `1`–`100` | Number of preserved Git rollback releases per site; defaults to `3` |
 | `STEPANEL_GIT_RELEASE_MAX_AGE_HOURS` | Positive hours | Remove older non-current rollback releases; defaults to `168` (7 days) |
 | `STEPANEL_GIT_RELEASE_MAX_BYTES` | Positive bytes | Maximum retained previous-release storage per site; defaults to `5368709120` (5 GiB) |
-| `STEPANEL_GIT_RELEASE_MAX_TREE_BYTES` | Positive bytes | Maximum unpacked size of one Git checkout/build artifact; defaults to `5368709120` (5 GiB) |
+| `STEPANEL_GIT_RELEASE_MAX_TREE_BYTES` | Positive bytes | Maximum unpacked size of one Git checkout/build artifact; defaults to `1073741824` (1 GiB). A deploy reserves three times this for its staging quota plus `STEPANEL_MIN_FREE_BYTES`, so the default needs 8 GiB free; raise it only for repositories that need it |
 | `STEPANEL_RUNNERCTL` | Absolute helper path | Rootless Podman build-runner helper; defaults to `/usr/local/sbin/stepanel-runnerctl` |
 | `STEPANEL_INSTALL_SECURITY` | `0` or `1` | Install ClamAV and the PHP malware guard. The guard watches legacy sites under `/var/www/sites` only; sites placed in hosting accounts under `/home` are covered by the on-demand malware scan, not the background guard. |
 | `STEPANEL_OFFSITE_TARGET` | rclone destination | Offsite copy target, required for production installs, for example `s3:bucket/stepanel` |

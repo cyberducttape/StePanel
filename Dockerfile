@@ -17,6 +17,8 @@ FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe6
 # complete package lock.
 # Never use apt-get upgrade, which pulls untested/unreviewed versions.
 # Track version updates in git with CVE or improvement justification.
+# CVE-2026-109518 (HIGH): the base image's apt 2.6.1 is fixed in 2.6.2, so
+# exactly apt and libapt-pkg6.0 are upgraded (not apt-get upgrade).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -24,6 +26,7 @@ RUN apt-get update \
         libpcre2-8-0 \
         mariadb-client \
         rclone \
+    && apt-get install -y --no-install-recommends --only-upgrade apt libapt-pkg6.0 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --user-group --home-dir /opt/stepanel --shell /usr/sbin/nologin stepanel \
     && mkdir -p /opt/stepanel/web/static /var/lib/ste-panel/imports /var/www/sites \
