@@ -294,10 +294,15 @@ systemctl is-active --quiet stepanel.service stepanel-worker.service || { echo '
 [[ $(drain_job_state "$drain_job") == running ]] || { echo "a refused upgrade disturbed backup $drain_job" >&2; exit 1; }
 [[ $(systemctl show --property=MainPID --value stepanel-worker.service) == "$worker_before_drain" ]] || { echo 'a refused upgrade restarted the worker' >&2; exit 1; }
 # The refused drain is cleared (the gate caches it for a second): the panel
-# accepts changes again.
+# accepts changes again. The held backup keeps its site locked, so probe with
+# a change for a site that does not exist: the drain gate would answer 503
+# before the handler; once cleared, the handler rejects the site with 422.
 sleep 2
-drain_api PUT /api/backup-schedules "{\"site\":\"$legacy_site\",\"interval_minutes\":60,\"keep_last\":2}" >/dev/null || { echo 'the panel refuses changes after a refused upgrade' >&2; exit 1; }
-drain_api DELETE "/api/backup-schedules?site=$legacy_site" >/dev/null
+drain_csrf=$(awk '$6 == "stepanel_csrf" {print $7}' "$drain_cookies")
+drain_probe=$(curl --silent --show-error --max-time 30 -o /dev/null -w '%{http_code}' -X PUT -b "$drain_cookies" \
+  -H "X-CSRF-Token: $drain_csrf" -H 'Content-Type: application/json' \
+  --data '{"site":"drain-probe-missing","interval_minutes":60,"keep_last":2}' http://127.0.0.1:8090/api/backup-schedules)
+[[ $drain_probe == 422 ]] || { echo "the panel refuses changes after a refused upgrade (HTTP $drain_probe)" >&2; exit 1; }
 # Release the held backup: the pause holds until the process is killed, and
 # crash recovery resumes the job in the restarted worker.
 rm -f -- "$drain_dropin"
