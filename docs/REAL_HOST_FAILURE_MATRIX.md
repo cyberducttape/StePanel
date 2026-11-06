@@ -51,6 +51,7 @@ successful aggregate run contributes 20–50 repetitions to the release gate.
 | Restore | repository/hosted/KVM | KVM guest kill (file and database) | hosted/partial/KVM* | hosted (MySQL SIGKILL mid-load) | lab follow-up |
 | Site delete | repository/hosted/KVM | lab follow-up | lab follow-up | lab follow-up | lab follow-up |
 | Backup schedule (control-plane write) | repository | KVM guest kill | lab follow-up | lab follow-up | N/A |
+| Backup retention | repository | KVM guest kill (`retention` scenario) | N/A (only deletes) | N/A | N/A |
 
 The KVM guest-kill drills are `deploy/lab/abrupt-loss-operation-drill.sh`
 (run by the `abrupt-loss-operations` workflow). A process that dies holding a
@@ -58,6 +59,12 @@ durable site lock no longer blocks that site until its lease (two minutes)
 expires: every StePanel process records its PID and start identity in its
 lock owner, and a starting process releases the leases of owners on the same
 host that no longer run.
+
+Retention deletes an old backup by renaming it to a dot-prefixed tombstone
+(out of every listing) and then removing it; the next retention finishes any
+tombstone a crash left. A power loss mid-deletion therefore never leaves a
+backup without its manifest, which would stop retention for every site
+sharing the backup root until an operator intervened.
 
 ## Disk exhaustion outcome contract
 

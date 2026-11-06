@@ -27,6 +27,12 @@
 #                    recorded it. The original release must be back, the job
 #                    must report the interruption, and no activation journal
 #                    may remain. A fresh deploy must then succeed.
+#   retention        Guest dies at backup:prune, while scheduled-backup
+#                    retention is deleting an old backup (renamed out of the
+#                    inventory, not yet removed). Every backup the site still
+#                    has must be whole (with its manifest), and retention must
+#                    converge on its own: the half-deleted backup goes and the
+#                    site keeps exactly keep_last backups.
 #   control-plane    Guest dies while a client is updating a backup schedule in
 #                    a loop. The stored value must be the last acknowledged
 #                    write or the one in flight: no acknowledged write is lost
@@ -39,7 +45,7 @@
 set -Eeuo pipefail
 
 [[ $EUID -eq 0 ]] || { echo 'abrupt-loss operation drill must run as root' >&2; exit 1; }
-scenario=${1:?usage: abrupt-loss-operation-drill.sh file-restore|database-restore|git-deploy|control-plane prepare|start|verify}
+scenario=${1:?usage: abrupt-loss-operation-drill.sh file-restore|database-restore|git-deploy|retention|control-plane prepare|start|verify}
 action=${2:?usage: abrupt-loss-operation-drill.sh SCENARIO prepare|start|verify}
 
 : "${PANEL:=http://127.0.0.1:8090}"
@@ -469,6 +475,72 @@ git_deploy() {
 }
 
 # --- control-plane -------------------------------------------------------------
+# --- retention ---------------------------------------------------------------
+backup_root=$(sed -n 's/^STEPANEL_BACKUP_ROOT="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /etc/ste-panel.env)
+: "${backup_root:=/var/backups/stepanel}"
+
+# site_backup_dirs prints the site's backup directories in the inventory
+# namespace (no dot prefix), and fails on one without its manifest.
+site_backup_dirs() {
+  local dir
+  for dir in "$backup_root"/*-"$site"; do
+    [[ -d $dir ]] || continue
+    [[ -f $dir/manifest.json ]] || fail "backup ${dir##*/} is in the inventory without its manifest"
+    printf '%s\n' "${dir##*/}"
+  done
+}
+
+retention() {
+  case "$action" in
+    prepare)
+      login
+      create_site
+      printf '<?php echo "DRILL_RETENTION";\n' > "$public/index.php"
+      chown "$(stat -c %U:%G "$public")" "$public/index.php"
+      backup_site false > /dev/null
+      backup_site false > /dev/null
+      (( $(site_backup_dirs | wc -l) == 2 )) || fail 'prepare did not leave two backups'
+      echo "prepared $site with two backups"
+      ;;
+    start)
+      set_pause backup:prune
+      login
+      # The schedule's first run is due in five minutes; retention then
+      # keeps one backup and deletes the two older ones.
+      response=$(api PUT /api/backup-schedules "{\"site\":\"$site\",\"interval_minutes\":5,\"keep_last\":1,\"include_databases\":false}")
+      [[ $(field "$response" site) == "$site" ]] || fail "schedule was not stored: $response"
+      for _ in $(seq 1 960); do
+        [[ -f $pause_dir/backup-prune ]] && break
+        sleep 0.5
+      done
+      [[ -f $pause_dir/backup-prune ]] || fail 'scheduled retention never reached backup:prune'
+      compgen -G "$backup_root/.pruning-*-$site" > /dev/null || fail 'retention paused without a retired backup'
+      sync
+      echo "retention for $site paused with $(site_backup_dirs | wc -l) backups in the inventory and one retired"
+      ;;
+    verify)
+      clear_pause_after_reboot
+      wait_panel_ready
+      login
+      # Whatever finishes retention (the resumed job or the next scheduled
+      # run), the inventory must stay whole and converge on keep_last.
+      converged=0
+      for _ in $(seq 1 120); do
+        count=$(site_backup_dirs | wc -l)
+        if (( count == 1 )) && ! compgen -G "$backup_root/.pruning-*" > /dev/null; then converged=1; break; fi
+        sleep 5
+      done
+      (( converged )) || fail "retention did not converge: $(site_backup_dirs | wc -l) backups, retired: $(compgen -G "$backup_root/.pruning-*" | tr '\n' ' ')"
+      listed=$(api GET "/api/backups?site=$site" | python3 -c 'import json, sys; print(len(json.load(sys.stdin).get("backups", [])))')
+      [[ $listed == 1 ]] || fail "the panel lists $listed backups for $site, want 1"
+      readyz=$(curl --silent --max-time 10 "$PANEL/readyz")
+      [[ $(field "$readyz" ready) == true ]] || fail "readiness did not recover: $readyz"
+      api DELETE "/api/backup-schedules?site=$site" >/dev/null
+      echo "retention converged after the guest loss: one whole backup, no retired backup left"
+      ;;
+  esac
+}
+
 control_plane() {
   local log=$state_dir/writes.log
   case "$action" in
@@ -530,6 +602,7 @@ case "$scenario" in
   file-restore) file_restore ;;
   database-restore) database_restore ;;
   git-deploy) git_deploy ;;
+  retention) retention ;;
   control-plane) control_plane ;;
   *) fail "unknown scenario $scenario" ;;
 esac

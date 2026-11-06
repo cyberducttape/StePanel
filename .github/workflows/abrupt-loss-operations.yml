@@ -10,9 +10,9 @@ on:
   workflow_dispatch:
     inputs:
       scenarios:
-        description: Space-separated subset of file-restore database-restore git-deploy control-plane
+        description: Space-separated subset of file-restore database-restore git-deploy retention control-plane
         required: true
-        default: file-restore database-restore git-deploy control-plane
+        default: file-restore database-restore git-deploy retention control-plane
 
 permissions:
   contents: read

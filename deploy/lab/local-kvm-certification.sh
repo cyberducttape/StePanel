@@ -23,7 +23,7 @@ set -Eeuo pipefail
 # CAPACITY_SITES for the capacity phase (deploy/lab/capacity-profile.py),
 # RESUME=1 to run PHASES against the guest a previous KEEP_VM=1 run left in
 # RUN_DIR (no rebuild or reboot; results are appended),
-# ABRUPT_LOSS_SCENARIOS (file-restore database-restore git-deploy
+# ABRUPT_LOSS_SCENARIOS (file-restore database-restore git-deploy retention
 # control-plane) for abrupt-loss-operations, and VM_DISK_CACHE (writeback) for
 # the guest disks. With writeback, writes the virtual disk acknowledged survive
 # a guest kill in the host page cache; none or directsync drops that cushion.
@@ -374,10 +374,10 @@ fi
 # whole guest there, boots it, and checks customer data and the site over
 # HTTP, not only readiness. See deploy/lab/abrupt-loss-operation-drill.sh.
 if has_phase abrupt-loss-operations; then
-  for scenario in ${ABRUPT_LOSS_SCENARIOS:-file-restore database-restore git-deploy control-plane}; do
+  for scenario in ${ABRUPT_LOSS_SCENARIOS:-file-restore database-restore git-deploy retention control-plane}; do
     # The name reaches a root command in the guest; accept only known ones.
     case $scenario in
-      file-restore|database-restore|git-deploy|control-plane) ;;
+      file-restore|database-restore|git-deploy|retention|control-plane) ;;
       *) echo "unknown abrupt-loss scenario: $scenario" >&2; exit 64 ;;
     esac
     start=$SECONDS
@@ -407,7 +407,7 @@ if has_phase abrupt-loss-operations; then
     # These scenarios deliberately leave a persistent pause marker at the
     # crash boundary. Clear it after SSH is available but before waiting for
     # /readyz; startup recovery cannot finish while the pause marker remains.
-    if [[ $scenario == file-restore || $scenario == git-deploy ]]; then
+    if [[ $scenario == file-restore || $scenario == git-deploy || $scenario == retention ]]; then
       if ! wait_ssh 600 || ! guest 'sudo rm -rf -- /var/lib/ste-panel/pause-markers'; then
         record "abrupt-loss-$scenario" FAIL $((SECONDS - start)) 'could not clear post-crash pause marker'
         continue

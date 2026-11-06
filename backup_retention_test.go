@@ -242,3 +242,53 @@ func TestPruneSiteBackupsRefusesMissingProtectedVerifiedBackup(t *testing.T) {
 		t.Fatalf("inventory changed after protected backup was missing: %v", err)
 	}
 }
+
+// A retention interrupted by a crash leaves its backup as a tombstone, never
+// a backup with a missing manifest; the next prune finishes the deletion and
+// ignores the tombstone when it inventories backups.
+func TestPruneSiteBackupsFinishesAnInterruptedDeletion(t *testing.T) {
+	root := t.TempDir()
+	for _, item := range []struct {
+		name      string
+		createdAt time.Time
+	}{
+		{"20260102-000000.000000000-demo", time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)},
+		{"20260103-000000.000000000-demo", time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)},
+	} {
+		dir := filepath.Join(root, item.name)
+		if err := os.Mkdir(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeBackupManifest(dir, BackupManifest{Version: 1, Site: "demo", Archive: "backup.tar.gz", CreatedAt: item.createdAt}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// What a crash after the rename and part of the delete leaves: the
+	// manifest is gone, an archive remains.
+	tombstone := filepath.Join(root, backupPruneTombstonePrefix+"20260101-000000.000000000-demo")
+	if err := os.Mkdir(tombstone, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tombstone, "backup.tar.gz"), []byte("partial"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, ""); err != nil {
+		t.Fatalf("prune after an interrupted deletion: %v", err)
+	}
+	if _, err := os.Stat(tombstone); !os.IsNotExist(err) {
+		t.Fatalf("tombstone of the interrupted deletion remains: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "20260102-000000.000000000-demo")); !os.IsNotExist(err) {
+		t.Fatal("older backup beyond keep was not pruned")
+	}
+	if _, err := os.Stat(filepath.Join(root, "20260103-000000.000000000-demo")); err != nil {
+		t.Fatalf("newest backup was pruned: %v", err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("backup root holds %d entries after prune, want only the kept backup", len(entries))
+	}
+}

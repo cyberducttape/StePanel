@@ -111,6 +111,9 @@ func pruneSiteBackups(root string, site SiteCapability, keep int, protectedVerif
 	if safeUser(siteName) == "" || keep < 1 || (protectedVerifiedName != "" && !validBackupName(protectedVerifiedName)) {
 		return errors.New("invalid backup retention policy")
 	}
+	if err := removePruneTombstones(root); err != nil {
+		return err
+	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return err
@@ -199,9 +202,59 @@ func pruneSiteBackups(root string, site SiteCapability, keep int, protectedVerif
 		return syncDirectory(root)
 	}
 	for _, item := range items[keep:] {
-		if err := os.RemoveAll(item.path); err != nil {
+		if err := discardBackup(root, item.name); err != nil {
 			return err
 		}
 	}
 	return syncDirectory(root)
+}
+
+// backupPruneTombstonePrefix names a backup that retention has taken out of
+// the inventory but not yet finished deleting. The leading dot keeps it out
+// of every backup listing.
+const backupPruneTombstonePrefix = ".pruning-"
+
+// discardBackup removes one backup so that a crash or power loss at any
+// point leaves either the whole backup or none of it in the inventory: it is
+// renamed to a tombstone (one atomic, durable step), then deleted. Deleting
+// in place could leave a backup without its manifest, and retention refuses
+// to prune a directory whose owner it cannot read.
+func discardBackup(root, name string) error {
+	if !validBackupName(name) {
+		return fmt.Errorf("refusing to discard invalid backup name %q", name)
+	}
+	tombstone := filepath.Join(root, backupPruneTombstonePrefix+name)
+	if err := os.Rename(filepath.Join(root, name), tombstone); err != nil {
+		return fmt.Errorf("retire backup %s: %w", name, err)
+	}
+	if err := syncDirectory(root); err != nil {
+		return fmt.Errorf("record retirement of backup %s: %w", name, err)
+	}
+	processKillInjection("backup", "prune")
+	if err := os.RemoveAll(tombstone); err != nil {
+		return fmt.Errorf("delete retired backup %s: %w", name, err)
+	}
+	return nil
+}
+
+// removePruneTombstones finishes deletions an interrupted retention left.
+func removePruneTombstones(root string) error {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return err
+	}
+	removed := false
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), backupPruneTombstonePrefix) {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(root, entry.Name())); err != nil {
+			return fmt.Errorf("finish deleting retired backup %s: %w", entry.Name(), err)
+		}
+		removed = true
+	}
+	if removed {
+		return syncDirectory(root)
+	}
+	return nil
 }
