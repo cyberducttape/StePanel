@@ -43,7 +43,7 @@ successful aggregate run contributes 20–50 repetitions to the release gate.
 
 | Operation | SIGKILL | Reboot/power-loss | ENOSPC | DB failure | Broker kill |
 | --- | --- | --- | --- | --- | --- |
-| Site creation | repository/hosted | lab follow-up | lab follow-up | lab follow-up | lab follow-up |
+| Site creation | repository/hosted | lab follow-up | lab follow-up | lab follow-up | hosted (`broker-interruption-smoke.sh`) |
 | cpmove restore | hosted/KVM | lab follow-up | lab follow-up | hosted/partial | lab follow-up |
 | WordPress import | repository | lab follow-up | lab follow-up | lab follow-up | lab follow-up |
 | Git deploy | hosted | KVM guest kill | repository/KVM quota | N/A | lab follow-up |

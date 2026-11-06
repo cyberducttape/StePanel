@@ -681,6 +681,7 @@ else
 fi
 bash /work/deploy/lab/account-suspension-recovery-smoke.sh
 bash /work/deploy/lab/deploy-recovery-smoke.sh
+bash /work/deploy/lab/broker-interruption-smoke.sh
 # The deploy recovery drill above deliberately kills the panel while holding
 # the ci-smoke site lease. The fenced lease remains unavailable until its
 # expiry, so isolate the app lifecycle drill on its own disposable site rather
