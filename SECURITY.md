@@ -122,6 +122,25 @@ kernel or local privilege-escalation vulnerability must not cross customers.
   loopback listener for development or in the isolated installation-smoke
   environment; configuration validation rejects an exposed non-TLS listener.
   Do not use the loopback exception as a reverse-proxy or shared-host setup.
+- Root-run recursive ownership and permission changes on tenant trees (site
+  sealing) depend on the kernel refusing hard links to files the linking user
+  does not own and symlink follows in sticky directories. The installer pins
+  `fs.protected_hardlinks=1` and `fs.protected_symlinks=1` in
+  `/etc/sysctl.d/60-stepanel-links.conf` and fails if it cannot enable them.
+  `stepanel-sitectl seal` also refuses a tree holding a multiply linked file
+  owned by anyone other than the site or the panel; that check is defense in
+  depth and not atomic with the ownership change, so never disable the kernel
+  settings.
+
+## What tenant isolation does and does not mean
+
+StePanel separates tenants with distinct Unix accounts, per-site PHP-FPM
+pools, filesystem ownership and ACLs, quotas, systemd resource slices, and a
+root broker that checks tenant ownership before customer file operations. It
+does not claim to contain a compromised panel process, which is trusted, or to
+isolate mutually hostile tenants sharing one kernel and network: site code
+shares the host network and kernel. See the threat model above and
+[docs/PRIVILEGE_MODEL.md](docs/PRIVILEGE_MODEL.md).
 
 ## System-call and input safety
 
