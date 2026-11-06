@@ -311,7 +311,7 @@ func TestRecoverTransactionDatabasesCleansJournalBeforeSiteRollback(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "drop site_archive\ncleanup-wordpress site_wordpress site_wordpress\ndrop-managed site_staging site_staging\n"
+	want := "drop site_archive\ncleanup-wordpress site_wordpress site_wordpress\ndrop-managed site_staging site_staging site\n"
 	if string(data) != want {
 		t.Fatalf("database cleanup calls = %q, want %q", data, want)
 	}

@@ -411,7 +411,10 @@ func (t *SiteTransaction) cleanupDatabases(ctx context.Context, cfg Config) erro
 		case "cpmove":
 			err = dropDatabase(ctx, cfg, database.Name)
 		case "panel":
-			_, err = runDatabaseHelperContext(ctx, cfg, time.Minute, "", "drop-managed", database.Name, database.User)
+			// The journal records the database before it is provisioned, so
+			// it may be unregistered; naming the site lets the site's lease
+			// cover the cleanup.
+			_, err = runDatabaseHelperContext(ctx, cfg, time.Minute, "", "drop-managed", database.Name, database.User, t.Site)
 		case "wordpress":
 			err = cleanupWPressDatabaseContext(ctx, cfg, database.Name, database.User)
 		default:

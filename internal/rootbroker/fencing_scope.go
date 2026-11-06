@@ -164,6 +164,12 @@ func (b *Broker) fencingScopeFor(req *Request) (fencingScope, error) {
 				addSite(owner)
 			case databaseCreatingActions[db.Action]:
 				addSite(db.Site)
+			case db.Action == "drop-managed" && db.Site != "":
+				// Compensation for a database the site's operation journaled
+				// but may never have provisioned. The helper drops nothing
+				// unless, under its database lock, the registry names this
+				// site as the owner.
+				addSite(db.Site)
 			}
 		default:
 			addSite(db.Site)

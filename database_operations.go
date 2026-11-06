@@ -151,11 +151,14 @@ func runTypedDatabaseMutation(ctx context.Context, cfg Config, input string, arg
 		req.Database = args[1]
 		req.Username, req.Site, req.Encoding, req.Password = args[2], args[3], args[4], input
 	case "rotate", "drop-managed", "cleanup-wordpress":
-		if len(args) != 3 {
+		if len(args) != 3 && !(args[0] == "drop-managed" && len(args) == 4) {
 			return nil, errors.New("invalid managed database arguments")
 		}
 		req.Database = args[1]
 		req.Username, req.Password = args[2], input
+		if len(args) == 4 {
+			req.Site = args[3]
+		}
 	}
 	response, err := client.Execute(ctx, &rootbroker.Request{RequestType: "db", DB: req})
 	if err != nil {

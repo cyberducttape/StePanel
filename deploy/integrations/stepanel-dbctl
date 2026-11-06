@@ -800,14 +800,26 @@ case "$action" in
     if [[ $engine == postgresql ]]; then sql_secret "ALTER ROLE \"$db_user\" PASSWORD '$password'"; else sql_secret "ALTER USER '$db_user'@'localhost' IDENTIFIED BY '$password'"; fi
     ;;
   drop-managed)
-    (( $# == 3 )) || exit 64; db_user=$3; valid_user "$db_user" || exit 1
-    lock_resources "database-$database" "user-$db_user"
+    # SITE is given by lifecycle compensation, which holds only that site's
+    # lease: the database may never have been registered. Then a record, if
+    # one appeared, must name that site.
+    (( $# == 3 || $# == 4 )) || exit 64; db_user=$3; valid_user "$db_user" || exit 1
+    site=${4:-}
+    if [[ -n $site ]]; then
+      valid_site "$site" || exit 1
+      lock_resources "database-$database" "site-$site" "user-$db_user"
+    else
+      lock_resources "database-$database" "user-$db_user"
+    fi
     # Lifecycle journals record intended databases before provisioning starts.
     # A crash at that boundary leaves no registry entry, so cleanup is a safe
     # no-op. A killed provision helper can leave its pending-panel record and
     # partially created SQL objects; those are owned by this exact user too.
     [[ -f $record ]] || exit 0
     value=$(<"$record")
+    if [[ -n $site ]]; then
+      [[ $value == "panel:$site:$db_user" || $value == "pending-panel:$site:$db_user" || $value == "wordpress:$site:$db_user" ]] || { echo 'database is not registered to this site and user' >&2; exit 1; }
+    fi
     [[ $value == panel:*:"$db_user" || $value == pending-panel:*:"$db_user" || $value == wordpress:*:"$db_user" || $value == "wordpress:$db_user" ]] || { echo 'database is not registered to this user' >&2; exit 1; }
     drop_objects "$database" "$db_user"; remove_record "$record"
     ;;

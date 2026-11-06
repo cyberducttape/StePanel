@@ -99,6 +99,10 @@ func TestFencingScopeFollowsThePanelLockNames(t *testing.T) {
 		{"owning site of a registered database", "shop-example-org", Request{RequestType: "db", DB: &DBRequest{Action: "drop-managed", Database: "shop_db", Username: "u"}}, true},
 		{"pending registry record", "bob", Request{RequestType: "db", DB: &DBRequest{Action: "drop-managed", Database: "pending_db", Username: "u"}}, true},
 		{"unrelated site for a registered database", "bob", Request{RequestType: "db", DB: &DBRequest{Action: "drop-managed", Database: "shop_db", Username: "u"}}, false},
+		{"site cleaning up its unregistered database", "alice", Request{RequestType: "db", DB: &DBRequest{Action: "drop-managed", Database: "never_provisioned_db", Username: "u", Site: "alice"}}, true},
+		{"site cleanup naming a database registered to another site", "bob", Request{RequestType: "db", DB: &DBRequest{Action: "drop-managed", Database: "shop_db", Username: "u", Site: "bob"}}, false},
+		{"unregistered database cleanup naming no site", "alice", Request{RequestType: "db", DB: &DBRequest{Action: "drop-managed", Database: "never_provisioned_db", Username: "u"}}, false},
+		{"rotate of an unregistered database naming a site", "alice", Request{RequestType: "db", DB: &DBRequest{Action: "rotate", Database: "never_provisioned_db", Username: "u", Site: "alice"}}, false},
 		{"site naming a database registered to another site", "bob", Request{RequestType: "db", DB: &DBRequest{Action: "drop", Database: "shop_db", Site: "bob"}}, false},
 		{"site naming an unregistered database it does not create", "alice", Request{RequestType: "db", DB: &DBRequest{Action: "drop", Database: "other_db", Site: "alice"}}, false},
 		{"site creating an unregistered database", "alice", Request{RequestType: "db", DB: &DBRequest{Action: "provision", Database: "new_db", Site: "alice", Username: "u"}}, true},
@@ -285,5 +289,34 @@ func TestBrokerDatabaseScopeIgnoresAClaimedSite(t *testing.T) {
 	data, err := os.ReadFile(ran)
 	if err != nil || strings.TrimSpace(string(data)) != "drop bobdb" {
 		t.Fatalf("helper calls = %q, %v", data, err)
+	}
+}
+
+// Compensation names the site whose operation journaled the database; the
+// helper receives it and re-checks ownership under its own lock.
+func TestBrokerPassesTheSiteToManagedDatabaseCleanup(t *testing.T) {
+	broker, db, _ := fencedWordPressBroker(t, "0")
+	broker.databaseRegistryRoot = t.TempDir()
+	ran := filepath.Join(t.TempDir(), "dbctl-ran")
+	helper := filepath.Join(t.TempDir(), "dbctl")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> "+ran+"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	broker.dbctlPath = helper
+	aliceLease := grantLease(t, db, "alice")
+	response, err := broker.Execute(context.Background(), &Request{RequestType: "db", Fencing: []operations.FencingToken{aliceLease}, DB: &DBRequest{Action: "drop-managed", Database: "alice_db", Username: "alice_u", Site: "alice"}})
+	if err != nil || !response.OK {
+		t.Fatalf("cleanup under the site's lease = %#v, %v", response, err)
+	}
+	data, err := os.ReadFile(ran)
+	if err != nil || strings.TrimSpace(string(data)) != "drop-managed alice_db alice_u alice" {
+		t.Fatalf("helper calls = %q, %v", data, err)
+	}
+	response, err = broker.Execute(context.Background(), &Request{RequestType: "db", Fencing: []operations.FencingToken{aliceLease}, DB: &DBRequest{Action: "cleanup-wordpress", Database: "alice_db", Username: "alice_u", Site: "alice"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.OK {
+		t.Fatal("cleanup-wordpress accepted a site it does not check")
 	}
 }

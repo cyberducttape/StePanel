@@ -809,7 +809,10 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 			// identity and PHP-FPM pool "prepare" created and the site
 			// directory with its noindex marker, so a failure leaves nothing
 			// half-provisioned behind.
-			cleanupCtx := context.Background()
+			// Keep the site lease's fencing tokens (it is released after this
+			// deferred compensation): the root broker refuses unfenced site
+			// deletion and database cleanup.
+			cleanupCtx := context.WithoutCancel(operationCtx)
 			if teardownErr := siteHelperContext(cleanupCtx, a.Config, "delete", input.Site); teardownErr != nil {
 				log.Printf("staging site teardown failed for %s: %v", input.Site, teardownErr)
 				compensationErrors = append(compensationErrors, fmt.Errorf("site teardown: %w", teardownErr))

@@ -1565,7 +1565,19 @@ func (b *Broker) dbDropManaged(ctx context.Context, req *DBRequest) (*Response, 
 	if req.Action == "cleanup-wordpress" {
 		dbctlAction = "cleanup-wordpress"
 	}
-	return b.runDBHelper(ctx, []string{dbctlAction, req.Database, req.Username}, nil, DBResponse{Dropped: true, Database: req.Database, Username: req.Username})
+	args := []string{dbctlAction, req.Database, req.Username}
+	if req.Site != "" {
+		if req.Action != "drop-managed" {
+			return &Response{OK: false, Error: "only drop-managed names a site"}, nil
+		}
+		if err := b.validator.ValidateSiteName(req.Site); err != nil {
+			return &Response{OK: false, Error: err.Error()}, nil
+		}
+		// The helper re-checks, under its database lock, that a registered
+		// database belongs to this site.
+		args = append(args, req.Site)
+	}
+	return b.runDBHelper(ctx, args, nil, DBResponse{Dropped: true, Database: req.Database, Username: req.Username})
 }
 
 func (b *Broker) dbRotate(ctx context.Context, req *DBRequest) (*Response, error) {
