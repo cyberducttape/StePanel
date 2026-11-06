@@ -1,0 +1,89 @@
+name: Capacity profile (KVM)
+
+# Installs StePanel in a KVM guest on a GitHub runner and runs
+# deploy/lab/capacity-profile.py: live PHP sites behind the real web server,
+# site traffic and administrative probes, two concurrent heavy backups, and
+# CPU, memory, disk, and lock sampling. The report is the job summary and an
+# artifact. One run measures one runner VM; it does not certify a limit.
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: small (25 sites), node (150), or large (500)
+        required: true
+        default: small
+        type: choice
+        options: [small, node, large]
+      duration:
+        description: Measured seconds of traffic (the heavy backups start at a quarter)
+        required: true
+        default: '600'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stepanel-capacity-profile-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  drills:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    env:
+      ROCKY_IMAGE: Rocky-9-GenericCloud-Base.latest.x86_64.qcow2
+      ROCKY_BASE: https://dl.rockylinux.org/pub/rocky/9/images/x86_64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.10'
+      - name: Enable KVM for the runner user
+        run: |
+          set -eu
+          echo "RUN_DIR=$RUNNER_TEMP/stepanel-kvm-cert" >> "$GITHUB_ENV"
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-stepanel-kvm.rules >/dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -r /dev/kvm && test -w /dev/kvm
+      - name: Install QEMU tools
+        run: |
+          set -eu
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-utils genisoimage openssh-client
+      - name: Download and verify the Rocky Linux 9 image
+        run: |
+          set -eu
+          image_dir="$RUNNER_TEMP/rocky-image"
+          mkdir -p "$image_dir"
+          curl --fail --silent --show-error --location --retry 3 -o "$image_dir/$ROCKY_IMAGE" "$ROCKY_BASE/$ROCKY_IMAGE"
+          curl --fail --silent --show-error --location --retry 3 -o "$image_dir/CHECKSUM" "$ROCKY_BASE/CHECKSUM"
+          expected=$(sed -n "s/^SHA256 (${ROCKY_IMAGE//./\\.}) = \([0-9a-f]\{64\}\)\$/\1/p" "$image_dir/CHECKSUM")
+          [ -n "$expected" ] || { echo 'the image has no SHA-256 line in CHECKSUM' >&2; exit 1; }
+          actual=$(sha256sum "$image_dir/$ROCKY_IMAGE" | cut -d' ' -f1)
+          [ "$actual" = "$expected" ] || { echo "image SHA-256 $actual does not match CHECKSUM $expected" >&2; exit 1; }
+          echo "ROCKY_IMAGE_PATH=$image_dir/$ROCKY_IMAGE" >> "$GITHUB_ENV"
+      - name: Run boot, install, and the capacity profile
+        env:
+          PHASES: boot install capacity
+          CERT_INSTALL_RECOVERY_MATRIX: '0'
+          CAPACITY_PROFILE: ${{ inputs.profile }}
+          CAPACITY_DURATION: ${{ inputs.duration }}
+          VM_MEMORY_MB: ${{ inputs.profile == 'large' && '10240' || inputs.profile == 'node' && '7168' || '4096' }}
+        run: bash deploy/lab/local-kvm-certification.sh "$ROCKY_IMAGE_PATH" "$RUN_DIR"
+      - name: Show results
+        if: always()
+        run: |
+          cat "$RUN_DIR/results.tsv" 2>/dev/null || echo 'no results were recorded'
+          cat "$RUN_DIR/capacity-report.md" 2>/dev/null >> "$GITHUB_STEP_SUMMARY" || true
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: capacity-${{ inputs.profile }}-${{ github.sha }}
+          path: |
+            ${{ env.RUN_DIR }}/results.tsv
+            ${{ env.RUN_DIR }}/capacity-report.*
+            ${{ env.RUN_DIR }}/*.log
+          if-no-files-found: warn
+          retention-days: 30

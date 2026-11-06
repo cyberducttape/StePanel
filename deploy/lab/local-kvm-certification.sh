@@ -16,7 +16,11 @@ set -Eeuo pipefail
 # Environment: VM_MEMORY_MB (4096), VM_HOST_RESERVE_MB (2048), VM_CPUS (4), SSH_PORT (2232),
 # RECOVERY_MATRIX_REPEATS (1; use 20–50 for the release soak),
 # PHASES (space-separated subset of: boot install runner abrupt-loss
-# abrupt-loss-under-load abrupt-loss-operations enospc), KEEP_VM=1 to leave the guest running,
+# abrupt-loss-under-load abrupt-loss-operations enospc capacity), KEEP_VM=1 to leave the guest running,
+# CERT_INSTALL_RECOVERY_MATRIX (1; 0 installs and runs the smokes without the
+# hours-long lease-recovery matrix, for phases that need only an installed host),
+# CAPACITY_PROFILE (small, node, or large), CAPACITY_DURATION (600 seconds), and
+# CAPACITY_SITES for the capacity phase (deploy/lab/capacity-profile.py),
 # RESUME=1 to run PHASES against the guest a previous KEEP_VM=1 run left in
 # RUN_DIR (no rebuild or reboot; results are appended),
 # ABRUPT_LOSS_SCENARIOS (file-restore database-restore git-deploy
@@ -290,7 +294,9 @@ fi
 if has_phase install; then
   start=$SECONDS
   # The timeout above includes installation/setup and the lease-recovery matrix.
-  if guest_job install "$install_timeout_minutes" "env RECOVERY_MATRIX_REPEATS=$matrix_repeats STEPANEL_UNSAFE_LAB=1 STEPANEL_QUOTA_SMOKE=1 STEPANEL_DB_ENGINE=mariadb STEPANEL_WEBSERVER=caddy STEPANEL_RUN_RECOVERY_MATRIX=1 STEPANEL_RUN_RECOVERY_MATRIX_FULL=1 bash /work/deploy/lab/install-smoke.sh"; then
+  matrix=${CERT_INSTALL_RECOVERY_MATRIX:-1}
+  [[ $matrix == 0 || $matrix == 1 ]] || { echo 'CERT_INSTALL_RECOVERY_MATRIX must be 0 or 1' >&2; exit 64; }
+  if guest_job install "$install_timeout_minutes" "env RECOVERY_MATRIX_REPEATS=$matrix_repeats STEPANEL_UNSAFE_LAB=1 STEPANEL_QUOTA_SMOKE=1 STEPANEL_DB_ENGINE=mariadb STEPANEL_WEBSERVER=caddy STEPANEL_RUN_RECOVERY_MATRIX=$matrix STEPANEL_RUN_RECOVERY_MATRIX_FULL=$matrix bash /work/deploy/lab/install-smoke.sh"; then
     record install PASS $((SECONDS - start)) "$(grep -c 'smoke passed\|matrix passed' "$run_dir/install.log") smoke/matrix passes"
   else
     record install FAIL $((SECONDS - start)) "$(grep -E 'smoke failed|exited with status|unbound|error' "$run_dir/install.log" | tail -1)"
@@ -305,6 +311,26 @@ if has_phase runner; then
   else
     record runner FAIL $((SECONDS - start)) "$(tail -1 "$run_dir/runner.log")"
   fi
+fi
+
+# --- Capacity profile on the installed host -----------------------------------
+# Live PHP sites, site traffic, administrative probes, and two concurrent heavy
+# backups, with resource sampling (deploy/lab/capacity-profile.py).
+if has_phase capacity; then
+  start=$SECONDS
+  capacity_profile=${CAPACITY_PROFILE:-small}
+  capacity_duration=${CAPACITY_DURATION:-600}
+  [[ $capacity_profile =~ ^(small|node|large)$ ]] || { echo 'CAPACITY_PROFILE must be small, node, or large' >&2; exit 64; }
+  [[ $capacity_duration =~ ^[0-9]{2,5}$ ]] || { echo 'CAPACITY_DURATION must be seconds' >&2; exit 64; }
+  [[ -z ${CAPACITY_SITES:-} || $CAPACITY_SITES =~ ^[0-9]{1,4}$ ]] || { echo 'CAPACITY_SITES must be a number' >&2; exit 64; }
+  capacity_env="CAPACITY_PROFILE=$capacity_profile CAPACITY_DURATION=$capacity_duration${CAPACITY_SITES:+ CAPACITY_SITES=$CAPACITY_SITES}"
+  if guest_job capacity 300 "env $capacity_env python3 -I /work/deploy/lab/capacity-profile.py > /var/log/stepanel-cert/capacity-report.md"; then
+    record capacity PASS $((SECONDS - start)) "profile $capacity_profile; see capacity-report.md"
+  else
+    record capacity FAIL $((SECONDS - start)) "$(tail -1 "$run_dir/capacity.log")"
+  fi
+  guest 'sudo cat /var/log/stepanel-cert/capacity-report.md' > "$run_dir/capacity-report.md" 2>/dev/null || true
+  guest 'sudo cat /var/log/stepanel-cert/capacity-report.json' > "$run_dir/capacity-report.json" 2>/dev/null || true
 fi
 
 # --- Abrupt guest loss while idle -------------------------------------------

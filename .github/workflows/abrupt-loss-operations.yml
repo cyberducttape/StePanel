@@ -62,6 +62,9 @@ jobs:
         env:
           PHASES: boot install abrupt-loss-operations
           ABRUPT_LOSS_SCENARIOS: ${{ inputs.scenarios }}
+          # The recovery cohort runs the lease-recovery matrix; one iteration
+          # takes about five hours, longer than this job's limit.
+          CERT_INSTALL_RECOVERY_MATRIX: '0'
         run: bash deploy/lab/local-kvm-certification.sh "$ROCKY_IMAGE_PATH" "$RUN_DIR"
       - name: Show results
         if: always()
