@@ -40,7 +40,9 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-stepanel-kvm.rules >/dev/null
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-          test -r /dev/kvm && test -w /dev/kvm
+          sudo udevadm settle --timeout=30
+          test -e /dev/kvm || { echo '::error::this runner has no /dev/kvm; re-run the job to get another host'; exit 1; }
+          test -r /dev/kvm && test -w /dev/kvm || { echo "::error::/dev/kvm is not usable by the runner user: $(ls -l /dev/kvm)"; exit 1; }
       - name: Install QEMU tools
         run: |
           set -eu

@@ -71,7 +71,8 @@ When it upgrades a running installation, the installer:
    mutating requests get `503` with `Retry-After` while reads stay
    available. The installer waits up to `STEPANEL_UPGRADE_DRAIN_SECONDS`
    (default 900) for running jobs to finish. If they do not, it clears the
-   flag and refuses the upgrade; `STEPANEL_UPGRADE_DRAIN_FORCE=1` proceeds
+   flag and refuses the upgrade without stopping or restarting any StePanel
+   service, so the running jobs carry on; `STEPANEL_UPGRADE_DRAIN_FORCE=1` proceeds
    anyway, and the interrupted jobs resume through crash recovery. The flag
    expires two hours after the wait on its own, so an installer that dies
    cannot leave changes paused. A running release from before the drain

@@ -283,6 +283,7 @@ for _ in $(seq 1 120); do [[ -f $drain_pause_dir/backup-init ]] && break; sleep 
 [[ -f $drain_pause_dir/backup-init ]] || { echo "backup $drain_job never reached its held point" >&2; exit 1; }
 [[ $(drain_job_state "$drain_job") == running ]] || { echo "held backup $drain_job is not running" >&2; exit 1; }
 binary_before_drain=$(sha256sum /opt/stepanel/stepanel)
+worker_before_drain=$(systemctl show --property=MainPID --value stepanel-worker.service)
 if (cd "$candidate_root" && STEPANEL_UPGRADE_DRAIN_SECONDS=20 ./install.sh --unsafe-lab) > /tmp/stepanel-drain-refusal.log 2>&1; then
   echo 'an upgrade started although a job was running past the drain wait' >&2
   exit 1
@@ -291,14 +292,17 @@ grep -q 'still running after' /tmp/stepanel-drain-refusal.log || { echo 'the upg
 systemctl is-active --quiet stepanel.service stepanel-worker.service || { echo 'a refused upgrade stopped StePanel' >&2; exit 1; }
 [[ $(sha256sum /opt/stepanel/stepanel) == "$binary_before_drain" ]] || { echo 'a refused upgrade replaced the binary' >&2; exit 1; }
 [[ $(drain_job_state "$drain_job") == running ]] || { echo "a refused upgrade disturbed backup $drain_job" >&2; exit 1; }
+[[ $(systemctl show --property=MainPID --value stepanel-worker.service) == "$worker_before_drain" ]] || { echo 'a refused upgrade restarted the worker' >&2; exit 1; }
 # The refused drain is cleared (the gate caches it for a second): the panel
 # accepts changes again.
 sleep 2
 drain_api PUT /api/backup-schedules "{\"site\":\"$legacy_site\",\"interval_minutes\":60,\"keep_last\":2}" >/dev/null || { echo 'the panel refuses changes after a refused upgrade' >&2; exit 1; }
 drain_api DELETE "/api/backup-schedules?site=$legacy_site" >/dev/null
-# Release the held backup: crash recovery resumes it in the restarted worker.
+# Release the held backup: the pause holds until the process is killed, and
+# crash recovery resumes the job in the restarted worker.
 rm -f -- "$drain_dropin"
 systemctl daemon-reload
+systemctl kill --signal=SIGKILL stepanel-worker.service
 systemctl restart stepanel-worker.service
 wait_ready 'the candidate after releasing the held worker'
 drain_state=''

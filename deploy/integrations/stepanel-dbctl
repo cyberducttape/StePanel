@@ -93,7 +93,7 @@ register_database() {
 
 remove_record() {
   local record=$1
-  rm -f "$record"
+  rm -f "$record" || return 1
   sync -d "$registry"
 }
 
@@ -137,7 +137,7 @@ mysql_generated() {
   # names are validated identifiers; object names come from the server and
   # are quoted there, so they never pass through the shell.
   local live=$1 shadow=$2 retired=$3 query=$4 statements
-  statements=$(printf "SET SESSION group_concat_max_len = 67108864; SET @live='%s', @shadow='%s', @retired='%s';\n%s;\n" "$live" "$shadow" "$retired" "$query" | "${admin[@]}")
+  statements=$(printf "SET SESSION group_concat_max_len = 67108864; SET @live='%s', @shadow='%s', @retired='%s';\n%s;\n" "$live" "$shadow" "$retired" "$query" | "${admin[@]}") || return 1
   # A long transaction on the live database must not queue every later
   # query behind the swap's metadata lock indefinitely.
   [[ -z $statements ]] || printf 'SET SESSION lock_wait_timeout = 60;\n%s\n' "$statements" | "${admin[@]}"
@@ -322,7 +322,7 @@ postgres_finish_restore() {
 
 drop_database_if_exists() {
   if [[ $engine == postgresql ]]; then
-    sql "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='$1' AND pid <> pg_backend_pid()" >/dev/null
+    sql "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='$1' AND pid <> pg_backend_pid()" >/dev/null || return 1
     sql "SET client_min_messages = warning; DROP DATABASE IF EXISTS \"$1\"" >/dev/null
   else
     sql "DROP DATABASE IF EXISTS \`$1\`"
@@ -476,30 +476,35 @@ watched_restore_load() {
   return "$status"
 }
 
+# discard_restore removes a restore's shadow, loader, grants and journal, and
+# only then its record. Callers may run it in a condition (where set -e does
+# not apply), so every step is checked: a failure, such as a database server
+# that is down, keeps the record for reconcile to retry.
 discard_restore() {
   local shadow=$1 hex=${1#stepanel_restore_}
   if [[ $engine == postgresql ]]; then
-    postgres_revoke_loader "$shadow"
-    postgres_revoke_loader "stepanel_retired_$hex"
+    postgres_revoke_loader "$shadow" || return 1
+    postgres_revoke_loader "stepanel_retired_$hex" || return 1
   else
-    sql "DROP USER IF EXISTS '$(mysql_loader "$hex")'@'localhost'"
-    mysql_revoke_schema_grants "$shadow"
-    mysql_revoke_schema_grants "stepanel_retired_$hex"
+    sql "DROP USER IF EXISTS '$(mysql_loader "$hex")'@'localhost'" || return 1
+    mysql_revoke_schema_grants "$shadow" || return 1
+    mysql_revoke_schema_grants "stepanel_retired_$hex" || return 1
   fi
-  drop_database_if_exists "$shadow"
-  drop_database_if_exists "stepanel_retired_$hex"
-  rm -rf -- "${restore_root:?}/$hex"
-  sync -d "$restore_root"
+  drop_database_if_exists "$shadow" || return 1
+  drop_database_if_exists "stepanel_retired_$hex" || return 1
+  rm -rf -- "${restore_root:?}/$hex" || return 1
+  sync -d "$restore_root" || return 1
   remove_record "$registry/$shadow"
 }
 
 # finish_restore rolls one restore record forward from its recorded phase.
-# The caller holds the database and site locks.
+# The caller holds the database and site locks, and must not call it in a
+# condition: the swap relies on set -e to stop at its first failed step.
 finish_restore() {
   local shadow=$1 site=$2 database=$3 phase=$4 hex=${1#stepanel_restore_} retired
   retired="stepanel_retired_$hex"
   case "$phase" in
-    load) discard_restore "$shadow"; return 0 ;;
+    load) discard_restore "$shadow"; return ;;
     swap)
       if [[ $engine == postgresql ]]; then postgres_finish_restore "$database" "$shadow" "$retired"; else mysql_finish_restore "$database" "$shadow" "$retired" "$restore_root/$hex"; fi
       register_database "$shadow" "pending-restore:$site:$database:done" ;;

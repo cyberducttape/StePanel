@@ -8,10 +8,10 @@
 # restarts it. Then:
 #
 #   - the job must reach a terminal state; none may stay running;
-#   - a completed site must have its directory and Unix identity;
-#   - a failed one must leave no site directory or Unix identity behind, and
+#   - a completed site must have its document root and Unix identity;
+#   - a failed one must leave no site directory or placement behind, and
 #     creating the same site again must complete;
-#   - terminating the site must remove its directory and identity;
+#   - terminating the site must remove its document root and placement;
 #   - readiness, including the broker check, must recover.
 #
 # Destructive to the host's StePanel state: run only on a disposable host.
@@ -101,7 +101,30 @@ wait_ready() {
   fail "readiness did not recover: $(curl --silent --max-time 5 "$PANEL/readyz" || true)"
 }
 
-site_identity() { getent passwd | awk -F: -v home="/var/www/sites/$1" '$6 == home { print $1; exit }'; }
+# New sites live in a hosting account (ADR-0007), named in a root-owned
+# location record; a host whose control plane predates placements creates
+# legacy sites under /var/www/sites.
+site_location() { printf '/etc/stepanel/sites/%s/location' "$1"; }
+site_docroot() {
+  local location
+  location=$(site_location "$1")
+  if [[ -f $location ]]; then
+    printf '/home/%s/%s' "$(sed -n 's/^user=//p' "$location")" "$(sed -n 's/^directory=//p' "$location")"
+  else
+    printf '/var/www/sites/%s/public' "$1"
+  fi
+}
+site_identity() {
+  local location
+  location=$(site_location "$1")
+  if [[ -f $location ]]; then
+    sed -n 's/^user=//p' "$location"
+  else
+    getent passwd | awk -F: -v home="/var/www/sites/$1" '$6 == home { print $1; exit }'
+  fi
+}
+# site_present reports whether any trace of the site's files or placement remains.
+site_present() { [[ -e /var/www/sites/$1 || -e $(site_location "$1") ]]; }
 
 create_site() {
   local response status
@@ -112,15 +135,15 @@ create_site() {
 }
 
 terminate_site() {
-  local site=$1 response job state identity
-  identity=$(site_identity "$site")
+  local site=$1 response job state docroot
+  docroot=$(site_docroot "$site")
   response=$(api POST /api/sites/terminate "{\"site\":\"$site\",\"confirmation\":\"DELETE $site\"}")
   [[ ${response##*$'\n'} == 20[02] ]] || fail "terminate $site: HTTP ${response##*$'\n'} ${response%$'\n'*}"
   job=$(field "${response%$'\n'*}" job_id)
   state=$(wait_terminal "$job") || fail "termination of $site did not finish ($state)"
   [[ $state == completed ]] || fail "termination of $site ended $state"
-  [[ ! -e /var/www/sites/$site ]] || fail "terminated site $site left its directory"
-  [[ -z $identity ]] || ! getent passwd "$identity" >/dev/null || fail "terminated site $site left its Unix identity $identity"
+  [[ ! -e $docroot ]] || fail "terminated site $site left its document root $docroot"
+  ! site_present "$site" || fail "terminated site $site left its directory or location record"
 }
 
 cleanup() {
@@ -128,7 +151,7 @@ cleanup() {
   set +e
   systemctl is-active --quiet stepanel-root-broker.service || systemctl start stepanel-root-broker.service
   for site in "${created[@]}"; do
-    [[ -e /var/www/sites/$site ]] && terminate_site "$site" >/dev/null 2>&1
+    site_present "$site" && terminate_site "$site" >/dev/null 2>&1
   done
   rm -rf -- "$work"
   (( status == 0 )) || echo "broker interruption smoke failed (status $status)" >&2
@@ -160,13 +183,13 @@ for delay in $BROKER_KILL_DELAYS; do
   identity=$(site_identity "$site")
   case $state in
     completed)
-      [[ -d /var/www/sites/$site/public ]] || fail "completed site $site has no document root"
+      [[ -d $(site_docroot "$site") ]] || fail "completed site $site has no document root ($(site_docroot "$site"))"
       [[ -n $identity ]] || fail "completed site $site has no Unix identity"
       pass "round $round: creation completed across the broker restart (identity $identity)"
       ;;
     *)
-      [[ ! -e /var/www/sites/$site ]] || fail "failed creation of $site left /var/www/sites/$site"
-      [[ -z $identity ]] || fail "failed creation of $site left Unix identity $identity"
+      ! site_present "$site" || fail "failed creation of $site left its directory or location record"
+      [[ -z $identity ]] || fail "failed creation of $site left a placement for $identity"
       pass "round $round: creation ended $state and left nothing behind; creating it again"
       job=$(create_site "$site")
       state=$(wait_terminal "$job") || fail "repeat creation of $site did not finish ($state)"

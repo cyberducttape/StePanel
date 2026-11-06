@@ -886,6 +886,10 @@ systemctl is-enabled --quiet stepanel-worker.service 2>/dev/null && STEPANEL_WOR
 systemctl is-active --quiet stepanel-root-broker.service 2>/dev/null && STEPANEL_BROKER_WAS_ACTIVE=1
 systemctl is-enabled --quiet stepanel-root-broker.service 2>/dev/null && STEPANEL_BROKER_WAS_ENABLED=1
 UPGRADE_DRAIN_ACTIVE=0
+# Set once this run stops StePanel's services. A run that fails before then
+# (a failed preflight, or a drain refused because jobs still run) leaves them
+# running as they were; restarting them would interrupt those jobs.
+STEPANEL_SERVICES_STOPPED=0
 
 # upgrade_cli runs the candidate release's binary as the service user, so the
 # upgrade commands open the live control-plane database with the service's
@@ -948,12 +952,14 @@ rollback_install() {
       echo "Could not restore pre-install active/enabled state for $host_service; inspect it manually." >&2
     fi
   done
-  if (( STEPANEL_BROKER_WAS_ENABLED )); then systemctl enable stepanel-root-broker.service 2>/dev/null || true; else systemctl disable stepanel-root-broker.service 2>/dev/null || true; fi
-  if (( STEPANEL_BROKER_WAS_ACTIVE )); then systemctl restart stepanel-root-broker.service 2>/dev/null || true; else systemctl stop stepanel-root-broker.service 2>/dev/null || true; fi
-  if (( STEPANEL_WAS_ENABLED )); then systemctl enable stepanel.service 2>/dev/null || true; else systemctl disable stepanel.service 2>/dev/null || true; fi
-  if (( STEPANEL_WAS_ACTIVE )); then systemctl restart stepanel.service 2>/dev/null || true; else systemctl stop stepanel.service 2>/dev/null || true; fi
-  if (( STEPANEL_WORKER_WAS_ENABLED )); then systemctl enable stepanel-worker.service 2>/dev/null || true; else systemctl disable stepanel-worker.service 2>/dev/null || true; fi
-  if (( STEPANEL_WORKER_WAS_ACTIVE )); then systemctl restart stepanel-worker.service 2>/dev/null || true; else systemctl stop stepanel-worker.service 2>/dev/null || true; fi
+  if (( STEPANEL_SERVICES_STOPPED )); then
+    if (( STEPANEL_BROKER_WAS_ENABLED )); then systemctl enable stepanel-root-broker.service 2>/dev/null || true; else systemctl disable stepanel-root-broker.service 2>/dev/null || true; fi
+    if (( STEPANEL_BROKER_WAS_ACTIVE )); then systemctl restart stepanel-root-broker.service 2>/dev/null || true; else systemctl stop stepanel-root-broker.service 2>/dev/null || true; fi
+    if (( STEPANEL_WAS_ENABLED )); then systemctl enable stepanel.service 2>/dev/null || true; else systemctl disable stepanel.service 2>/dev/null || true; fi
+    if (( STEPANEL_WAS_ACTIVE )); then systemctl restart stepanel.service 2>/dev/null || true; else systemctl stop stepanel.service 2>/dev/null || true; fi
+    if (( STEPANEL_WORKER_WAS_ENABLED )); then systemctl enable stepanel-worker.service 2>/dev/null || true; else systemctl disable stepanel-worker.service 2>/dev/null || true; fi
+    if (( STEPANEL_WORKER_WAS_ACTIVE )); then systemctl restart stepanel-worker.service 2>/dev/null || true; else systemctl stop stepanel-worker.service 2>/dev/null || true; fi
+  fi
   if [[ ${INSTALL_HOST_SERVICE_WAS_ACTIVE[$APACHE_SERVICE]:-0} == 1 ]]; then
     if command -v apachectl >/dev/null 2>&1 && apachectl -t >/dev/null 2>&1; then systemctl reload "$APACHE_SERVICE" 2>/dev/null || true
     elif command -v httpd >/dev/null 2>&1 && httpd -t >/dev/null 2>&1; then systemctl reload "$APACHE_SERVICE" 2>/dev/null || true
@@ -1039,6 +1045,7 @@ if [[ -f "$DATA_DIR/stepanel-control.db" ]] && (( STEPANEL_WAS_ACTIVE || STEPANE
   upgrade_cli upgrade-drain begin "$DATA_DIR/stepanel-control.db" "${STEPANEL_UPGRADE_DRAIN_SECONDS:-900}"
   install_journal_record configuration upgrade_drain_complete reversible "no jobs running; claims and changes paused"
 fi
+STEPANEL_SERVICES_STOPPED=1
 if (( STEPANEL_WAS_ACTIVE )); then systemctl stop stepanel.service; fi
 if (( STEPANEL_WORKER_WAS_ACTIVE )); then systemctl stop stepanel-worker.service; fi
 if (( STEPANEL_BROKER_WAS_ACTIVE )); then systemctl stop stepanel-root-broker.service; fi
