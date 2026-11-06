@@ -20,3 +20,5 @@ playwright-report/
 # Guided setup output: contains generated keys and must never be committed.
 stepanel-install.env
 *.install.env
+__pycache__/
+*.pyc

@@ -1044,6 +1044,7 @@ install_journal_record configuration transaction_ready reversible "registered fi
 # Root-run recursive ownership and permission changes on tenant trees (site
 # sealing) rely on the kernel refusing hard links and symlink follows the
 # linking user is not entitled to. Pin both protections.
+install -d -m 0755 /etc/sysctl.d
 links_conf_tmp=$(mktemp /etc/sysctl.d/.60-stepanel-links.XXXXXX)
 printf '%s\n' '# Managed by StePanel: tenant-tree ownership changes rely on these.' 'fs.protected_hardlinks = 1' 'fs.protected_symlinks = 1' > "$links_conf_tmp"
 chmod 0644 "$links_conf_tmp"

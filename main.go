@@ -449,9 +449,18 @@ func Main() {
 	if hostname == "" {
 		hostname = "localhost"
 	}
-	dbLocks, err := operations.NewDBLocks(controlPlaneDB, fmt.Sprintf("stepanel-%s-%d-%d", hostname, os.Getpid(), time.Now().UnixNano()), controlPlaneLeaseTime)
+	lockOwner, err := lockOwnerID(hostname)
 	if err != nil {
 		log.Fatalf("initialize durable operation locks: %v", err)
+	}
+	dbLocks, err := operations.NewDBLocks(controlPlaneDB, lockOwner, controlPlaneLeaseTime)
+	if err != nil {
+		log.Fatalf("initialize durable operation locks: %v", err)
+	}
+	// Leases of a process that crashed or lost power would otherwise block
+	// their sites until they expire.
+	if _, err := reclaimDeadOwnerLocks(controlPlaneDB, hostname, time.Now(), linuxProcessStartIdentity); err != nil {
+		log.Fatalf("release operation locks of exited processes: %v", err)
 	}
 	if err := auth.ConfigureSessionStoreDB(controlPlaneDB, cfg.SessionState); err != nil {
 		log.Fatalf("open persistent session state: %v", err)

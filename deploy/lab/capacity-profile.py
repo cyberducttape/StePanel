@@ -107,6 +107,24 @@ class Panel:
         raise SystemExit(f"job {job_id} did not finish in {limit}s")
 
 
+def failure_detail(body):
+    """The failing readiness checks, or the start of an error body."""
+    if isinstance(body, dict):
+        checks = body.get("checks")
+        if isinstance(checks, dict):
+            failing = [f"{name}: {check.get('detail', '')}" for name, check in checks.items()
+                       if isinstance(check, dict) and not check.get("ready")]
+            if failing:
+                return "; ".join(failing)
+        return json.dumps(body)[:300]
+    if isinstance(body, bytes):
+        try:
+            return failure_detail(json.loads(body))
+        except ValueError:
+            return body[:300].decode(errors="replace")
+    return str(body)[:300]
+
+
 def site_get(domain):
     """GET / from the site through the local web server; returns (status, seconds)."""
     started = time.perf_counter()
@@ -264,7 +282,8 @@ def main():
     sampler = Sampler(stop)
     sampler.start()
     lock = threading.Lock()
-    site_results, admin_results = [], {}
+    site_results, admin_results, admin_failures = [], {}, []
+    measurement_started = time.time()
     heavy_window = [None, None]
 
     def site_client():
@@ -280,9 +299,15 @@ def main():
         while not stop.is_set():
             for path in paths:
                 begin = time.perf_counter()
-                status, _ = probe.call("GET", path, timeout=60)
+                try:
+                    status, body = probe.call("GET", path, timeout=60)
+                except OSError as error:
+                    status, body = 0, str(error)
                 with lock:
                     admin_results.setdefault(path, []).append((time.time(), status, time.perf_counter() - begin))
+                    if not 200 <= status < 400 and len(admin_failures) < 50:
+                        admin_failures.append({"t": round(time.time() - measurement_started, 1), "path": path,
+                                               "status": status, "detail": failure_detail(body)})
             stop.wait(0.5)
 
     threads = [threading.Thread(target=site_client, daemon=True) for _ in range(CLIENTS)]
@@ -290,7 +315,6 @@ def main():
     for thread in threads:
         thread.start()
 
-    measurement_started = time.time()
     time.sleep(DURATION / 4)
     log("starting two heavy backups")
     heavy_jobs = []
@@ -355,6 +379,7 @@ def main():
         } if sampler.samples else {},
         "min_mem_available_mib": min((s["mem_available_mib"] for s in sampler.samples), default=None),
         "control_plane_lock_errors": lock_error_count,
+        "admin_failures": admin_failures,
     }
     os.makedirs(os.path.dirname(REPORT), exist_ok=True)
     with open(REPORT, "w") as handle:
@@ -378,6 +403,11 @@ def main():
     for key, values in report["resources"].items():
         print(f"| {key} | {values['mean']} | {values['max']} |")
     print(f"\nMinimum available memory: {report['min_mem_available_mib']} MiB. Control-plane database-lock errors in the panel and worker journals: {lock_error_count}.")
+    if admin_failures:
+        print("\n| Admin failure at s | Path | Status | Detail |")
+        print("| ---: | --- | ---: | --- |")
+        for failure in admin_failures[:20]:
+            print(f"| {failure['t']} | {failure['path']} | {failure['status']} | {failure['detail'][:200].replace('|', '/')} |")
     failed = report["site_requests"]["errors"] or any(d["errors"] for d in report["admin"].values()) or any(j["state"] != "completed" for j in report["heavy_operations"])
     sys.exit(1 if failed else 0)
 

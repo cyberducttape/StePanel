@@ -46,10 +46,18 @@ successful aggregate run contributes 20–50 repetitions to the release gate.
 | Site creation | repository/hosted | lab follow-up | lab follow-up | lab follow-up | lab follow-up |
 | cpmove restore | hosted/KVM | lab follow-up | lab follow-up | hosted/partial | lab follow-up |
 | WordPress import | repository | lab follow-up | lab follow-up | lab follow-up | lab follow-up |
-| Git deploy | hosted | lab follow-up | lab follow-up | N/A | lab follow-up |
+| Git deploy | hosted | KVM guest kill | repository/KVM quota | N/A | lab follow-up |
 | Backup | repository/hosted/KVM | KVM guest kill | KVM | lab follow-up | lab follow-up |
-| Restore | repository/hosted/KVM | lab follow-up | hosted/partial/KVM* | hosted/partial | lab follow-up |
+| Restore | repository/hosted/KVM | KVM guest kill (file and database) | hosted/partial/KVM* | hosted (MySQL SIGKILL mid-load) | lab follow-up |
 | Site delete | repository/hosted/KVM | lab follow-up | lab follow-up | lab follow-up | lab follow-up |
+| Backup schedule (control-plane write) | repository | KVM guest kill | lab follow-up | lab follow-up | N/A |
+
+The KVM guest-kill drills are `deploy/lab/abrupt-loss-operation-drill.sh`
+(run by the `abrupt-loss-operations` workflow). A process that dies holding a
+durable site lock no longer blocks that site until its lease (two minutes)
+expires: every StePanel process records its PID and start identity in its
+lock owner, and a starting process releases the leases of owners on the same
+host that no longer run.
 
 ## Disk exhaustion outcome contract
 
