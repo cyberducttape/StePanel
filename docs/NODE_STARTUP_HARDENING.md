@@ -1,96 +1,50 @@
 # Node Application Startup Hardening
 
-**Status:** Open — not implemented. `stepanel-appctl` still generates the
-`bash -lc` unit shown below (checked 2026-10-30); tracked in
-[ROADMAP.md](ROADMAP.md).  
-**Priority:** Medium (improves robustness and reduces attack surface)  
-**Target Component:** `stepanel-appctl` helper (systemd unit generation)
+**Status:** Implemented (2026-11-02). `stepanel-appctl apply` resolves the
+exact Node.js runtime when it writes the unit and runs it by absolute path.
 
-## Current Implementation
+## What the unit runs
 
-Node.js applications are managed by the `stepanel-appctl` helper, which generates systemd service units. The current approach uses NVM version selection at runtime:
+Before, the generated unit selected Node at service start:
 
 ```ini
-ExecStart=/bin/bash -lc 'nvm use 22.14.0; exec npm start'
+ExecStart=/bin/bash -lc 'export NVM_DIR=/opt/stepanel/.nvm; . "$NVM_DIR/nvm.sh"; nvm use 22.14.0 >/dev/null; exec npm start'
 ```
 
-## Issues with Current Approach
-
-1. **Shell complexity** - Login shell invocation adds attack surface
-2. **Runtime resolution** - NVM sourcing happens at service startup, not at unit generation time
-3. **Fragility** - NVM initialization depends on shell profile configuration
-4. **Debugging difficulty** - Hidden logic makes systemd units harder to audit
-
-## Recommended Approach
-
-Resolve the exact Node.js binary path at unit generation time and write the absolute path directly:
+The semicolon meant a failed `nvm use` still ran `npm start`, so a host with
+another Node or npm on `PATH` could start the application on a runtime other
+than the one requested. The unit now names the resolved runtime directly:
 
 ```ini
-ExecStart=/opt/stepanel/.nvm/versions/node/v22.14.0/bin/npm start
+Environment=PATH=/opt/stepanel/.nvm/versions/node/v22.14.0/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/stepanel/.nvm/versions/node/v22.14.0/bin/node /opt/stepanel/.nvm/versions/node/v22.14.0/lib/node_modules/npm/bin/npm-cli.js start
 ```
 
-## Implementation Steps
+There is no shell, no nvm, and no `PATH` lookup for the start command. The
+resolved runtime comes first on `PATH`, so npm scripts that run `node` use the
+same version.
 
-### Phase 1: Unit Generation Enhancement
-1. **At unit generation time** (when `/api/apps/deploy` is called):
-   - Resolve the requested Node version from NVM installations
-   - Verify the exact binary exists at `~stepanel/.nvm/versions/node/vX.Y.Z/bin/npm`
-   - Write the absolute path to the generated systemd unit's `ExecStart=`
+## Resolution rules
 
-2. **Update .nvmrc handling**:
-   - Keep `.nvmrc` for developer convenience (local NVM usage)
-   - Unit generation should NOT depend on .nvmrc being present or parseable
+`resolve_node_runtime` in `deploy/integrations/stepanel-appctl` refuses the
+apply, before the unit is written, unless:
 
-3. **Fallback behavior**:
-   - If the requested version is not installed, fail the deployment request with clear error
-   - Don't attempt runtime NVM resolution
+- `versions/node/vVERSION` exists under `/opt/stepanel/.nvm` and is not a
+  symlink;
+- its `bin/node` and `lib/node_modules/npm/bin/npm-cli.js` are regular,
+  non-symlink files owned by root or by the runtime's owner (the panel
+  identity that installs Node), writable by nobody else, and `node` is
+  executable;
+- `node --version`, run as the site user (never root) with an empty
+  environment, reports exactly `vVERSION`.
 
-### Phase 2: Validation & Testing
-1. **Systemd unit auditing**:
-   - Verify generated units contain absolute paths only
-   - No bash, nvm, login shell, or runtime version resolution
+A refused apply leaves a running application on its previous unit.
 
-2. **Integration testing**:
-   - Verify app starts and runs with resolved binary path
-   - Test app restart/reload operations
-   - Test NVM version updates (old binary still works, new deployment uses new version)
+## Tests
 
-3. **Failure scenario testing**:
-   - Attempt deployment with uninstalled Node version → clear error
-   - Attempt to remove a Node version that's in-use → identify affected sites
-
-### Phase 3: Documentation
-1. **Update NODE_APPS.md** to reflect new resolved-path approach
-2. **Update deployment audit logs** to show resolved binary path for troubleshooting
-3. **Create troubleshooting guide** for "App fails to start" scenarios
-
-## Benefits
-
-- **Smaller attack surface**: No shell execution at startup
-- **More predictable**: What's in the systemd unit is exactly what will execute
-- **Easier to audit**: Absolute paths visible in `systemctl status`/`systemd-analyze`
-- **Better error messages**: Deployment fails immediately if version not available
-- **Clearer troubleshooting**: No hidden shell initialization to debug
-
-## Migration Path
-
-**For existing deployments:**
-- Option 1: Recreate units on next app deployment (uses new resolved-path approach)
-- Option 2: Force re-generation of all units when helper is updated
-- Option 3: Keep working, migrate on next app update
-
-**No breaking changes needed** - existing apps continue working; new deployments use resolved paths.
-
-## Acceptance Criteria
-
-✅ Generated systemd units contain absolute npm/node paths  
-✅ No `bash`, `nvm`, or shell-like invocations in ExecStart  
-✅ Unit generation fails cleanly if Node version is not installed  
-✅ All existing tests pass  
-✅ No manual version resolution during app startup  
-
-## Related
-
-- Architecture feedback from operational review: "Less shell means less attack surface and more predictable startup"
-- Component: `stepanel-appctl` (helper layer)
-- NVM storage: `~stepanel/.nvm/versions/node/vX.Y.Z/`
+`scripts/test-node-runtime-resolution.sh` (run by CI and
+`make shell-contract-check`) covers a missing version, a malformed version, a
+binary reporting another version, a binary that does not run, an install
+without npm, a non-executable, world-writable, or symlinked `node`, and a
+half-written upgrade that leaves the previous version resolvable. The
+installed-host app lifecycle smoke starts a real unit through the same path.

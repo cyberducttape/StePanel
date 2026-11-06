@@ -73,9 +73,6 @@ in [DEVELOPMENT_PLAN.md](../DEVELOPMENT_PLAN.md). In short:
 
 Known open hardening items:
 
-- Node application units still start through `bash -lc` and `nvm use`;
-  resolving the Node binary when the unit is generated is described in
-  [NODE_STARTUP_HARDENING.md](./NODE_STARTUP_HARDENING.md).
 - The container image pins its base image digest, but runtime packages come
   from live Debian repositories, so images are not byte-for-byte
   reproducible. A complete package lock or a dated Debian snapshot is needed;
