@@ -57,7 +57,7 @@ These limits are enforced, not tuning defaults:
 | One file in a site backup | 2 GiB | Backup creation fails on the first larger file |
 | All entries in one site backup | 20 GiB | Backup creation fails when the running total passes it |
 | Managed database dumps | Sequential, one database at a time | Backup wall-clock time grows with the sum of the site's databases |
-| Database restore shadow copy | max(2 × incoming SQL dump, 1.5 × live database), plus both the helper reserve (the larger of 1 GiB and 5% of the database filesystem) and configured `STEPANEL_MIN_FREE_BYTES`; StePanel restores hold a shared SQLite capacity reservation on the configured local database filesystem | Restore is refused before loading when the estimate and applicable reserves plus outstanding StePanel reservations do not fit; unrelated host writers remain outside this ledger |
+| Database restore shadow copy | max(2 × incoming SQL dump, 1.5 × live database), plus both the helper reserve (the larger of 1 GiB and 5% of the database filesystem) and configured `STEPANEL_MIN_FREE_BYTES`; StePanel restores hold a shared SQLite capacity reservation on the configured local database filesystem | Restore is refused before loading when the estimate and applicable reserves plus outstanding StePanel reservations do not fit; a load that outgrows its estimate is stopped by the helper as soon as free space falls below its reserve, before the filesystem fills; unrelated host writers remain outside this ledger |
 
 Measure tenant file and database sizes before migrating a site onto
 StePanel. Sites with media libraries, artifact stores or databases near these

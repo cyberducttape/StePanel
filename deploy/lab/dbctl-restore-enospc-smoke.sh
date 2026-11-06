@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Exhaust the database filesystem during a managed database restore and
+# Push a managed database restore toward a full database filesystem and
 # check real state, not only the helper's exit status.
 #
 # The MySQL/MariaDB data directory (binary logs included) is moved onto a
@@ -7,7 +7,11 @@
 # provisioned, then restore-dump is given a dump far larger than that space:
 #
 #   1. with its size declared, admission must refuse it before loading;
-#   2. with its size unknown, the shadow import must hit ENOSPC.
+#   2. with its size unknown, it passes admission and the load must be
+#      stopped by the helper's free-space watchdog before the filesystem
+#      fills: a full filesystem would stall or stop the database server for
+#      every tenant (MySQL waits for space or aborts when it cannot write its
+#      binary log).
 #
 # After each, the live database must be byte-for-byte unchanged and usable by
 # the site's own account, no shadow database or restore record may remain,
@@ -154,16 +158,24 @@ grep -q 'byte reserve' "$work/admission.err" || fail "the oversized restore fail
 assert_live_intact 'admission refusal'
 pass "admission refused the oversized restore: $(tail -1 "$work/admission.err")"
 
-# 2. Unknown size: the shadow import runs until the filesystem is full.
-if "$helper" restore-dump "$db" "$site" < "$work/huge.sql" 2> "$work/enospc.err"; then
+# 2. Unknown size: the shadow import loads until the watchdog stops it.
+# Record the lowest free space seen while it runs.
+( lowest=$(free_kib); while :; do now=$(free_kib); (( now >= lowest )) || { lowest=$now; echo "$lowest" > "$work/lowest"; }; sleep 0.2; done ) &
+sampler=$!
+if timeout 900 "$helper" restore-dump "$db" "$site" < "$work/huge.sql" 2> "$work/enospc.err"; then
+  kill "$sampler"
   fail 'a restore that cannot fit on the filesystem reported success'
 fi
-# It must have passed admission and failed by running out of space.
+kill "$sampler"; wait "$sampler" 2>/dev/null || true
+lowest_kib=$(cat "$work/lowest" 2>/dev/null || free_kib)
+# It must have passed admission, loaded, and been stopped at the reserve.
 ! grep -q 'byte reserve' "$work/enospc.err" || fail "the unknown-size restore was refused by admission instead of loading: $(cat "$work/enospc.err")"
-grep -qiE 'full|space|errno: 28|error 28|\(28\)' "$work/enospc.err" || fail "the shadow import failed, but not for lack of space: $(cat "$work/enospc.err")"
-recover_like_startup 'ENOSPC during the shadow import'
-assert_live_intact 'ENOSPC during the shadow import'
-pass "the shadow import failed on a full filesystem: $(grep -m1 -iE 'full|space|errno|28' "$work/enospc.err" || tail -1 "$work/enospc.err")"
+grep -q 'below its reserve' "$work/enospc.err" || fail "the oversized load was not stopped by the free-space watchdog: $(cat "$work/enospc.err")"
+(( lowest_kib > 256 * 1024 )) || fail "the filesystem fell to $(( lowest_kib / 1024 )) MiB free before the load was stopped"
+M -e 'SELECT 1' >/dev/null || fail 'the database server stopped serving during the stopped load'
+recover_like_startup 'the stopped shadow import'
+assert_live_intact 'the stopped shadow import'
+pass "the load was stopped with $(( lowest_kib / 1024 )) MiB still free: $(grep -m1 'below its reserve' "$work/enospc.err")"
 after_kib=$(free_kib)
 # The shadow's tables are gone from disk. Free space need not come back in
 # full: with binary logging on, the failed load's inserts stay in the binary

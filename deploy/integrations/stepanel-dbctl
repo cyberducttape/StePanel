@@ -420,6 +420,60 @@ admit_restore_copy() {
     echo "the database filesystem has $available bytes free; the restore copy needs about $need bytes plus a $reserve byte reserve" >&2
     return 1
   fi
+  restore_datadir=$datadir
+  restore_floor=$reserve
+}
+
+# Admission estimates the copy, but a dump of unknown size, or one that
+# expands more than estimated, could still fill the filesystem other tenants
+# share. A full filesystem stops more than this restore: MySQL waits for space
+# or aborts when it cannot write its binary log, and PostgreSQL stops when it
+# cannot write its WAL. The load is therefore watched, and stopped as soon as
+# the free space falls below the reserve admission kept.
+restore_space_left() {
+  local available
+  read -r available < <(df -B1 --output=avail "$restore_datadir" | tail -n 1)
+  [[ $available =~ ^[0-9]+$ ]] || return 1
+  printf '%s' "$available"
+}
+
+stop_restore_load() {
+  local shadow=$1 loader=${2:-} id
+  if [[ $engine == postgresql ]]; then
+    sql "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$shadow'" >/dev/null
+  else
+    # Lock the loader first so the client cannot reconnect, then end its sessions.
+    sql "ALTER USER '$loader'@'localhost' ACCOUNT LOCK" >/dev/null
+    while read -r id; do
+      [[ $id =~ ^[0-9]+$ ]] || continue
+      sql "KILL CONNECTION $id" >/dev/null 2>&1 || true
+    done < <(sql "SELECT ID FROM information_schema.PROCESSLIST WHERE USER = '$loader'")
+  fi
+}
+
+# watched_restore_load SHADOW LOADER COMMAND... runs COMMAND with the dump on
+# its standard input and stops it if the reserve is reached.
+watched_restore_load() {
+  local shadow=$1 loader=$2 pid available='' breached=0 status=0
+  shift 2
+  "$@" <&0 &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    if available=$(restore_space_left) && (( available < restore_floor )); then
+      breached=1
+      stop_restore_load "$shadow" "$loader" || echo 'could not stop the restore load at the server' >&2
+      pkill -TERM -P "$pid" 2>/dev/null || true
+      kill -TERM "$pid" 2>/dev/null || true
+      break
+    fi
+    sleep 0.5
+  done
+  wait "$pid" || status=$?
+  if (( breached )); then
+    echo "the restore was stopped: the database filesystem fell to $available bytes free, below its reserve of $restore_floor bytes; the dump is larger than the space left for it" >&2
+    return 1
+  fi
+  return "$status"
 }
 
 discard_restore() {
@@ -522,8 +576,8 @@ restore_dump() {
     # custom archive format and restore it with pg_restore, which does not
     # interpret psql meta-commands. The database owner role is granted only
     # for this load and is selected explicitly by pg_restore.
-    if ! runuser -u "$postgres_loader" -- pg_restore --no-password --no-owner --no-privileges --exit-on-error --single-transaction --role="$owner" --dbname "$restore_shadow"; then
-      echo 'PostgreSQL restore requires a valid pg_dump custom-format archive; plain SQL scripts are not accepted' >&2
+    if ! watched_restore_load "$restore_shadow" '' runuser -u "$postgres_loader" -- pg_restore --no-password --no-owner --no-privileges --exit-on-error --single-transaction --role="$owner" --dbname "$restore_shadow"; then
+      echo 'the PostgreSQL restore failed; it accepts only a valid pg_dump custom-format archive (plain SQL scripts are not accepted) that fits the database filesystem' >&2
       return 1
     fi
     postgres_revoke_loader "$restore_shadow"
@@ -538,7 +592,7 @@ restore_dump() {
     sql "GRANT ALL PRIVILEGES ON \`$restore_shadow\`.* TO '$db_user'@'localhost'"
     # The source dump is untrusted. Import it as the database service OS
     # account and as a database-scoped loader, with client commands disabled.
-    if ! mysql_import_dump "$loader" "$restore_shadow"; then
+    if ! watched_restore_load "$restore_shadow" "$loader" mysql_import_dump "$loader" "$restore_shadow"; then
       if [[ $(sql 'SELECT CONCAT(@@log_bin, @@log_bin_trust_function_creators)') == 10 ]]; then
         echo 'binary logging is enabled, so the server lets only administrators create triggers and stored functions; set log_bin_trust_function_creators=1 to restore them' >&2
       fi
