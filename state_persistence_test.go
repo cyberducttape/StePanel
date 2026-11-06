@@ -62,3 +62,30 @@ func TestPersistMapFilterRollsBackOnOrdinaryWriteFailure(t *testing.T) {
 		t.Fatalf("failed filter persistence lost prior values: %#v", values)
 	}
 }
+
+func TestRetryRefreshedStateChangeReappliesAfterAPeerWrite(t *testing.T) {
+	calls := 0
+	err := retryRefreshedStateChange(func() error {
+		calls++
+		if calls == 1 {
+			return errors.Join(errControlPlaneStateRefreshed, errors.New("conflict at key demo"))
+		}
+		return nil
+	})
+	if err != nil || calls != 2 {
+		t.Fatalf("retry = %v after %d calls, want success on the second", err, calls)
+	}
+}
+
+func TestRetryRefreshedStateChangeStopsOnOtherErrorsAndPersistentConflicts(t *testing.T) {
+	calls := 0
+	disk := errors.New("disk write failed")
+	if err := retryRefreshedStateChange(func() error { calls++; return disk }); !errors.Is(err, disk) || calls != 1 {
+		t.Fatalf("ordinary failure: %v after %d calls", err, calls)
+	}
+	calls = 0
+	err := retryRefreshedStateChange(func() error { calls++; return errControlPlaneStateRefreshed })
+	if !errors.Is(err, errControlPlaneStateRefreshed) || calls != refreshedStateChangeAttempts {
+		t.Fatalf("persistent conflict: %v after %d calls", err, calls)
+	}
+}

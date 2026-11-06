@@ -18,6 +18,25 @@ func (a *App) observeStateError(err state.StateError) {
 // persistMapKeyChange applies a single-key desired-state mutation and restores
 // the previous in-memory value if its durable write fails. Callers hold the
 // owning store lock for the whole operation.
+// refreshedStateChangeAttempts bounds retryRefreshedStateChange.
+const refreshedStateChangeAttempts = 3
+
+// retryRefreshedStateChange re-applies an operator's whole change when its
+// write lost to a peer's write of the same key. The conflict reloads the
+// durable state (errControlPlaneStateRefreshed), so the next attempt applies
+// the change to current state instead of failing the request: for example a
+// schedule edit while the worker records that schedule's latest run. Other
+// errors, and a conflict that persists, are returned.
+func retryRefreshedStateChange(change func() error) error {
+	var err error
+	for attempt := 0; attempt < refreshedStateChangeAttempts; attempt++ {
+		if err = change(); err == nil || !errors.Is(err, errControlPlaneStateRefreshed) {
+			return err
+		}
+	}
+	return err
+}
+
 func persistMapKeyChange[K comparable, V any](values map[K]V, key K, next *V, persist func() error) error {
 	previous, existed := values[key]
 	if next == nil {

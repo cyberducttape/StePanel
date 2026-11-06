@@ -2,6 +2,7 @@ package stepanel
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -363,5 +364,63 @@ func TestScheduledBackupDispatchContinuesPastSiteLocalEnqueueFailure(t *testing.
 	}
 	if pending != 1 {
 		t.Fatalf("site-a pending intents = %d, want 1 kept for retry", pending)
+	}
+}
+
+// The worker records each scheduled run in the shared schedule state. An
+// operator's change made from the panel's older copy must still apply, not
+// fail with 500 (seen after a KVM guest-loss drill).
+func TestBackupScheduleDeleteAppliesAfterTheWorkerRecordedARun(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "control.db")
+	panelDB, err := openControlPlaneDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer panelDB.Close()
+	workerDB, err := openControlPlaneDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer workerDB.Close()
+	open := func(db *sql.DB, name string) *backupSchedules {
+		store, err := openBackupSchedules(filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := bindControlPlaneState(store, db, "backup-schedules", &store.items); err != nil {
+			t.Fatal(err)
+		}
+		return store
+	}
+	panel := open(panelDB, "panel.json")
+	panel.mu.Lock()
+	panel.items["demo"] = BackupSchedule{Site: "demo", IntervalMinutes: 60, KeepLast: 7, Enabled: true, NextRun: time.Now().UTC().Add(time.Hour)}
+	err = panel.persistLocked()
+	panel.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker := open(workerDB, "worker.json")
+	worker.recordResult("demo", time.Now().UTC(), nil)
+	worker.mu.Lock()
+	recorded := worker.items["demo"]
+	worker.mu.Unlock()
+	if recorded.LastSuccess == nil {
+		t.Fatal("the worker did not record the run")
+	}
+
+	a := &App{Auth: Auth{}, Schedules: panel}
+	res := httptest.NewRecorder()
+	a.backupSchedules(res, httptest.NewRequest(http.MethodDelete, "/api/backup-schedules?site=demo", nil))
+	if res.Code != http.StatusNoContent {
+		t.Fatalf("delete after the worker's write = %d %s", res.Code, res.Body.String())
+	}
+	var payload string
+	if err := panelDB.QueryRow(`SELECT payload FROM state_blobs WHERE name = 'backup-schedules'`).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(payload, `"demo"`) {
+		t.Fatalf("schedule survived the delete: %s", payload)
 	}
 }

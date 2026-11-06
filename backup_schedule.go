@@ -121,9 +121,11 @@ func (a *App) backupSchedules(w http.ResponseWriter, r *http.Request) {
 		}
 		in.Enabled = true
 		in.NextRun = time.Now().UTC().Add(time.Duration(in.IntervalMinutes) * time.Minute)
-		a.Schedules.mu.Lock()
-		err := persistMapKeyChange(a.Schedules.items, in.Site, &in, a.Schedules.persistLocked)
-		a.Schedules.mu.Unlock()
+		err := retryRefreshedStateChange(func() error {
+			a.Schedules.mu.Lock()
+			defer a.Schedules.mu.Unlock()
+			return persistMapKeyChange(a.Schedules.items, in.Site, &in, a.Schedules.persistLocked)
+		})
 		if err != nil {
 			http.Error(w, "could not persist backup schedule", 500)
 			return
@@ -154,9 +156,11 @@ func (a *App) backupSchedules(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "backup schedule mutation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
-		a.Schedules.mu.Lock()
-		err := persistMapKeyChange(a.Schedules.items, site, (*BackupSchedule)(nil), a.Schedules.persistLocked)
-		a.Schedules.mu.Unlock()
+		err := retryRefreshedStateChange(func() error {
+			a.Schedules.mu.Lock()
+			defer a.Schedules.mu.Unlock()
+			return persistMapKeyChange(a.Schedules.items, site, (*BackupSchedule)(nil), a.Schedules.persistLocked)
+		})
 		if err != nil {
 			http.Error(w, "could not persist backup schedule", 500)
 			return
@@ -413,13 +417,16 @@ func (a *App) removeSiteBackupSchedule(ctx context.Context, site string) error {
 	if a.Schedules == nil {
 		return nil
 	}
-	a.Schedules.mu.Lock()
-	_, exists := a.Schedules.items[site]
-	var err error
-	if exists {
-		err = persistMapKeyChange(a.Schedules.items, site, (*BackupSchedule)(nil), a.Schedules.persistLocked)
-	}
-	a.Schedules.mu.Unlock()
+	// Termination runs in the worker, whose copy may predate a panel edit of
+	// this schedule; a conflict reloads it and the removal is applied again.
+	err := retryRefreshedStateChange(func() error {
+		a.Schedules.mu.Lock()
+		defer a.Schedules.mu.Unlock()
+		if _, exists := a.Schedules.items[site]; !exists {
+			return nil
+		}
+		return persistMapKeyChange(a.Schedules.items, site, (*BackupSchedule)(nil), a.Schedules.persistLocked)
+	})
 	if err != nil {
 		return fmt.Errorf("remove backup schedule state: %w", err)
 	}
@@ -432,23 +439,30 @@ func (a *App) removeSiteBackupSchedule(ctx context.Context, site string) error {
 }
 
 func (s *backupSchedules) recordResult(site string, started time.Time, resultErr error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	item, exists := s.items[site]
-	if !exists {
-		return
-	}
-	item.LastDurationMS = time.Since(started).Milliseconds()
-	if resultErr != nil {
-		item.LastError = resultErr.Error()
-		item.ConsecutiveFails++
-	} else {
-		now := time.Now().UTC()
-		item.LastSuccess = &now
-		item.LastError = ""
-		item.ConsecutiveFails = 0
-	}
-	if err := persistMapKeyChange(s.items, site, &item, s.persistLocked); err != nil {
+	duration := time.Since(started).Milliseconds()
+	now := time.Now().UTC()
+	// Each attempt starts from the current schedule: after a conflicting
+	// panel edit the state is reloaded, and the result applies to it.
+	err := retryRefreshedStateChange(func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		item, exists := s.items[site]
+		if !exists {
+			return nil
+		}
+		item.LastDurationMS = duration
+		if resultErr != nil {
+			item.LastError = resultErr.Error()
+			item.ConsecutiveFails++
+		} else {
+			success := now
+			item.LastSuccess = &success
+			item.LastError = ""
+			item.ConsecutiveFails = 0
+		}
+		return persistMapKeyChange(s.items, site, &item, s.persistLocked)
+	})
+	if err != nil {
 		log.Printf("persist backup result for %s: %v", site, err)
 	}
 }
