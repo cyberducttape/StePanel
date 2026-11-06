@@ -550,8 +550,15 @@ if [[ $action == seal ]]; then
   for tree in "${site_trees[@]}"; do
     [[ -e $tree || -L $tree ]] || continue
     (
-      stepanel_cd_dir "$tree_base" "$tree" &&
-        chown -R "$site_user:$web_group" . &&
+      stepanel_cd_dir "$tree_base" "$tree" || exit 1
+      # A hard link the account planted to a file it does not own (another
+      # site's file, or a host file such as /etc/shadow) would be handed to
+      # the account by chown -R below. The kernel refuses to create such links
+      # while fs.protected_hardlinks=1, which the installer pins; refuse a
+      # tree holding one anyway, as defense in depth.
+      foreign=$(find . -xdev -type f -links +1 ! -user "$site_user" ! -user stepanel -print -quit) || exit 1
+      [[ -z $foreign ]] || { echo "site tree contains a hard link to a file the site does not own: $foreign" >&2; exit 1; }
+      chown -R "$site_user:$web_group" . &&
         find . -type d -execdir chmod 2750 {} +
     ) || { echo "could not seal $tree" >&2; exit 1; }
   done

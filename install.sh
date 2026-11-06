@@ -967,6 +967,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 managed_targets=(
+  /etc/sysctl.d/60-stepanel-links.conf
   "$APP_DIR/stepanel"
   /usr/local/sbin/stepanel-root
   "$APP_DIR/integrations/install-fail2ban.sh"
@@ -1039,6 +1040,18 @@ if (( STEPANEL_BROKER_WAS_ACTIVE )); then systemctl stop stepanel-root-broker.se
 # a failed upgrade restores binary and database together.
 control_plane_txn_begin "$DATA_DIR/stepanel-control.db" "$INSTALL_TXN"
 install_journal_record configuration transaction_ready reversible "registered file targets and control-plane database are snapshotted under $INSTALL_TXN"
+
+# Root-run recursive ownership and permission changes on tenant trees (site
+# sealing) rely on the kernel refusing hard links and symlink follows the
+# linking user is not entitled to. Pin both protections.
+links_conf_tmp=$(mktemp /etc/sysctl.d/.60-stepanel-links.XXXXXX)
+printf '%s\n' '# Managed by StePanel: tenant-tree ownership changes rely on these.' 'fs.protected_hardlinks = 1' 'fs.protected_symlinks = 1' > "$links_conf_tmp"
+chmod 0644 "$links_conf_tmp"
+mv -f "$links_conf_tmp" /etc/sysctl.d/60-stepanel-links.conf
+for link_protection in fs.protected_hardlinks fs.protected_symlinks; do
+  [[ $(sysctl -n "$link_protection" 2>/dev/null) == 1 ]] || sysctl -q -w "$link_protection=1" >/dev/null 2>&1 || true
+  [[ $(sysctl -n "$link_protection" 2>/dev/null) == 1 ]] || { echo "$link_protection must be 1: site sealing depends on it, and it could not be enabled on this host." >&2; exit 1; }
+done
 
 install -d -m 0750 "$APP_DIR" "$DATA_DIR/imports" "$DATA_DIR/mail" "$DATA_DIR/apps" /var/www/sites
 install -d -m 0755 -o root -g root "$PROXY_ROOT" "$VHOST_ROOT"
