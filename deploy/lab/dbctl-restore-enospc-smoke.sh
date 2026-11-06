@@ -23,7 +23,11 @@ helper=${STEPANEL_DBCTL:-/usr/local/sbin/stepanel-dbctl}
 registry=${STEPANEL_DBCTL_REGISTRY:-/var/lib/stepanel-privileged/db-managed}
 datadir=${STEPANEL_DB_DATADIR:-/var/lib/mysql}
 service=${STEPANEL_DB_SERVICE:-}
-headroom_mib=${STEPANEL_DB_ENOSPC_HEADROOM_MIB:-96}
+# stepanel-dbctl keeps at least 1 GiB of the database filesystem free and
+# refuses a restore that would dip into it, so a load can only exhaust the
+# filesystem when there is more than that free and the dump is larger than
+# estimated.
+headroom_mib=${STEPANEL_DB_ENOSPC_HEADROOM_MIB:-1400}
 client=$(command -v mariadb || command -v mysql) || { echo 'no MySQL/MariaDB client' >&2; exit 1; }
 dump_client=$(command -v mariadb-dump || command -v mysqldump) || { echo 'no MySQL/MariaDB dump client' >&2; exit 1; }
 for tool in mkfs.ext4 rsync losetup; do command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }; done
@@ -111,8 +115,8 @@ app -e "CREATE TABLE orders (id INT PRIMARY KEY, note VARCHAR(200)); INSERT INTO
 expected=$(snapshot)
 before_kib=$(free_kib)
 
-# A dump about three times the free space, in multi-row inserts.
-python3 -I - "$(( before_kib * 3 / 1024 ))" > "$work/huge.sql" <<'PY'
+# A dump 512 MiB larger than the free space, in multi-row inserts.
+python3 -I - "$(( before_kib / 1024 + 512 ))" > "$work/huge.sql" <<'PY'
 import sys
 target_mib = int(sys.argv[1])
 print("CREATE TABLE filler (id INT PRIMARY KEY, blob_value LONGTEXT);")
@@ -146,6 +150,7 @@ assert_live_intact() {
 if "$helper" restore-dump "$db" "$site" "$dump_bytes" < "$work/huge.sql" 2> "$work/admission.err"; then
   fail 'a restore larger than the free space was admitted'
 fi
+grep -q 'byte reserve' "$work/admission.err" || fail "the oversized restore failed, but not by admission: $(cat "$work/admission.err")"
 assert_live_intact 'admission refusal'
 pass "admission refused the oversized restore: $(tail -1 "$work/admission.err")"
 
@@ -153,6 +158,9 @@ pass "admission refused the oversized restore: $(tail -1 "$work/admission.err")"
 if "$helper" restore-dump "$db" "$site" < "$work/huge.sql" 2> "$work/enospc.err"; then
   fail 'a restore that cannot fit on the filesystem reported success'
 fi
+# It must have passed admission and failed by running out of space.
+! grep -q 'byte reserve' "$work/enospc.err" || fail "the unknown-size restore was refused by admission instead of loading: $(cat "$work/enospc.err")"
+grep -qiE 'full|space|errno: 28|error 28|\(28\)' "$work/enospc.err" || fail "the shadow import failed, but not for lack of space: $(cat "$work/enospc.err")"
 recover_like_startup 'ENOSPC during the shadow import'
 assert_live_intact 'ENOSPC during the shadow import'
 pass "the shadow import failed on a full filesystem: $(grep -m1 -iE 'full|space|errno|28' "$work/enospc.err" || tail -1 "$work/enospc.err")"
