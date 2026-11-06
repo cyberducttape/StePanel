@@ -131,21 +131,38 @@ func scheduleOffsiteRemoteProbe(target string) error {
 		offsiteProbeCache.Unlock()
 		return result.err
 	}
-	if result, ok := offsiteProbeCache.results[target]; ok && result.running {
+	previous, ok := offsiteProbeCache.results[target]
+	// While a refresh runs, readiness keeps reporting the last completed
+	// result, so a healthy target does not flap to not-ready every time the
+	// cache expires. Only a host with no recent result reports pending.
+	recent := ok && !previous.checked.IsZero() && time.Since(previous.checked) < offsiteProbeStaleLimit
+	if ok && previous.running {
 		offsiteProbeCache.Unlock()
+		if recent {
+			return previous.err
+		}
 		return errOffsiteProbePending
 	}
-	offsiteProbeCache.results[target] = offsiteProbeResult{running: true}
+	offsiteProbeCache.results[target] = offsiteProbeResult{checked: previous.checked, err: previous.err, running: true}
 	offsiteProbeCache.Unlock()
 
+	probe := probeOffsiteRemote
 	go func() {
-		err := probeOffsiteRemote(target)
+		err := probe(target)
 		offsiteProbeCache.Lock()
 		offsiteProbeCache.results[target] = offsiteProbeResult{checked: time.Now(), err: err}
 		offsiteProbeCache.Unlock()
 	}()
+	if recent {
+		return previous.err
+	}
 	return errOffsiteProbePending
 }
+
+// offsiteProbeStaleLimit is how long a completed probe result keeps standing
+// while its refresh is still running. A refresh that hangs longer than this
+// turns readiness to pending rather than vouching for the target forever.
+const offsiteProbeStaleLimit = 5 * time.Minute
 
 func offsiteProbeEvidence(target string) (*bool, *time.Time) {
 	offsiteProbeCache.Lock()

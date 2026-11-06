@@ -890,10 +890,16 @@ UPGRADE_DRAIN_ACTIVE=0
 # upgrade_cli runs the candidate release's binary as the service user, so the
 # upgrade commands open the live control-plane database with the service's
 # own identity (never leaving root-owned SQLite side files) and the source
-# tree need not be readable by that user.
+# tree need not be readable by that user. The copy sits beside the installed
+# release, whose filesystem must allow execution; /run and /tmp are often
+# mounted noexec.
 upgrade_cli() {
-  local tool_dir status=0
-  tool_dir=$(mktemp -d /run/stepanel-upgrade-cli.XXXXXX)
+  local tool_dir status=0 stale
+  # Copies left by an installer that was killed.
+  for stale in "$APP_DIR".upgrade-cli.*; do
+    if [[ -d $stale && ! -L $stale ]]; then rm -rf -- "$stale"; fi
+  done
+  tool_dir=$(mktemp -d "$APP_DIR.upgrade-cli.XXXXXX")
   chmod 0755 "$tool_dir"
   install -m 0755 "$ROOT_DIR/stepanel" "$tool_dir/stepanel"
   runuser -u "$APP_USER" -- "$tool_dir/stepanel" "$@" || status=$?

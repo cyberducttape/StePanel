@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -504,5 +505,55 @@ func TestQuotaCapabilityRequiresWebRootConfig(t *testing.T) {
 	c := app.ProbeCapabilities().Capabilities["filesystem.quotas"]
 	if c.Available {
 		t.Errorf("filesystem.quotas must not be Available without WebRoot config, got Mode=%s reason=%q", c.Mode, c.Reason)
+	}
+}
+
+func TestOffsiteReadinessKeepsLastResultWhileRefreshing(t *testing.T) {
+	previousProbe := probeOffsiteRemote
+	t.Cleanup(func() { probeOffsiteRemote = previousProbe })
+	resetOffsiteProbeCache()
+	t.Cleanup(resetOffsiteProbeCache)
+	target := "s3:bucket/stepanel"
+	release := make(chan struct{})
+	var probes sync.WaitGroup
+	t.Cleanup(func() { close(release); probes.Wait() })
+	probeOffsiteRemote = func(string) error { defer probes.Done(); <-release; return nil }
+	schedule := func() error {
+		probes.Add(1)
+		offsiteProbeCache.Lock()
+		running := offsiteProbeCache.results[target].running
+		offsiteProbeCache.Unlock()
+		if running {
+			probes.Done() // no new probe starts while one runs
+		}
+		return scheduleOffsiteRemoteProbe(target)
+	}
+	// No result yet: pending.
+	if err := schedule(); !errors.Is(err, errOffsiteProbePending) {
+		t.Fatalf("first probe = %v, want pending", err)
+	}
+	// A completed, expired result keeps standing while its refresh runs.
+	offsiteProbeCache.Lock()
+	offsiteProbeCache.results[target] = offsiteProbeResult{checked: time.Now().Add(-time.Minute)}
+	offsiteProbeCache.Unlock()
+	for i := 0; i < 3; i++ {
+		if err := schedule(); err != nil {
+			t.Fatalf("refresh %d = %v, want the last successful result", i, err)
+		}
+	}
+	// A failed last result also stands, rather than flipping to pending.
+	failure := errors.New("access denied")
+	offsiteProbeCache.Lock()
+	offsiteProbeCache.results[target] = offsiteProbeResult{checked: time.Now().Add(-time.Minute), err: failure, running: true}
+	offsiteProbeCache.Unlock()
+	if err := schedule(); !errors.Is(err, failure) {
+		t.Fatalf("refresh after failure = %v, want the last failure", err)
+	}
+	// A refresh that has hung past the stale limit no longer vouches.
+	offsiteProbeCache.Lock()
+	offsiteProbeCache.results[target] = offsiteProbeResult{checked: time.Now().Add(-offsiteProbeStaleLimit - time.Second), running: true}
+	offsiteProbeCache.Unlock()
+	if err := schedule(); !errors.Is(err, errOffsiteProbePending) {
+		t.Fatalf("stale refresh = %v, want pending", err)
 	}
 }
