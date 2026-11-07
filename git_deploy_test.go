@@ -396,7 +396,7 @@ func TestGitRollbackAtomicallySwapsPreviousRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := &App{Config: Config{WebRoot: webRoot, MaxEntries: 100}}
-	preview, err := app.buildGitRollbackPreview("example")
+	preview, err := app.buildGitRollbackPreview(context.Background(), "example")
 	if err != nil {
 		t.Fatalf("build rollback preview: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestGitRollbackRejectsStalePreview(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := &App{Config: Config{WebRoot: webRoot, MaxEntries: 100}}
-	preview, err := app.buildGitRollbackPreview("example")
+	preview, err := app.buildGitRollbackPreview(context.Background(), "example")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -482,7 +482,7 @@ func TestGitRollbackPreviewToleratesLiveWritesToActiveRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := &App{Config: Config{WebRoot: webRoot, MaxEntries: 100}}
-	preview, err := app.buildGitRollbackPreview("example")
+	preview, err := app.buildGitRollbackPreview(context.Background(), "example")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -490,7 +490,7 @@ func TestGitRollbackPreviewToleratesLiveWritesToActiveRelease(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(publicRoot, "cache.tmp"), []byte("live"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	again, err := app.buildGitRollbackPreview("example")
+	again, err := app.buildGitRollbackPreview(context.Background(), "example")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -504,7 +504,7 @@ func TestGitRollbackPreviewToleratesLiveWritesToActiveRelease(t *testing.T) {
 	if err := os.MkdirAll(publicRoot, 0750); err != nil {
 		t.Fatal(err)
 	}
-	replaced, err := app.buildGitRollbackPreview("example")
+	replaced, err := app.buildGitRollbackPreview(context.Background(), "example")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -824,7 +824,7 @@ func TestCommittedReleaseIsNeverReportedAsCancelled(t *testing.T) {
 			}
 			release := filepath.Join(root, "sites", "example", ".stepanel-release-abc")
 			result := gitDeployResult{DeploymentID: "deployment-1", Site: "example", Commit: "abc"}
-			app.finishCommittedRelease(ctx, "activation", "activated", release, &result, true)
+			app.finishCommittedRelease(ctx, "activation", "activated", release, "", &result, true)
 			if result.Outcome != test.outcome || result.Activated != ".stepanel-release-abc" || result.HistoryError != "" {
 				t.Fatalf("result = %#v, want outcome %q for the live release", result, test.outcome)
 			}

@@ -140,8 +140,24 @@ curl -X POST https://panel.example.test/api/sites/git-rollback \
   --data '{"site":"example","confirm":"ROLLBACK example"}'
 ```
 
-The preserved release is safety-checked again before activation. Deployment
-and rollback restore site ownership/isolation through the site helper and write
+The preserved release is safety-checked again before activation. When a
+release stops being active, the panel records a SHA-256 digest of its
+contents (every path, permission, file's bytes and symlink target) in the
+control-plane database, which the site account cannot write. The rollback
+preview re-hashes the target and reports `content_integrity`:
+
+- `verified`: the contents match the digest recorded at retirement.
+- `modified`: they do not, or the tree can no longer be read. The rollback is
+  refused (`409`, `site.git-rollback.refused`); deploy the commit again.
+- `unrecorded`: the release was retired before digests were recorded, or was
+  too large to hash within `STEPANEL_GIT_RELEASE_MAX_TREE_BYTES`.
+
+The active release is not covered: a running application may write caches or
+uploads into it, so its contents are fixed only from retirement. Hashing reads
+the whole retained tree, once when it is retired and again for each preview
+and rollback. The site account can still write retained releases; the digest
+detects such a change, it does not prevent it. Deployment and rollback
+restore site ownership/isolation through the site helper and write
 tamper-evident audit events.
 
 ## Operational boundaries

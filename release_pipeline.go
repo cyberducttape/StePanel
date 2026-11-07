@@ -246,7 +246,7 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 	}
 	outcome = input.Repository + "@" + commit
 	result.Previous = previous
-	a.finishCommittedRelease(operationCtx, "activation", "atomic built release activated", release, &result, false)
+	a.finishCommittedRelease(operationCtx, "activation", "atomic built release activated", release, previous, &result, false)
 	writeJSON(w, 202, result)
 }
 

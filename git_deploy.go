@@ -460,16 +460,22 @@ const (
 
 // finishCommittedRelease records the outcome of a release that activation
 // has already made live.
-func (a *App) finishCommittedRelease(ctx context.Context, stage, detail, release string, result *gitDeployResult, prune bool) {
+func (a *App) finishCommittedRelease(ctx context.Context, stage, detail, release, retained string, result *gitDeployResult, prune bool) {
 	result.Activated = filepath.Base(release)
 	result.Outcome = releaseOutcomeActivated
 	if ctx.Err() != nil {
 		result.Outcome = releaseOutcomeReconciliationPending
 		detail += "; mutation lock lost after activation, release retention deferred"
-	} else if prune {
-		if err := pruneSiteReleases(a.Config, result.Site); err != nil {
-			log.Printf("Git release retention for %s: %v", result.Site, err)
+	} else {
+		// The release just retired is fixed from now on; record what it
+		// holds so a rollback can prove it is unchanged.
+		a.recordRetiredRelease(ctx, result.Site, retained)
+		if prune {
+			if err := pruneSiteReleases(a.Config, result.Site); err != nil {
+				log.Printf("Git release retention for %s: %v", result.Site, err)
+			}
 		}
+		a.forgetMissingReleaseDigests(result.Site)
 	}
 	if err := a.recordDeployment(result.Site, stage, "completed", detail, *result, release); err != nil {
 		// The release is live; say so rather than reporting a failed deploy.
@@ -484,14 +490,19 @@ type gitRollbackRequest struct {
 }
 
 type gitRollbackPreview struct {
-	Site             string        `json:"site"`
-	CurrentRelease   string        `json:"current_release"`
-	TargetRelease    string        `json:"target_release"`
-	CurrentFiles     int64         `json:"current_files"`
-	TargetFiles      int64         `json:"target_files"`
-	CurrentBytes     int64         `json:"current_bytes"`
-	TargetBytes      int64         `json:"target_bytes"`
-	DocumentRoot     string        `json:"document_root"`
+	Site           string `json:"site"`
+	CurrentRelease string `json:"current_release"`
+	TargetRelease  string `json:"target_release"`
+	CurrentFiles   int64  `json:"current_files"`
+	TargetFiles    int64  `json:"target_files"`
+	CurrentBytes   int64  `json:"current_bytes"`
+	TargetBytes    int64  `json:"target_bytes"`
+	DocumentRoot   string `json:"document_root"`
+	// ContentIntegrity compares the target's contents with the digest
+	// recorded when it was retired: "verified", "modified" (rollback is
+	// refused) or "unrecorded" (retired before digests were recorded, or
+	// too large to hash within the release limits).
+	ContentIntegrity string        `json:"content_integrity"`
 	ServiceEffect    string        `json:"service_effect"`
 	PreservedRelease string        `json:"preserved_release"`
 	PreviewToken     string        `json:"preview_token"`
@@ -510,7 +521,7 @@ func (a *App) gitRollbackPreviewHandler(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "invalid site", http.StatusUnprocessableEntity)
 		return
 	}
-	preview, err := a.buildGitRollbackPreview(site)
+	preview, err := a.buildGitRollbackPreview(r.Context(), site)
 	if err != nil {
 		http.Error(w, "Git rollback preview is unavailable", http.StatusConflict)
 		return
@@ -518,7 +529,7 @@ func (a *App) gitRollbackPreviewHandler(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, preview)
 }
 
-func (a *App) buildGitRollbackPreview(site string) (gitRollbackPreview, error) {
+func (a *App) buildGitRollbackPreview(ctx context.Context, site string) (gitRollbackPreview, error) {
 	location, err := siteLocationFor(a.Config, site)
 	if err != nil {
 		return gitRollbackPreview{}, err
@@ -547,7 +558,13 @@ func (a *App) buildGitRollbackPreview(site string) (gitRollbackPreview, error) {
 	if err != nil {
 		return gitRollbackPreview{}, err
 	}
-	revision := fmt.Sprintf("%s:%d:%d:%s", filepath.Base(target), targetInfo.ModTime().UnixNano(), targetInfo.Size(), targetFingerprint)
+	// The metadata fingerprint is cheap and catches most edits; the content
+	// digest proves the bytes are those recorded at retirement.
+	integrity, err := a.retainedReleaseIntegrity(ctx, site, target)
+	if err != nil {
+		return gitRollbackPreview{}, err
+	}
+	revision := fmt.Sprintf("%s:%d:%d:%s:%s", filepath.Base(target), targetInfo.ModTime().UnixNano(), targetInfo.Size(), targetFingerprint, integrity)
 	// The active release is bound by directory identity, not content: a live
 	// application writing caches or uploads into it must not invalidate the
 	// preview, while a deploy or rollback replaces the directory itself.
@@ -562,7 +579,7 @@ func (a *App) buildGitRollbackPreview(site string) (gitRollbackPreview, error) {
 	revision += fmt.Sprintf("|%s:%d:%d", filepath.Base(current), currentStat.Dev, currentStat.Ino)
 	token := sha256.Sum256([]byte(site + "\x00" + location.DocRoot + "\x00" + revision))
 	before := map[string]any{"active_release": filepath.Base(current), "document_root": location.DocRoot, "files": currentFiles, "bytes": currentBytes, "directory_device": currentStat.Dev, "directory_inode": currentStat.Ino}
-	proposed := map[string]any{"active_release": filepath.Base(target), "document_root": location.DocRoot, "files": targetFiles, "bytes": targetBytes, "retained_rollback_release": filepath.Base(current)}
+	proposed := map[string]any{"active_release": filepath.Base(target), "document_root": location.DocRoot, "files": targetFiles, "bytes": targetBytes, "retained_rollback_release": filepath.Base(current), "content_integrity": integrity}
 	review, err := a.makeChangePreview("git.rollback:"+site, before, proposed,
 		[]string{"Atomically switch the document root to the selected retained release.", "Keep the current active release as the next rollback point; PHP-FPM and web-server configuration are not changed."},
 		[]string{"If activation fails, the current release remains active.", "After success, the previously active release is retained for a subsequent rollback; verify the application before pruning releases."})
@@ -574,6 +591,7 @@ func (a *App) buildGitRollbackPreview(site string) (gitRollbackPreview, error) {
 		Site: site, CurrentRelease: filepath.Base(current), TargetRelease: filepath.Base(target),
 		CurrentFiles: currentFiles, TargetFiles: targetFiles, CurrentBytes: currentBytes, TargetBytes: targetBytes,
 		DocumentRoot:     location.DocRoot,
+		ContentIntegrity: integrity,
 		ServiceEffect:    "The document root is atomically switched; PHP-FPM and web-server configuration are unchanged, and the service is not restarted.",
 		PreservedRelease: "The currently active release is retained as the next rollback point.",
 		PreviewToken:     hex.EncodeToString(token[:]), ChangePlan: review,
@@ -1322,7 +1340,7 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 	deployed = true
 	intent.Completed(input.Repository + "@" + commit)
 	result.Previous = previous
-	a.finishCommittedRelease(operationCtx, "activation", "atomic Git release activated", release, &result, true)
+	a.finishCommittedRelease(operationCtx, "activation", "atomic Git release activated", release, previous, &result, true)
 	writeJSON(w, http.StatusAccepted, result)
 }
 
@@ -1356,13 +1374,18 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Git rollback cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	preview, err := a.buildGitRollbackPreview(input.Site)
+	preview, err := a.buildGitRollbackPreview(operationCtx, input.Site)
 	if err != nil {
 		http.Error(w, "Git rollback preview is unavailable; refresh the preview before retrying", http.StatusConflict)
 		return
 	}
 	if input.PreviewToken == "" || !hmac.Equal([]byte(input.PreviewToken), []byte(preview.PreviewToken)) {
 		http.Error(w, "site releases changed after preview; refresh and confirm the updated rollback plan", http.StatusConflict)
+		return
+	}
+	if preview.ContentIntegrity == releaseIntegrityModified {
+		TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.git-rollback.refused", input.Site, preview.TargetRelease+": contents changed after the release was retired")
+		http.Error(w, "the retained release was modified after it was retired and cannot be rolled back to; deploy the commit again instead", http.StatusConflict)
 		return
 	}
 	previous := filepath.Join(location.Home, preview.TargetRelease)
@@ -1385,7 +1408,7 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 	}
 	intent.Completed(filepath.Base(previous))
 	result := gitDeployResult{DeploymentID: deploymentID, Site: input.Site, Previous: filepath.Base(replaced)}
-	a.finishCommittedRelease(operationCtx, "rollback", "rolled back to an earlier Git release", previous, &result, true)
+	a.finishCommittedRelease(operationCtx, "rollback", "rolled back to an earlier Git release", previous, replaced, &result, true)
 	response := map[string]string{"site": input.Site, "activated": result.Activated, "replaced_release": filepath.Base(replaced), "deployment_id": deploymentID, "outcome": result.Outcome}
 	if result.HistoryError != "" {
 		response["history_error"] = result.HistoryError

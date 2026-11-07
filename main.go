@@ -42,33 +42,35 @@ type App struct {
 	Config Config
 	View   *template.Template
 	// PanelView renders the customer panel (web/panel.html).
-	PanelView                *template.Template
-	AssetVersion             string
-	Auth                     Auth
-	Jobs                     *Jobs
-	Metrics                  *Metrics
-	siteRuntimeMetrics       *siteRuntimeMetricsStore
-	Schedules                *backupSchedules
-	Accounts                 *AccountStore
-	recovery                 recoveryState
-	startup                  startupState
-	Environments             *EnvironmentStore
-	Redis                    *RedisAllocationStore
-	DNSDesired               *DNSDesiredStore
-	Routes                   *RouteStore
-	Domains                  *DomainClaimStore
-	Access                   *SiteAccessStore
-	Workers                  *WorkerStore
-	Composer                 *ComposerStore
-	PHP                      *PHPProfileStore
-	Tasks                    *TaskStore
-	APITokens                *apiTokenStore
-	Deployments              *DeploymentStore
-	Resources                *ResourceStore
-	Webhooks                 *WebhookConfigStore
-	Notifications            *operatorNotificationStore
-	AuditOutbox              *auditOutboxStore
-	BackupIndex              *metadata.BackupIndex
+	PanelView          *template.Template
+	AssetVersion       string
+	Auth               Auth
+	Jobs               *Jobs
+	Metrics            *Metrics
+	siteRuntimeMetrics *siteRuntimeMetricsStore
+	Schedules          *backupSchedules
+	Accounts           *AccountStore
+	recovery           recoveryState
+	startup            startupState
+	Environments       *EnvironmentStore
+	Redis              *RedisAllocationStore
+	DNSDesired         *DNSDesiredStore
+	Routes             *RouteStore
+	Domains            *DomainClaimStore
+	Access             *SiteAccessStore
+	Workers            *WorkerStore
+	Composer           *ComposerStore
+	PHP                *PHPProfileStore
+	Tasks              *TaskStore
+	APITokens          *apiTokenStore
+	Deployments        *DeploymentStore
+	Resources          *ResourceStore
+	Webhooks           *WebhookConfigStore
+	Notifications      *operatorNotificationStore
+	AuditOutbox        *auditOutboxStore
+	BackupIndex        *metadata.BackupIndex
+	// releaseDigests records retired releases' content digests.
+	releaseDigests           *releaseDigestStore
 	Recovery                 *recovery.Store
 	ResourceBudget           *ResourceBudget
 	MetadataCache            *MetadataCache
@@ -504,6 +506,10 @@ func Main() {
 	if err != nil {
 		log.Fatalf("initialize backup index: %v", err)
 	}
+	releaseDigests, err := newReleaseDigestStore(controlPlaneDB)
+	if err != nil {
+		log.Fatal(err)
+	}
 	recoveryStore, err := recovery.NewStore(controlPlaneDB)
 	if err != nil {
 		log.Fatalf("initialize recovery rehearsal store: %v", err)
@@ -659,7 +665,7 @@ func Main() {
 	if err != nil {
 		log.Fatalf("initialize capacity ledger: %v", err)
 	}
-	app := &App{Config: cfg, View: view, PanelView: panelView, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), siteRuntimeMetrics: &siteRuntimeMetricsStore{}, Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, Notifications: notifications, AuditOutbox: auditOutbox, BackupIndex: backupIndex, Recovery: recoveryStore, webhookReplayCache: NewDurableWebhookReplayCache(controlPlaneDB, 5*time.Minute), dbLocks: dbLocks, siteManager: siteManager, capacity: capacity}
+	app := &App{Config: cfg, View: view, PanelView: panelView, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), siteRuntimeMetrics: &siteRuntimeMetricsStore{}, Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, Notifications: notifications, AuditOutbox: auditOutbox, BackupIndex: backupIndex, Recovery: recoveryStore, releaseDigests: releaseDigests, webhookReplayCache: NewDurableWebhookReplayCache(controlPlaneDB, 5*time.Minute), dbLocks: dbLocks, siteManager: siteManager, capacity: capacity}
 	app.startup.begin()
 	// Workers in this and the external worker process claim jobs only once
 	// the panel's startup recovery has succeeded.

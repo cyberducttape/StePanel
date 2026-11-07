@@ -103,6 +103,7 @@ and never affects the operation; failures are logged.
 | Dead-letter job deleted after `STEPANEL_DEAD_LETTER_RETENTION_DAYS` | B | `job.dead_letter.expired` |
 | Queued browser-session operation refused because the account's sessions were revoked after it was queued | B | `session.queued_work.revoked` |
 | Webhook delivery refused because the site's signing secret is shared with another site | B | `webhook.auth.shared-secret` |
+| Git rollback refused because the retained release changed after it was retired | B | `site.git-rollback.refused` |
 | Disabling webhooks whose sealed secret does not open (`stepanel webhook-secrets disable-unreadable`) | A, intent-first | `webhook.secrets.disable-unreadable` |
 | Queued webhook delivery refused because the signing secret was rotated, re-enabled, or revoked (site termination) after it was accepted | B | `webhook.deploy.revoked` |
 | Site creation | A, intent-first | `site.created` |

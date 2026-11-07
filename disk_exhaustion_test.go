@@ -286,7 +286,7 @@ func TestDiskExhaustion_ReleaseRollback(t *testing.T) {
 	f.assertSite(t, current)
 
 	rollback := func() int {
-		preview, err := app.buildGitRollbackPreview(f.site.Site())
+		preview, err := app.buildGitRollbackPreview(context.Background(), f.site.Site())
 		if err != nil {
 			return http.StatusServiceUnavailable
 		}
