@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -102,21 +103,62 @@ func CleanupBackupStages(root string, maxAge time.Duration) error {
 	return nil
 }
 
+// backupRetentionReport lists entries one retention run kept because their
+// ownership could not be established. They are never deleted automatically.
+type backupRetentionReport struct {
+	Unattributed []string
+}
+
+// maxReportedUnattributedBackups bounds the names carried in a report.
+const maxReportedUnattributedBackups = 20
+
+func (r *backupRetentionReport) unattributed(name string, cause error) {
+	log.Printf("backup retention kept %q: ownership could not be established: %v", name, cause)
+	if len(r.Unattributed) < maxReportedUnattributedBackups {
+		r.Unattributed = append(r.Unattributed, name)
+	}
+}
+
+// backupNameTimestampLength is the width of the creation timestamp that
+// starts every published backup name (see createSiteBackupContext).
+const backupNameTimestampLength = len("20060102-150405.000000000")
+
+// backupNameSite returns the site a published backup is named for, or "" for
+// a name that does not follow the "<timestamp>-<site>" layout. Names are only
+// a scan filter: ownership is always proven by the manifest before deletion.
+func backupNameSite(name string) string {
+	if len(name) <= backupNameTimestampLength+1 || name[backupNameTimestampLength] != '-' {
+		return ""
+	}
+	if _, err := time.Parse("20060102-150405.000000000", name[:backupNameTimestampLength]); err != nil {
+		return ""
+	}
+	return safeUser(name[backupNameTimestampLength+1:])
+}
+
 // pruneSiteBackups retains the newest manifest-dated backups and explicitly
 // protects protectedVerifiedName, which must be the basename of the backup
 // that just passed archive verification. The protected artifact takes one
 // slot within keep, regardless of host clock ordering.
-func pruneSiteBackups(root string, site SiteCapability, keep int, protectedVerifiedName string) error {
+//
+// Retention is partitioned by site: an entry named for another site is
+// skipped without reading its manifest, so one site's damaged backup cannot
+// stop retention for every other site, and each run reads only its own
+// site's manifests plus any entries with non-standard names. Only entries
+// whose manifest proves they belong to this site are ever deleted; entries
+// whose owner cannot be read are kept and returned in the report.
+func pruneSiteBackups(root string, site SiteCapability, keep int, protectedVerifiedName string) (backupRetentionReport, error) {
+	var report backupRetentionReport
 	siteName := site.Site()
 	if safeUser(siteName) == "" || keep < 1 || (protectedVerifiedName != "" && !validBackupName(protectedVerifiedName)) {
-		return errors.New("invalid backup retention policy")
+		return report, errors.New("invalid backup retention policy")
 	}
 	if err := removePruneTombstones(root); err != nil {
-		return err
+		return report, err
 	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
-		return err
+		return report, err
 	}
 	type candidate struct {
 		name, path string
@@ -126,6 +168,10 @@ func pruneSiteBackups(root string, site SiteCapability, keep int, protectedVerif
 	protectedFound := protectedVerifiedName == ""
 	for _, entry := range entries {
 		if !entry.IsDir() || entry.Name()[0] == '.' {
+			continue
+		}
+		namedFor := backupNameSite(entry.Name())
+		if namedFor != "" && namedFor != siteName {
 			continue
 		}
 		path := filepath.Join(root, entry.Name())
@@ -161,14 +207,20 @@ func pruneSiteBackups(root string, site SiteCapability, keep int, protectedVerif
 			readErr = json.Unmarshal(data, &manifest)
 		}
 		if readErr != nil {
-			return fmt.Errorf("backup retention cannot establish ownership of %q: %w; operator review required", entry.Name(), readErr)
+			report.unattributed(entry.Name(), readErr)
+			continue
 		}
 		if safeUser(manifest.Site) == "" {
-			return fmt.Errorf("backup retention found incomplete ownership metadata in %q; operator review required", entry.Name())
+			report.unattributed(entry.Name(), errors.New("manifest has no valid site"))
+			continue
+		}
+		if namedFor != "" && manifest.Site != namedFor {
+			report.unattributed(entry.Name(), fmt.Errorf("named for site %q but manifest names %q", namedFor, manifest.Site))
+			continue
 		}
 		if manifest.Site == siteName {
 			if manifest.CreatedAt.IsZero() {
-				return fmt.Errorf("backup retention cannot establish creation order for %q: manifest has no created_at; operator review required", entry.Name())
+				return report, fmt.Errorf("backup retention cannot establish creation order for %q: manifest has no created_at; operator review required", entry.Name())
 			}
 			items = append(items, candidate{name: entry.Name(), path: path, createdAt: manifest.CreatedAt})
 			if entry.Name() == protectedVerifiedName {
@@ -177,7 +229,7 @@ func pruneSiteBackups(root string, site SiteCapability, keep int, protectedVerif
 		}
 	}
 	if !protectedFound {
-		return fmt.Errorf("verified backup %q for site %s is missing from retention inventory; no backups pruned", protectedVerifiedName, siteName)
+		return report, fmt.Errorf("verified backup %q for site %s is missing from retention inventory; no backups pruned", protectedVerifiedName, siteName)
 	}
 	sort.Slice(items, func(i, j int) bool {
 		// The just-created artifact has already passed strict verification in
@@ -199,14 +251,14 @@ func pruneSiteBackups(root string, site SiteCapability, keep int, protectedVerif
 		return false
 	})
 	if len(items) <= keep {
-		return syncDirectory(root)
+		return report, syncDirectory(root)
 	}
 	for _, item := range items[keep:] {
 		if err := discardBackup(root, item.name); err != nil {
-			return err
+			return report, err
 		}
 	}
-	return syncDirectory(root)
+	return report, syncDirectory(root)
 }
 
 // backupPruneTombstonePrefix names a backup that retention has taken out of

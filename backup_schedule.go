@@ -438,6 +438,30 @@ func (a *App) removeSiteBackupSchedule(ctx context.Context, site string) error {
 	return ctx.Err()
 }
 
+// recordRetention keeps the latest retention outcome with the site's
+// schedule, where the panel exports it as a persistent degraded state.
+func (s *backupSchedules) recordRetention(site string, report backupRetentionReport, retentionErr error) {
+	now := time.Now().UTC()
+	err := retryRefreshedStateChange(func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		item, exists := s.items[site]
+		if !exists {
+			return nil
+		}
+		item.RetentionCheckedAt = &now
+		item.RetentionError = ""
+		if retentionErr != nil {
+			item.RetentionError = retentionErr.Error()
+		}
+		item.RetentionUnattributed = append([]string(nil), report.Unattributed...)
+		return persistMapKeyChange(s.items, site, &item, s.persistLocked)
+	})
+	if err != nil {
+		log.Printf("persist backup retention result for %s: %v", site, err)
+	}
+}
+
 func (s *backupSchedules) recordResult(site string, started time.Time, resultErr error) {
 	duration := time.Since(started).Milliseconds()
 	now := time.Now().UTC()

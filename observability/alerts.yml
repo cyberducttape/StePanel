@@ -450,6 +450,24 @@ groups:
           summary: Scheduled backups are failing for {{ $labels.site }}
           description: "{{ $labels.site }} has {{ $value }} consecutive scheduled backup failure(s). Inspect its latest backup job, free bytes and inodes, database helper, and offsite destination before retrying."
 
+      - alert: StePanelBackupRetentionFailed
+        expr: stepanel_backup_retention_ok{job="stepanel"} == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Backup retention is failing for {{ $labels.site }}
+          description: "The latest scheduled retention for {{ $labels.site }} did not complete, so its backups are no longer pruned and can fill the backup filesystem. Read retention_error on the site's backup schedule, fix the named backup (for example a manifest without created_at), and confirm the next scheduled run prunes."
+
+      - alert: StePanelBackupRetentionUnattributedEntries
+        expr: stepanel_backup_retention_unattributed_entries{job="stepanel"} > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Backup entries for {{ $labels.site }} have unreadable ownership
+          description: "{{ $value }} backup entr(ies) seen by {{ $labels.site }}'s retention have a missing, unreadable, or contradicting manifest. Retention keeps them and never deletes them, so they hold disk space indefinitely. Review the names in retention_unattributed on the site's backup schedule, then restore or remove each one deliberately."
+
       - alert: StePanelBackupNeverSucceeded
         expr: stepanel_backup_success_present{job="stepanel"} == 0
         for: 15m

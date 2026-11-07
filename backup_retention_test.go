@@ -1,8 +1,10 @@
 package stepanel
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -85,7 +87,7 @@ func TestPruneSiteBackupsKeepsNewestAndOtherSites(t *testing.T) {
 		}
 	}
 	access := AuthorizedSite{site: "demo"}
-	if err := pruneSiteBackups(root, access, 2, ""); err != nil {
+	if _, err := pruneSiteBackups(root, access, 2, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "20260101-000000.000000000-demo")); !os.IsNotExist(err) {
@@ -116,7 +118,7 @@ func TestPruneSiteBackupsUsesManifestCreationTime(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, ""); err != nil {
+	if _, err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "renamed-new")); err != nil {
@@ -143,8 +145,12 @@ func TestPruneSiteBackupsFailsClosedOnUnownedCorruptDirectory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(corrupt, "manifest.json"), []byte("{"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, ""); err == nil {
-		t.Fatal("retention silently ignored backup with unknown ownership")
+	report, err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, "")
+	if err != nil {
+		t.Fatalf("an unattributable entry stopped retention: %v", err)
+	}
+	if len(report.Unattributed) != 1 || report.Unattributed[0] != "damaged-backup" {
+		t.Fatalf("retention report = %+v, want the damaged entry reported", report)
 	}
 	if _, err := os.Stat(corrupt); err != nil {
 		t.Fatalf("uncertain artifact was deleted: %v", err)
@@ -166,7 +172,7 @@ func TestPruneSiteBackupsRefusesUnknownCreationTimeWithoutPruning(t *testing.T) 
 			t.Fatal(err)
 		}
 	}
-	if err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, "known-backup"); err == nil {
+	if _, err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, "known-backup"); err == nil {
 		t.Fatal("retention accepted an unknown backup creation time")
 	}
 	for _, name := range []string{"known-backup", "unknown-date-backup"} {
@@ -189,8 +195,8 @@ func TestPruneSiteBackupsRejectsSymlinkManifestWithoutPruning(t *testing.T) {
 	if err := os.Symlink(external, filepath.Join(backup, "manifest.json")); err != nil {
 		t.Fatal(err)
 	}
-	if err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, ""); err == nil {
-		t.Fatal("retention followed a symlinked manifest")
+	if report, err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, ""); err != nil || len(report.Unattributed) != 1 {
+		t.Fatalf("symlinked manifest: report %+v, err %v; want it kept and reported", report, err)
 	}
 	if _, err := os.Lstat(backup); err != nil {
 		t.Fatalf("uncertain backup was removed: %v", err)
@@ -215,7 +221,7 @@ func TestPruneSiteBackupsProtectsNewlyVerifiedBackupAgainstClockOrdering(t *test
 			t.Fatal(err)
 		}
 	}
-	if err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, "verified-current"); err != nil {
+	if _, err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, "verified-current"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "verified-current")); err != nil {
@@ -235,7 +241,7 @@ func TestPruneSiteBackupsRefusesMissingProtectedVerifiedBackup(t *testing.T) {
 	if err := writeBackupManifest(dir, BackupManifest{Version: 1, Site: "demo", Archive: "backup.tar.gz", CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
-	if err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, "missing-verified"); err == nil {
+	if _, err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, "missing-verified"); err == nil {
 		t.Fatal("retention pruned without finding the just-verified recovery point")
 	}
 	if _, err := os.Stat(dir); err != nil {
@@ -272,7 +278,7 @@ func TestPruneSiteBackupsFinishesAnInterruptedDeletion(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tombstone, "backup.tar.gz"), []byte("partial"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, ""); err != nil {
+	if _, err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, ""); err != nil {
 		t.Fatalf("prune after an interrupted deletion: %v", err)
 	}
 	if _, err := os.Stat(tombstone); !os.IsNotExist(err) {
@@ -290,5 +296,140 @@ func TestPruneSiteBackupsFinishesAnInterruptedDeletion(t *testing.T) {
 	}
 	if len(entries) != 1 {
 		t.Fatalf("backup root holds %d entries after prune, want only the kept backup", len(entries))
+	}
+}
+
+func writeTestBackup(t *testing.T, root, name, site string, createdAt time.Time) {
+	t.Helper()
+	dir := filepath.Join(root, name)
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeBackupManifest(dir, BackupManifest{Version: 1, Site: site, Archive: "backup.tar.gz", CreatedAt: createdAt}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// F-03: another site's damaged backup must not stop this site's retention,
+// and must not be deleted by it.
+func TestPruneSiteBackupsIgnoresAnotherSitesDamagedBackup(t *testing.T) {
+	root := t.TempDir()
+	day := func(d int) time.Time { return time.Date(2026, 1, d, 0, 0, 0, 0, time.UTC) }
+	writeTestBackup(t, root, "20260101-000000.000000000-demo", "demo", day(1))
+	writeTestBackup(t, root, "20260102-000000.000000000-demo", "demo", day(2))
+	damaged := filepath.Join(root, "20260101-000000.000000000-other")
+	if err := os.Mkdir(damaged, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(damaged, "manifest.json"), []byte("{"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	report, err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, "")
+	if err != nil {
+		t.Fatalf("another site's damaged backup stopped retention: %v", err)
+	}
+	if len(report.Unattributed) != 0 {
+		t.Fatalf("demo's report names another site's entry: %+v", report)
+	}
+	if _, err := os.Stat(filepath.Join(root, "20260101-000000.000000000-demo")); !os.IsNotExist(err) {
+		t.Fatal("demo's oldest backup was not pruned")
+	}
+	if _, err := os.Stat(damaged); err != nil {
+		t.Fatalf("another site's damaged backup was removed: %v", err)
+	}
+	// The damaged entry is reported by the site it is named for.
+	if report, err := pruneSiteBackups(root, AuthorizedSite{site: "other"}, 1, ""); err != nil || len(report.Unattributed) != 1 {
+		t.Fatalf("owning site's retention: report %+v, err %v; want the damaged entry reported", report, err)
+	}
+}
+
+// F-07: retention does not open manifests of backups named for other sites.
+func TestPruneSiteBackupsSkipsOtherSitesManifests(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can read a mode-000 manifest")
+	}
+	root := t.TempDir()
+	writeTestBackup(t, root, "20260101-000000.000000000-demo", "demo", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	writeTestBackup(t, root, "20260101-000000.000000000-other", "other", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	unreadable := filepath.Join(root, "20260101-000000.000000000-other", "manifest.json")
+	if err := os.Chmod(unreadable, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(unreadable, 0600) })
+	if report, err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, ""); err != nil || len(report.Unattributed) != 0 {
+		t.Fatalf("demo retention touched another site's manifest: report %+v, err %v", report, err)
+	}
+}
+
+// A backup named for this site whose manifest names another site is kept
+// and reported, never pruned as this site's.
+func TestPruneSiteBackupsReportsNameManifestMismatch(t *testing.T) {
+	root := t.TempDir()
+	writeTestBackup(t, root, "20260101-000000.000000000-demo", "other", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	writeTestBackup(t, root, "20260102-000000.000000000-demo", "demo", time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))
+	report, err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, "")
+	if err != nil || len(report.Unattributed) != 1 || report.Unattributed[0] != "20260101-000000.000000000-demo" {
+		t.Fatalf("report %+v, err %v; want the mismatched entry reported", report, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "20260101-000000.000000000-demo")); err != nil {
+		t.Fatalf("mismatched entry was deleted: %v", err)
+	}
+}
+
+func TestBackupNameSiteParsesOnlyPublishedNames(t *testing.T) {
+	for name, want := range map[string]string{
+		"20260101-000000.000000000-demo":    "demo",
+		"20260101-000000.000000000-my-shop": "my-shop",
+		"renamed-new":                       "",
+		"20260101-000000.000000000-":        "",
+		"2026010x-000000.000000000-demo":    "",
+		"20260101-000000.000000000-Bad/One": "",
+	} {
+		if got := backupNameSite(name); got != want {
+			t.Errorf("backupNameSite(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+// A retention failure is kept with the schedule across restarts and exported
+// as a metric, not only audited.
+func TestRetentionOutcomeIsPersistedAndExported(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "schedules.json")
+	store, err := openBackupSchedules(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.items["demo"] = BackupSchedule{Site: "demo", IntervalMinutes: 60, KeepLast: 7, Enabled: true, NextRun: time.Now().UTC().Add(time.Hour)}
+	if err := store.persistLocked(); err != nil {
+		store.mu.Unlock()
+		t.Fatal(err)
+	}
+	store.mu.Unlock()
+	store.recordRetention("demo", backupRetentionReport{Unattributed: []string{"damaged-backup"}}, errors.New("manifest has no created_at"))
+
+	restarted, err := openBackupSchedules(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted.mu.Lock()
+	schedule := restarted.items["demo"]
+	restarted.mu.Unlock()
+	if schedule.RetentionCheckedAt == nil || schedule.RetentionError == "" || len(schedule.RetentionUnattributed) != 1 {
+		t.Fatalf("retention outcome was not persisted: %+v", schedule)
+	}
+	var output strings.Builder
+	writeBackupScheduleMetrics(&output, []BackupSchedule{schedule})
+	for _, want := range []string{`stepanel_backup_retention_ok{site="demo"} 0`, `stepanel_backup_retention_unattributed_entries{site="demo"} 1`} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("metrics missing %q:\n%s", want, output.String())
+		}
+	}
+	restarted.recordRetention("demo", backupRetentionReport{}, nil)
+	restarted.mu.Lock()
+	schedule = restarted.items["demo"]
+	restarted.mu.Unlock()
+	if schedule.RetentionError != "" || len(schedule.RetentionUnattributed) != 0 {
+		t.Fatalf("a clean retention run did not clear the degraded state: %+v", schedule)
 	}
 }

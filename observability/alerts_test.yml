@@ -431,7 +431,35 @@ tests:
         values: '0+0x30'
       - series: 'stepanel_backup_success_present{job="stepanel",site="good"}'
         values: '1+0x30'
+      - series: 'stepanel_backup_retention_ok{job="stepanel",site="stuck"}'
+        values: '0+0x30'
+      - series: 'stepanel_backup_retention_ok{job="stepanel",site="good"}'
+        values: '1+0x30'
+      - series: 'stepanel_backup_retention_unattributed_entries{job="stepanel",site="damaged"}'
+        values: '2+0x30'
+      - series: 'stepanel_backup_retention_unattributed_entries{job="stepanel",site="good"}'
+        values: '0+0x30'
     alert_rule_test:
+      - eval_time: 20m
+        alertname: StePanelBackupRetentionFailed
+        exp_alerts:
+          - exp_labels:
+              job: stepanel
+              site: stuck
+              severity: warning
+            exp_annotations:
+              summary: Backup retention is failing for stuck
+              description: The latest scheduled retention for stuck did not complete, so its backups are no longer pruned and can fill the backup filesystem. Read retention_error on the site's backup schedule, fix the named backup (for example a manifest without created_at), and confirm the next scheduled run prunes.
+      - eval_time: 20m
+        alertname: StePanelBackupRetentionUnattributedEntries
+        exp_alerts:
+          - exp_labels:
+              job: stepanel
+              site: damaged
+              severity: warning
+            exp_annotations:
+              summary: Backup entries for damaged have unreadable ownership
+              description: 2 backup entr(ies) seen by damaged's retention have a missing, unreadable, or contradicting manifest. Retention keeps them and never deletes them, so they hold disk space indefinitely. Review the names in retention_unattributed on the site's backup schedule, then restore or remove each one deliberately.
       - eval_time: 20m
         alertname: StePanelScheduledBackupFailures
         exp_alerts:

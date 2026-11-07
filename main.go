@@ -1385,9 +1385,13 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 			started = time.Now()
 		}
 		a.Schedules.recordResult(request.Site, started, nil)
-		if err := pruneSiteBackups(a.Config.BackupRoot, access, request.KeepLast, filepath.Base(result.Path)); err != nil {
+		report, err := pruneSiteBackups(a.Config.BackupRoot, access, request.KeepLast, filepath.Base(result.Path))
+		if err != nil {
 			TelemetryAudit(a.Config.AuditLog, request.Actor, "backup.retention.failed", request.Site, err.Error())
+		} else if len(report.Unattributed) > 0 {
+			TelemetryAudit(a.Config.AuditLog, request.Actor, "backup.retention.unattributed", request.Site, strings.Join(report.Unattributed, ","))
 		}
+		a.Schedules.recordRetention(request.Site, report, err)
 		a.maybeEnqueueScheduledRehearsal(ctx, request.Site, filepath.Base(result.Path))
 	}
 	output, err := json.Marshal(result)

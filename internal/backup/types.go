@@ -116,4 +116,10 @@ type BackupSchedule struct {
 	LastError        string     `json:"last_error,omitempty"`
 	LastDurationMS   int64      `json:"last_duration_ms,omitempty"`
 	ConsecutiveFails int        `json:"consecutive_failures"`
+	// Retention outcome of the latest scheduled run. A failed or partial
+	// retention lets backups accumulate, so it is kept with the schedule and
+	// exported as a metric instead of only being audited.
+	RetentionCheckedAt    *time.Time `json:"retention_checked_at,omitempty"`
+	RetentionError        string     `json:"retention_error,omitempty"`
+	RetentionUnattributed []string   `json:"retention_unattributed,omitempty"`
 }
