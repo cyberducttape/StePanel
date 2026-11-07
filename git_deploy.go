@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -258,12 +259,13 @@ func (rc *WebhookReplayCache) Accept(site, deliveryID string, timestamp time.Tim
 	if timestamp.After(now.Add(rc.maxAge)) {
 		return false, errors.New("webhook timestamp is too far in the future")
 	}
+	expiresAt := rc.validUntil(timestamp)
 	if rc.db != nil {
 		_, err := rc.db.Exec(`DELETE FROM webhook_deliveries WHERE expires_at <= ?`, now.UnixNano())
 		if err != nil {
 			return false, fmt.Errorf("prune webhook deliveries: %w", err)
 		}
-		result, err := rc.db.Exec(`INSERT INTO webhook_deliveries(site, delivery_id, received_at, expires_at) VALUES (?, ?, ?, ?) ON CONFLICT(site, delivery_id) DO NOTHING`, site, deliveryID, now.UnixNano(), now.Add(rc.maxAge).UnixNano())
+		result, err := rc.db.Exec(`INSERT INTO webhook_deliveries(site, delivery_id, received_at, expires_at) VALUES (?, ?, ?, ?) ON CONFLICT(site, delivery_id) DO NOTHING`, site, deliveryID, now.UnixNano(), expiresAt.UnixNano())
 		if err != nil {
 			return false, fmt.Errorf("record webhook delivery: %w", err)
 		}
@@ -293,8 +295,28 @@ func (rc *WebhookReplayCache) Accept(site, deliveryID string, timestamp time.Tim
 			delete(rc.cache, oldestKey)
 		}
 	}
-	rc.cache[key] = now.Add(rc.maxAge)
+	rc.cache[key] = expiresAt
 	return true, nil
+}
+
+// webhookReplayClockMargin covers the small gap between the timestamp check
+// and the replay record, and minor clock adjustments while a record is held.
+const webhookReplayClockMargin = time.Minute
+
+// validUntil is when a delivery signed at timestamp stops passing the
+// timestamp check: maxAge after the signed time, which for a future-dated
+// delivery is later than maxAge after receipt. A replay record must last at
+// least that long, or the same signed delivery could be accepted again.
+func (rc *WebhookReplayCache) validUntil(timestamp time.Time) time.Time {
+	return timestamp.UTC().Add(rc.maxAge + webhookReplayClockMargin)
+}
+
+// webhookDeliveryOperationKey is the durable job idempotency key for one
+// signed delivery. Delivery IDs may be 128 characters, the operation-key
+// limit, so the key is a fixed-length digest.
+func webhookDeliveryOperationKey(deliveryID string) string {
+	digest := sha256.Sum256([]byte(deliveryID))
+	return "webhook:" + hex.EncodeToString(digest[:16])
 }
 
 type gitDeployRequest struct {
@@ -908,17 +930,6 @@ func (a *App) gitWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Replay protection: verify timestamp is recent and delivery ID hasn't been seen
-	accepted, err := a.webhookReplayCache.Accept(site, deliveryID, ts)
-	if err != nil {
-		http.Error(w, "webhook replay protection unavailable", http.StatusServiceUnavailable)
-		return
-	}
-	if !accepted {
-		http.Error(w, "duplicate or stale webhook delivery", 409)
-		return
-	}
-
 	// Carry the site the signature actually authorized, and the policy loaded
 	// with it, into gitDeploy's context.
 	// gitDeploy treats that value — not input.Site from the body — as the
@@ -933,9 +944,42 @@ func (a *App) gitWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "webhook body targets a different site than the URL signature authorized", http.StatusForbidden)
 		return
 	}
+	if a.webhookReplayCache == nil {
+		http.Error(w, "webhook replay protection unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	// The durable job is the replay gate: it is keyed by the signed delivery
+	// ID for the whole time the signature is valid, so a delivery is queued
+	// at most once. Nothing is recorded before the job commits, so a sender
+	// whose delivery failed to queue can retry the same signed delivery; a
+	// crash after the commit leaves the job queued and a retry finds it.
+	//
 	// Record the secret generation this delivery was authenticated under; the
 	// worker refuses it if the secret was rotated while it was queued.
-	a.enqueueSiteOperation(w, r, siteOperationPayload{Operation: "git.deploy", Path: "/api/sites/git-deploy", Body: body, Site: site, Actor: "webhook", Webhook: true, WebhookGeneration: config.SecretGeneration})
+	payload, err := json.Marshal(siteOperationPayload{Operation: "git.deploy", Path: "/api/sites/git-deploy", Body: body, Site: site, Actor: "webhook", Webhook: true, WebhookGeneration: config.SecretGeneration})
+	if err != nil {
+		http.Error(w, "could not encode operation", http.StatusInternalServerError)
+		return
+	}
+	job, existing, err := a.Jobs.EnqueueIdempotentWithExpiry(siteOperationKind, site, webhookDeliveryOperationKey(deliveryID), payload, 1, a.webhookReplayCache.validUntil(ts))
+	if err != nil {
+		if errors.Is(err, ErrIdempotencyConflict) {
+			http.Error(w, "duplicate or stale webhook delivery", http.StatusConflict)
+			return
+		}
+		http.Error(w, "could not queue webhook deployment; retry the same delivery", http.StatusServiceUnavailable)
+		return
+	}
+	if existing {
+		http.Error(w, "duplicate or stale webhook delivery", http.StatusConflict)
+		return
+	}
+	// The replay record is the delivery history; the job above already
+	// guarantees at-most-once queueing, so a failure here does not undo it.
+	if accepted, err := a.webhookReplayCache.Accept(site, deliveryID, ts); err != nil || !accepted {
+		log.Printf("record webhook delivery %s for %s after queueing job %s: accepted=%v err=%v", deliveryID, site, job.ID, accepted, err)
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "status_url": "/api/jobs/" + job.ID, "operation": "git.deploy", "site": site})
 }
 
 // containsString checks if a string is in a list (case-insensitive for URLs)
