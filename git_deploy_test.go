@@ -964,3 +964,67 @@ func TestLegacyLowercasedWebhookRepositoriesStillMatch(t *testing.T) {
 		t.Fatal("a legacy lowercased allowlist entry stopped matching after the migration")
 	}
 }
+
+// F-06: webhook signing secrets are sealed at rest, bound to their site.
+func TestWebhookSecretsAreSealedAtRest(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "webhooks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	const key = "environment-key-for-tests-0123456789abcdef"
+	const shopSecret = "per-site-webhook-secret-0123456789"
+	plain := NewWebhookConfigStore(db)
+	if err := plain.InitializeSchema(); err != nil {
+		t.Fatal(err)
+	}
+	// A secret written before encryption was configured is migrated.
+	if err := plain.SetWebhookConfig("shop", shopSecret, []string{"https://github.com/acme/shop.git"}, []string{"main"}); err != nil {
+		t.Fatal(err)
+	}
+	store := NewWebhookConfigStore(db)
+	if err := store.UseEncryptionKey(key); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetWebhookConfig("blog", "blog-webhook-secret-0123456789abcd", []string{"https://github.com/acme/blog.git"}, []string{"main"}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := db.Query(`SELECT site, webhook_secret FROM webhook_configs`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := map[string]string{}
+	for rows.Next() {
+		var site, value string
+		if err := rows.Scan(&site, &value); err != nil {
+			t.Fatal(err)
+		}
+		stored[site] = value
+	}
+	rows.Close()
+	for site, value := range stored {
+		if !strings.HasPrefix(value, webhookSecretSealedPrefix) || strings.Contains(value, "secret-0123456789") {
+			t.Fatalf("%s webhook secret is stored in plaintext: %q", site, value)
+		}
+	}
+	config, err := store.GetWebhookConfig("shop")
+	if err != nil || config == nil || config.WebhookSecret != shopSecret {
+		t.Fatalf("migrated secret did not round-trip: %+v, %v", config, err)
+	}
+	// Re-saving the same secret is a policy update, not a rotation.
+	change, err := store.ConfigureWebhook("shop", shopSecret, []string{"https://github.com/acme/shop.git"}, []string{"main"})
+	if err != nil || change != WebhookPolicyUpdated {
+		t.Fatalf("re-saving the same sealed secret reported %q, %v", change, err)
+	}
+	// A ciphertext moved to another site's row does not open there.
+	if _, err := db.Exec(`UPDATE webhook_configs SET webhook_secret = (SELECT webhook_secret FROM webhook_configs WHERE site = 'shop') WHERE site = 'blog'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GetWebhookConfig("blog"); err == nil {
+		t.Fatal("a secret sealed for shop opened as blog's")
+	}
+	// Without the key a sealed secret fails closed.
+	if _, err := plain.GetWebhookConfig("shop"); err == nil {
+		t.Fatal("a sealed secret was returned without the encryption key")
+	}
+}

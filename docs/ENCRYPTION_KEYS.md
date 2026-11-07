@@ -122,7 +122,7 @@ Starting in production, StePanel validates encryption keys at startup and reject
 - **Example:** `a7f2e9c3b1d8f4a6e2c9b3d7f1a5e8c2b6d9f2a5e8c1b4d7a0e3f6c9b2e5`
 
 ### STEPANEL_ENVIRONMENT_KEY
-- **Purpose:** Encrypt site environment variables (secrets, passwords, API keys), each bound to its site and variable name
+- **Purpose:** Encrypt site environment variables (secrets, passwords, API keys), each bound to its site and variable name, and per-site Git webhook signing secrets, each bound to its site. Webhook secrets stored in plaintext by earlier releases are sealed at startup; changing this key makes both unreadable
 - **Required:** In production if using site environment variables
 - **Generation:** `openssl rand -hex 32`
 - **Example:** `c2b5e8a1d4f7a0c3e6b9d2e5f8a1c4d7e0f2a5b8c1d4e7a0c3f6b9e2d5`

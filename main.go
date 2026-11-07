@@ -475,6 +475,11 @@ func Main() {
 	if err := webhookConfigStore.InitializeSchema(); err != nil {
 		log.Fatalf("initialize webhook configuration schema: %v", err)
 	}
+	// Webhook signing secrets are sealed with the environment-secret key,
+	// which production requires; existing plaintext secrets are re-sealed.
+	if err := webhookConfigStore.UseEncryptionKey(cfg.EnvironmentKey); err != nil {
+		log.Fatalf("seal webhook signing secrets: %v", err)
+	}
 	backupIndex, err := metadata.NewBackupIndex(controlPlaneDB)
 	if err != nil {
 		log.Fatalf("initialize backup index: %v", err)

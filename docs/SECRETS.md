@@ -27,7 +27,8 @@ delete the old backup until recovery has been tested.
 
 ## Context-bound encryption
 
-Environment secrets, customer TOTP seeds and durable job payloads are sealed
+Environment secrets, Git webhook signing secrets, customer TOTP seeds and
+durable job payloads are sealed
 with `internal/secretbox`: a per-purpose key derived with HKDF-SHA256 from the
 configured key, and AES-GCM associated data that binds each value to where it
 belongs.
@@ -35,6 +36,7 @@ belongs.
 | Value | Key | Bound to |
 |---|---|---|
 | Environment secret | `STEPANEL_ENVIRONMENT_KEY` | site, variable name |
+| Git webhook signing secret | `STEPANEL_ENVIRONMENT_KEY` | site |
 | Customer TOTP seed | `STEPANEL_ACCOUNT_KEY` | username |
 | Durable job payload | `STEPANEL_ACCOUNT_KEY` | job ID, kind, owner |
 

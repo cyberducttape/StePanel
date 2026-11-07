@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -30,6 +31,7 @@ import (
 
 	"github.com/cyberducttape/StePanel/internal/domainname"
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
+	"github.com/cyberducttape/StePanel/internal/secretbox"
 	"github.com/cyberducttape/StePanel/internal/sitelayout"
 )
 
@@ -1703,6 +1705,94 @@ func newRequestID() string {
 type WebhookConfigStore struct {
 	mu sync.RWMutex
 	db *sql.DB
+	// box seals signing secrets at rest when an encryption key is
+	// configured (UseEncryptionKey); without one they stay plaintext, as on
+	// development hosts.
+	box *secretbox.Box
+}
+
+// webhookSecretSealedPrefix marks a signing secret sealed by secretbox.
+// ConfigureWebhook refuses operator secrets that start with it.
+const webhookSecretSealedPrefix = "secretbox:"
+
+// UseEncryptionKey seals signing secrets with key from now on and re-seals
+// any plaintext secret already stored. Each secret is bound to its site, so
+// a ciphertext copied to another site's row fails to open.
+func (wcs *WebhookConfigStore) UseEncryptionKey(key string) error {
+	if strings.TrimSpace(key) == "" {
+		return nil
+	}
+	box, err := secretbox.New([]byte(key), "webhook-secret")
+	if err != nil {
+		return fmt.Errorf("initialize webhook secret encryption: %w", err)
+	}
+	wcs.mu.Lock()
+	defer wcs.mu.Unlock()
+	wcs.box = box
+	tx, err := beginImmediate(context.Background(), wcs.db)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	rows, err := tx.Query(`SELECT id, site, webhook_secret FROM webhook_configs WHERE webhook_secret <> '' AND substr(webhook_secret, 1, ?) <> ?`, len(webhookSecretSealedPrefix), webhookSecretSealedPrefix)
+	if err != nil {
+		return fmt.Errorf("find plaintext webhook secrets: %w", err)
+	}
+	type plaintextSecret struct {
+		id           int64
+		site, secret string
+	}
+	var pending []plaintextSecret
+	for rows.Next() {
+		var item plaintextSecret
+		if err := rows.Scan(&item.id, &item.site, &item.secret); err != nil {
+			rows.Close()
+			return err
+		}
+		pending = append(pending, item)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, item := range pending {
+		sealed, err := wcs.sealSecretLocked(item.site, item.secret)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE webhook_configs SET webhook_secret = ? WHERE id = ?`, sealed, item.id); err != nil {
+			return fmt.Errorf("seal webhook secret for %s: %w", item.site, err)
+		}
+	}
+	return tx.Commit()
+}
+
+func (wcs *WebhookConfigStore) sealSecretLocked(site, secret string) (string, error) {
+	if secret == "" || wcs.box == nil {
+		return secret, nil
+	}
+	sealed, err := wcs.box.Seal([]byte(secret), site)
+	if err != nil {
+		return "", fmt.Errorf("seal webhook secret: %w", err)
+	}
+	return webhookSecretSealedPrefix + base64.RawStdEncoding.EncodeToString(sealed), nil
+}
+
+func (wcs *WebhookConfigStore) openSecretLocked(site, stored string) (string, error) {
+	if !strings.HasPrefix(stored, webhookSecretSealedPrefix) {
+		return stored, nil
+	}
+	if wcs.box == nil {
+		return "", errors.New("webhook secret is encrypted but no encryption key is configured")
+	}
+	raw, err := base64.RawStdEncoding.DecodeString(strings.TrimPrefix(stored, webhookSecretSealedPrefix))
+	if err != nil {
+		return "", fmt.Errorf("decode webhook secret: %w", err)
+	}
+	plaintext, err := wcs.box.Open(raw, site)
+	if err != nil {
+		return "", fmt.Errorf("open webhook secret for %s: %w", site, err)
+	}
+	return string(plaintext), nil
 }
 
 // NewWebhookConfigStore creates a webhook configuration manager
@@ -1802,6 +1892,13 @@ func (wcs *WebhookConfigStore) ConfigureWebhook(site, secret string, repos, refP
 	}
 	defer tx.Rollback()
 
+	if strings.HasPrefix(secret, webhookSecretSealedPrefix) {
+		return "", errors.New("webhook secret uses a reserved prefix")
+	}
+	storedSecret, err := wcs.sealSecretLocked(site, secret)
+	if err != nil {
+		return "", err
+	}
 	var id int64
 	var previousSecret string
 	var enabled bool
@@ -1809,11 +1906,16 @@ func (wcs *WebhookConfigStore) ConfigureWebhook(site, secret string, repos, refP
 	if err != nil && err != sql.ErrNoRows {
 		return "", err
 	}
+	if err == nil {
+		if previousSecret, err = wcs.openSecretLocked(site, previousSecret); err != nil {
+			return "", err
+		}
+	}
 
 	if err == sql.ErrNoRows {
 		result, err := tx.Exec(
 			"INSERT INTO webhook_configs (site, webhook_secret, secret_generation) VALUES (?, ?, 1)",
-			site, secret,
+			site, storedSecret,
 		)
 		if err != nil {
 			return "", err
@@ -1835,7 +1937,7 @@ func (wcs *WebhookConfigStore) ConfigureWebhook(site, secret string, repos, refP
 		}
 		_, err := tx.Exec(
 			"UPDATE webhook_configs SET webhook_secret = ?, enabled = 1, secret_generation = secret_generation + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-			secret, advance, id,
+			storedSecret, advance, id,
 		)
 		if err != nil {
 			return "", err
@@ -1900,6 +2002,9 @@ func (wcs *WebhookConfigStore) GetWebhookConfig(site string) (*GitWebhookConfig,
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
+		return nil, err
+	}
+	if secret, err = wcs.openSecretLocked(site, secret); err != nil {
 		return nil, err
 	}
 
