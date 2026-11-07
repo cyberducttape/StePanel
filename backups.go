@@ -1417,32 +1417,29 @@ func listBackupsForSite(root, site string, limit int, signingKey ...string) ([]B
 // listBackupsMatching lists the backups of sites (every site when nil),
 // newest first across them. Only those sites' backup directories are read.
 func listBackupsMatching(root string, sites []string, limit int, signingKey ...string) ([]BackupResult, error) {
-	if sites == nil {
-		all, err := backupSiteNames(root)
-		if err != nil {
-			return nil, err
-		}
-		sites = all
-	}
 	allowed := make(map[string]bool, len(sites))
 	for _, site := range sites {
 		allowed[site] = true
 	}
-	matches := func(site string) bool { return allowed[site] }
+	matches := func(site string) bool { return sites == nil || allowed[site] }
+	// Site directories are discovered by listing the sites directory, so
+	// requested names select entries but never form a path. That listing
+	// holds one name per site, not per backup.
+	discovered, err := backupSiteNames(root)
+	if err != nil {
+		return nil, err
+	}
 	type candidate struct {
 		path      string
 		site      string
 		createdAt time.Time
 	}
 	var candidates []candidate
-	for _, site := range sites {
-		if site == "" || safeUser(site) != site {
-			return nil, fmt.Errorf("invalid backup site %q", site)
+	for _, site := range discovered {
+		if !matches(site) {
+			continue
 		}
-		directory, err := backupSiteDirectory(root, site)
-		if err != nil {
-			return nil, err
-		}
+		directory := filepath.Join(backupSitesRoot(root), site)
 		entries, err := os.ReadDir(directory)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
