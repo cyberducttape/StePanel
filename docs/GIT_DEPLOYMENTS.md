@@ -105,6 +105,21 @@ termination revokes the site's webhook (secret, allowlists, and any queued
 delivery) before ownership is detached, and creating a site clears any webhook
 authorization left under its name, so a reused name inherits nothing.
 
+Each site needs its own signing secret. The signature covers the delivery
+timestamp, delivery ID, and body, not the target site, so the secret is what
+ties a delivery to one site: configuring a secret another site already uses
+is refused (`422`), and the panel logs a warning at startup for sites that
+shared one before that check existed. Secrets are sealed at rest with
+`STEPANEL_ENVIRONMENT_KEY` (see [SECRETS.md](SECRETS.md)).
+
+Each signed delivery is queued at most once. Its delivery ID keys the durable
+deployment job for as long as the signature is valid (the signed timestamp
+plus five minutes), so a retry of a delivery that failed to queue succeeds,
+and a replay of one that was queued answers `409`. Repository allowlists
+compare the scheme and host case-insensitively and the path exactly; entries
+saved by earlier releases were lowercased and keep matching
+case-insensitively until the webhook is saved again.
+
 ## Roll back
 
 Rollback activates the newest preserved release and retains the release it

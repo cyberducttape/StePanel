@@ -788,6 +788,10 @@ func (a *App) webhookConfig(w http.ResponseWriter, r *http.Request) {
 		change, err := a.Webhooks.ConfigureWebhook(site, secret, input.Repositories, input.AllowedRefs)
 		if err != nil {
 			intent.Failed(err.Error())
+			if errors.Is(err, ErrWebhookSecretReused) {
+				http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+				return
+			}
 			http.Error(w, "could not persist webhook configuration", http.StatusInternalServerError)
 			return
 		}
@@ -1711,6 +1715,12 @@ type WebhookConfigStore struct {
 	box *secretbox.Box
 }
 
+// ErrWebhookSecretReused reports a signing secret already configured for
+// another site. The signature covers the delivery, not the target site, so
+// each site's secret must be unique for a valid signature to authorize
+// exactly one site.
+var ErrWebhookSecretReused = errors.New("this webhook secret is already used by another site; use a unique secret per site")
+
 // webhookSecretSealedPrefix marks a signing secret sealed by secretbox.
 // ConfigureWebhook refuses operator secrets that start with it.
 const webhookSecretSealedPrefix = "secretbox:"
@@ -1764,6 +1774,69 @@ func (wcs *WebhookConfigStore) UseEncryptionKey(key string) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// SitesSharingSecrets reports groups of sites configured with the same
+// signing secret before reuse was refused. Each group must be given unique
+// secrets; until then a delivery signed for one also verifies for the others.
+func (wcs *WebhookConfigStore) SitesSharingSecrets() ([][]string, error) {
+	wcs.mu.RLock()
+	defer wcs.mu.RUnlock()
+	rows, err := wcs.db.Query(`SELECT site, webhook_secret FROM webhook_configs WHERE webhook_secret <> '' ORDER BY site`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	bySecret := map[string][]string{}
+	for rows.Next() {
+		var site, stored string
+		if err := rows.Scan(&site, &stored); err != nil {
+			return nil, err
+		}
+		secret, err := wcs.openSecretLocked(site, stored)
+		if err != nil {
+			return nil, err
+		}
+		digest := sha256.Sum256([]byte(secret))
+		key := string(digest[:])
+		bySecret[key] = append(bySecret[key], site)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	var groups [][]string
+	for _, sites := range bySecret {
+		if len(sites) > 1 {
+			groups = append(groups, sites)
+		}
+	}
+	sort.Slice(groups, func(i, j int) bool { return groups[i][0] < groups[j][0] })
+	return groups, nil
+}
+
+// refuseSecretReuseLocked returns ErrWebhookSecretReused when another site
+// already holds secret (F-08). Secrets are opened for comparison because
+// sealing is randomized.
+func (wcs *WebhookConfigStore) refuseSecretReuseLocked(tx *immediateTx, site, secret string) error {
+	rows, err := tx.Query(`SELECT site, webhook_secret FROM webhook_configs WHERE site <> ? AND webhook_secret <> ''`, site)
+	if err != nil {
+		return fmt.Errorf("check webhook secret uniqueness: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var other, stored string
+		if err := rows.Scan(&other, &stored); err != nil {
+			return err
+		}
+		existing, err := wcs.openSecretLocked(other, stored)
+		if err != nil {
+			return fmt.Errorf("check webhook secret uniqueness: %w", err)
+		}
+		if subtle.ConstantTimeCompare([]byte(existing), []byte(secret)) == 1 {
+			return ErrWebhookSecretReused
+		}
+	}
+	return rows.Err()
 }
 
 func (wcs *WebhookConfigStore) sealSecretLocked(site, secret string) (string, error) {
@@ -1897,6 +1970,9 @@ func (wcs *WebhookConfigStore) ConfigureWebhook(site, secret string, repos, refP
 	}
 	storedSecret, err := wcs.sealSecretLocked(site, secret)
 	if err != nil {
+		return "", err
+	}
+	if err := wcs.refuseSecretReuseLocked(tx, site, secret); err != nil {
 		return "", err
 	}
 	var id int64

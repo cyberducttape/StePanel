@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1026,5 +1027,48 @@ func TestWebhookSecretsAreSealedAtRest(t *testing.T) {
 	// Without the key a sealed secret fails closed.
 	if _, err := plain.GetWebhookConfig("shop"); err == nil {
 		t.Fatal("a sealed secret was returned without the encryption key")
+	}
+}
+
+// F-08: the signature does not cover the target site, so one secret must not
+// authorize two sites.
+func TestWebhookSecretCannotBeReusedAcrossSites(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "webhooks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := NewWebhookConfigStore(db)
+	if err := store.InitializeSchema(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UseEncryptionKey("environment-key-for-tests-0123456789abcdef"); err != nil {
+		t.Fatal(err)
+	}
+	const shared = "shared-webhook-secret-0123456789abcd"
+	repos, refs := []string{"https://github.com/acme/app.git"}, []string{"main"}
+	if err := store.SetWebhookConfig("shop", shared, repos, refs); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetWebhookConfig("blog", shared, repos, refs); !errors.Is(err, ErrWebhookSecretReused) {
+		t.Fatalf("reusing shop's secret for blog: %v, want ErrWebhookSecretReused", err)
+	}
+	if config, err := store.GetWebhookConfig("blog"); err != nil || config != nil {
+		t.Fatalf("a refused configuration was stored: %+v, %v", config, err)
+	}
+	// Re-saving a site's own secret is not reuse.
+	if err := store.SetWebhookConfig("shop", shared, repos, refs); err != nil {
+		t.Fatalf("re-saving shop's own secret: %v", err)
+	}
+	// A pair shared before reuse was refused is reported.
+	sealed, err := store.sealSecretLocked("legacy", shared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO webhook_configs (site, webhook_secret) VALUES ('legacy', ?)`, sealed); err != nil {
+		t.Fatal(err)
+	}
+	if groups, err := store.SitesSharingSecrets(); err != nil || len(groups) != 1 || strings.Join(groups[0], ",") != "legacy,shop" {
+		t.Fatalf("shared-secret report = %v, %v; want [legacy shop]", groups, err)
 	}
 }

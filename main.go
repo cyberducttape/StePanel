@@ -480,6 +480,13 @@ func Main() {
 	if err := webhookConfigStore.UseEncryptionKey(cfg.EnvironmentKey); err != nil {
 		log.Fatalf("seal webhook signing secrets: %v", err)
 	}
+	if groups, err := webhookConfigStore.SitesSharingSecrets(); err != nil {
+		log.Printf("check webhook secret uniqueness: %v", err)
+	} else {
+		for _, sites := range groups {
+			log.Printf("[WARNING] sites %s share one webhook signing secret: a delivery signed for one also verifies for the others; configure a unique secret for each", strings.Join(sites, ", "))
+		}
+	}
 	backupIndex, err := metadata.NewBackupIndex(controlPlaneDB)
 	if err != nil {
 		log.Fatalf("initialize backup index: %v", err)
