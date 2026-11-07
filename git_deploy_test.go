@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/cyberducttape/StePanel/internal/secretbox"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -948,6 +949,7 @@ func TestLegacyLowercasedWebhookRepositoriesStillMatch(t *testing.T) {
 		`CREATE TABLE webhook_allowed_repos (id INTEGER PRIMARY KEY AUTOINCREMENT, webhook_id INTEGER NOT NULL, repository_url TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(webhook_id, repository_url))`,
 		`INSERT INTO webhook_configs (id, site, webhook_secret) VALUES (1, 'shop', 'per-site-webhook-secret-0123456789')`,
 		`INSERT INTO webhook_allowed_repos (webhook_id, repository_url) VALUES (1, 'https://github.com/acme/shop.git')`,
+		`INSERT INTO webhook_allowed_repos (webhook_id, repository_url) VALUES (1, 'https://git.example.net/acme/shop.git')`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatal(err)
@@ -961,8 +963,50 @@ func TestLegacyLowercasedWebhookRepositoriesStillMatch(t *testing.T) {
 	if err != nil || config == nil {
 		t.Fatalf("load legacy webhook: %v", err)
 	}
-	if !webhookRepositoryAllowed(newAuthenticatedWebhook(config), "https://github.com/Acme/Shop.git") {
+	auth := newAuthenticatedWebhook(config)
+	// GitHub resolves repository paths case-insensitively, so matching the
+	// lowercased entry that way authorizes nothing more.
+	if !webhookRepositoryAllowed(auth, "https://github.com/Acme/Shop.git") {
 		t.Fatal("a legacy lowercased allowlist entry stopped matching after the migration")
+	}
+	// On a host that may be case-sensitive, the original case is unknown:
+	// the entry matches only exactly, and startup names the site.
+	if webhookRepositoryAllowed(auth, "https://git.example.net/Acme/Shop.git") {
+		t.Fatal("a legacy entry on a case-sensitive host matched a different-case repository")
+	}
+	if !webhookRepositoryAllowed(auth, "https://git.example.net/acme/shop.git") {
+		t.Fatal("a legacy entry stopped matching its exact repository")
+	}
+	if sites, err := store.SitesWithUnrevalidatedRepositories(); err != nil || strings.Join(sites, ",") != "shop" {
+		t.Fatalf("unrevalidated allowlists = %v, %v; want [shop]", sites, err)
+	}
+	// Saving the webhook again revalidates the entries.
+	if err := store.SetWebhookConfig("shop", "per-site-webhook-secret-0123456789", []string{"https://git.example.net/Acme/Shop.git"}, []string{"main"}); err != nil {
+		t.Fatal(err)
+	}
+	if sites, err := store.SitesWithUnrevalidatedRepositories(); err != nil || len(sites) != 0 {
+		t.Fatalf("unrevalidated allowlists after re-saving = %v, %v", sites, err)
+	}
+}
+
+// An HTTPS URL with an uppercase scheme or host is accepted in the form the
+// clone helper requires, and a URL the helper would refuse is refused here.
+func TestParseGitRepositoryReturnsHelperForm(t *testing.T) {
+	repository, err := parseGitRepository("HTTPS://GitHub.com/Acme/Shop.git", "github.com")
+	if err != nil || repository.URL != "https://github.com/Acme/Shop.git" {
+		t.Fatalf("uppercase scheme: %+v, %v", repository, err)
+	}
+	if !gitHTTPSRepositoryPattern.MatchString(repository.URL) {
+		t.Fatalf("parsed URL %q would be refused by the clone helper", repository.URL)
+	}
+	ssh, err := parseGitRepository("git@GitHub.com:Acme/Shop.git", "github.com")
+	if err != nil || ssh.URL != "git@github.com:Acme/Shop.git" {
+		t.Fatalf("uppercase SSH host: %+v, %v", ssh, err)
+	}
+	for _, refused := range []string{"https://github.com/acme/shop.GIT", "https://github.com/acme/sh%20op.git", "https://github.com/acme/shop.git?", "https://github.com/acme/../shop.git"} {
+		if _, err := parseGitRepository(refused, "github.com"); err == nil {
+			t.Errorf("parseGitRepository(%q) accepted a URL the clone helper refuses", refused)
+		}
 	}
 }
 
@@ -1060,15 +1104,163 @@ func TestWebhookSecretCannotBeReusedAcrossSites(t *testing.T) {
 	if err := store.SetWebhookConfig("shop", shared, repos, refs); err != nil {
 		t.Fatalf("re-saving shop's own secret: %v", err)
 	}
-	// A pair shared before reuse was refused is reported.
-	sealed, err := store.sealSecretLocked("legacy", shared)
-	if err != nil {
+	// A pair shared before reuse was refused (an older release wrote the
+	// plaintext row) is found at startup and refused until rotated.
+	if _, err := db.Exec(`INSERT INTO webhook_configs (site, webhook_secret) VALUES ('legacy', ?)`, shared); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO webhook_configs (site, webhook_secret) VALUES ('legacy', ?)`, sealed); err != nil {
+	if err := store.PrepareSecrets("environment-key-for-tests-0123456789abcdef"); err != nil {
 		t.Fatal(err)
 	}
 	if groups, err := store.SitesSharingSecrets(); err != nil || len(groups) != 1 || strings.Join(groups[0], ",") != "legacy,shop" {
 		t.Fatalf("shared-secret report = %v, %v; want [legacy shop]", groups, err)
+	}
+	for _, site := range []string{"shop", "legacy"} {
+		config, err := store.GetWebhookConfig(site)
+		if err != nil || config == nil || !config.SecretShared {
+			t.Fatalf("%s with a shared secret: %+v, %v; want SecretShared", site, config, err)
+		}
+	}
+	// Rotating one of them clears it for both.
+	if err := store.SetWebhookConfig("legacy", "legacy-unique-secret-0123456789abcd", repos, refs); err != nil {
+		t.Fatal(err)
+	}
+	for _, site := range []string{"shop", "legacy"} {
+		if config, err := store.GetWebhookConfig(site); err != nil || config == nil || config.SecretShared {
+			t.Fatalf("%s after rotation: %+v, %v; want unshared", site, config, err)
+		}
+	}
+}
+
+// A delivery for a site whose secret another site also holds is refused,
+// even with a valid signature.
+func TestWebhookDeliveryRefusedWhileSecretIsShared(t *testing.T) {
+	app := newWebhookDeliveryFixture(t)
+	if _, err := app.Webhooks.db.Exec(`INSERT INTO webhook_configs (site, webhook_secret) VALUES ('legacy', ?)`, webhookTestSecret); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Webhooks.PrepareSecrets(""); err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	app.gitWebhook(response, signedWebhookAt(t, "shop", webhookTestBody, "delivery-shared", time.Now()))
+	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "shared") {
+		t.Fatalf("delivery with a shared secret: %d %s, want 403", response.Code, response.Body.String())
+	}
+	if n := countSiteOperationJobs(t, app); n != 0 {
+		t.Fatalf("a delivery with a shared secret queued %d jobs", n)
+	}
+}
+
+// A plaintext secret that happens to start with the sealed prefix is not
+// mistaken for ciphertext: it is sealed like any other and keeps working.
+func TestPlaintextSecretWithSealedPrefixMigrates(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "webhooks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := NewWebhookConfigStore(db)
+	if err := store.InitializeSchema(); err != nil {
+		t.Fatal(err)
+	}
+	const odd = "secretbox:operator-chosen-plaintext-secret"
+	if _, err := db.Exec(`INSERT INTO webhook_configs (site, webhook_secret) VALUES ('shop', ?)`, odd); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PrepareSecrets("environment-key-for-tests-0123456789abcdef"); err != nil {
+		t.Fatal(err)
+	}
+	var stored string
+	var sealed bool
+	if err := db.QueryRow(`SELECT webhook_secret, secret_sealed FROM webhook_configs WHERE site = 'shop'`).Scan(&stored, &sealed); err != nil {
+		t.Fatal(err)
+	}
+	if !sealed || stored == odd {
+		t.Fatalf("plaintext secret with the sealed prefix was not sealed: %q sealed=%v", stored, sealed)
+	}
+	if config, err := store.GetWebhookConfig("shop"); err != nil || config == nil || config.WebhookSecret != odd {
+		t.Fatalf("migrated secret = %+v, %v; want %q", config, err, odd)
+	}
+	// An operator may also configure such a secret now.
+	if err := store.SetWebhookConfig("blog", "secretbox:another-plaintext-secret-value", []string{"https://github.com/acme/blog.git"}, []string{"main"}); err != nil {
+		t.Fatalf("configuring a secret with the sealed prefix: %v", err)
+	}
+}
+
+// Secrets sealed by the release before secret_sealed existed are recognized
+// by authenticating them, not by their prefix.
+func TestPrefixOnlySealedSecretIsRecognized(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "webhooks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	const key = "environment-key-for-tests-0123456789abcdef"
+	store := NewWebhookConfigStore(db)
+	if err := store.InitializeSchema(); err != nil {
+		t.Fatal(err)
+	}
+	box, err := secretbox.New([]byte(key), "webhook-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, _, err := sealWebhookSecret(box, "shop", webhookTestSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO webhook_configs (site, webhook_secret) VALUES ('shop', ?)`, value); err != nil {
+		t.Fatal(err)
+	}
+	// Under a different key it is unreadable, not plaintext.
+	var unreadable *UnreadableWebhookSecretsError
+	if err := NewWebhookConfigStore(db).PrepareSecrets("some-other-environment-key-0123456789"); !errors.As(err, &unreadable) {
+		t.Fatalf("prefix-sealed secret under another key: %v, want unreadable", err)
+	}
+	if err := store.PrepareSecrets(key); err != nil {
+		t.Fatal(err)
+	}
+	if config, err := store.GetWebhookConfig("shop"); err != nil || config == nil || config.WebhookSecret != webhookTestSecret {
+		t.Fatalf("prefix-sealed secret = %+v, %v", config, err)
+	}
+}
+
+// Startup refuses to continue when a sealed secret does not open, and the
+// recovery command disables exactly the unreadable webhooks.
+func TestUnreadableWebhookSecretsStopStartupUntilRecovered(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "webhooks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := NewWebhookConfigStore(db)
+	if err := store.InitializeSchema(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PrepareSecrets("original-environment-key-0123456789abcdef"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetWebhookConfig("shop", webhookTestSecret, []string{"https://github.com/acme/shop.git"}, []string{"main"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"replacement-environment-key-0123456789ab", ""} {
+		var unreadable *UnreadableWebhookSecretsError
+		if err := NewWebhookConfigStore(db).PrepareSecrets(key); !errors.As(err, &unreadable) || strings.Join(unreadable.Sites, ",") != "shop" {
+			t.Fatalf("preparing with key %q: %v, want shop unreadable", key, err)
+		}
+	}
+	disabled, err := NewWebhookConfigStore(db).DisableUnreadableSecrets("replacement-environment-key-0123456789ab")
+	if err != nil || strings.Join(disabled, ",") != "shop" {
+		t.Fatalf("disable unreadable = %v, %v", disabled, err)
+	}
+	recovered := NewWebhookConfigStore(db)
+	if err := recovered.PrepareSecrets("replacement-environment-key-0123456789ab"); err != nil {
+		t.Fatalf("startup after recovery: %v", err)
+	}
+	if config, err := recovered.GetWebhookConfig("shop"); err != nil || config != nil {
+		t.Fatalf("recovered webhook is still enabled: %+v, %v", config, err)
+	}
+	if change, err := recovered.ConfigureWebhook("shop", "new-shop-secret-0123456789abcdefgh", []string{"https://github.com/acme/shop.git"}, []string{"main"}); err != nil || change != WebhookConfigReenabled {
+		t.Fatalf("reconfiguring after recovery: %q, %v", change, err)
 	}
 }

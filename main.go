@@ -258,6 +258,12 @@ func Main() {
 		}
 		return
 	}
+	if len(os.Args) == 3 && os.Args[1] == "webhook-secrets" && os.Args[2] == "disable-unreadable" {
+		if err := runDisableUnreadableWebhookSecrets(LoadConfig()); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if len(os.Args) >= 2 && os.Args[1] == "upgrade-drain" {
 		if err := runUpgradeDrainCommand(os.Args[2:]); err != nil {
 			log.Fatal(err)
@@ -476,16 +482,23 @@ func Main() {
 		log.Fatalf("initialize webhook configuration schema: %v", err)
 	}
 	// Webhook signing secrets are sealed with the environment-secret key,
-	// which production requires; existing plaintext secrets are re-sealed.
-	if err := webhookConfigStore.UseEncryptionKey(cfg.EnvironmentKey); err != nil {
-		log.Fatalf("seal webhook signing secrets: %v", err)
+	// which production requires; existing plaintext secrets are sealed and
+	// every sealed secret must open, or startup stops (see
+	// docs/ENCRYPTION_KEYS.md for recovery).
+	if err := webhookConfigStore.PrepareSecrets(cfg.EnvironmentKey); err != nil {
+		log.Fatalf("prepare webhook signing secrets: %v", err)
 	}
 	if groups, err := webhookConfigStore.SitesSharingSecrets(); err != nil {
-		log.Printf("check webhook secret uniqueness: %v", err)
+		log.Fatalf("check webhook secret uniqueness: %v", err)
 	} else {
 		for _, sites := range groups {
-			log.Printf("[WARNING] sites %s share one webhook signing secret: a delivery signed for one also verifies for the others; configure a unique secret for each", strings.Join(sites, ", "))
+			log.Printf("[WARNING] sites %s share one webhook signing secret; their deliveries are refused until each is configured with a unique secret", strings.Join(sites, ", "))
 		}
+	}
+	if sites, err := webhookConfigStore.SitesWithUnrevalidatedRepositories(); err != nil {
+		log.Fatalf("check webhook repository allowlists: %v", err)
+	} else if len(sites) > 0 {
+		log.Printf("[WARNING] webhook allowlists for %s were saved lowercased by an earlier release and now match only exactly on hosts with case-sensitive repository paths; save each webhook again with the repository's exact URL", strings.Join(sites, ", "))
 	}
 	backupIndex, err := metadata.NewBackupIndex(controlPlaneDB)
 	if err != nil {
@@ -708,6 +721,11 @@ func Main() {
 		}
 		if err := CleanupBackupStages(cfg.BackupRoot, orphanedStagingMinAge); err != nil {
 			app.observeStateError(state.NewCleanupError("backup_stage_cleanup", err, "backup stage cleanup during startup"))
+		}
+		// Retention finishes only its own site's interrupted deletions; this
+		// finishes those of sites that never run retention again.
+		if err := removePruneTombstones(cfg.BackupRoot); err != nil && !errors.Is(err, os.ErrNotExist) {
+			app.observeStateError(state.NewCleanupError("backup_prune_cleanup", err, "backup retention cleanup during startup"))
 		}
 		if err := CleanupSiteTransactions(cfg.RecoveryRoot, time.Duration(cfg.StageRetentionHours)*time.Hour, cfg.WebRoot, cfg.MailRoot, cfg.HomeRoot); err != nil {
 			app.observeStateError(state.NewCleanupError("site_recovery_cleanup", err, "site recovery cleanup during startup"))

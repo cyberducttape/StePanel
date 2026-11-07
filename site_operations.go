@@ -351,6 +351,9 @@ func (a *App) handleSiteOperationJob(ctx context.Context, item Job) ([]byte, err
 		if config == nil || config.WebhookSecret == "" {
 			return nil, doNotRetry(errors.New("the webhook for this site was removed before the deployment ran"))
 		}
+		if config.SecretShared {
+			return nil, doNotRetry(ErrWebhookSecretShared)
+		}
 		// Rotating the signing secret revokes deliveries accepted under the
 		// previous one. Deliveries queued before generations were recorded
 		// carry none and are refused too; the sender can redeliver.

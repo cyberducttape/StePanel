@@ -108,17 +108,25 @@ authorization left under its name, so a reused name inherits nothing.
 Each site needs its own signing secret. The signature covers the delivery
 timestamp, delivery ID, and body, not the target site, so the secret is what
 ties a delivery to one site: configuring a secret another site already uses
-is refused (`422`), and the panel logs a warning at startup for sites that
-shared one before that check existed. Secrets are sealed at rest with
-`STEPANEL_ENVIRONMENT_KEY` (see [SECRETS.md](SECRETS.md)).
+is refused (`422`). Sites that shared a secret before that check existed are
+named in a startup warning, and their deliveries are refused (`403`,
+`webhook.auth.shared-secret`) until each is configured with its own secret;
+rotating one site of a pair clears both. Secrets are sealed at rest with
+`STEPANEL_ENVIRONMENT_KEY` (see [SECRETS.md](SECRETS.md)), and startup stops
+if a sealed secret does not open with the configured key
+([ENCRYPTION_KEYS.md](ENCRYPTION_KEYS.md)).
 
 Each signed delivery is queued at most once. Its delivery ID keys the durable
 deployment job for as long as the signature is valid (the signed timestamp
 plus five minutes), so a retry of a delivery that failed to queue succeeds,
 and a replay of one that was queued answers `409`. Repository allowlists
-compare the scheme and host case-insensitively and the path exactly; entries
-saved by earlier releases were lowercased and keep matching
-case-insensitively until the webhook is saved again.
+compare the scheme and host case-insensitively and the path exactly. Entries
+saved by earlier releases were lowercased, so the case of their path is
+unknown: on github.com and gitlab.com, which resolve repository paths
+case-insensitively, they still match any case; on every other host they
+match only the lowercased path. The startup log names sites with such
+entries; saving the webhook again with the repository's exact URL clears
+the warning.
 
 ## Roll back
 

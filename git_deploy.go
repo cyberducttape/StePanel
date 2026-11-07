@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -31,7 +30,6 @@ import (
 
 	"github.com/cyberducttape/StePanel/internal/domainname"
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
-	"github.com/cyberducttape/StePanel/internal/secretbox"
 	"github.com/cyberducttape/StePanel/internal/sitelayout"
 )
 
@@ -358,16 +356,41 @@ func canonicalGitRepositoryURL(raw string) string {
 	return parsed.String()
 }
 
+// caseInsensitiveRepositoryHosts resolve repository paths without regard
+// to case: a different-case path names the same repository there, so a
+// case-insensitive match grants nothing more than an exact one.
+var caseInsensitiveRepositoryHosts = map[string]bool{"github.com": true, "gitlab.com": true}
+
+// gitRepositoryURLHost returns the lowercased host of an HTTPS or
+// git@host:path repository URL, or "".
+func gitRepositoryURLHost(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if match := gitSSHRepositoryPattern.FindStringSubmatch(raw); match != nil {
+		return strings.ToLower(match[1])
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(parsed.Hostname())
+}
+
 // webhookRepositoryAllowed matches a delivery's repository against the
-// webhook allowlist. Entries saved before allowlists kept their case were
-// stored lowercased and still match case-insensitively until the webhook is
-// saved again; every other entry must match exactly after canonicalization.
+// webhook allowlist. Every entry matches exactly after canonicalization.
+// Entries saved lowercased by earlier releases also match
+// case-insensitively, but only on hosts whose repository paths are
+// case-insensitive; elsewhere the case they were saved with is unknown, so
+// they match exactly until the webhook is saved again
+// (SitesWithUnrevalidatedRepositories lists them at startup).
 func webhookRepositoryAllowed(auth authenticatedWebhook, repository string) bool {
 	candidate := canonicalGitRepositoryURL(repository)
 	for _, allowed := range auth.Repositories {
 		if allowed == candidate {
 			return true
 		}
+	}
+	if !caseInsensitiveRepositoryHosts[gitRepositoryURLHost(candidate)] {
+		return false
 	}
 	for _, legacy := range auth.legacyRepositories {
 		if strings.EqualFold(legacy, candidate) {
@@ -377,22 +400,33 @@ func webhookRepositoryAllowed(auth authenticatedWebhook, repository string) bool
 	return false
 }
 
+// gitHTTPSRepositoryPattern is the HTTPS grammar stepanel-gitctl and the
+// root broker accept; parseGitRepository applies it to the canonical URL so
+// a repository it accepts is never refused later by the clone helper.
+var gitHTTPSRepositoryPattern = regexp.MustCompile(`^https://([a-z0-9.-]+)/[A-Za-z0-9._~/-]+\.git$`)
+
 func parseGitRepository(raw, allowedHosts string) (gitRepository, error) {
 	raw = strings.TrimSpace(raw)
-	if match := gitSSHRepositoryPattern.FindStringSubmatch(raw); match != nil {
-		if !gitHostAllowed(allowedHosts, strings.ToLower(match[1])) {
+	if strings.ContainsAny(raw, "\x00\r\n") {
+		return gitRepository{}, errors.New("repository must be an HTTPS .git URL without credentials or an SSH git@host:path.git URL")
+	}
+	// Scheme and host are case-insensitive; the canonical form lowercases
+	// them, which is also the form the clone helper requires.
+	canonical := canonicalGitRepositoryURL(raw)
+	if match := gitSSHRepositoryPattern.FindStringSubmatch(canonical); match != nil {
+		if !gitHostAllowed(allowedHosts, match[1]) {
 			return gitRepository{}, errors.New("repository host is not in STEPANEL_GIT_ALLOWED_HOSTS")
 		}
-		return gitRepository{URL: raw, Host: strings.ToLower(match[1]), Private: true}, nil
+		return gitRepository{URL: canonical, Host: match[1], Private: true}, nil
 	}
 	repository, err := url.Parse(raw)
-	if err != nil || repository.Scheme != "https" || repository.User != nil || repository.Host == "" || repository.Port() != "" || repository.RawQuery != "" || repository.Fragment != "" || strings.ContainsAny(raw, "\x00\r\n") || !strings.HasSuffix(strings.ToLower(repository.Path), ".git") {
+	if err != nil || repository.Scheme != "https" || repository.User != nil || repository.Host == "" || repository.Port() != "" || repository.RawQuery != "" || repository.ForceQuery || repository.Fragment != "" || !gitHTTPSRepositoryPattern.MatchString(canonical) || strings.Contains(canonical, "..") {
 		return gitRepository{}, errors.New("repository must be an HTTPS .git URL without credentials or an SSH git@host:path.git URL")
 	}
 	if !gitHostAllowed(allowedHosts, repository.Hostname()) {
 		return gitRepository{}, errors.New("repository host is not in STEPANEL_GIT_ALLOWED_HOSTS")
 	}
-	return gitRepository{URL: raw, Host: strings.ToLower(repository.Hostname())}, nil
+	return gitRepository{URL: canonical, Host: strings.ToLower(repository.Hostname())}, nil
 }
 
 type gitDeployResult struct {
@@ -667,9 +701,13 @@ type GitWebhookConfig struct {
 	// generation it was authenticated under and runs only if it is still
 	// current, so rotating a secret revokes deliveries accepted under the
 	// old one.
-	SecretGeneration int64     `json:"secret_generation"`
-	EnabledAt        time.Time `json:"enabled_at"`
-	LastWebhookAt    time.Time `json:"last_webhook_at,omitempty"`
+	SecretGeneration int64 `json:"secret_generation"`
+	// SecretShared reports that another enabled site holds the same secret
+	// (configured before reuse was refused). Deliveries are refused until
+	// it is rotated, because the signature does not name the site.
+	SecretShared  bool      `json:"secret_shared,omitempty"`
+	EnabledAt     time.Time `json:"enabled_at"`
+	LastWebhookAt time.Time `json:"last_webhook_at,omitempty"`
 	// legacyRepositories lists Repositories entries stored lowercased before
 	// allowlists kept path case; they match case-insensitively.
 	legacyRepositories []string
@@ -966,6 +1004,14 @@ func (a *App) gitWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	if config == nil || config.WebhookSecret == "" {
 		http.Error(w, "webhook not configured for this site", http.StatusNotFound)
+		return
+	}
+	// The signature does not name the site, so a secret another site also
+	// holds would let one site's delivery authorize the other. Secrets
+	// shared before reuse was refused stop working until rotated.
+	if config.SecretShared {
+		TelemetryAudit(a.Config.AuditLog, "webhook", "webhook.auth.shared-secret", site, "delivery refused: signing secret is shared with another site")
+		http.Error(w, ErrWebhookSecretShared.Error(), http.StatusForbidden)
 		return
 	}
 	webhookSecret := config.WebhookSecret
@@ -1705,169 +1751,6 @@ func newRequestID() string {
 	return id
 }
 
-// WebhookConfigStore manages per-site webhook configuration in the control-plane database
-type WebhookConfigStore struct {
-	mu sync.RWMutex
-	db *sql.DB
-	// box seals signing secrets at rest when an encryption key is
-	// configured (UseEncryptionKey); without one they stay plaintext, as on
-	// development hosts.
-	box *secretbox.Box
-}
-
-// ErrWebhookSecretReused reports a signing secret already configured for
-// another site. The signature covers the delivery, not the target site, so
-// each site's secret must be unique for a valid signature to authorize
-// exactly one site.
-var ErrWebhookSecretReused = errors.New("this webhook secret is already used by another site; use a unique secret per site")
-
-// webhookSecretSealedPrefix marks a signing secret sealed by secretbox.
-// ConfigureWebhook refuses operator secrets that start with it.
-const webhookSecretSealedPrefix = "secretbox:"
-
-// UseEncryptionKey seals signing secrets with key from now on and re-seals
-// any plaintext secret already stored. Each secret is bound to its site, so
-// a ciphertext copied to another site's row fails to open.
-func (wcs *WebhookConfigStore) UseEncryptionKey(key string) error {
-	if strings.TrimSpace(key) == "" {
-		return nil
-	}
-	box, err := secretbox.New([]byte(key), "webhook-secret")
-	if err != nil {
-		return fmt.Errorf("initialize webhook secret encryption: %w", err)
-	}
-	wcs.mu.Lock()
-	defer wcs.mu.Unlock()
-	wcs.box = box
-	tx, err := beginImmediate(context.Background(), wcs.db)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	rows, err := tx.Query(`SELECT id, site, webhook_secret FROM webhook_configs WHERE webhook_secret <> '' AND substr(webhook_secret, 1, ?) <> ?`, len(webhookSecretSealedPrefix), webhookSecretSealedPrefix)
-	if err != nil {
-		return fmt.Errorf("find plaintext webhook secrets: %w", err)
-	}
-	type plaintextSecret struct {
-		id           int64
-		site, secret string
-	}
-	var pending []plaintextSecret
-	for rows.Next() {
-		var item plaintextSecret
-		if err := rows.Scan(&item.id, &item.site, &item.secret); err != nil {
-			rows.Close()
-			return err
-		}
-		pending = append(pending, item)
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	for _, item := range pending {
-		sealed, err := wcs.sealSecretLocked(item.site, item.secret)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`UPDATE webhook_configs SET webhook_secret = ? WHERE id = ?`, sealed, item.id); err != nil {
-			return fmt.Errorf("seal webhook secret for %s: %w", item.site, err)
-		}
-	}
-	return tx.Commit()
-}
-
-// SitesSharingSecrets reports groups of sites configured with the same
-// signing secret before reuse was refused. Each group must be given unique
-// secrets; until then a delivery signed for one also verifies for the others.
-func (wcs *WebhookConfigStore) SitesSharingSecrets() ([][]string, error) {
-	wcs.mu.RLock()
-	defer wcs.mu.RUnlock()
-	rows, err := wcs.db.Query(`SELECT site, webhook_secret FROM webhook_configs WHERE webhook_secret <> '' ORDER BY site`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	bySecret := map[string][]string{}
-	for rows.Next() {
-		var site, stored string
-		if err := rows.Scan(&site, &stored); err != nil {
-			return nil, err
-		}
-		secret, err := wcs.openSecretLocked(site, stored)
-		if err != nil {
-			return nil, err
-		}
-		digest := sha256.Sum256([]byte(secret))
-		key := string(digest[:])
-		bySecret[key] = append(bySecret[key], site)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	var groups [][]string
-	for _, sites := range bySecret {
-		if len(sites) > 1 {
-			groups = append(groups, sites)
-		}
-	}
-	sort.Slice(groups, func(i, j int) bool { return groups[i][0] < groups[j][0] })
-	return groups, nil
-}
-
-// refuseSecretReuseLocked returns ErrWebhookSecretReused when another site
-// already holds secret (F-08). Secrets are opened for comparison because
-// sealing is randomized.
-func (wcs *WebhookConfigStore) refuseSecretReuseLocked(tx *immediateTx, site, secret string) error {
-	rows, err := tx.Query(`SELECT site, webhook_secret FROM webhook_configs WHERE site <> ? AND webhook_secret <> ''`, site)
-	if err != nil {
-		return fmt.Errorf("check webhook secret uniqueness: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var other, stored string
-		if err := rows.Scan(&other, &stored); err != nil {
-			return err
-		}
-		existing, err := wcs.openSecretLocked(other, stored)
-		if err != nil {
-			return fmt.Errorf("check webhook secret uniqueness: %w", err)
-		}
-		if subtle.ConstantTimeCompare([]byte(existing), []byte(secret)) == 1 {
-			return ErrWebhookSecretReused
-		}
-	}
-	return rows.Err()
-}
-
-func (wcs *WebhookConfigStore) sealSecretLocked(site, secret string) (string, error) {
-	if secret == "" || wcs.box == nil {
-		return secret, nil
-	}
-	sealed, err := wcs.box.Seal([]byte(secret), site)
-	if err != nil {
-		return "", fmt.Errorf("seal webhook secret: %w", err)
-	}
-	return webhookSecretSealedPrefix + base64.RawStdEncoding.EncodeToString(sealed), nil
-}
-
-func (wcs *WebhookConfigStore) openSecretLocked(site, stored string) (string, error) {
-	if !strings.HasPrefix(stored, webhookSecretSealedPrefix) {
-		return stored, nil
-	}
-	if wcs.box == nil {
-		return "", errors.New("webhook secret is encrypted but no encryption key is configured")
-	}
-	raw, err := base64.RawStdEncoding.DecodeString(strings.TrimPrefix(stored, webhookSecretSealedPrefix))
-	if err != nil {
-		return "", fmt.Errorf("decode webhook secret: %w", err)
-	}
-	plaintext, err := wcs.box.Open(raw, site)
-	if err != nil {
-		return "", fmt.Errorf("open webhook secret for %s: %w", site, err)
-	}
-	return string(plaintext), nil
-}
-
 // NewWebhookConfigStore creates a webhook configuration manager
 func NewWebhookConfigStore(database *sql.DB) *WebhookConfigStore {
 	return &WebhookConfigStore{db: database}
@@ -1921,6 +1804,24 @@ func (wcs *WebhookConfigStore) InitializeSchema() error {
 			return fmt.Errorf("add webhook secret generation: %w", err)
 		}
 	}
+	for _, column := range []struct{ name, definition string }{
+		// secret_sealed, not the stored value's prefix, says whether a
+		// secret is sealed; PrepareSecrets fills it for existing rows.
+		{"secret_sealed", "INTEGER NOT NULL DEFAULT 0"},
+		{"secret_fingerprint", "TEXT NOT NULL DEFAULT ''"},
+	} {
+		if err := wcs.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('webhook_configs') WHERE name = ?`, column.name).Scan(&columns); err != nil {
+			return fmt.Errorf("inspect webhook schema: %w", err)
+		}
+		if columns == 0 {
+			if _, err := wcs.db.Exec(`ALTER TABLE webhook_configs ADD COLUMN ` + column.name + ` ` + column.definition); err != nil {
+				return fmt.Errorf("add webhook %s: %w", column.name, err)
+			}
+		}
+	}
+	if _, err := wcs.db.Exec(`CREATE INDEX IF NOT EXISTS idx_webhook_secret_fingerprint ON webhook_configs(secret_fingerprint)`); err != nil {
+		return fmt.Errorf("index webhook secret fingerprints: %w", err)
+	}
 	// Rows written before allowlists kept path case were lowercased; they
 	// gain case_sensitive = 0 and keep matching case-insensitively until
 	// the webhook is saved again.
@@ -1965,33 +1866,33 @@ func (wcs *WebhookConfigStore) ConfigureWebhook(site, secret string, repos, refP
 	}
 	defer tx.Rollback()
 
-	if strings.HasPrefix(secret, webhookSecretSealedPrefix) {
-		return "", errors.New("webhook secret uses a reserved prefix")
-	}
-	storedSecret, err := wcs.sealSecretLocked(site, secret)
+	storedSecret, sealed, err := sealWebhookSecret(wcs.box, site, secret)
 	if err != nil {
 		return "", err
 	}
-	if err := wcs.refuseSecretReuseLocked(tx, site, secret); err != nil {
-		return "", err
+	fingerprint := wcs.fingerprintLocked(secret)
+	if fingerprint != "" {
+		if err := wcs.refuseSecretReuseLocked(tx, site, fingerprint); err != nil {
+			return "", err
+		}
 	}
 	var id int64
 	var previousSecret string
-	var enabled bool
-	err = tx.QueryRow("SELECT id, webhook_secret, enabled FROM webhook_configs WHERE site = ?", site).Scan(&id, &previousSecret, &enabled)
+	var previousSealed, enabled bool
+	err = tx.QueryRow("SELECT id, webhook_secret, secret_sealed, enabled FROM webhook_configs WHERE site = ?", site).Scan(&id, &previousSecret, &previousSealed, &enabled)
 	if err != nil && err != sql.ErrNoRows {
 		return "", err
 	}
 	if err == nil {
-		if previousSecret, err = wcs.openSecretLocked(site, previousSecret); err != nil {
+		if previousSecret, err = wcs.openSecretLocked(site, previousSecret, previousSealed); err != nil {
 			return "", err
 		}
 	}
 
 	if err == sql.ErrNoRows {
 		result, err := tx.Exec(
-			"INSERT INTO webhook_configs (site, webhook_secret, secret_generation) VALUES (?, ?, 1)",
-			site, storedSecret,
+			"INSERT INTO webhook_configs (site, webhook_secret, secret_sealed, secret_fingerprint, secret_generation) VALUES (?, ?, ?, ?, 1)",
+			site, storedSecret, sealed, fingerprint,
 		)
 		if err != nil {
 			return "", err
@@ -2012,8 +1913,8 @@ func (wcs *WebhookConfigStore) ConfigureWebhook(site, secret string, repos, refP
 			advance, change = 1, WebhookSecretRotated
 		}
 		_, err := tx.Exec(
-			"UPDATE webhook_configs SET webhook_secret = ?, enabled = 1, secret_generation = secret_generation + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-			storedSecret, advance, id,
+			"UPDATE webhook_configs SET webhook_secret = ?, secret_sealed = ?, secret_fingerprint = ?, enabled = 1, secret_generation = secret_generation + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+			storedSecret, sealed, fingerprint, advance, id,
 		)
 		if err != nil {
 			return "", err
@@ -2066,27 +1967,33 @@ func (wcs *WebhookConfigStore) GetWebhookConfig(site string) (*GitWebhookConfig,
 	defer wcs.mu.RUnlock()
 
 	var id int64
-	var secret string
+	var secret, fingerprint string
+	var sealed bool
 	var generation int64
 	var enabledAt time.Time
 
 	err := wcs.db.QueryRow(
-		"SELECT id, webhook_secret, secret_generation, created_at FROM webhook_configs WHERE site = ? AND enabled = 1",
+		"SELECT id, webhook_secret, secret_sealed, secret_fingerprint, secret_generation, created_at FROM webhook_configs WHERE site = ? AND enabled = 1",
 		site,
-	).Scan(&id, &secret, &generation, &enabledAt)
+	).Scan(&id, &secret, &sealed, &fingerprint, &generation, &enabledAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, err
 	}
-	if secret, err = wcs.openSecretLocked(site, secret); err != nil {
+	if secret, err = wcs.openSecretLocked(site, secret, sealed); err != nil {
+		return nil, err
+	}
+	shared, err := wcs.secretSharedLocked(site, fingerprint)
+	if err != nil {
 		return nil, err
 	}
 
 	config := &GitWebhookConfig{
 		Site:             site,
 		WebhookSecret:    secret,
+		SecretShared:     shared,
 		SecretGeneration: generation,
 		EnabledAt:        enabledAt,
 		Repositories:     []string{},
