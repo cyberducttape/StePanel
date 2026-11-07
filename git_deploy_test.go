@@ -899,3 +899,68 @@ func TestGitReleaseFingerprintDetectsMtimePreservingEdit(t *testing.T) {
 		t.Fatal("rollback fingerprint did not change after a same-size, mtime-preserving edit")
 	}
 }
+
+// F-05: repository paths keep their case; only scheme and host fold.
+func TestWebhookRepositoryAllowlistKeepsPathCase(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "webhooks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := NewWebhookConfigStore(db)
+	if err := store.InitializeSchema(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetWebhookConfig("shop", "per-site-webhook-secret-0123456789", []string{"https://Git.Example.ORG/acme/Shop.git"}, []string{"main"}); err != nil {
+		t.Fatal(err)
+	}
+	config, err := store.GetWebhookConfig("shop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth := newAuthenticatedWebhook(config)
+	for repository, want := range map[string]bool{
+		"https://git.example.org/acme/Shop.git": true,
+		"HTTPS://GIT.EXAMPLE.ORG/acme/Shop.git": true,
+		"https://git.example.org/acme/shop.git": false,
+		"https://git.example.org/ACME/SHOP.git": false,
+	} {
+		if got := webhookRepositoryAllowed(auth, repository); got != want {
+			t.Errorf("allowed(%q) = %v, want %v", repository, got, want)
+		}
+	}
+	if got := canonicalGitRepositoryURL("git@GitHub.com:Acme/Shop.git"); got != "git@github.com:Acme/Shop.git" {
+		t.Errorf("SSH canonical form = %q", got)
+	}
+}
+
+// Allowlist rows written lowercased by earlier releases keep matching
+// case-insensitively after the schema migration, until the webhook is saved.
+func TestLegacyLowercasedWebhookRepositoriesStillMatch(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "webhooks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, statement := range []string{
+		`CREATE TABLE webhook_configs (id INTEGER PRIMARY KEY AUTOINCREMENT, site TEXT NOT NULL UNIQUE, webhook_secret TEXT NOT NULL, enabled BOOLEAN DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, secret_generation INTEGER NOT NULL DEFAULT 1)`,
+		`CREATE TABLE webhook_allowed_repos (id INTEGER PRIMARY KEY AUTOINCREMENT, webhook_id INTEGER NOT NULL, repository_url TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(webhook_id, repository_url))`,
+		`INSERT INTO webhook_configs (id, site, webhook_secret) VALUES (1, 'shop', 'per-site-webhook-secret-0123456789')`,
+		`INSERT INTO webhook_allowed_repos (webhook_id, repository_url) VALUES (1, 'https://github.com/acme/shop.git')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store := NewWebhookConfigStore(db)
+	if err := store.InitializeSchema(); err != nil {
+		t.Fatal(err)
+	}
+	config, err := store.GetWebhookConfig("shop")
+	if err != nil || config == nil {
+		t.Fatalf("load legacy webhook: %v", err)
+	}
+	if !webhookRepositoryAllowed(newAuthenticatedWebhook(config), "https://github.com/Acme/Shop.git") {
+		t.Fatal("a legacy lowercased allowlist entry stopped matching after the migration")
+	}
+}

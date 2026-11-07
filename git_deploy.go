@@ -338,6 +338,43 @@ type gitRepository struct {
 
 var gitSSHRepositoryPattern = regexp.MustCompile(`^git@([A-Za-z0-9.-]+):([A-Za-z0-9._/-]+\.git)$`)
 
+// canonicalGitRepositoryURL folds only the parts of a repository URL that are
+// case-insensitive by definition: the HTTPS scheme and host, or the SSH host.
+// Repository paths keep their case, because a Git server with case-sensitive
+// paths treats acme/Shop.git and acme/shop.git as different repositories.
+func canonicalGitRepositoryURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if match := gitSSHRepositoryPattern.FindStringSubmatch(raw); match != nil {
+		return "git@" + strings.ToLower(match[1]) + ":" + match[2]
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		return raw
+	}
+	parsed.Scheme = strings.ToLower(parsed.Scheme)
+	parsed.Host = strings.ToLower(parsed.Host)
+	return parsed.String()
+}
+
+// webhookRepositoryAllowed matches a delivery's repository against the
+// webhook allowlist. Entries saved before allowlists kept their case were
+// stored lowercased and still match case-insensitively until the webhook is
+// saved again; every other entry must match exactly after canonicalization.
+func webhookRepositoryAllowed(auth authenticatedWebhook, repository string) bool {
+	candidate := canonicalGitRepositoryURL(repository)
+	for _, allowed := range auth.Repositories {
+		if allowed == candidate {
+			return true
+		}
+	}
+	for _, legacy := range auth.legacyRepositories {
+		if strings.EqualFold(legacy, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
 func parseGitRepository(raw, allowedHosts string) (gitRepository, error) {
 	raw = strings.TrimSpace(raw)
 	if match := gitSSHRepositoryPattern.FindStringSubmatch(raw); match != nil {
@@ -593,13 +630,17 @@ type authenticatedWebhook struct {
 	Site         string
 	Repositories []string
 	AllowedRefs  []string
+	// legacyRepositories were stored lowercased by earlier releases and
+	// match case-insensitively; see webhookRepositoryAllowed.
+	legacyRepositories []string
 }
 
 func newAuthenticatedWebhook(config *GitWebhookConfig) authenticatedWebhook {
 	return authenticatedWebhook{
-		Site:         config.Site,
-		Repositories: append([]string(nil), config.Repositories...),
-		AllowedRefs:  append([]string(nil), config.AllowedRefs...),
+		Site:               config.Site,
+		Repositories:       append([]string(nil), config.Repositories...),
+		AllowedRefs:        append([]string(nil), config.AllowedRefs...),
+		legacyRepositories: append([]string(nil), config.legacyRepositories...),
 	}
 }
 
@@ -627,6 +668,9 @@ type GitWebhookConfig struct {
 	SecretGeneration int64     `json:"secret_generation"`
 	EnabledAt        time.Time `json:"enabled_at"`
 	LastWebhookAt    time.Time `json:"last_webhook_at,omitempty"`
+	// legacyRepositories lists Repositories entries stored lowercased before
+	// allowlists kept path case; they match case-insensitively.
+	legacyRepositories []string
 }
 
 type webhookConfigRequest struct {
@@ -991,17 +1035,6 @@ func (a *App) gitWebhook(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "status_url": "/api/jobs/" + job.ID, "operation": "git.deploy", "site": site})
 }
 
-// containsString checks if a string is in a list (case-insensitive for URLs)
-func containsString(list []string, value string) bool {
-	valueLower := strings.ToLower(value)
-	for _, item := range list {
-		if strings.ToLower(item) == valueLower {
-			return true
-		}
-	}
-	return false
-}
-
 // sanitizeGitError returns a customer-safe error message without leaking infrastructure details
 func sanitizeGitError(output string) string {
 	output = strings.ToLower(output)
@@ -1082,8 +1115,7 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		// Enforce the allowlists gitWebhook loaded alongside the secret that
 		// authenticated this request. Re-reading them here would fail open on
 		// a transient store error and race configuration changes.
-		repoLower := strings.ToLower(strings.TrimSpace(input.Repository))
-		if len(webhookAuth.Repositories) == 0 || !containsString(webhookAuth.Repositories, repoLower) {
+		if len(webhookAuth.Repositories) == 0 || !webhookRepositoryAllowed(webhookAuth, input.Repository) {
 			http.Error(w, "repository is not authorized for this webhook", http.StatusForbidden)
 			TelemetryAudit(a.Config.AuditLog, "webhook", "webhook.deploy.unauthorized", input.Site, fmt.Sprintf("repository not in whitelist: %s", input.Repository))
 			return
@@ -1726,6 +1758,17 @@ func (wcs *WebhookConfigStore) InitializeSchema() error {
 			return fmt.Errorf("add webhook secret generation: %w", err)
 		}
 	}
+	// Rows written before allowlists kept path case were lowercased; they
+	// gain case_sensitive = 0 and keep matching case-insensitively until
+	// the webhook is saved again.
+	if err := wcs.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('webhook_allowed_repos') WHERE name = 'case_sensitive'`).Scan(&columns); err != nil {
+		return fmt.Errorf("inspect webhook repository schema: %w", err)
+	}
+	if columns == 0 {
+		if _, err := wcs.db.Exec(`ALTER TABLE webhook_allowed_repos ADD COLUMN case_sensitive INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return fmt.Errorf("add webhook repository case sensitivity: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -1808,8 +1851,8 @@ func (wcs *WebhookConfigStore) ConfigureWebhook(site, secret string, repos, refP
 			continue
 		}
 		_, err := tx.Exec(
-			"INSERT INTO webhook_allowed_repos (webhook_id, repository_url) VALUES (?, ?)",
-			id, strings.TrimSpace(strings.ToLower(repo)),
+			"INSERT INTO webhook_allowed_repos (webhook_id, repository_url, case_sensitive) VALUES (?, ?, 1)",
+			id, canonicalGitRepositoryURL(repo),
 		)
 		if err != nil {
 			return "", err
@@ -1870,7 +1913,7 @@ func (wcs *WebhookConfigStore) GetWebhookConfig(site string) (*GitWebhookConfig,
 	}
 
 	rows, err := wcs.db.Query(
-		"SELECT repository_url FROM webhook_allowed_repos WHERE webhook_id = ? ORDER BY repository_url",
+		"SELECT repository_url, case_sensitive FROM webhook_allowed_repos WHERE webhook_id = ? ORDER BY repository_url",
 		id,
 	)
 	if err != nil {
@@ -1880,10 +1923,14 @@ func (wcs *WebhookConfigStore) GetWebhookConfig(site string) (*GitWebhookConfig,
 
 	for rows.Next() {
 		var repo string
-		if err := rows.Scan(&repo); err != nil {
+		var caseSensitive bool
+		if err := rows.Scan(&repo, &caseSensitive); err != nil {
 			return nil, err
 		}
 		config.Repositories = append(config.Repositories, repo)
+		if !caseSensitive {
+			config.legacyRepositories = append(config.legacyRepositories, repo)
+		}
 	}
 	if err = rows.Err(); err != nil {
 		return nil, err
