@@ -455,6 +455,7 @@ func (s *backupSchedules) recordRetention(site string, report backupRetentionRep
 			item.RetentionError = retentionErr.Error()
 		}
 		item.RetentionUnattributed = append([]string(nil), report.Unattributed...)
+		item.RetentionUnattributedCount = report.UnattributedCount
 		return persistMapKeyChange(s.items, site, &item, s.persistLocked)
 	})
 	if err != nil {

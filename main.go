@@ -728,6 +728,11 @@ func Main() {
 		startupError := errors.Join(append(failures, hostErrs...)...)
 		app.startup.setHostState(errors.Join(hostErrs...))
 		app.startup.finish(errors.Join(failures...))
+		// Retention finishes only its own site's interrupted deletions; this
+		// finishes those of sites that never run retention again.
+		if err := removePruneTombstones(cfg.BackupRoot); err != nil && !errors.Is(err, os.ErrNotExist) {
+			app.observeStateError(state.NewCleanupError("backup_prune_cleanup", err, "backup retention cleanup during startup"))
+		}
 		if len(hostFailed) > 0 {
 			go app.retryHostReconcilers(ctx, hostFailed, helperServiceLifecycleTimeout)
 		}
@@ -1400,8 +1405,8 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 		report, err := pruneSiteBackups(a.Config.BackupRoot, access, request.KeepLast, filepath.Base(result.Path))
 		if err != nil {
 			TelemetryAudit(a.Config.AuditLog, request.Actor, "backup.retention.failed", request.Site, err.Error())
-		} else if len(report.Unattributed) > 0 {
-			TelemetryAudit(a.Config.AuditLog, request.Actor, "backup.retention.unattributed", request.Site, strings.Join(report.Unattributed, ","))
+		} else if report.UnattributedCount > 0 {
+			TelemetryAudit(a.Config.AuditLog, request.Actor, "backup.retention.unattributed", request.Site, fmt.Sprintf("%d entries kept; first: %s", report.UnattributedCount, strings.Join(report.Unattributed, ",")))
 		}
 		a.Schedules.recordRetention(request.Site, report, err)
 		a.maybeEnqueueScheduledRehearsal(ctx, request.Site, filepath.Base(result.Path))

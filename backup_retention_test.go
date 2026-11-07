@@ -1,7 +1,10 @@
 package stepanel
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -431,5 +434,57 @@ func TestRetentionOutcomeIsPersistedAndExported(t *testing.T) {
 	restarted.mu.Unlock()
 	if schedule.RetentionError != "" || len(schedule.RetentionUnattributed) != 0 {
 		t.Fatalf("a clean retention run did not clear the degraded state: %+v", schedule)
+	}
+}
+
+// Retention finishes only its own site's interrupted deletions; the startup
+// sweep finishes everyone's.
+func TestPruneSiteBackupsFinishesOnlyItsOwnTombstones(t *testing.T) {
+	root := t.TempDir()
+	writeTestBackup(t, root, "20260101-000000.000000000-demo", "demo", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	for _, name := range []string{"20250101-000000.000000000-demo", "20250101-000000.000000000-other"} {
+		if err := os.MkdirAll(filepath.Join(root, backupPruneTombstonePrefix+name, "data"), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, backupPruneTombstonePrefix+"20250101-000000.000000000-demo")); !os.IsNotExist(err) {
+		t.Fatalf("demo's own tombstone was not finished: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, backupPruneTombstonePrefix+"20250101-000000.000000000-other")); err != nil {
+		t.Fatalf("demo's retention touched another site's tombstone: %v", err)
+	}
+	if err := removePruneTombstones(root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, backupPruneTombstonePrefix+"20250101-000000.000000000-other")); !os.IsNotExist(err) {
+		t.Fatalf("startup sweep left another site's tombstone: %v", err)
+	}
+}
+
+// Every unattributed entry is counted, but the report and its single log
+// line carry a bounded number of names.
+func TestRetentionReportCountsAllButBoundsNames(t *testing.T) {
+	root := t.TempDir()
+	writeTestBackup(t, root, "20260101-000000.000000000-demo", "demo", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	for i := 0; i < maxReportedUnattributedBackups+5; i++ {
+		if err := os.MkdirAll(filepath.Join(root, fmt.Sprintf("odd-entry-%02d", i)), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	report, err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.UnattributedCount != maxReportedUnattributedBackups+5 || len(report.Unattributed) != maxReportedUnattributedBackups {
+		t.Fatalf("report counted %d and listed %d", report.UnattributedCount, len(report.Unattributed))
+	}
+	if lines := strings.Count(strings.TrimSpace(logged.String()), "\n") + 1; lines != 1 || strings.Contains(logged.String(), "odd-entry-24") {
+		t.Fatalf("retention logged %d lines (want one bounded line): %s", lines, logged.String())
 	}
 }

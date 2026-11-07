@@ -517,7 +517,7 @@ func writeBackupScheduleMetrics(w io.Writer, schedules []BackupSchedule) {
 	_, _ = fmt.Fprintln(w, "# TYPE stepanel_backup_last_attempt_age_seconds gauge")
 	_, _ = fmt.Fprintln(w, "# HELP stepanel_backup_retention_ok Whether the latest scheduled retention for a site completed; 0 means backups may be accumulating")
 	_, _ = fmt.Fprintln(w, "# TYPE stepanel_backup_retention_ok gauge")
-	_, _ = fmt.Fprintln(w, "# HELP stepanel_backup_retention_unattributed_entries Backup entries the site's latest retention kept because their ownership could not be read (capped at 20)")
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_backup_retention_unattributed_entries Backup entries the site's latest retention kept because their ownership could not be read")
 	_, _ = fmt.Fprintln(w, "# TYPE stepanel_backup_retention_unattributed_entries gauge")
 	for _, schedule := range schedules {
 		if !schedule.Enabled || safeUser(schedule.Site) != schedule.Site {
@@ -534,7 +534,7 @@ func writeBackupScheduleMetrics(w io.Writer, schedules []BackupSchedule) {
 		}
 		if schedule.RetentionCheckedAt != nil {
 			_, _ = fmt.Fprintf(w, "stepanel_backup_retention_ok{site=%q} %d\n", schedule.Site, boolMetric(schedule.RetentionError == ""))
-			_, _ = fmt.Fprintf(w, "stepanel_backup_retention_unattributed_entries{site=%q} %d\n", schedule.Site, len(schedule.RetentionUnattributed))
+			_, _ = fmt.Fprintf(w, "stepanel_backup_retention_unattributed_entries{site=%q} %d\n", schedule.Site, max(schedule.RetentionUnattributedCount, len(schedule.RetentionUnattributed)))
 		}
 	}
 }

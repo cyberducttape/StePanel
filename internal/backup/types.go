@@ -122,4 +122,7 @@ type BackupSchedule struct {
 	RetentionCheckedAt    *time.Time `json:"retention_checked_at,omitempty"`
 	RetentionError        string     `json:"retention_error,omitempty"`
 	RetentionUnattributed []string   `json:"retention_unattributed,omitempty"`
+	// RetentionUnattributedCount counts every kept entry; the list above
+	// holds at most the first 20.
+	RetentionUnattributedCount int `json:"retention_unattributed_count,omitempty"`
 }

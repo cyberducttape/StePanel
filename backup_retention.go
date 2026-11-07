@@ -106,17 +106,34 @@ func CleanupBackupStages(root string, maxAge time.Duration) error {
 // backupRetentionReport lists entries one retention run kept because their
 // ownership could not be established. They are never deleted automatically.
 type backupRetentionReport struct {
+	// Unattributed holds the first maxReportedUnattributedBackups names.
 	Unattributed []string
+	// UnattributedCount counts every such entry.
+	UnattributedCount int
+	firstCause        error
 }
 
-// maxReportedUnattributedBackups bounds the names carried in a report.
+// maxReportedUnattributedBackups bounds the names carried in a report and
+// in its log line.
 const maxReportedUnattributedBackups = 20
 
 func (r *backupRetentionReport) unattributed(name string, cause error) {
-	log.Printf("backup retention kept %q: ownership could not be established: %v", name, cause)
+	r.UnattributedCount++
+	if r.firstCause == nil {
+		r.firstCause = fmt.Errorf("%s: %w", name, cause)
+	}
 	if len(r.Unattributed) < maxReportedUnattributedBackups {
 		r.Unattributed = append(r.Unattributed, name)
 	}
+}
+
+// logSummary writes one bounded line per run, however many entries were
+// kept, so a damaged inventory cannot grow the log by its size every run.
+func (r *backupRetentionReport) logSummary(site string) {
+	if r.UnattributedCount == 0 {
+		return
+	}
+	log.Printf("backup retention for %s kept %d entries whose ownership could not be established (first %d: %s; first cause: %v)", site, r.UnattributedCount, len(r.Unattributed), strings.Join(r.Unattributed, ", "), r.firstCause)
 }
 
 // backupNameTimestampLength is the width of the creation timestamp that
@@ -153,11 +170,14 @@ func pruneSiteBackups(root string, site SiteCapability, keep int, protectedVerif
 	if safeUser(siteName) == "" || keep < 1 || (protectedVerifiedName != "" && !validBackupName(protectedVerifiedName)) {
 		return report, errors.New("invalid backup retention policy")
 	}
-	if err := removePruneTombstones(root); err != nil {
-		return report, err
-	}
+	// One listing serves both steps. Names are listed without being
+	// stat'ed or opened; only this site's entries are examined further.
 	entries, err := os.ReadDir(root)
 	if err != nil {
+		return report, err
+	}
+	defer report.logSummary(siteName)
+	if err := removeSitePruneTombstones(root, siteName, entries); err != nil {
 		return report, err
 	}
 	type candidate struct {
@@ -289,15 +309,27 @@ func discardBackup(root, name string) error {
 	return nil
 }
 
-// removePruneTombstones finishes deletions an interrupted retention left.
+// removePruneTombstones finishes every deletion an interrupted retention
+// left, for all sites. Startup runs it once; retention runs only finish
+// their own site's (removeSitePruneTombstones).
 func removePruneTombstones(root string) error {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return err
 	}
+	return removeSitePruneTombstones(root, "", entries)
+}
+
+// removeSitePruneTombstones finishes deletions an interrupted retention left
+// for site, or for every site when site is "". A tombstone whose name does
+// not identify a site is finished by any run.
+func removeSitePruneTombstones(root, site string, entries []os.DirEntry) error {
 	removed := false
 	for _, entry := range entries {
 		if !strings.HasPrefix(entry.Name(), backupPruneTombstonePrefix) {
+			continue
+		}
+		if owner := backupNameSite(strings.TrimPrefix(entry.Name(), backupPruneTombstonePrefix)); site != "" && owner != "" && owner != site {
 			continue
 		}
 		if err := os.RemoveAll(filepath.Join(root, entry.Name())); err != nil {
