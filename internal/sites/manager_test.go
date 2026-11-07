@@ -1057,3 +1057,63 @@ func TestRollbackStagedActivationRestoresFromAnExchangedStage(t *testing.T) {
 		t.Fatalf("stage path still holds a tree: %v", err)
 	}
 }
+
+// A rollback whose previous release is missing or not a directory leaves
+// the active release in place instead of deleting it first.
+func TestRollbackStagedActivationKeepsLiveTreeWithoutPrevious(t *testing.T) {
+	m, root := newManager(t)
+	siteRoot := filepath.Join(root, "sites", "keep-site")
+	public := filepath.Join(siteRoot, "public")
+	if err := os.MkdirAll(public, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(public, "version"), []byte("live"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	notADirectory := filepath.Join(siteRoot, ".stepanel-previous-2")
+	if err := os.WriteFile(notADirectory, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, previous := range []string{filepath.Join(siteRoot, ".stepanel-previous-1"), notADirectory} {
+		if err := m.RollbackStagedActivation(context.Background(), "keep-site", previous); err == nil {
+			t.Fatalf("rollback to %s succeeded", filepath.Base(previous))
+		}
+		if data, err := os.ReadFile(filepath.Join(public, "version")); err != nil || string(data) != "live" {
+			t.Fatalf("active release after refused rollback to %s = %q, %v", filepath.Base(previous), data, err)
+		}
+	}
+}
+
+// A rollback interrupted after it restored the previous release, but before
+// it removed the failed activation, completes when run again.
+func TestRollbackStagedActivationCanBeRunAgain(t *testing.T) {
+	m, root := newManager(t)
+	siteRoot := filepath.Join(root, "sites", "again-site")
+	public := filepath.Join(siteRoot, "public")
+	previous := filepath.Join(siteRoot, ".stepanel-previous-1")
+	for dir, version := range map[string]string{public: "failed", previous: "old"} {
+		if err := os.MkdirAll(dir, 0750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "version"), []byte(version), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tombstone := filepath.Join(siteRoot, ".stepanel-failed-.stepanel-previous-1")
+	// The state after both renames, before the tombstone was removed.
+	if err := os.Rename(public, tombstone); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(previous, public); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RollbackStagedActivation(context.Background(), "again-site", previous); err != nil {
+		t.Fatalf("rerun of an interrupted rollback: %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(public, "version")); err != nil || string(data) != "old" {
+		t.Fatalf("active release = %q, %v", data, err)
+	}
+	if _, err := os.Lstat(tombstone); !os.IsNotExist(err) {
+		t.Fatalf("failed activation tombstone remains: %v", err)
+	}
+}

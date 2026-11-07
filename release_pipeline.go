@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
+	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 )
 
 // ReleasePipelineRequest accepts a declarative build which must write the
@@ -555,6 +556,11 @@ func (a *App) activatePipelineRelease(ctx context.Context, site, release string)
 	if err != nil {
 		return "", err
 	}
+	if docRoot, docErr := siteDocRoot(a.Config, site); docErr != nil {
+		return "", docErr
+	} else if err := journal.recordLive(docRoot); err != nil {
+		return "", err
+	}
 	if err := journal.persist(); err != nil {
 		return "", fmt.Errorf("persist release activation journal: %w", err)
 	}
@@ -566,6 +572,17 @@ func (a *App) activatePipelineRelease(ctx context.Context, site, release string)
 	}
 	previous, err := a.activateReplacingSite(ctx, site, release)
 	if err != nil {
+		if errors.Is(err, siteauthority.ErrActivationIndeterminate) {
+			// Which tree each path holds is not known. The journal says how
+			// to reconcile it; do that now, and leave the journal (and the
+			// stage, which may hold the previous release) for startup
+			// recovery if it cannot be done.
+			recovered, recoverErr := recoverReleaseActivationJournalsFor(recoveryConfig(a.Config, recoveryRoot), site)
+			if recoverErr != nil || len(recovered) == 0 {
+				return "", errors.Join(err, fmt.Errorf("reconcile interrupted activation (startup recovery will retry): %v", recoverErr))
+			}
+			return "", fmt.Errorf("activation failed and was reconciled: %w", err)
+		}
 		_ = journal.cleanup()
 		return "", err
 	}
@@ -591,4 +608,10 @@ func (a *App) activatePipelineRelease(ctx context.Context, site, release string)
 		return "", err
 	}
 	return previous, nil
+}
+
+// recoveryConfig is cfg with the recovery root activation journals use.
+func recoveryConfig(cfg Config, recoveryRoot string) Config {
+	cfg.RecoveryRoot = recoveryRoot
+	return cfg
 }

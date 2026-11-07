@@ -8,6 +8,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Security
 
+- Release recovery no longer guesses. Activation journals record the
+  identity of the document root they replace, and recovery restores that
+  exact release instead of the newest retained one by name. An activation
+  that fails part-way without knowing what it left keeps its journal and
+  reconciles immediately, and its stage is never discarded. Undoing an
+  activation checks the previous release first and sets the failed tree aside
+  instead of deleting the live tree, so it can be rerun. Failed exchange
+  reversals are synced. `stepanel backup-layout flatten` fails while any
+  backup would stay invisible to an older release. The backup migration syncs
+  each directory once, and rollback capacity admission counts block overhead.
 - Release activation exchanges the new release with the live one in one
   `renameat2(RENAME_EXCHANGE)`, so the document root is never absent during a
   deploy or rollback; recovery handles a crash between the exchange and moving

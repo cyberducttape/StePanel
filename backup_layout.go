@@ -156,6 +156,7 @@ func migrateBackupLayout(root string) (backupLayoutMigration, error) {
 	if err != nil {
 		return report, err
 	}
+	touched := map[string]bool{}
 	leave := func(name string, cause error) {
 		report.Unattributed++
 		if len(report.Names) < maxReportedUnattributedBackups {
@@ -200,13 +201,25 @@ func migrateBackupLayout(root string) (backupLayoutMigration, error) {
 		if err := os.Rename(filepath.Join(root, name), destination); err != nil {
 			return report, fmt.Errorf("move backup %s: %w", name, err)
 		}
-		if err := syncDirectory(directory); err != nil {
-			return report, err
+		touched[directory] = true
+		report.Moved++
+		if report.Moved%1000 == 0 {
+			log.Printf("moved %d backups into per-site directories so far", report.Moved)
+		}
+	}
+	// Each move is a single rename, so a crash before these syncs leaves
+	// some backups still in the root, where the next start moves them
+	// again. Syncing each directory once, not per backup, keeps the
+	// one-time migration of a large backup root short.
+	if report.Moved > 0 {
+		for directory := range touched {
+			if err := syncDirectory(directory); err != nil {
+				return report, err
+			}
 		}
 		if err := syncDirectory(root); err != nil {
 			return report, err
 		}
-		report.Moved++
 	}
 	return report, nil
 }
@@ -328,8 +341,18 @@ func flattenBackupLayout(root string) (backupLayoutMigration, error) {
 func runBackupLayoutFlatten(root string) error {
 	report, err := flattenBackupLayout(root)
 	fmt.Printf("moved %d backup(s) back into %s\n", report.Moved, root)
-	if report.Unattributed > 0 {
-		fmt.Printf("left %d entr(ies) in per-site directories (first: %s); move or remove them before using a release that reads only %s\n", report.Unattributed, strings.Join(report.Names, ", "), root)
+	if err != nil {
+		return err
 	}
-	return err
+	// The command succeeds only when an older release will see every
+	// backup: nothing may be left below the per-site directory.
+	if report.Unattributed > 0 {
+		return fmt.Errorf("%d entr(ies) remain in %s (first: %s); a release that reads only %s cannot see them. Move or remove them, then run this again", report.Unattributed, backupSitesRoot(root), strings.Join(report.Names, ", "), root)
+	}
+	if _, statErr := os.Lstat(backupSitesRoot(root)); statErr == nil {
+		return fmt.Errorf("%s still exists; stop StePanel (a backup may have been published during the flatten) and run this again", backupSitesRoot(root))
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return statErr
+	}
+	return nil
 }

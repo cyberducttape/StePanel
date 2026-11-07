@@ -1417,7 +1417,13 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 	// grows past that while it is copied is refused as unreadable instead
 	// of filling the disk beyond the reservation.
 	copyLimit := rollbackCopyLimit(preview.TargetBytes, a.releaseDigestLimit())
-	reservation, err := a.capacityLedger().reserve(a.Config, "git-rollback-staging", stage, []capacityDemand{{Path: gitStageCapacityPath(stage), Bytes: uint64(copyLimit)}})
+	// The reservation also covers the filesystem's allocation overhead:
+	// each file occupies whole blocks plus its inode and directory entry.
+	// The ledger checks it against free space on top of the host's
+	// STEPANEL_MIN_FREE_BYTES reserve; writers outside the ledger (sites,
+	// databases) can still fill the disk, and the copy then fails cleanly
+	// with nothing activated.
+	reservation, err := a.capacityLedger().reserve(a.Config, "git-rollback-staging", stage, []capacityDemand{{Path: gitStageCapacityPath(stage), Bytes: rollbackCopyReservation(copyLimit, preview.TargetFiles)}})
 	if err != nil {
 		log.Printf("Git rollback staging admission refused for site %s: %v", input.Site, err)
 		http.Error(w, "insufficient capacity to stage the rollback release", http.StatusInsufficientStorage)
@@ -1514,7 +1520,21 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 // copied ("copy") and between verification and activation ("verified").
 var rollbackTestHook func(point, retained string)
 
-// rollbackCopyLimit is how much a rollback reserves and may copy: the
+// rollbackCopyBlockOverhead is the space reserved per copied file beyond
+// its bytes: rounding to a 4 KiB block, plus its inode and directory entry.
+const rollbackCopyBlockOverhead = 4 << 10
+
+// rollbackCopyReservation is the disk space a copy of at most copyLimit
+// bytes in files files may need.
+func rollbackCopyReservation(copyLimit, files int64) uint64 {
+	if files < 0 {
+		files = 0
+	}
+	overhead := uint64(files+1) * rollbackCopyBlockOverhead
+	return uint64(copyLimit) + overhead
+}
+
+// rollbackCopyLimit is how much a rollback may copy: the
 // target's measured size plus 1% and 1 MiB of slack, within the release
 // limit.
 func rollbackCopyLimit(measured, limit int64) int64 {

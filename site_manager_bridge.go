@@ -135,6 +135,15 @@ func (a *App) createSiteReleaseStaging(ctx context.Context, name, prefix string)
 }
 
 func (a *App) discardSiteReleaseStaging(ctx context.Context, name, stagedRoot string) error {
+	recoveryRoot := a.Config.RecoveryRoot
+	if recoveryRoot == "" {
+		recoveryRoot = filepath.Join(a.Config.WebRoot, "sites", ".stepanel-recovery")
+	}
+	// A stage an activation journal still names may hold the previous
+	// release after an indeterminate activation; journal recovery owns it.
+	if releaseStageHasJournal(recoveryRoot, stagedRoot) {
+		return fmt.Errorf("release stage %s is held by an activation journal; startup recovery will reconcile it", filepath.Base(stagedRoot))
+	}
 	manager := a.siteManager
 	if manager == nil {
 		var err error

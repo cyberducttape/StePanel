@@ -192,3 +192,27 @@ func TestBackupsArePublishedAndListedPerSite(t *testing.T) {
 		t.Fatalf("demo backup resolves to %q, %v", resolved, err)
 	}
 }
+
+// The flatten command fails while anything an older release could not see
+// remains below the per-site directory.
+func TestFlattenCommandFailsWhenBackupsRemain(t *testing.T) {
+	root := t.TempDir()
+	writeFlatBackup(t, root, "20260101-000000.000000000-demo", "demo")
+	if _, err := migrateBackupLayout(root); err != nil {
+		t.Fatal(err)
+	}
+	// A backup whose name is already taken in the root cannot move back.
+	writeFlatBackup(t, root, "20260101-000000.000000000-demo", "demo")
+	if err := runBackupLayoutFlatten(root); err == nil {
+		t.Fatal("flatten reported success with a backup left in its site directory")
+	}
+	if err := os.RemoveAll(filepath.Join(root, "20260101-000000.000000000-demo")); err != nil {
+		t.Fatal(err)
+	}
+	if err := runBackupLayoutFlatten(root); err != nil {
+		t.Fatalf("flatten after resolving the conflict: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, "sites")); !os.IsNotExist(err) {
+		t.Fatalf("per-site directory remains after a successful flatten: %v", err)
+	}
+}

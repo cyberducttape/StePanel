@@ -595,3 +595,10 @@ func TestRollbackCopyLimit(t *testing.T) {
 		}
 	}
 }
+
+func TestRollbackCopyReservationCoversBlockOverhead(t *testing.T) {
+	// 1,000 one-byte files occupy far more than 1,000 bytes on disk.
+	if got := rollbackCopyReservation(1000, 1000); got < 1000*4096 {
+		t.Fatalf("reservation for 1,000 small files = %d bytes, want at least one block each", got)
+	}
+}

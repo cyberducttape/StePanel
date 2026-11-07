@@ -32,12 +32,17 @@ type releaseActivationJournal struct {
 	// journal was written. Activation exchanges the stage with the live
 	// tree, so after a crash a stage path holding a different directory
 	// holds the previous release. Journals from earlier releases lack them.
-	StageDevice uint64    `json:"stage_device,omitempty"`
-	StageInode  uint64    `json:"stage_inode,omitempty"`
-	Previous    string    `json:"previous,omitempty"`
-	State       string    `json:"state"` // prepared, activated
-	StartedAt   time.Time `json:"started_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	StageDevice uint64 `json:"stage_device,omitempty"`
+	StageInode  uint64 `json:"stage_inode,omitempty"`
+	// LiveDevice and LiveInode identify the document root the activation
+	// replaces, so recovery finds the release it moved aside by identity
+	// rather than guessing from retained-release names.
+	LiveDevice uint64    `json:"live_device,omitempty"`
+	LiveInode  uint64    `json:"live_inode,omitempty"`
+	Previous   string    `json:"previous,omitempty"`
+	State      string    `json:"state"` // prepared, activated
+	StartedAt  time.Time `json:"started_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 
 	path string
 }
@@ -160,7 +165,7 @@ func recoverReleaseActivationJournalsFor(cfg Config, site string) ([]string, err
 				return recovered, fmt.Errorf("inspect prepared release activation %s: %w", journal.ID, err)
 			}
 			_, publicErr := os.Lstat(public)
-			previous, findErr := findPreviousRelease(cfg, journal.Site)
+			previous, findErr := journal.previousRelease(cfg)
 			if findErr != nil {
 				return recovered, fmt.Errorf("inspect prepared release activation %s: %w", journal.ID, findErr)
 			}
@@ -288,4 +293,83 @@ func (j *releaseActivationJournal) stageWasExchanged() bool {
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	return ok && (uint64(stat.Dev) != j.StageDevice || stat.Ino != j.StageInode)
+}
+
+// recordLive notes the identity of the document root this activation will
+// replace. A site without one has nothing to move aside.
+func (j *releaseActivationJournal) recordLive(docRoot string) error {
+	info, err := os.Lstat(docRoot)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect document root: %w", err)
+	}
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+		j.LiveDevice, j.LiveInode = uint64(stat.Dev), stat.Ino
+	}
+	return nil
+}
+
+// previousRelease finds the release this activation moved aside. A journal
+// that recorded the replaced document root finds it by identity among the
+// site's retained releases, and returns "" if it is not among them; an
+// older journal falls back to the newest retained release.
+func (j *releaseActivationJournal) previousRelease(cfg Config) (string, error) {
+	if j.LiveInode == 0 {
+		return findPreviousRelease(cfg, j.Site)
+	}
+	location, err := siteLocationFor(cfg, j.Site)
+	if err != nil {
+		return "", err
+	}
+	entries, err := os.ReadDir(location.Home)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), location.PreviousPrefix) {
+			continue
+		}
+		candidate, err := safePath(location.Home, entry.Name())
+		if err != nil {
+			return "", err
+		}
+		info, err := os.Lstat(candidate)
+		if err != nil {
+			continue
+		}
+		if stat, ok := info.Sys().(*syscall.Stat_t); ok && uint64(stat.Dev) == j.LiveDevice && stat.Ino == j.LiveInode {
+			return candidate, nil
+		}
+	}
+	return "", nil
+}
+
+// releaseStageHasJournal reports whether an activation journal still names
+// stage. Such a stage may hold a previous release after an indeterminate
+// activation, so only journal recovery may remove it.
+func releaseStageHasJournal(recoveryRoot, stage string) bool {
+	entries, err := os.ReadDir(recoveryRoot)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "release-activation-") || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		data, err := readStateFile(filepath.Join(recoveryRoot, entry.Name()), maxReleaseActivationJournalBytes)
+		if err != nil {
+			// An unreadable journal could name this stage.
+			return true
+		}
+		var journal releaseActivationJournal
+		if json.Unmarshal(data, &journal) != nil || journal.StagedRoot == stage {
+			return true
+		}
+	}
+	return false
 }

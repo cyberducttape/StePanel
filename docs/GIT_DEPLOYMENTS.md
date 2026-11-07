@@ -86,11 +86,26 @@ and atomically replaces the site's `public` directory. The prior directory is
 retained under the site root as `.stepanel-previous-<id>`. The replacement
 exchanges the new release with the live one in a single
 `renameat2(RENAME_EXCHANGE)`, so the document root never stops existing, and
-then moves the old release aside. On a filesystem without exchange support it
-falls back to two renames, and the document root is briefly absent between
-them. After a crash between the exchange and the move, startup recovery finds
-the old release at the stage path, which it identifies by the stage's inode
-recorded in the activation journal, and puts it back.
+then moves the old release aside. On a filesystem without exchange support,
+such as NFS, it falls back to two renames, and the document root is briefly
+absent between them. The panel logs a warning the first time that happens;
+keep site homes on a local filesystem (ext4, XFS, Btrfs) to avoid the gap.
+
+The activation journal records the identities (inodes) of the stage and of
+the document root being replaced. After a crash, startup recovery uses them to
+tell which tree each path holds. If the old release is still at the stage path
+after an exchange, it puts it back. Otherwise it restores the exact release
+that was moved aside, never the newest retained release by name, and stops
+for an operator rather than guess. If an activation fails without knowing
+what it left, the panel keeps the journal and reconciles it at once. A stage
+that a journal still names is never discarded, because it may hold the
+previous release.
+
+Undoing a failed activation never deletes the live tree first. It checks that
+the previous release is a real directory, sets the failed tree aside under a
+`.stepanel-failed-*` name derived from the release being restored, moves the
+previous release back, and only then deletes the failed tree. An interrupted
+undo can be run again.
 
 Git checkout, build-pipeline, activation, and rollback operations are serialized
 per site. Operations for different sites may proceed concurrently; same-site

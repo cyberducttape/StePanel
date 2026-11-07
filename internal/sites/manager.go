@@ -20,10 +20,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -848,8 +850,13 @@ func (m *DefaultManager) ActivateStagedReplacing(ctx context.Context, name, stag
 		}
 		if exchanged {
 			if err := renameDurable(stagedEntry, previous); err != nil {
-				if _, backErr := exchangeDurable(stagedEntry, destination); backErr != nil {
-					return "", errors.Join(fmt.Errorf("sites.Manager: preserve current release: %w", err), fmt.Errorf("sites.Manager: restore current release from %s: %w", stagedEntry, backErr))
+				// The new release is live and the old one is at the stage
+				// path; exchange them back.
+				if back, backErr := exchangeDurable(stagedEntry, destination); backErr != nil || !back {
+					if backErr == nil {
+						backErr = errors.New("the filesystem refused the exchange")
+					}
+					return "", errors.Join(ErrActivationIndeterminate, fmt.Errorf("sites.Manager: preserve current release: %w", err), fmt.Errorf("restore it from %s: %w", stagedEntry, backErr))
 				}
 				return "", fmt.Errorf("sites.Manager: preserve current release: %w", err)
 			}
@@ -857,6 +864,7 @@ func (m *DefaultManager) ActivateStagedReplacing(ctx context.Context, name, stag
 		}
 		// The filesystem cannot exchange: move the live tree aside, then
 		// publish the stage. The document root is absent between the two.
+		warnExchangeUnsupported(destination)
 		if err := os.Rename(destination, previous); err != nil {
 			return "", fmt.Errorf("sites.Manager: preserve current release: %w", err)
 		}
@@ -888,16 +896,48 @@ func exchangeDurable(a, b string) (bool, error) {
 		}
 		return false, err
 	}
-	for _, parent := range []string{filepath.Dir(b), filepath.Dir(a)} {
-		if err := syncDir(parent); err != nil {
-			syncErr := fmt.Errorf("sync %s: %w", parent, err)
-			if backErr := renameExchange(a, b); backErr != nil {
-				return true, errors.Join(syncErr, fmt.Errorf("%s remains published; reverse exchange failed: %w", b, backErr))
-			}
-			return false, syncErr
+	if err := syncParents(a, b); err != nil {
+		// Undo the exchange and persist the undo; if either fails, which
+		// tree each path holds on disk is not known.
+		if backErr := renameExchange(a, b); backErr != nil {
+			return true, errors.Join(ErrActivationIndeterminate, err, fmt.Errorf("reverse exchange failed: %w", backErr))
 		}
+		if backErr := syncParents(a, b); backErr != nil {
+			return true, errors.Join(ErrActivationIndeterminate, err, fmt.Errorf("persisting the reverse exchange failed: %w", backErr))
+		}
+		return false, err
 	}
 	return true, nil
+}
+
+// syncParents persists the directories holding a and b.
+func syncParents(a, b string) error {
+	for _, parent := range []string{filepath.Dir(b), filepath.Dir(a)} {
+		if err := syncDir(parent); err != nil {
+			return fmt.Errorf("sync %s: %w", parent, err)
+		}
+		if filepath.Dir(a) == filepath.Dir(b) {
+			break
+		}
+	}
+	return nil
+}
+
+// ErrActivationIndeterminate marks an activation or rollback that failed
+// part-way and could not establish which release each path now holds.
+// Callers must keep their recovery journal and must not discard the stage:
+// it may hold the previous release.
+var ErrActivationIndeterminate = errors.New("sites.Manager: release activation state is indeterminate")
+
+var exchangeWarning sync.Once
+
+// warnExchangeUnsupported logs once per process that the document-root
+// filesystem cannot exchange directories, so activations there leave the
+// document root briefly absent.
+func warnExchangeUnsupported(destination string) {
+	exchangeWarning.Do(func() {
+		log.Printf("WARNING: the filesystem holding %s does not support renameat2(RENAME_EXCHANGE); release activation falls back to two renames and the document root is briefly absent during each deploy or rollback", destination)
+	})
 }
 
 // RollbackStagedActivation removes the active replacement and restores the
@@ -912,17 +952,17 @@ func (m *DefaultManager) RollbackStagedActivation(ctx context.Context, name, pre
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if info, statErr := os.Lstat(destination); statErr == nil {
-		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-			return errors.New("sites.Manager: refuse to remove non-directory activation")
-		}
-		if err := os.RemoveAll(destination); err != nil {
-			return fmt.Errorf("sites.Manager: remove failed activation: %w", err)
-		}
-	} else if !errors.Is(statErr, os.ErrNotExist) {
-		return fmt.Errorf("sites.Manager: inspect failed activation: %w", statErr)
-	}
 	if previous == "" {
+		if info, statErr := os.Lstat(destination); statErr == nil {
+			if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+				return errors.New("sites.Manager: refuse to remove non-directory activation")
+			}
+			if err := os.RemoveAll(destination); err != nil {
+				return fmt.Errorf("sites.Manager: remove failed activation: %w", err)
+			}
+		} else if !errors.Is(statErr, os.ErrNotExist) {
+			return fmt.Errorf("sites.Manager: inspect failed activation: %w", statErr)
+		}
 		return nil
 	}
 	absPrevious, err := filepath.Abs(previous)
@@ -941,16 +981,75 @@ func (m *DefaultManager) RollbackStagedActivation(ctx context.Context, name, pre
 	if err != nil {
 		return err
 	}
-	if info, statErr := os.Lstat(previous); statErr != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("sites.Manager: previous release is not a directory")
+	// The failed activation is moved to a tombstone named after the
+	// release being restored, so a rollback interrupted at any point can be
+	// run again: the live tree is never deleted before the previous release
+	// is in place.
+	tombstone, err := h.SafePath(siteRoot, failedActivationPrefix(loc.previousPrefix)+filepath.Base(previous))
+	if err != nil {
+		return err
+	}
+	previousInfo, previousErr := os.Lstat(previous)
+	if errors.Is(previousErr, os.ErrNotExist) {
+		// Already restored by an interrupted run: the tombstone is there and
+		// the document root holds the previous release.
+		if _, tombErr := os.Lstat(tombstone); tombErr == nil {
+			if _, destErr := os.Lstat(destination); destErr == nil {
+				return removeTombstone(tombstone, siteRoot)
+			}
+		}
+		return fmt.Errorf("sites.Manager: previous release %s is missing; the active release was left in place", filepath.Base(previous))
+	}
+	if previousErr != nil {
+		return fmt.Errorf("sites.Manager: inspect previous release: %w", previousErr)
+	}
+	if !previousInfo.IsDir() || previousInfo.Mode()&os.ModeSymlink != 0 {
+		return errors.New("sites.Manager: previous release is not a directory; the active release was left in place")
+	}
+	if info, statErr := os.Lstat(destination); statErr == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return errors.New("sites.Manager: refuse to replace non-directory activation")
+		}
+		if err := removeTombstone(tombstone, siteRoot); err != nil {
+			return err
+		}
+		if err := os.Rename(destination, tombstone); err != nil {
+			return fmt.Errorf("sites.Manager: set aside failed activation: %w", err)
+		}
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return fmt.Errorf("sites.Manager: inspect failed activation: %w", statErr)
 	}
 	if err := os.Rename(previous, destination); err != nil {
 		return fmt.Errorf("sites.Manager: restore previous release: %w", err)
 	}
-	if err := syncDir(siteRoot); err != nil {
+	if err := syncParents(previous, destination); err != nil {
 		return fmt.Errorf("sites.Manager: persist restored release: %w", err)
 	}
-	return nil
+	return removeTombstone(tombstone, siteRoot)
+}
+
+// failedActivationPrefix names tombstones of failed activations beside the
+// site's retained releases (".stepanel-previous-X" -> ".stepanel-failed-X").
+func failedActivationPrefix(previousPrefix string) string {
+	return strings.Replace(previousPrefix, ".stepanel-previous-", ".stepanel-failed-", 1)
+}
+
+// removeTombstone deletes a failed activation's tombstone if present.
+func removeTombstone(tombstone, parent string) error {
+	info, err := os.Lstat(tombstone)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("sites.Manager: inspect failed activation: %w", err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("sites.Manager: failed activation tombstone is not a directory")
+	}
+	if err := os.RemoveAll(tombstone); err != nil {
+		return fmt.Errorf("sites.Manager: remove failed activation: %w", err)
+	}
+	return syncDir(parent)
 }
 
 // syncDir fsyncs a directory so renames inside it survive power loss. Tests
@@ -1013,7 +1112,10 @@ func renameDurable(from, to string) error {
 	}
 	syncErr = fmt.Errorf("sync %s: %w", parent, syncErr)
 	if err := os.Rename(to, from); err != nil {
-		return errors.Join(syncErr, fmt.Errorf("%s remains published; reverse rename failed: %w", to, err))
+		return errors.Join(ErrActivationIndeterminate, syncErr, fmt.Errorf("%s remains published; reverse rename failed: %w", to, err))
+	}
+	if err := syncParents(from, to); err != nil {
+		return errors.Join(ErrActivationIndeterminate, syncErr, fmt.Errorf("persisting the reverse rename failed: %w", err))
 	}
 	return syncErr
 }
@@ -1026,10 +1128,10 @@ func restorePreviousRelease(previous, destination string, cause error) error {
 		return cause
 	}
 	if err := os.Rename(previous, destination); err != nil {
-		return errors.Join(cause, fmt.Errorf("sites.Manager: restore previous release from %s: %w", previous, err))
+		return errors.Join(ErrActivationIndeterminate, cause, fmt.Errorf("sites.Manager: restore previous release from %s: %w", previous, err))
 	}
 	if err := syncDir(filepath.Dir(destination)); err != nil {
-		return errors.Join(cause, fmt.Errorf("sites.Manager: persist restored previous release: %w", err))
+		return errors.Join(ErrActivationIndeterminate, cause, fmt.Errorf("sites.Manager: persist restored previous release: %w", err))
 	}
 	return cause
 }

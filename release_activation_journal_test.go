@@ -2,12 +2,14 @@ package stepanel
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"syscall"
 	"testing"
 
+	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 	"golang.org/x/sys/unix"
 )
 
@@ -305,5 +307,141 @@ func TestRecoverReleaseActivationAfterExchangeBeforeMoveAside(t *testing.T) {
 	}
 	if _, err := os.Lstat(stage); !os.IsNotExist(err) {
 		t.Fatalf("stage path still holds a tree: %v", err)
+	}
+}
+
+// indeterminateManager performs the exchange half of an activation and then
+// reports that it could not tell what it left, as when undoing a failed
+// move-aside also fails.
+type indeterminateManager struct {
+	*siteauthority.DefaultManager
+	public string
+}
+
+func (m indeterminateManager) ActivateStagedReplacing(ctx context.Context, name, stagedRoot string) (string, error) {
+	if err := unix.Renameat2(unix.AT_FDCWD, stagedRoot, unix.AT_FDCWD, m.public, unix.RENAME_EXCHANGE); err != nil {
+		return "", err
+	}
+	return "", errors.Join(siteauthority.ErrActivationIndeterminate, errors.New("injected: reverse exchange failed"))
+}
+
+func newIndeterminateActivationFixture(t *testing.T) (*App, string, string) {
+	t.Helper()
+	root := t.TempDir()
+	cfg := Config{WebRoot: filepath.Join(root, "www"), RecoveryRoot: filepath.Join(root, "recovery")}
+	public := filepath.Join(cfg.WebRoot, "sites", "example", "public")
+	if err := os.MkdirAll(public, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(public, "index.html"), []byte("old"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := newSiteManagerForConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Config: cfg, siteManager: indeterminateManager{manager, public}}
+	stage, owner, err := app.createSiteReleaseStaging(context.Background(), "example", ".stepanel-release-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { owner.Close() })
+	if err := os.WriteFile(filepath.Join(stage, "index.html"), []byte("new"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	return app, public, stage
+}
+
+// An activation that ends in an indeterminate state keeps its journal and
+// reconciles at once: the previous release, left at the stage path, is put
+// back instead of being discarded with the stage.
+func TestIndeterminateActivationIsReconciledNotDiscarded(t *testing.T) {
+	app, public, stage := newIndeterminateActivationFixture(t)
+	// Exchanging twice leaves the trees where they were and shows the
+	// filesystem supports the exchange the fake manager performs.
+	for i := 0; i < 2; i++ {
+		if err := unix.Renameat2(unix.AT_FDCWD, stage, unix.AT_FDCWD, public, unix.RENAME_EXCHANGE); err != nil {
+			t.Skipf("filesystem cannot exchange: %v", err)
+		}
+	}
+	_, err := app.activatePipelineRelease(context.Background(), "example", stage)
+	if err == nil || !errors.Is(err, siteauthority.ErrActivationIndeterminate) {
+		t.Fatalf("activation error = %v, want the indeterminate failure", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(public, "index.html")); err != nil || string(data) != "old" {
+		t.Fatalf("live release after reconciliation = %q, %v; want old", data, err)
+	}
+	if entries, _ := os.ReadDir(app.Config.RecoveryRoot); len(entries) != 0 {
+		t.Fatalf("reconciled activation left %d journal entries", len(entries))
+	}
+}
+
+// A stage an activation journal still names is not discarded: it may hold
+// the previous release.
+func TestJournaledStageIsNotDiscarded(t *testing.T) {
+	app, _, stage := newIndeterminateActivationFixture(t)
+	journal, err := newReleaseActivationJournal(app.Config.RecoveryRoot, "example", stage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.persist(); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.discardSiteReleaseStaging(context.Background(), "example", stage); err == nil {
+		t.Fatal("a journaled stage was discarded")
+	}
+	if _, err := os.Stat(filepath.Join(stage, "index.html")); err != nil {
+		t.Fatalf("journaled stage was removed: %v", err)
+	}
+}
+
+// Recovery restores the release the activation moved aside, identified by
+// the document root's inode, not the newest retained release by name.
+func TestRecoveryRestoresTheMovedAsideReleaseByIdentity(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{WebRoot: filepath.Join(root, "www"), RecoveryRoot: filepath.Join(root, "recovery")}
+	siteRoot := filepath.Join(cfg.WebRoot, "sites", "example")
+	public := filepath.Join(siteRoot, "public")
+	if err := os.MkdirAll(public, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(public, "index.html"), []byte("live"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	newer := filepath.Join(siteRoot, ".stepanel-previous-9999999999999999999")
+	if err := os.MkdirAll(newer, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(newer, "index.html"), []byte("older release, newer name"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Config: cfg}
+	stage, owner, err := app.createSiteReleaseStaging(context.Background(), "example", ".stepanel-release-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close()
+	journal, err := newReleaseActivationJournal(cfg.RecoveryRoot, "example", stage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.recordLive(public); err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.persist(); err != nil {
+		t.Fatal(err)
+	}
+	// What the two-rename fallback leaves after a crash between its renames.
+	if err := os.Rename(public, filepath.Join(siteRoot, ".stepanel-previous-1")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := recoverReleaseActivationJournals(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(filepath.Join(public, "index.html")); err != nil || string(data) != "live" {
+		t.Fatalf("recovered live release = %q, %v; want the moved-aside one", data, err)
+	}
+	if _, err := os.Stat(newer); err != nil {
+		t.Fatalf("an unrelated retained release was consumed: %v", err)
 	}
 }

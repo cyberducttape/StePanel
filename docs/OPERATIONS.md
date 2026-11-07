@@ -647,6 +647,13 @@ hand, run, as the service user:
 /opt/stepanel/stepanel backup-layout flatten /var/backups/stepanel
 ```
 
+The command fails, without starting anything else, if any entry stays below
+`sites/`: for example, a backup whose name is already taken in the root, or
+one published while StePanel was still running. Resolve what it names, then
+run it again. Only a successful run leaves every backup visible to the older
+release. The one-time move at upgrade syncs each directory once rather than
+once per backup, and logs its progress every 1,000 backups.
+
 Backups expose separate `filesystem_consistency`, `database_consistency`, and
 `application_consistency` fields. The normal classification is
 `crash-consistent / logical backup`: the archive and any logical database dump
