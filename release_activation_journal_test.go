@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestReleaseActivationRecoversAfterProcessKill(t *testing.T) {
@@ -258,5 +260,50 @@ func TestReleaseStageExistsAcceptsAPlacedSitesHomeStage(t *testing.T) {
 	}
 	if _, err := releaseStageExists(cfg, "alice", own); err == nil {
 		t.Fatal("site alice accepted a release stage of site shop")
+	}
+}
+
+// A crash after the activation exchanged the stage with the live release,
+// but before it moved the old release aside, leaves the old release at the
+// stage path and the uncommitted one live. Recovery recognises the stage
+// path no longer holds the journal's stage and restores the old release.
+func TestRecoverReleaseActivationAfterExchangeBeforeMoveAside(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{WebRoot: filepath.Join(root, "www"), RecoveryRoot: filepath.Join(root, "recovery")}
+	public := filepath.Join(cfg.WebRoot, "sites", "example", "public")
+	if err := os.MkdirAll(public, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(public, "index.html"), []byte("old"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Config: cfg}
+	stage, owner, err := app.createSiteReleaseStaging(context.Background(), "example", ".stepanel-release-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close()
+	if err := os.WriteFile(filepath.Join(stage, "index.html"), []byte("new"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	journal, err := newReleaseActivationJournal(cfg.RecoveryRoot, "example", stage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.persist(); err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Renameat2(unix.AT_FDCWD, stage, unix.AT_FDCWD, public, unix.RENAME_EXCHANGE); err != nil {
+		t.Skipf("filesystem cannot exchange: %v", err)
+	}
+	ids, err := recoverReleaseActivationJournals(cfg)
+	if err != nil || len(ids) != 1 {
+		t.Fatalf("recovered %v, %v", ids, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(public, "index.html")); err != nil || string(data) != "old" {
+		t.Fatalf("active release after recovery = %q, %v; want the old release", data, err)
+	}
+	if _, err := os.Lstat(stage); !os.IsNotExist(err) {
+		t.Fatalf("stage path still holds a tree: %v", err)
 	}
 }

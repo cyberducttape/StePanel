@@ -83,7 +83,14 @@ StePanel performs a shallow, single-ref checkout with credential prompting and
 Git credential helpers disabled. It verifies the commit identifier, rejects
 symlinks and special files, applies the configured entry limit, removes `.git`,
 and atomically replaces the site's `public` directory. The prior directory is
-retained under the site root as `.stepanel-previous-<id>`.
+retained under the site root as `.stepanel-previous-<id>`. The replacement
+exchanges the new release with the live one in a single
+`renameat2(RENAME_EXCHANGE)`, so the document root never stops existing, and
+then moves the old release aside. On a filesystem without exchange support it
+falls back to two renames, and the document root is briefly absent between
+them. After a crash between the exchange and the move, startup recovery finds
+the old release at the stage path, which it identifies by the stage's inode
+recorded in the activation journal, and puts it back.
 
 Git checkout, build-pipeline, activation, and rollback operations are serialized
 per site. Operations for different sites may proceed concurrently; same-site
@@ -152,19 +159,23 @@ curl -X POST https://panel.example.test/api/sites/git-rollback \
 Both requests need an administrator session. When a release stops being
 active, the panel records a SHA-256 digest of its contents in the
 control-plane database, which the site account cannot write. The digest
-covers every path and entry type, each file's bytes and executable bits, and
-each symlink's target, including any `.git` directory: deployed releases
-have their Git metadata removed, so metadata that appears later counts as a
-change. Ownership and other permission bits are not covered, because the
-site helper normalizes them.
+covers every path and entry type, each file's bytes and each symlink's
+target, including any `.git` directory: deployed releases have their Git
+metadata removed, so metadata that appears later counts as a change.
+Ownership and permission bits are not covered: the site helper's seal sets
+every file to 0640 and every directory to 0750, so they are not part of
+what goes live.
 
 The preview hashes the target in place and reports `content_integrity`,
 with `content_integrity_detail` explaining anything other than `verified`:
 
 - `verified`: the contents match the digest recorded at retirement.
-- `modified`: they do not, or the tree can no longer be read within the
-  release limits. The rollback is refused (`409`,
+- `modified`: they do not. The rollback is refused (`409`,
   `site.git-rollback.refused`); deploy the commit again.
+- `unreadable`: a digest was recorded, but the tree can no longer be read
+  within the release limits (an entry was replaced while it was read, an
+  unsupported entry appeared, or it grew past its limit). Refused like
+  `modified`.
 - `unrecorded`: no digest exists, because the release was retired before
   digests were recorded.
 - `unverified`: hashing the release at retirement failed (for example it
@@ -185,8 +196,17 @@ directory, which the account cannot reach, hashing the bytes as it writes
 them. It then compares that digest with the recorded one and activates the
 copy. A change the site makes to the retained release during or after the
 copy cannot reach the activated release. Once the copy is live, the
-consumed retained release is removed. The copy needs free space for one
-more copy of the target release, which is reserved before copying.
+consumed retained release is removed.
+
+The copy reads the retained tree descriptor by descriptor (`openat2` with
+`RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`), so an entry the site swaps for a
+symlink while it is read stops the copy instead of redirecting it outside
+the tree. Symlinks in the tree are copied as symlinks, never followed. The
+rollback reserves the target's size as measured under the site lock, plus
+1% and 1 MiB, and copies at most that much. A tree that grows past it while
+it is copied is `unreadable`. A failure writing the copy, such as a full
+disk (`507`) or another staging error (`500`), says nothing about the
+retained release and is not reported as an integrity verdict.
 
 The active release is not covered: a running application may write caches or
 uploads into it, so its contents are fixed only from retirement. Hashing reads

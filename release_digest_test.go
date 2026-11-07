@@ -92,7 +92,7 @@ func TestReleaseContentDigestCoversStructure(t *testing.T) {
 		t.Fatalf("digest = %q files=%d bytes=%d, %v", base, files, bytes, err)
 	}
 	for _, change := range []func() error{
-		func() error { return os.Chmod(filepath.Join(root, "a"), 0750) },
+		func() error { return os.WriteFile(filepath.Join(root, "a"), []byte("two"), 0640) },
 		func() error { return os.WriteFile(filepath.Join(root, "b"), nil, 0640) },
 		func() error { return os.Symlink("a", filepath.Join(root, "c")) },
 		// Deployed releases carry no Git metadata, so metadata that appears
@@ -157,7 +157,7 @@ func TestGitRollbackRefusesModifiedRetainedRelease(t *testing.T) {
 	}
 }
 
-// Ownership and the permission bits the site helper normalizes are not
+// Ownership and permission bits, which the seal normalizes, are not
 // content: changing them keeps the digest.
 func TestReleaseContentDigestIgnoresNormalizedPermissions(t *testing.T) {
 	ctx := context.Background()
@@ -175,7 +175,8 @@ func TestReleaseContentDigestIgnoresNormalizedPermissions(t *testing.T) {
 	if err := os.Chmod(filepath.Join(root, "dir"), 0750|os.ModeSetgid); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(filepath.Join(root, "dir", "a"), 0660); err != nil {
+	// The seal leaves every file 0640, so executable bits are not content.
+	if err := os.Chmod(filepath.Join(root, "dir", "a"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	if next, _, _, err := gitReleaseContentDigest(ctx, root, 1<<20, 100); err != nil || next != base {
@@ -369,12 +370,15 @@ func TestRollbackIgnoresWritesAfterVerification(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rollbackVerifiedHook = func(retained string) {
+	rollbackTestHook = func(point, retained string) {
+		if point != "verified" {
+			return
+		}
 		if err := os.WriteFile(filepath.Join(retained, "index.php"), []byte("<?php evil();   "), 0640); err != nil {
 			t.Error(err)
 		}
 	}
-	defer func() { rollbackVerifiedHook = nil }()
+	defer func() { rollbackTestHook = nil }()
 	if code, body := postRollback(t, app, preview, false); code != http.StatusOK {
 		t.Fatalf("rollback: %d %s", code, body)
 	}
@@ -443,5 +447,151 @@ func TestReleaseContentDigestHonoursCancellation(t *testing.T) {
 	defer stop()
 	if _, _, _, err := gitReleaseContentDigest(waiting, root, 1<<30, 100); err == nil {
 		t.Fatal("a digest ran beyond the host's concurrent digest slots")
+	}
+}
+
+// A directory the site account swaps for a symlink after the walk
+// classified it is not followed: the walk fails on the source side and
+// nothing outside the tree is read or copied.
+func TestReleaseCopyDoesNotFollowASwappedDirectory(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret"), []byte("other tenant"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "d"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "d", "secret"), []byte("own"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	releaseWalkHook = func(rel string) {
+		if rel != "d" {
+			return
+		}
+		if err := os.RemoveAll(filepath.Join(root, "d")); err != nil {
+			t.Error(err)
+		}
+		if err := os.Symlink(outside, filepath.Join(root, "d")); err != nil {
+			t.Error(err)
+		}
+	}
+	defer func() { releaseWalkHook = nil }()
+	stage := t.TempDir()
+	_, _, _, err := copyReleaseContent(context.Background(), root, stage, -1, 1<<20, 100)
+	if err == nil || isReleaseDestinationError(err) {
+		t.Fatalf("copy through a swapped directory: %v, want a source error", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(stage, "d", "secret")); err == nil && string(data) == "other tenant" {
+		t.Fatal("the copy read a file outside the release through a swapped directory")
+	}
+}
+
+// A symlink present in the tree is recorded and recreated as a symlink,
+// never followed.
+func TestReleaseCopyKeepsSymlinksAsLinks(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret"), []byte("other tenant"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
+	stage := t.TempDir()
+	if _, files, _, err := copyReleaseContent(context.Background(), root, stage, -1, 1<<20, 100); err != nil || files != 0 {
+		t.Fatalf("copy = %d files, %v", files, err)
+	}
+	if info, err := os.Lstat(filepath.Join(stage, "link")); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("symlink was not kept as a link: %v, %v", info, err)
+	}
+}
+
+// The digest reported for a copy is the digest of the copy itself, whatever
+// the source's permission bits.
+func TestReleaseCopyDigestDescribesTheCopy(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "bin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "bin", "run"), []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "index.php"), []byte("<?php"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	source, _, _, err := gitReleaseContentDigest(context.Background(), root, 1<<20, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage := t.TempDir()
+	reported, _, _, err := copyReleaseContent(context.Background(), root, stage, -1, 1<<20, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged, _, _, err := gitReleaseContentDigest(context.Background(), stage, 1<<20, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reported != source || reported != staged {
+		t.Fatalf("source %s, reported %s, staged tree %s: want all equal", source, reported, staged)
+	}
+}
+
+// A failure writing the copy is a staging error, not a verdict that the
+// retained release changed.
+func TestReleaseCopyWriteFailureIsNotModification(t *testing.T) {
+	app, previousRoot := newReleaseDigestFixture(t)
+	app.recordRetiredRelease(context.Background(), "example", previousRoot)
+	stage := t.TempDir()
+	// An entry already in the stage makes creating the copy's file fail.
+	if err := os.WriteFile(filepath.Join(stage, "index.php"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	integrity, err := app.copyVerifiedRelease(context.Background(), "example", previousRoot, stage, -1, 1<<20)
+	if err == nil || !isReleaseDestinationError(err) || integrity.Status != "" {
+		t.Fatalf("copy into a conflicting stage: %+v, %v; want a destination error and no verdict", integrity, err)
+	}
+}
+
+// A retained release that grows past what the rollback reserved while it is
+// copied is refused, and the active release is untouched.
+func TestRollbackRefusesReleaseGrowingPastItsReservation(t *testing.T) {
+	app, previousRoot := newReleaseDigestFixture(t)
+	publicRoot := filepath.Join(filepath.Dir(previousRoot), "public")
+	if err := os.WriteFile(filepath.Join(publicRoot, "index.php"), []byte("current"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	app.recordRetiredRelease(context.Background(), "example", previousRoot)
+	preview, err := app.buildGitRollbackPreview(context.Background(), "example", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rollbackTestHook = func(point, retained string) {
+		if point == "copy" {
+			if err := os.WriteFile(filepath.Join(retained, "lib", "app.php"), make([]byte, 3<<20), 0640); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	defer func() { rollbackTestHook = nil }()
+	code, body := postRollback(t, app, preview, true)
+	if code != http.StatusConflict || !strings.Contains(body, "size limit") {
+		t.Fatalf("rollback of a grown release: %d %s, want 409", code, body)
+	}
+	if data, _ := os.ReadFile(filepath.Join(publicRoot, "index.php")); string(data) != "current" {
+		t.Fatalf("active release changed: %q", data)
+	}
+}
+
+func TestRollbackCopyLimit(t *testing.T) {
+	for _, tc := range []struct{ measured, limit, want int64 }{
+		{0, 1 << 30, 1 << 20},
+		{100 << 20, 1 << 30, 101<<20 + 1<<20},
+		{1 << 30, 1 << 30, 1 << 30},
+	} {
+		if got := rollbackCopyLimit(tc.measured, tc.limit); got != tc.want {
+			t.Errorf("rollbackCopyLimit(%d, %d) = %d, want %d", tc.measured, tc.limit, got, tc.want)
+		}
 	}
 }

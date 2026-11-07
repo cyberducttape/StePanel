@@ -1412,7 +1412,12 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 		logStagingDiscardFailure(stage, a.discardSiteReleaseStaging(context.Background(), input.Site, stage))
 		_ = stageOwner.Close()
 	}()
-	reservation, err := a.capacityLedger().reserve(a.Config, "git-rollback-staging", stage, []capacityDemand{{Path: gitStageCapacityPath(stage), Bytes: uint64(max(preview.TargetBytes, 0))}})
+	// The copy reads at most what is reserved for it: the size measured
+	// under the lock just now, with a little slack. A retained release that
+	// grows past that while it is copied is refused as unreadable instead
+	// of filling the disk beyond the reservation.
+	copyLimit := rollbackCopyLimit(preview.TargetBytes, a.releaseDigestLimit())
+	reservation, err := a.capacityLedger().reserve(a.Config, "git-rollback-staging", stage, []capacityDemand{{Path: gitStageCapacityPath(stage), Bytes: uint64(copyLimit)}})
 	if err != nil {
 		log.Printf("Git rollback staging admission refused for site %s: %v", input.Site, err)
 		http.Error(w, "insufficient capacity to stage the rollback release", http.StatusInsufficientStorage)
@@ -1428,21 +1433,37 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 			group = int(stat.Gid)
 		}
 	}
-	integrity, err := a.copyVerifiedRelease(operationCtx, input.Site, target, stage, group)
+	if rollbackTestHook != nil {
+		rollbackTestHook("copy", target)
+	}
+	integrity, err := a.copyVerifiedRelease(operationCtx, input.Site, target, stage, group, copyLimit)
 	if err != nil {
-		if operationCtx.Err() != nil {
+		switch {
+		case operationCtx.Err() != nil:
 			http.Error(w, "Git rollback cancelled because the mutation lock was lost", http.StatusConflict)
-			return
+		case isReleaseDestinationError(err):
+			// Staging failed; the retained release is not implicated.
+			log.Printf("Git rollback of site %s could not stage a copy of %s: %v", input.Site, preview.TargetRelease, err)
+			if errors.Is(err, syscall.ENOSPC) || errors.Is(err, syscall.EDQUOT) {
+				http.Error(w, "insufficient space to stage the rollback release", http.StatusInsufficientStorage)
+			} else {
+				http.Error(w, "unable to stage the rollback release", http.StatusInternalServerError)
+			}
+		default:
+			log.Printf("Git rollback of site %s could not read %s: %v", input.Site, preview.TargetRelease, err)
+			http.Error(w, "the retained release could not be read for copying", http.StatusConflict)
 		}
-		log.Printf("Git rollback of site %s could not copy %s: %v", input.Site, preview.TargetRelease, err)
-		http.Error(w, "the retained release could not be copied for verification", http.StatusConflict)
 		return
 	}
 	switch integrity.Status {
 	case releaseIntegrityVerified:
-	case releaseIntegrityModified:
-		TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.git-rollback.refused", input.Site, preview.TargetRelease+": "+integrity.Detail)
-		http.Error(w, "the retained release was modified after it was retired and cannot be rolled back to; deploy the commit again instead", http.StatusConflict)
+	case releaseIntegrityModified, releaseIntegrityUnreadable:
+		TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.git-rollback.refused", input.Site, preview.TargetRelease+" ("+integrity.Status+"): "+integrity.Detail)
+		if integrity.Status == releaseIntegrityModified {
+			http.Error(w, "the retained release was modified after it was retired and cannot be rolled back to; deploy the commit again instead", http.StatusConflict)
+		} else {
+			http.Error(w, "the retained release can no longer be read within the release limits ("+integrity.Detail+"); deploy the commit again instead", http.StatusConflict)
+		}
 		return
 	default:
 		if !input.AcceptUnverified {
@@ -1450,8 +1471,8 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if rollbackVerifiedHook != nil {
-		rollbackVerifiedHook(target)
+	if rollbackTestHook != nil {
+		rollbackTestHook("verified", target)
 	}
 	auditDetail := preview.TargetRelease + " (content " + integrity.Status
 	if integrity.Status != releaseIntegrityVerified {
@@ -1489,9 +1510,23 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
-// rollbackVerifiedHook lets tests write to the retained release between
-// verification and activation.
-var rollbackVerifiedHook func(retained string)
+// rollbackTestHook lets tests change the retained release just before it is
+// copied ("copy") and between verification and activation ("verified").
+var rollbackTestHook func(point, retained string)
+
+// rollbackCopyLimit is how much a rollback reserves and may copy: the
+// target's measured size plus 1% and 1 MiB of slack, within the release
+// limit.
+func rollbackCopyLimit(measured, limit int64) int64 {
+	if measured < 0 {
+		measured = 0
+	}
+	reserved := measured + measured/100 + 1<<20
+	if reserved > limit || reserved < measured {
+		reserved = limit
+	}
+	return reserved
+}
 
 // removeRetainedRelease deletes a retained release that a rollback copied
 // into place. It must be a real directory directly in home carrying the

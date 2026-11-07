@@ -8,6 +8,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Security
 
+- Release activation exchanges the new release with the live one in one
+  `renameat2(RENAME_EXCHANGE)`, so the document root is never absent during a
+  deploy or rollback; recovery handles a crash between the exchange and moving
+  the old release aside. The rollback copy now walks the retained tree with
+  descriptor-relative `openat2` (`RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`), so a
+  directory swapped for a symlink cannot redirect it. It copies at most what it
+  reserved, and its digest describes the activated copy exactly. A failure
+  writing the copy is reported as a staging error, and a tree that can no
+  longer be read as `unreadable`; neither is reported as `modified`.
 - Git rollback copies the retained release into panel-owned staging,
   verifies the copy against the content digest recorded when the release
   was retired, and activates the copy, so a site account writing to its

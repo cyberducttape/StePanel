@@ -984,7 +984,7 @@ paths:
       summary: Preview the current-to-previous Git release swap
       description: Administrator-only. The returned preview token must be submitted with the rollback request and is checked again under the site mutation lock.
       responses:
-        '200': {description: 'Release identities, file counts and sizes, document-root change, service effect, preview token, and content_integrity (verified, modified, unrecorded or unverified) with content_integrity_detail'}
+        '200': {description: 'Release identities, file counts and sizes, document-root change, service effect, preview token, and content_integrity (verified, modified, unreadable, unrecorded or unverified) with content_integrity_detail'}
         '409': {description: A safe rollback preview could not be produced}
   /api/v1/sites/git-rollback:
     post:
@@ -1003,8 +1003,9 @@ paths:
                 accept_unverified: {type: boolean, description: 'Required to activate a release whose content_integrity is unrecorded or unverified; the override is recorded in the audit event'}
       responses:
         '200': {description: 'A verified copy of the previous release activated, the consumed retained release removed, and the replaced release preserved; reports restored_release and content_integrity'}
-        '409': {description: 'No valid previous release, a stale preview token, a modified retained release, or an unverified release without accept_unverified'}
-        '507': {description: Insufficient capacity to stage the copy of the previous release}
+        '409': {description: 'No valid previous release, a stale preview token, a modified or unreadable retained release, or an unverified release without accept_unverified'}
+        '500': {description: The copy of the previous release could not be staged}
+        '507': {description: Insufficient capacity or space to stage the copy of the previous release}
   /api/v1/sites/:
     delete:
       summary: Remove a managed PHP site route using its current preview token

@@ -3,6 +3,7 @@ package sites
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 func newManager(t *testing.T) (*DefaultManager, string) {
@@ -941,5 +944,116 @@ func TestCleanupOrphanedManagerStagingHonorsCrossProcessLease(t *testing.T) {
 	}
 	if _, err := os.Stat(stageOwnerLockPath(stage)); !os.IsNotExist(err) {
 		t.Fatalf("stale manager-stage owner lock was not removed: %v", err)
+	}
+}
+
+// activateVersions activates n successive releases of site while a probe
+// keeps reading the document root, and returns how often the probe found
+// no document root.
+func activateVersions(t *testing.T, m *DefaultManager, root, site string, n int) int {
+	t.Helper()
+	public := filepath.Join(root, "sites", site, "public")
+	if err := os.MkdirAll(public, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(public, "index.html"), []byte("v0"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	stop := make(chan struct{})
+	missing := make(chan int)
+	go func() {
+		count := 0
+		for {
+			select {
+			case <-stop:
+				missing <- count
+				return
+			default:
+			}
+			if _, err := os.Stat(filepath.Join(public, "index.html")); errors.Is(err, os.ErrNotExist) {
+				count++
+			}
+		}
+	}()
+	for i := 1; i <= n; i++ {
+		stage, owner, err := m.CreateReleaseStagingLease(context.Background(), site, ".stepanel-release-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(stage, "index.html"), []byte(fmt.Sprintf("v%d", i)), 0640); err != nil {
+			t.Fatal(err)
+		}
+		previous, err := m.ActivateStagedReplacing(context.Background(), site, stage)
+		owner.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if data, err := os.ReadFile(filepath.Join(previous, "index.html")); err != nil || string(data) != fmt.Sprintf("v%d", i-1) {
+			t.Fatalf("activation %d preserved %q, %v", i, data, err)
+		}
+		if err := os.RemoveAll(previous); err != nil {
+			t.Fatal(err)
+		}
+	}
+	close(stop)
+	if data, err := os.ReadFile(filepath.Join(public, "index.html")); err != nil || string(data) != fmt.Sprintf("v%d", n) {
+		t.Fatalf("active release = %q, %v", data, err)
+	}
+	return <-missing
+}
+
+// Replacing a live release exchanges it with the stage in one step: a
+// reader probing the document root throughout repeated activations never
+// finds it missing.
+func TestActivateStagedReplacingNeverRemovesTheDocumentRoot(t *testing.T) {
+	m, root := newManager(t)
+	if missing := activateVersions(t, m, root, "probe-site", 200); missing != 0 {
+		t.Fatalf("the document root was missing %d times during activations", missing)
+	}
+}
+
+// On a filesystem without RENAME_EXCHANGE, activation falls back to two
+// renames and still preserves the previous release.
+func TestActivateStagedReplacingFallsBackWithoutExchange(t *testing.T) {
+	m, root := newManager(t)
+	original := renameExchange
+	renameExchange = func(string, string) error { return unix.EINVAL }
+	t.Cleanup(func() { renameExchange = original })
+	// The fallback leaves the document root briefly absent; the probe is
+	// what shows the exchange closes that gap.
+	t.Logf("document root missing %d times without exchange", activateVersions(t, m, root, "fallback-site", 200))
+}
+
+// RollbackStagedActivation accepts the stage path holding the previous
+// release after an activation stopped between its exchange and moving the
+// previous release aside.
+func TestRollbackStagedActivationRestoresFromAnExchangedStage(t *testing.T) {
+	m, root := newManager(t)
+	public := filepath.Join(root, "sites", "exchange-site", "public")
+	if err := os.MkdirAll(public, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(public, "version"), []byte("old"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	stage, owner, err := m.CreateReleaseStagingLease(context.Background(), "exchange-site", ".stepanel-release-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close()
+	if err := os.WriteFile(filepath.Join(stage, "version"), []byte("new"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := renameExchange(stage, public); err != nil {
+		t.Skipf("filesystem cannot exchange: %v", err)
+	}
+	if err := m.RollbackStagedActivation(context.Background(), "exchange-site", stage); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(filepath.Join(public, "version")); err != nil || string(data) != "old" {
+		t.Fatalf("active release after recovery = %q, %v", data, err)
+	}
+	if _, err := os.Lstat(stage); !os.IsNotExist(err) {
+		t.Fatalf("stage path still holds a tree: %v", err)
 	}
 }

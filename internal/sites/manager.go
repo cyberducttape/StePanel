@@ -27,6 +27,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	h "github.com/cyberducttape/StePanel/internal/helper"
 )
 
@@ -832,22 +834,70 @@ func (m *DefaultManager) ActivateStagedReplacing(ctx context.Context, name, stag
 		if err != nil {
 			return "", err
 		}
+		if err := prepareActivationParent(loc); err != nil {
+			return "", err
+		}
+		// Swap the stage and the live tree in one step, so the document
+		// root never stops existing, then move the old release (now at the
+		// stage path) aside. A crash between the two leaves the old release
+		// at the stage path; release recovery tells that apart from an
+		// unstarted swap by the stage's identity and puts it back.
+		exchanged, err := exchangeDurable(stagedEntry, destination)
+		if err != nil {
+			return "", fmt.Errorf("sites.Manager: activate staged release: %w", err)
+		}
+		if exchanged {
+			if err := renameDurable(stagedEntry, previous); err != nil {
+				if _, backErr := exchangeDurable(stagedEntry, destination); backErr != nil {
+					return "", errors.Join(fmt.Errorf("sites.Manager: preserve current release: %w", err), fmt.Errorf("sites.Manager: restore current release from %s: %w", stagedEntry, backErr))
+				}
+				return "", fmt.Errorf("sites.Manager: preserve current release: %w", err)
+			}
+			return previous, nil
+		}
+		// The filesystem cannot exchange: move the live tree aside, then
+		// publish the stage. The document root is absent between the two.
 		if err := os.Rename(destination, previous); err != nil {
 			return "", fmt.Errorf("sites.Manager: preserve current release: %w", err)
 		}
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return "", fmt.Errorf("sites.Manager: inspect activation destination: %w", statErr)
-	}
-	if err := ctx.Err(); err != nil {
-		return "", restorePreviousRelease(previous, destination, err)
-	}
-	if err := prepareActivationParent(loc); err != nil {
-		return "", restorePreviousRelease(previous, destination, err)
+	} else if err := prepareActivationParent(loc); err != nil {
+		return "", err
 	}
 	if err := renameDurable(stagedEntry, destination); err != nil {
 		return "", restorePreviousRelease(previous, destination, fmt.Errorf("sites.Manager: activate staged release: %w", err))
 	}
 	return previous, nil
+}
+
+// renameExchange swaps two paths atomically. Tests replace it to simulate
+// filesystems without RENAME_EXCHANGE.
+var renameExchange = func(a, b string) error {
+	return unix.Renameat2(unix.AT_FDCWD, a, unix.AT_FDCWD, b, unix.RENAME_EXCHANGE)
+}
+
+// exchangeDurable swaps a and b and persists both parent directories. It
+// reports false, with no error, when the filesystem does not support the
+// exchange, so the caller can fall back to two renames. If persisting
+// fails, the swap is undone.
+func exchangeDurable(a, b string) (bool, error) {
+	if err := renameExchange(a, b); err != nil {
+		if errors.Is(err, unix.EINVAL) || errors.Is(err, unix.ENOSYS) || errors.Is(err, unix.ENOTSUP) || errors.Is(err, unix.EOPNOTSUPP) {
+			return false, nil
+		}
+		return false, err
+	}
+	for _, parent := range []string{filepath.Dir(b), filepath.Dir(a)} {
+		if err := syncDir(parent); err != nil {
+			syncErr := fmt.Errorf("sync %s: %w", parent, err)
+			if backErr := renameExchange(a, b); backErr != nil {
+				return true, errors.Join(syncErr, fmt.Errorf("%s remains published; reverse exchange failed: %w", b, backErr))
+			}
+			return false, syncErr
+		}
+	}
+	return true, nil
 }
 
 // RollbackStagedActivation removes the active replacement and restores the
@@ -876,12 +926,23 @@ func (m *DefaultManager) RollbackStagedActivation(ctx context.Context, name, pre
 		return nil
 	}
 	absPrevious, err := filepath.Abs(previous)
-	if err != nil || filepath.Dir(absPrevious) != siteRoot || !strings.HasPrefix(filepath.Base(absPrevious), loc.previousPrefix) {
+	if err != nil {
 		return errors.New("sites.Manager: invalid previous release path")
 	}
-	previous, err = h.SafePath(siteRoot, filepath.Base(absPrevious))
+	if filepath.Dir(absPrevious) == siteRoot && strings.HasPrefix(filepath.Base(absPrevious), loc.previousPrefix) {
+		previous, err = h.SafePath(siteRoot, filepath.Base(absPrevious))
+	} else if parent, component, stageErr := m.resolveStagedRoot(name, absPrevious); stageErr == nil {
+		// An activation interrupted after its exchange left the previous
+		// release at the stage path.
+		previous, err = h.SafePath(parent, component)
+	} else {
+		return errors.New("sites.Manager: invalid previous release path")
+	}
 	if err != nil {
 		return err
+	}
+	if info, statErr := os.Lstat(previous); statErr != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("sites.Manager: previous release is not a directory")
 	}
 	if err := os.Rename(previous, destination); err != nil {
 		return fmt.Errorf("sites.Manager: restore previous release: %w", err)

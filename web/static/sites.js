@@ -1182,8 +1182,9 @@
           const formatBytes = (bytes) => `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
           const integrity = preview.content_integrity || 'unrecorded';
           const integrityDetail = preview.content_integrity_detail ? ` ${preview.content_integrity_detail}.` : '';
-          if (integrity === 'modified') {
-            output.textContent = `Rollback unavailable: ${preview.target_release} was modified after it was retired.${integrityDetail} Deploy the commit again instead.`;
+          if (integrity === 'modified' || integrity === 'unreadable') {
+            const reason = integrity === 'modified' ? 'was modified after it was retired' : 'can no longer be read within the release limits';
+            output.textContent = `Rollback unavailable: ${preview.target_release} ${reason}.${integrityDetail} Deploy the commit again instead.`;
             return;
           }
           const unverified = integrity !== 'verified';

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/sitelayout"
@@ -23,14 +24,20 @@ const maxReleaseActivationJournalBytes = 1 << 20
 // SiteManager; this journal tells startup whether an in-flight swap must be
 // rolled back before the control plane accepts traffic.
 type releaseActivationJournal struct {
-	Version    int       `json:"version"`
-	ID         string    `json:"id"`
-	Site       string    `json:"site"`
-	StagedRoot string    `json:"staged_root"`
-	Previous   string    `json:"previous,omitempty"`
-	State      string    `json:"state"` // prepared, activated
-	StartedAt  time.Time `json:"started_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	Version    int    `json:"version"`
+	ID         string `json:"id"`
+	Site       string `json:"site"`
+	StagedRoot string `json:"staged_root"`
+	// StageDevice and StageInode identify the stage directory when the
+	// journal was written. Activation exchanges the stage with the live
+	// tree, so after a crash a stage path holding a different directory
+	// holds the previous release. Journals from earlier releases lack them.
+	StageDevice uint64    `json:"stage_device,omitempty"`
+	StageInode  uint64    `json:"stage_inode,omitempty"`
+	Previous    string    `json:"previous,omitempty"`
+	State       string    `json:"state"` // prepared, activated
+	StartedAt   time.Time `json:"started_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 
 	path string
 }
@@ -48,7 +55,17 @@ func newReleaseActivationJournal(recoveryRoot, site, stagedRoot string) (*releas
 		return nil, err
 	}
 	now := time.Now().UTC()
-	return &releaseActivationJournal{Version: releaseActivationJournalVersion, ID: id, Site: site, StagedRoot: stagedRoot, State: "prepared", StartedAt: now, UpdatedAt: now, path: path}, nil
+	journal := &releaseActivationJournal{Version: releaseActivationJournalVersion, ID: id, Site: site, StagedRoot: stagedRoot, State: "prepared", StartedAt: now, UpdatedAt: now, path: path}
+	// Without a stage to identify, recovery falls back to the
+	// rename-only interpretation.
+	if info, err := os.Lstat(stagedRoot); err == nil {
+		if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+			journal.StageDevice, journal.StageInode = uint64(stat.Dev), stat.Ino
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("inspect release stage: %w", err)
+	}
+	return journal, nil
 }
 
 func (j *releaseActivationJournal) markActivated(previous string) error {
@@ -148,6 +165,13 @@ func recoverReleaseActivationJournalsFor(cfg Config, site string) ([]string, err
 				return recovered, fmt.Errorf("inspect prepared release activation %s: %w", journal.ID, findErr)
 			}
 			switch {
+			case stageExists && publicErr == nil && journal.stageWasExchanged():
+				// The stage was exchanged with the live tree, but the old
+				// release was not yet moved aside: it is at the stage path
+				// and the uncommitted release is live. Put the old one back.
+				if err := manager.RollbackStagedActivation(ctx, journal.Site, journal.StagedRoot); err != nil {
+					return recovered, fmt.Errorf("restore previous release after interrupted exchange %s: %w", journal.ID, err)
+				}
 			case stageExists && publicErr == nil:
 				// The swap never started; discard only this journal's stage.
 				if err := manager.DiscardReleaseStaging(ctx, journal.Site, journal.StagedRoot); err != nil {
@@ -249,4 +273,19 @@ func findPreviousRelease(cfg Config, site string) (string, error) {
 		}
 	}
 	return previous, nil
+}
+
+// stageWasExchanged reports whether the journal's stage path now holds a
+// different directory than the stage it recorded: the previous release,
+// left there by an activation interrupted after its exchange.
+func (j *releaseActivationJournal) stageWasExchanged() bool {
+	if j.StageInode == 0 {
+		return false
+	}
+	info, err := os.Lstat(j.StagedRoot)
+	if err != nil {
+		return false
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && (uint64(stat.Dev) != j.StageDevice || stat.Ino != j.StageInode)
 }
