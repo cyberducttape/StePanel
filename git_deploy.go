@@ -508,8 +508,13 @@ func (a *App) buildGitRollbackPreview(site string) (gitRollbackPreview, error) {
 }
 
 // gitReleaseFingerprint returns bounded tree size and regular-file count. It
-// hashes directory metadata for an optimistic concurrency check without
-// reading application file contents during a preview.
+// hashes metadata for an optimistic concurrency check without reading
+// application file contents during a preview. Size and modification time
+// alone are forgeable: a same-size edit followed by restoring the mtime
+// (touch -d) leaves them unchanged. Each entry's inode and status-change
+// time (ctime) are therefore included; the kernel updates ctime on every
+// write, chmod, rename, or timestamp change, and no unprivileged call can
+// set it back.
 func gitReleaseFingerprint(root string, maxBytes int64, maxEntries int, allowSymlinks bool) (int64, int64, string, error) {
 	if maxEntries < 1 {
 		maxEntries = 100000
@@ -542,7 +547,11 @@ func gitReleaseFingerprint(root string, maxBytes int64, maxEntries int, allowSym
 		if err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintf(digest, "%s\x00%o\x00%d\x00%d\n", relative, info.Mode(), info.Size(), info.ModTime().UnixNano()); err != nil {
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			return errors.New("release file identity is unavailable")
+		}
+		if _, err := fmt.Fprintf(digest, "%s\x00%o\x00%d\x00%d\x00%d\x00%d.%09d\n", relative, info.Mode(), info.Size(), info.ModTime().UnixNano(), stat.Ino, stat.Ctim.Sec, stat.Ctim.Nsec); err != nil {
 			return err
 		}
 		if isSymlink {

@@ -862,3 +862,40 @@ func TestGitStageQuotaIsSkippedOnlyInDevelopment(t *testing.T) {
 		t.Fatal("production Git staging quota cleanup succeeded without the root broker")
 	}
 }
+
+// F-04: a same-size edit with the original modification time restored must
+// change the rollback fingerprint.
+func TestGitReleaseFingerprintDetectsMtimePreservingEdit(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "index.php")
+	if err := os.WriteFile(file, []byte("<?php echo 'reviewed';"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	original, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, before, err := gitReleaseFingerprint(root, 1<<20, 100, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// File timestamps use a coarse clock; make the edit land in a later tick.
+	time.Sleep(50 * time.Millisecond)
+	if err := os.WriteFile(file, []byte("<?php echo 'tampered';"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(file, original.ModTime(), original.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	edited, err := os.Stat(file)
+	if err != nil || edited.Size() != original.Size() || !edited.ModTime().Equal(original.ModTime()) {
+		t.Fatalf("test setup: size/mtime not preserved: %v", err)
+	}
+	_, _, after, err := gitReleaseFingerprint(root, 1<<20, 100, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before == after {
+		t.Fatal("rollback fingerprint did not change after a same-size, mtime-preserving edit")
+	}
+}
