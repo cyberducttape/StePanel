@@ -396,7 +396,7 @@ func TestGitRollbackAtomicallySwapsPreviousRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := &App{Config: Config{WebRoot: webRoot, MaxEntries: 100}}
-	preview, err := app.buildGitRollbackPreview(context.Background(), "example")
+	preview, err := app.buildGitRollbackPreview(context.Background(), "example", true)
 	if err != nil {
 		t.Fatalf("build rollback preview: %v", err)
 	}
@@ -406,7 +406,12 @@ func TestGitRollbackAtomicallySwapsPreviousRelease(t *testing.T) {
 	if preview.ChangePlan.Proposed == nil || len(preview.ChangePlan.ValidationCommands) == 0 || len(preview.ChangePlan.InterruptionPoints) == 0 || len(preview.ChangePlan.DesiredStateProof) == 0 {
 		t.Fatalf("rollback review plan is incomplete: %+v", preview.ChangePlan)
 	}
-	body, _ := json.Marshal(gitRollbackRequest{Site: "example", Confirm: "ROLLBACK example", PreviewToken: preview.PreviewToken})
+	// No digest was recorded, so the release is activated only on the
+	// operator's explicit override.
+	if code, body := postRollback(t, app, preview, false); code != http.StatusConflict {
+		t.Fatalf("rollback of an unrecorded release without override: %d %s", code, body)
+	}
+	body, _ := json.Marshal(gitRollbackRequest{Site: "example", Confirm: "ROLLBACK example", PreviewToken: preview.PreviewToken, AcceptUnverified: true})
 	request := httptest.NewRequest(http.MethodPost, "/api/sites/git-rollback", bytes.NewReader(body))
 	response := httptest.NewRecorder()
 	app.gitRollback(response, request)
@@ -450,7 +455,7 @@ func TestGitRollbackRejectsStalePreview(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := &App{Config: Config{WebRoot: webRoot, MaxEntries: 100}}
-	preview, err := app.buildGitRollbackPreview(context.Background(), "example")
+	preview, err := app.buildGitRollbackPreview(context.Background(), "example", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -482,7 +487,7 @@ func TestGitRollbackPreviewToleratesLiveWritesToActiveRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := &App{Config: Config{WebRoot: webRoot, MaxEntries: 100}}
-	preview, err := app.buildGitRollbackPreview(context.Background(), "example")
+	preview, err := app.buildGitRollbackPreview(context.Background(), "example", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -490,7 +495,7 @@ func TestGitRollbackPreviewToleratesLiveWritesToActiveRelease(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(publicRoot, "cache.tmp"), []byte("live"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	again, err := app.buildGitRollbackPreview(context.Background(), "example")
+	again, err := app.buildGitRollbackPreview(context.Background(), "example", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -504,7 +509,7 @@ func TestGitRollbackPreviewToleratesLiveWritesToActiveRelease(t *testing.T) {
 	if err := os.MkdirAll(publicRoot, 0750); err != nil {
 		t.Fatal(err)
 	}
-	replaced, err := app.buildGitRollbackPreview(context.Background(), "example")
+	replaced, err := app.buildGitRollbackPreview(context.Background(), "example", true)
 	if err != nil {
 		t.Fatal(err)
 	}

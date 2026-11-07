@@ -286,11 +286,11 @@ func TestDiskExhaustion_ReleaseRollback(t *testing.T) {
 	f.assertSite(t, current)
 
 	rollback := func() int {
-		preview, err := app.buildGitRollbackPreview(context.Background(), f.site.Site())
+		preview, err := app.buildGitRollbackPreview(context.Background(), f.site.Site(), true)
 		if err != nil {
 			return http.StatusServiceUnavailable
 		}
-		body, _ := json.Marshal(gitRollbackRequest{Site: f.site.Site(), Confirm: "ROLLBACK " + f.site.Site(), PreviewToken: preview.PreviewToken})
+		body, _ := json.Marshal(gitRollbackRequest{Site: f.site.Site(), Confirm: "ROLLBACK " + f.site.Site(), PreviewToken: preview.PreviewToken, AcceptUnverified: true})
 		response := httptest.NewRecorder()
 		app.gitRollback(response, httptest.NewRequest(http.MethodPost, "/api/sites/git-rollback", bytes.NewReader(body)))
 		return response.Code

@@ -8,6 +8,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Security
 
+- Git rollback copies the retained release into panel-owned staging,
+  verifies the copy against the content digest recorded when the release
+  was retired, and activates the copy, so a site account writing to its
+  retained release cannot change what goes live. The digest now covers any
+  `.git` directory. A release with no baseline (retired before digests, or
+  whose hashing failed) needs `accept_unverified`, which is audited, and the
+  rollback dialog shows the integrity status. Rollback of sites placed in a
+  hosting account works again. The documented rollback example now includes
+  the required preview token.
 - Production startup now rejects audit-checkpoint publication unless a dedicated
   checkpoint-signing key is configured; the nonproduction compatibility
   fallback to the audit-chain key remains available.

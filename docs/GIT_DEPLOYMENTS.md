@@ -130,35 +130,74 @@ the warning.
 
 ## Roll back
 
-Rollback activates the newest preserved release and retains the release it
-replaces:
+Rollback restores the newest preserved release and retains the release it
+replaces. It is two requests: a preview, then a confirmation that carries
+the preview's token. The token binds the confirmation to the releases the
+preview described; if either changes in between, the confirmation answers
+`409` and a new preview is needed.
 
 ```sh
+# 1. Preview. The response names both releases and reports content_integrity.
+curl -s 'https://panel.example.test/api/sites/git-rollback/preview?site=example' \
+  -H 'Cookie: <session cookie>' > preview.json
+
+# 2. Confirm with the preview token.
 curl -X POST https://panel.example.test/api/sites/git-rollback \
   -H 'Content-Type: application/json' \
+  -H 'Cookie: <session cookie>' \
   -H 'X-CSRF-Token: <session token>' \
-  --data '{"site":"example","confirm":"ROLLBACK example"}'
+  --data "$(jq -c '{site: .site, confirm: ("ROLLBACK " + .site), preview_token: .preview_token}' preview.json)"
 ```
 
-The preserved release is safety-checked again before activation. When a
-release stops being active, the panel records a SHA-256 digest of its
-contents (every path, permission, file's bytes and symlink target) in the
-control-plane database, which the site account cannot write. The rollback
-preview re-hashes the target and reports `content_integrity`:
+Both requests need an administrator session. When a release stops being
+active, the panel records a SHA-256 digest of its contents in the
+control-plane database, which the site account cannot write. The digest
+covers every path and entry type, each file's bytes and executable bits, and
+each symlink's target, including any `.git` directory: deployed releases
+have their Git metadata removed, so metadata that appears later counts as a
+change. Ownership and other permission bits are not covered, because the
+site helper normalizes them.
+
+The preview hashes the target in place and reports `content_integrity`,
+with `content_integrity_detail` explaining anything other than `verified`:
 
 - `verified`: the contents match the digest recorded at retirement.
-- `modified`: they do not, or the tree can no longer be read. The rollback is
-  refused (`409`, `site.git-rollback.refused`); deploy the commit again.
-- `unrecorded`: the release was retired before digests were recorded, or was
-  too large to hash within `STEPANEL_GIT_RELEASE_MAX_TREE_BYTES`.
+- `modified`: they do not, or the tree can no longer be read within the
+  release limits. The rollback is refused (`409`,
+  `site.git-rollback.refused`); deploy the commit again.
+- `unrecorded`: no digest exists, because the release was retired before
+  digests were recorded.
+- `unverified`: hashing the release at retirement failed (for example it
+  exceeded `STEPANEL_GIT_RELEASE_MAX_TREE_BYTES` or the entry limit); the
+  detail gives the reason.
+
+An `unrecorded` or `unverified` release has no baseline to compare with. The
+confirmation must then add `"accept_unverified": true`, and the
+`site.git-rolled-back` audit event records the override and its reason.
+Without it the confirmation answers `409`. The panel's rollback dialog shows
+the status, offers no rollback for a `modified` release, and asks for
+explicit confirmation of an unverified one.
+
+The retained release lives in the site's home, where the site account can
+still write it. A rollback therefore never activates the retained tree
+itself. It copies the tree into the site's panel-owned release staging
+directory, which the account cannot reach, hashing the bytes as it writes
+them. It then compares that digest with the recorded one and activates the
+copy. A change the site makes to the retained release during or after the
+copy cannot reach the activated release. Once the copy is live, the
+consumed retained release is removed. The copy needs free space for one
+more copy of the target release, which is reserved before copying.
 
 The active release is not covered: a running application may write caches or
 uploads into it, so its contents are fixed only from retirement. Hashing reads
-the whole retained tree, once when it is retired and again for each preview
-and rollback. The site account can still write retained releases; the digest
-detects such a change, it does not prevent it. Deployment and rollback
-restore site ownership/isolation through the site helper and write
-tamper-evident audit events.
+the whole retained tree: once when it is retired, once for each preview, and
+once more as the rollback copies it. At most two release trees are hashed or
+copied at a time per panel process, and a cancelled request stops between
+reads. `stepanel_release_digest_runs_total`, `_failures_total`,
+`_bytes_total` and `_seconds_total`, labelled by `operation` (`retire`,
+`preview`, `rollback`), show what this costs on a host. Deployment and
+rollback restore site ownership and isolation through the site helper, and
+write tamper-evident audit events.
 
 ## Operational boundaries
 

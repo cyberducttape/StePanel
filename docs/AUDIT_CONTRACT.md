@@ -96,14 +96,14 @@ and never affects the operation; failures are logged.
 | Session revocation (admin or self-service) | A, revocation | `hosting.account.sessions-revoked*` |
 | Login removal, tenant member creation, removal, role change | A, intent-first | `hosting.account.login-removed`, `tenant.member.*` |
 | Tenant member suspension only | A, revocation | `tenant.member.updated` |
-| Git deployment (session or webhook), rollback, release pipeline | A, intent-first | `site.git-deployed`, `site.git-rolled-back`, `site.release.pipeline` |
+| Git deployment (session or webhook), rollback (its detail records the content integrity, and any `accept_unverified` override with its reason), release pipeline | A, intent-first | `site.git-deployed`, `site.git-rolled-back`, `site.release.pipeline` |
 | Queuing a long site operation (`site.operation` job) | A (request ledger) | the `http.request` event `Auth.Require` writes; the operation's own events are written by the worker with the original actor |
 | Webhook configuration update | A, intent-first | `webhook.config.updated` |
 | Webhook disable | A, revocation | `webhook.config.disabled` |
 | Dead-letter job deleted after `STEPANEL_DEAD_LETTER_RETENTION_DAYS` | B | `job.dead_letter.expired` |
 | Queued browser-session operation refused because the account's sessions were revoked after it was queued | B | `session.queued_work.revoked` |
 | Webhook delivery refused because the site's signing secret is shared with another site | B | `webhook.auth.shared-secret` |
-| Git rollback refused because the retained release changed after it was retired | B | `site.git-rollback.refused` |
+| Git rollback refused because the copy of the retained release does not match the digest recorded at retirement | B | `site.git-rollback.refused` |
 | Disabling webhooks whose sealed secret does not open (`stepanel webhook-secrets disable-unreadable`) | A, intent-first | `webhook.secrets.disable-unreadable` |
 | Queued webhook delivery refused because the signing secret was rotated, re-enabled, or revoked (site termination) after it was accepted | B | `webhook.deploy.revoked` |
 | Site creation | A, intent-first | `site.created` |

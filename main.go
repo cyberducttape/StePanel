@@ -1029,6 +1029,7 @@ func (a *App) health(w http.ResponseWriter, r *http.Request) {
 func (a *App) metrics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 	a.Metrics.Write(w)
+	writeReleaseDigestMetrics(w)
 	writeJobMetrics(w, a.Jobs)
 	writeOperatorNotificationMetrics(w, a.Notifications, a.Config)
 	writeAuditOutboxMetrics(w, a.AuditOutbox)

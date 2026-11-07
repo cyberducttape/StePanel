@@ -487,6 +487,10 @@ type gitRollbackRequest struct {
 	Site         string `json:"site"`
 	Confirm      string `json:"confirm"`
 	PreviewToken string `json:"preview_token"`
+	// AcceptUnverified is the operator's explicit consent to activate a
+	// release whose contents cannot be verified (content_integrity
+	// "unrecorded" or "unverified"). It is recorded in the audit event.
+	AcceptUnverified bool `json:"accept_unverified"`
 }
 
 type gitRollbackPreview struct {
@@ -500,13 +504,15 @@ type gitRollbackPreview struct {
 	DocumentRoot   string `json:"document_root"`
 	// ContentIntegrity compares the target's contents with the digest
 	// recorded when it was retired: "verified", "modified" (rollback is
-	// refused) or "unrecorded" (retired before digests were recorded, or
-	// too large to hash within the release limits).
-	ContentIntegrity string        `json:"content_integrity"`
-	ServiceEffect    string        `json:"service_effect"`
-	PreservedRelease string        `json:"preserved_release"`
-	PreviewToken     string        `json:"preview_token"`
-	ChangePlan       ChangePreview `json:"change_plan"`
+	// refused), "unrecorded" (retired before digests were recorded) or
+	// "unverified" (hashing it at retirement failed). The last two need
+	// accept_unverified. The rollback verifies the copy it activates again.
+	ContentIntegrity       string        `json:"content_integrity"`
+	ContentIntegrityDetail string        `json:"content_integrity_detail,omitempty"`
+	ServiceEffect          string        `json:"service_effect"`
+	PreservedRelease       string        `json:"preserved_release"`
+	PreviewToken           string        `json:"preview_token"`
+	ChangePlan             ChangePreview `json:"change_plan"`
 }
 
 // gitRollbackPreviewHandler describes the release swap and returns a token
@@ -521,7 +527,7 @@ func (a *App) gitRollbackPreviewHandler(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "invalid site", http.StatusUnprocessableEntity)
 		return
 	}
-	preview, err := a.buildGitRollbackPreview(r.Context(), site)
+	preview, err := a.buildGitRollbackPreview(r.Context(), site, true)
 	if err != nil {
 		http.Error(w, "Git rollback preview is unavailable", http.StatusConflict)
 		return
@@ -529,7 +535,11 @@ func (a *App) gitRollbackPreviewHandler(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, preview)
 }
 
-func (a *App) buildGitRollbackPreview(ctx context.Context, site string) (gitRollbackPreview, error) {
+// buildGitRollbackPreview describes the rollback. With checkIntegrity it
+// also hashes the target in place to report content_integrity; the token
+// does not depend on that verdict, because the rollback verifies the copy
+// it activates rather than trusting a hash taken earlier.
+func (a *App) buildGitRollbackPreview(ctx context.Context, site string, checkIntegrity bool) (gitRollbackPreview, error) {
 	location, err := siteLocationFor(a.Config, site)
 	if err != nil {
 		return gitRollbackPreview{}, err
@@ -558,13 +568,15 @@ func (a *App) buildGitRollbackPreview(ctx context.Context, site string) (gitRoll
 	if err != nil {
 		return gitRollbackPreview{}, err
 	}
-	// The metadata fingerprint is cheap and catches most edits; the content
-	// digest proves the bytes are those recorded at retirement.
-	integrity, err := a.retainedReleaseIntegrity(ctx, site, target)
-	if err != nil {
-		return gitRollbackPreview{}, err
+	var integrity releaseIntegrity
+	if checkIntegrity {
+		if integrity, err = a.retainedReleaseIntegrity(ctx, site, target); err != nil {
+			return gitRollbackPreview{}, err
+		}
 	}
-	revision := fmt.Sprintf("%s:%d:%d:%s:%s", filepath.Base(target), targetInfo.ModTime().UnixNano(), targetInfo.Size(), targetFingerprint, integrity)
+	// The metadata fingerprint is cheap and catches most edits made after
+	// the preview; the content digest is checked on the activated copy.
+	revision := fmt.Sprintf("%s:%d:%d:%s", filepath.Base(target), targetInfo.ModTime().UnixNano(), targetInfo.Size(), targetFingerprint)
 	// The active release is bound by directory identity, not content: a live
 	// application writing caches or uploads into it must not invalidate the
 	// preview, while a deploy or rollback replaces the directory itself.
@@ -579,9 +591,12 @@ func (a *App) buildGitRollbackPreview(ctx context.Context, site string) (gitRoll
 	revision += fmt.Sprintf("|%s:%d:%d", filepath.Base(current), currentStat.Dev, currentStat.Ino)
 	token := sha256.Sum256([]byte(site + "\x00" + location.DocRoot + "\x00" + revision))
 	before := map[string]any{"active_release": filepath.Base(current), "document_root": location.DocRoot, "files": currentFiles, "bytes": currentBytes, "directory_device": currentStat.Dev, "directory_inode": currentStat.Ino}
-	proposed := map[string]any{"active_release": filepath.Base(target), "document_root": location.DocRoot, "files": targetFiles, "bytes": targetBytes, "retained_rollback_release": filepath.Base(current), "content_integrity": integrity}
+	proposed := map[string]any{"active_release": filepath.Base(target), "document_root": location.DocRoot, "files": targetFiles, "bytes": targetBytes, "retained_rollback_release": filepath.Base(current)}
+	if checkIntegrity {
+		proposed["content_integrity"] = integrity.Status
+	}
 	review, err := a.makeChangePreview("git.rollback:"+site, before, proposed,
-		[]string{"Atomically switch the document root to the selected retained release.", "Keep the current active release as the next rollback point; PHP-FPM and web-server configuration are not changed."},
+		[]string{"Copy the selected retained release into panel-owned staging and verify the copy against the digest recorded when it was retired.", "Atomically switch the document root to the verified copy.", "Keep the current active release as the next rollback point; PHP-FPM and web-server configuration are not changed."},
 		[]string{"If activation fails, the current release remains active.", "After success, the previously active release is retained for a subsequent rollback; verify the application before pruning releases."})
 	if err != nil {
 		return gitRollbackPreview{}, fmt.Errorf("create release rollback review plan: %w", err)
@@ -591,7 +606,7 @@ func (a *App) buildGitRollbackPreview(ctx context.Context, site string) (gitRoll
 		Site: site, CurrentRelease: filepath.Base(current), TargetRelease: filepath.Base(target),
 		CurrentFiles: currentFiles, TargetFiles: targetFiles, CurrentBytes: currentBytes, TargetBytes: targetBytes,
 		DocumentRoot:     location.DocRoot,
-		ContentIntegrity: integrity,
+		ContentIntegrity: integrity.Status, ContentIntegrityDetail: integrity.Detail,
 		ServiceEffect:    "The document root is atomically switched; PHP-FPM and web-server configuration are unchanged, and the service is not restarted.",
 		PreservedRelease: "The currently active release is retained as the next rollback point.",
 		PreviewToken:     hex.EncodeToString(token[:]), ChangePlan: review,
@@ -1374,7 +1389,7 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Git rollback cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	preview, err := a.buildGitRollbackPreview(operationCtx, input.Site)
+	preview, err := a.buildGitRollbackPreview(operationCtx, input.Site, false)
 	if err != nil {
 		http.Error(w, "Git rollback preview is unavailable; refresh the preview before retrying", http.StatusConflict)
 		return
@@ -1383,13 +1398,67 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "site releases changed after preview; refresh and confirm the updated rollback plan", http.StatusConflict)
 		return
 	}
-	if preview.ContentIntegrity == releaseIntegrityModified {
-		TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.git-rollback.refused", input.Site, preview.TargetRelease+": contents changed after the release was retired")
-		http.Error(w, "the retained release was modified after it was retired and cannot be rolled back to; deploy the commit again instead", http.StatusConflict)
+	target := filepath.Join(location.Home, preview.TargetRelease)
+	// The retained release stays writable by the site account, so it is
+	// never activated itself. Its bytes are copied into a panel-owned stage
+	// that the account cannot reach, the copy is verified against the
+	// digest recorded at retirement, and the copy is what goes live.
+	stage, stageOwner, err := a.createSiteReleaseStaging(operationCtx, input.Site, ".stepanel-release-")
+	if err != nil {
+		http.Error(w, "unable to create release staging directory", http.StatusInternalServerError)
 		return
 	}
-	previous := filepath.Join(location.Home, preview.TargetRelease)
-	intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.git-rolled-back", input.Site, filepath.Base(previous))
+	defer func() {
+		logStagingDiscardFailure(stage, a.discardSiteReleaseStaging(context.Background(), input.Site, stage))
+		_ = stageOwner.Close()
+	}()
+	reservation, err := a.capacityLedger().reserve(a.Config, "git-rollback-staging", stage, []capacityDemand{{Path: gitStageCapacityPath(stage), Bytes: uint64(max(preview.TargetBytes, 0))}})
+	if err != nil {
+		log.Printf("Git rollback staging admission refused for site %s: %v", input.Site, err)
+		http.Error(w, "insufficient capacity to stage the rollback release", http.StatusInsufficientStorage)
+		return
+	}
+	defer reservation.release()
+	// The copy takes the group of the active release, which the site helper
+	// sealed to the web group, so it is servable as soon as it is renamed
+	// into place.
+	group := -1
+	if active, statErr := os.Stat(location.DocRoot); statErr == nil {
+		if stat, ok := active.Sys().(*syscall.Stat_t); ok {
+			group = int(stat.Gid)
+		}
+	}
+	integrity, err := a.copyVerifiedRelease(operationCtx, input.Site, target, stage, group)
+	if err != nil {
+		if operationCtx.Err() != nil {
+			http.Error(w, "Git rollback cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
+		log.Printf("Git rollback of site %s could not copy %s: %v", input.Site, preview.TargetRelease, err)
+		http.Error(w, "the retained release could not be copied for verification", http.StatusConflict)
+		return
+	}
+	switch integrity.Status {
+	case releaseIntegrityVerified:
+	case releaseIntegrityModified:
+		TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.git-rollback.refused", input.Site, preview.TargetRelease+": "+integrity.Detail)
+		http.Error(w, "the retained release was modified after it was retired and cannot be rolled back to; deploy the commit again instead", http.StatusConflict)
+		return
+	default:
+		if !input.AcceptUnverified {
+			http.Error(w, "the retained release's contents cannot be verified ("+integrity.Status+": "+integrity.Detail+"); confirm again with accept_unverified to activate it anyway", http.StatusConflict)
+			return
+		}
+	}
+	if rollbackVerifiedHook != nil {
+		rollbackVerifiedHook(target)
+	}
+	auditDetail := preview.TargetRelease + " (content " + integrity.Status
+	if integrity.Status != releaseIntegrityVerified {
+		auditDetail += ", activated on operator override: " + integrity.Detail
+	}
+	auditDetail += ")"
+	intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.git-rolled-back", input.Site, auditDetail)
 	if err != nil {
 		refuseWithoutSecurityAudit(w)
 		return
@@ -1400,20 +1469,46 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not create deployment identity", http.StatusInternalServerError)
 		return
 	}
-	replaced, err := a.activatePipelineRelease(operationCtx, input.Site, previous)
+	replaced, err := a.activatePipelineRelease(operationCtx, input.Site, stage)
 	if err != nil {
 		intent.Failed(err.Error())
 		http.Error(w, "unable to preserve the active release", http.StatusInternalServerError)
 		return
 	}
-	intent.Completed(filepath.Base(previous))
+	intent.Completed(preview.TargetRelease)
+	// The retained release has been consumed: its verified copy is live.
+	if err := removeRetainedRelease(location.Home, location.PreviousPrefix, target); err != nil {
+		log.Printf("Git rollback of site %s left the consumed release %s in place: %v", input.Site, preview.TargetRelease, err)
+	}
 	result := gitDeployResult{DeploymentID: deploymentID, Site: input.Site, Previous: filepath.Base(replaced)}
-	a.finishCommittedRelease(operationCtx, "rollback", "rolled back to an earlier Git release", previous, replaced, &result, true)
-	response := map[string]string{"site": input.Site, "activated": result.Activated, "replaced_release": filepath.Base(replaced), "deployment_id": deploymentID, "outcome": result.Outcome}
+	a.finishCommittedRelease(operationCtx, "rollback", "rolled back to the verified copy of "+preview.TargetRelease, stage, replaced, &result, true)
+	response := map[string]string{"site": input.Site, "activated": result.Activated, "restored_release": preview.TargetRelease, "content_integrity": integrity.Status, "replaced_release": filepath.Base(replaced), "deployment_id": deploymentID, "outcome": result.Outcome}
 	if result.HistoryError != "" {
 		response["history_error"] = result.HistoryError
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+// rollbackVerifiedHook lets tests write to the retained release between
+// verification and activation.
+var rollbackVerifiedHook func(retained string)
+
+// removeRetainedRelease deletes a retained release that a rollback copied
+// into place. It must be a real directory directly in home carrying the
+// site's retained-release prefix.
+func removeRetainedRelease(home, prefix, release string) error {
+	name := filepath.Base(release)
+	if filepath.Dir(release) != home || !strings.HasPrefix(name, prefix) {
+		return errors.New("not a retained release of this site")
+	}
+	info, err := os.Lstat(release)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("retained release is not a directory")
+	}
+	return os.RemoveAll(release)
 }
 
 func pruneGitReleases(siteRoot string, retain int) error {

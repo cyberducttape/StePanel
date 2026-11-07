@@ -520,6 +520,11 @@ Archive uploads export `stepanel_upload_rejections_total{reason}`; a rising
 `capacity` count means hosts are refusing migrations for lack of disk, and
 `stalled` points at client or network problems. `/api/admin/resources/status`
 shows the bytes currently reserved by in-progress uploads.
+Release content digests export `stepanel_release_digest_runs_total`,
+`_failures_total`, `_bytes_total` and `_seconds_total` by `operation`
+(`retire`, `preview`, `rollback`). A rising `retire` failure count means
+retired releases are being left `unverified`, so rolling back to them will
+need an explicit override ([Git deployments](GIT_DEPLOYMENTS.md#roll-back)).
 Database monitoring also exports `stepanel_database_diagnostics_up`, connection,
 long-transaction, blocking, deadlock, and allocated-byte gauges. Scheduled
 backup RPO signals are available as `stepanel_backup_oldest_age_seconds`,

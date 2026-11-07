@@ -1180,10 +1180,21 @@
         try {
           const preview = await ctx.getJSON(`/api/sites/git-rollback/preview?site=${encodeURIComponent(site)}`);
           const formatBytes = (bytes) => `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+          const integrity = preview.content_integrity || 'unrecorded';
+          const integrityDetail = preview.content_integrity_detail ? ` ${preview.content_integrity_detail}.` : '';
+          if (integrity === 'modified') {
+            output.textContent = `Rollback unavailable: ${preview.target_release} was modified after it was retired.${integrityDetail} Deploy the commit again instead.`;
+            return;
+          }
+          const unverified = integrity !== 'verified';
+          const integrityMessage = unverified
+            ? `Warning: the contents of ${preview.target_release} cannot be verified (${integrity}).${integrityDetail} Rolling back activates it as it is now.`
+            : `Content integrity: verified against the digest recorded when ${preview.target_release} was retired.`;
           const previewMessage = [
+            integrityMessage,
             `Current release: ${preview.current_release} (${preview.current_files} files, ${formatBytes(preview.current_bytes)})`,
             `Target release: ${preview.target_release} (${preview.target_files} files, ${formatBytes(preview.target_bytes)})`,
-            `Filesystem change: replace ${preview.document_root} with ${preview.target_release}.`,
+            `Filesystem change: replace ${preview.document_root} with a verified copy of ${preview.target_release}.`,
             preview.service_effect,
             preview.preserved_release,
           ].join('\n\n');
@@ -1192,12 +1203,12 @@
             message: previewMessage,
             plan: preview.change_plan,
             confirmText: `ROLLBACK ${site}`,
-            actionLabel: 'Roll back',
+            actionLabel: unverified ? 'Roll back unverified release' : 'Roll back',
           });
           if (!confirmed) { output.textContent = 'Rollback cancelled.'; return; }
           output.textContent = 'Rolling back…';
-          const result = await ctx.postJSON('/api/sites/git-rollback', { site, confirm: `ROLLBACK ${site}`, preview_token: preview.preview_token });
-          output.textContent = `Rollback outcome: ${result.outcome || 'committed'}; active release ${result.activated || 'not reported'}; prior release ${result.replaced_release || 'not reported'} retained for recovery.`;
+          const result = await ctx.postJSON('/api/sites/git-rollback', { site, confirm: `ROLLBACK ${site}`, preview_token: preview.preview_token, accept_unverified: unverified });
+          output.textContent = `Rollback outcome: ${result.outcome || 'committed'}; restored ${result.restored_release || 'not reported'} (content ${result.content_integrity || 'not reported'}); prior release ${result.replaced_release || 'not reported'} retained for recovery.`;
           renderDeploymentsTab(site, panel, ctx);
         } catch (error) { output.textContent = error.message; }
       }, { className: 'danger' }));

@@ -376,7 +376,7 @@ Other delivery endpoints:
 | --- | --- | --- |
 | `POST` | `/api/sites/git-deploy` | Checkout and atomically activate a validated release |
 | `GET` | `/api/sites/git-rollback/preview?site={site}` | Administrator preview of the active-to-previous release swap |
-| `POST` | `/api/sites/git-rollback` | Administrator rollback with the current preview token and typed confirmation |
+| `POST` | `/api/sites/git-rollback` | Administrator rollback with the current preview token and typed confirmation. Activates a verified copy of the release; a release without a content baseline needs `accept_unverified` ([Git deployments](GIT_DEPLOYMENTS.md#roll-back)) |
 | `POST` | `/api/sites/git-webhook` | Deploy a signed Git webhook payload |
 | `POST` | `/api/runner/build` | Run a bounded immutable-image build |
 | `GET` | `/api/deployments` | Read durable build and activation records |
