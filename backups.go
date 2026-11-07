@@ -1436,6 +1436,9 @@ func listBackupsMatching(root string, sites []string, limit int, signingKey ...s
 	}
 	var candidates []candidate
 	for _, site := range sites {
+		if site == "" || safeUser(site) != site {
+			return nil, fmt.Errorf("invalid backup site %q", site)
+		}
 		directory, err := backupSiteDirectory(root, site)
 		if err != nil {
 			return nil, err
