@@ -91,6 +91,10 @@ type Config struct {
 	// rehearsals per site, triggered by successful scheduled backups. 0
 	// disables automatic rehearsals.
 	RehearsalIntervalHours int
+	// downloadedBackup, when set, is a downloaded offsite backup directory
+	// that backup lookups resolve to instead of BACKUP_ROOT (see
+	// withDownloadedBackup).
+	downloadedBackup string
 }
 
 const maxCPMoveUploadBytesSupported int64 = 40 << 30

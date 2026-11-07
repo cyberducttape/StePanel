@@ -51,10 +51,15 @@ func uploadOffsiteContext(parent context.Context, cfg Config, result BackupResul
 	if err != nil {
 		return fmt.Errorf("resolve backup root: %w", err)
 	}
-	backupPath, err := filepath.Abs(result.Path)
-	if err != nil || filepath.Dir(backupPath) != backupRoot || !validBackupName(filepath.Base(backupPath)) {
+	absolute, err := filepath.Abs(result.Path)
+	if err != nil {
 		return errors.New("offsite backup path is outside the configured backup root")
 	}
+	// A absolute backup sits in its own site's directory under the root.
+	if expected, err := backupPath(backupRoot, filepath.Base(absolute)); err != nil || absolute != expected || backupNameSite(filepath.Base(absolute)) != result.Site {
+		return errors.New("offsite backup path is outside the configured backup root")
+	}
+	backupPath := absolute
 	destination, err := buildOffsiteRemoteRoot(cfg.OffsiteTarget, result.Site, filepath.Base(backupPath))
 	if err != nil {
 		return err
@@ -750,10 +755,8 @@ func RunOffsiteRecoveryProof(cfg Config) (backupRehearsalResult, error) {
 		return backupRehearsalResult{}, err
 	}
 	defer cleanup()
-	proofCfg := cfg
-	proofCfg.BackupRoot = filepath.Dir(root)
-	app := &App{Config: proofCfg}
-	request := durableBackupRehearsalRequest{Site: ref.Site, Backup: filepath.Base(root), Actor: "offsite-recovery-proof"}
+	app := &App{Config: cfg.withDownloadedBackup(root)}
+	request := durableBackupRehearsalRequest{Site: ref.Site, Backup: ref.Backup, Actor: "offsite-recovery-proof"}
 	run := &rehearsalRun{record: recovery.Rehearsal{Site: ref.Site, Backup: ref.Backup, Trigger: "offsite"}}
 	result, err := app.rehearseBackupArchive(context.Background(), request, run)
 	if err != nil {

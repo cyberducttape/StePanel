@@ -41,6 +41,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Reliability
 
+- Backups are stored per site (`BACKUP_ROOT/sites/SITE/`), so listing,
+  retention and restore read only the requesting site's backups. Existing
+  backups move into place on first start; entries whose owner cannot be
+  proven stay in the backup root and are reported. The installer's revert
+  and `stepanel backup-layout flatten` move them back for older releases.
+  Restoring files or a database from an offsite backup works again: the
+  downloaded backup was looked up at the wrong path.
+
 - Recorded current-source recovery validation without overstating partial
   results: the hosted six-platform cohort's first repetition passed, while a
   local Rocky Linux 9 KVM run was interrupted by host memory exhaustion and is

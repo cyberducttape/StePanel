@@ -158,26 +158,32 @@ func backupNameSite(name string) string {
 // that just passed archive verification. The protected artifact takes one
 // slot within keep, regardless of host clock ordering.
 //
-// Retention is partitioned by site: an entry named for another site is
-// skipped without reading its manifest, so one site's damaged backup cannot
-// stop retention for every other site, and each run reads only its own
-// site's manifests plus any entries with non-standard names. Only entries
-// whose manifest proves they belong to this site are ever deleted; entries
-// whose owner cannot be read are kept and returned in the report.
+// Retention reads only the site's own backup directory, so its cost does not
+// grow with other sites' backups, and one site's damaged backup cannot stop
+// retention for any other site. Only entries whose manifest proves they
+// belong to this site are ever deleted; entries whose owner cannot be read,
+// or that name another site, are kept and returned in the report.
 func pruneSiteBackups(root string, site SiteCapability, keep int, protectedVerifiedName string) (backupRetentionReport, error) {
 	var report backupRetentionReport
 	siteName := site.Site()
 	if safeUser(siteName) == "" || keep < 1 || (protectedVerifiedName != "" && !validBackupName(protectedVerifiedName)) {
 		return report, errors.New("invalid backup retention policy")
 	}
-	// One listing serves both steps. Names are listed without being
-	// stat'ed or opened; only this site's entries are examined further.
+	// From here on root is the site's backup directory.
+	root, err := backupSiteDirectory(root, siteName)
+	if err != nil {
+		return report, err
+	}
+	// One listing of the site's directory serves both steps.
 	entries, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) && protectedVerifiedName == "" {
+		return report, nil
+	}
 	if err != nil {
 		return report, err
 	}
 	defer report.logSummary(siteName)
-	if err := removeSitePruneTombstones(root, siteName, entries); err != nil {
+	if err := removeDirectoryPruneTombstones(root, entries); err != nil {
 		return report, err
 	}
 	type candidate struct {
@@ -192,6 +198,7 @@ func pruneSiteBackups(root string, site SiteCapability, keep int, protectedVerif
 		}
 		namedFor := backupNameSite(entry.Name())
 		if namedFor != "" && namedFor != siteName {
+			report.unattributed(entry.Name(), fmt.Errorf("named for site %q in %s's backup directory", namedFor, siteName))
 			continue
 		}
 		path := filepath.Join(root, entry.Name())
@@ -310,35 +317,49 @@ func discardBackup(root, name string) error {
 }
 
 // removePruneTombstones finishes every deletion an interrupted retention
-// left, for all sites. Startup runs it once; retention runs only finish
-// their own site's (removeSitePruneTombstones).
+// left, for all sites, including tombstones an earlier release left in the
+// backup root itself. Startup runs it once; retention runs finish only their
+// own site's directory.
 func removePruneTombstones(root string) error {
-	entries, err := os.ReadDir(root)
+	directories := []string{root}
+	sites, err := backupSiteNames(root)
 	if err != nil {
 		return err
 	}
-	return removeSitePruneTombstones(root, "", entries)
+	for _, site := range sites {
+		directory, err := backupSiteDirectory(root, site)
+		if err != nil {
+			return err
+		}
+		directories = append(directories, directory)
+	}
+	for _, directory := range directories {
+		entries, err := os.ReadDir(directory)
+		if err != nil {
+			return err
+		}
+		if err := removeDirectoryPruneTombstones(directory, entries); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-// removeSitePruneTombstones finishes deletions an interrupted retention left
-// for site, or for every site when site is "". A tombstone whose name does
-// not identify a site is finished by any run.
-func removeSitePruneTombstones(root, site string, entries []os.DirEntry) error {
+// removeDirectoryPruneTombstones finishes the deletions an interrupted
+// retention left in one directory.
+func removeDirectoryPruneTombstones(directory string, entries []os.DirEntry) error {
 	removed := false
 	for _, entry := range entries {
 		if !strings.HasPrefix(entry.Name(), backupPruneTombstonePrefix) {
 			continue
 		}
-		if owner := backupNameSite(strings.TrimPrefix(entry.Name(), backupPruneTombstonePrefix)); site != "" && owner != "" && owner != site {
-			continue
-		}
-		if err := os.RemoveAll(filepath.Join(root, entry.Name())); err != nil {
+		if err := os.RemoveAll(filepath.Join(directory, entry.Name())); err != nil {
 			return fmt.Errorf("finish deleting retired backup %s: %w", entry.Name(), err)
 		}
 		removed = true
 	}
 	if removed {
-		return syncDirectory(root)
+		return syncDirectory(directory)
 	}
 	return nil
 }

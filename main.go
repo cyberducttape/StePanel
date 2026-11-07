@@ -254,6 +254,12 @@ func Main() {
 		_, _ = fmt.Fprintln(os.Stdout, string(data))
 		return
 	}
+	if len(os.Args) == 4 && os.Args[1] == "backup-layout" && os.Args[2] == "flatten" {
+		if err := runBackupLayoutFlatten(os.Args[3]); err != nil {
+			log.Fatalf("flatten backup layout: %v", err)
+		}
+		return
+	}
 	if len(os.Args) == 3 && os.Args[1] == "upgrade-preflight" {
 		if err := runUpgradePreflight(os.Args[2]); err != nil {
 			log.Fatal(err)
@@ -419,6 +425,18 @@ func Main() {
 	}{{cfg.ImportRoot, 0700}, {cfg.BackupRoot, 0700}, {filepath.Dir(cfg.JobState), 0750}, {filepath.Dir(cfg.SessionState), 0750}, {filepath.Dir(cfg.AccountState), 0750}, {filepath.Dir(cfg.ControlPlaneDB), 0750}, {cfg.RecoveryRoot, 0700}} {
 		if err := os.MkdirAll(directory.path, directory.mode); err != nil {
 			log.Fatalf("initialize managed directory %s: %v", directory.path, err)
+		}
+	}
+	// Backups published before per-site backup directories move into them
+	// before anything lists, prunes or restores a backup.
+	if migration, err := migrateBackupLayout(cfg.BackupRoot); err != nil {
+		log.Fatalf("move backups into per-site directories: %v (%d moved before the error; restart to continue)", err, migration.Moved)
+	} else {
+		if migration.Moved > 0 {
+			log.Printf("moved %d backup(s) into per-site backup directories", migration.Moved)
+		}
+		if migration.Unattributed > 0 {
+			log.Printf("WARNING: %d entr(ies) in %s could not be attributed to a site and were left in place (first: %s); they are not listed, restored or pruned until an operator moves or removes them", migration.Unattributed, cfg.BackupRoot, strings.Join(migration.Names, ", "))
 		}
 	}
 	processLockPath := cfg.JobState + ".lock"
@@ -1373,9 +1391,15 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 	var result BackupResult
 	if request.BackupPath != "" {
 		root, rootErr := filepath.Abs(a.Config.BackupRoot)
-		candidate, pathErr := filepath.Abs(request.BackupPath)
-		if rootErr != nil || pathErr != nil || candidate == root || !strings.HasPrefix(candidate, root+string(filepath.Separator)) {
+		persisted, pathErr := filepath.Abs(request.BackupPath)
+		if rootErr != nil || pathErr != nil || persisted == root || !strings.HasPrefix(persisted, root+string(filepath.Separator)) {
 			return nil, errors.New("persisted backup path is outside the backup root")
+		}
+		// A job recorded before per-site backup directories names the
+		// backup's old place directly in the root; the name finds it now.
+		candidate, resolveErr := backupPath(root, filepath.Base(persisted))
+		if resolveErr != nil {
+			return nil, fmt.Errorf("persisted backup is not reusable: %w", resolveErr)
 		}
 		manifest, verifyErr := VerifySiteBackupStrict(candidate, a.Config.BackupSigningKey, a.Config.backupDecryptionKeys()...)
 		if verifyErr != nil || manifest.Site != request.Site || manifest.ArchiveSHA256 != request.BackupSHA256 || (request.BackupBytes > 0 && manifest.Bytes != request.BackupBytes) {

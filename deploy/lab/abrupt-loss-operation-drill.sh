@@ -479,11 +479,11 @@ git_deploy() {
 backup_root=$(sed -n 's/^STEPANEL_BACKUP_ROOT="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /etc/ste-panel.env)
 : "${backup_root:=/var/backups/stepanel}"
 
-# site_backup_dirs prints the site's backup directories in the inventory
-# namespace (no dot prefix), and fails on one without its manifest.
+# site_backup_dirs prints the site's backups in its per-site backup
+# directory (no dot prefix), and fails on one without its manifest.
 site_backup_dirs() {
   local dir
-  for dir in "$backup_root"/*-"$site"; do
+  for dir in "$backup_root/sites/$site"/*-"$site"; do
     [[ -d $dir ]] || continue
     [[ -f $dir/manifest.json ]] || fail "backup ${dir##*/} is in the inventory without its manifest"
     printf '%s\n' "${dir##*/}"
@@ -514,7 +514,7 @@ retention() {
         sleep 0.5
       done
       [[ -f $pause_dir/backup-prune ]] || fail 'scheduled retention never reached backup:prune'
-      compgen -G "$backup_root/.pruning-*-$site" > /dev/null || fail 'retention paused without a retired backup'
+      compgen -G "$backup_root/sites/$site/.pruning-*-$site" > /dev/null || fail 'retention paused without a retired backup'
       sync
       echo "retention for $site paused with $(site_backup_dirs | wc -l) backups in the inventory and one retired"
       ;;
@@ -527,10 +527,10 @@ retention() {
       converged=0
       for _ in $(seq 1 120); do
         count=$(site_backup_dirs | wc -l)
-        if (( count == 1 )) && ! compgen -G "$backup_root/.pruning-*" > /dev/null; then converged=1; break; fi
+        if (( count == 1 )) && ! compgen -G "$backup_root/sites/$site/.pruning-*" > /dev/null; then converged=1; break; fi
         sleep 5
       done
-      (( converged )) || fail "retention did not converge: $(site_backup_dirs | wc -l) backups, retired: $(compgen -G "$backup_root/.pruning-*" | tr '\n' ' ')"
+      (( converged )) || fail "retention did not converge: $(site_backup_dirs | wc -l) backups, retired: $(compgen -G "$backup_root/sites/$site/.pruning-*" | tr '\n' ' ')"
       listed=$(api GET "/api/backups?site=$site" | python3 -c 'import json, sys; print(len(json.load(sys.stdin).get("backups", [])))')
       [[ $listed == 1 ]] || fail "the panel lists $listed backups for $site, want 1"
       readyz=$(curl --silent --max-time 10 "$PANEL/readyz")

@@ -453,7 +453,11 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 		return result, err
 	}
 	finalName := manifest.CreatedAt.Format("20060102-150405.000000000") + "-" + siteName
-	finalPath := filepath.Join(cfg.BackupRoot, finalName)
+	siteDirectory, err := ensureBackupSiteDirectory(cfg.BackupRoot, siteName)
+	if err != nil {
+		return result, fmt.Errorf("prepare site backup directory: %w", err)
+	}
+	finalPath := filepath.Join(siteDirectory, finalName)
 	if err := failureInjection("backup", "commit"); err != nil {
 		return result, err
 	}
@@ -461,7 +465,9 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	if err := publishStagedDirectory(tempDir, finalPath, cfg.BackupRoot); err != nil {
+	// The stage is in BACKUP_ROOT and the site directory below it, so the
+	// publication is one rename on one filesystem.
+	if err := publishStagedDirectory(tempDir, finalPath, siteDirectory); err != nil {
 		return result, fmt.Errorf("publish backup: %w", err)
 	}
 	if err := os.Remove(filepath.Join(finalPath, backupStageLockName)); err != nil {
@@ -1400,50 +1406,75 @@ func listBackupsPageUnscoped(root, site string, limit int, signingKey ...string)
 // then verifies archive contents only for results that can appear on this page.
 // Verifying every archive before applying the site filter and limit made a
 // routine site-specific listing scale with the entire host's retained data.
+// An empty site lists every site's backups.
 func listBackupsForSite(root, site string, limit int, signingKey ...string) ([]BackupResult, error) {
-	return listBackupsMatching(root, func(candidate string) bool { return site == "" || candidate == site }, limit, signingKey...)
+	if site == "" {
+		return listBackupsMatching(root, nil, limit, signingKey...)
+	}
+	return listBackupsMatching(root, []string{site}, limit, signingKey...)
 }
 
-// listBackupsMatching is listBackupsForSite for any set of sites: one scan of
-// the backup root, newest first across all matching sites.
-func listBackupsMatching(root string, matches func(site string) bool, limit int, signingKey ...string) ([]BackupResult, error) {
-	entries, err := os.ReadDir(root)
-	if errors.Is(err, os.ErrNotExist) {
-		return []BackupResult{}, nil
+// listBackupsMatching lists the backups of sites (every site when nil),
+// newest first across them. Only those sites' backup directories are read.
+func listBackupsMatching(root string, sites []string, limit int, signingKey ...string) ([]BackupResult, error) {
+	if sites == nil {
+		all, err := backupSiteNames(root)
+		if err != nil {
+			return nil, err
+		}
+		sites = all
 	}
-	if err != nil {
-		return nil, err
+	allowed := make(map[string]bool, len(sites))
+	for _, site := range sites {
+		allowed[site] = true
 	}
+	matches := func(site string) bool { return allowed[site] }
 	type candidate struct {
 		path      string
 		site      string
 		createdAt time.Time
 	}
-	candidates := make([]candidate, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
-			continue
-		}
-		path, err := safePath(root, entry.Name())
+	var candidates []candidate
+	for _, site := range sites {
+		directory, err := backupSiteDirectory(root, site)
 		if err != nil {
-			log.Printf("skip backup entry outside backup root %s", entry.Name())
+			return nil, err
+		}
+		entries, err := os.ReadDir(directory)
+		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
-		manifest, data, err := readBackupManifestData(path)
 		if err != nil {
-			log.Printf("skip invalid backup manifest %s: %v", entry.Name(), err)
-			continue
+			return nil, err
 		}
-		if err := verifyBackupManifestSignature(path, data, manifest, firstOptional(signingKey)); err != nil {
-			log.Printf("skip unauthenticated backup manifest %s: %v", entry.Name(), err)
-			continue
+		for _, entry := range entries {
+			if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+				continue
+			}
+			path, err := safePath(directory, entry.Name())
+			if err != nil {
+				log.Printf("skip backup entry outside backup root %s", entry.Name())
+				continue
+			}
+			manifest, data, err := readBackupManifestData(path)
+			if err != nil {
+				log.Printf("skip invalid backup manifest %s: %v", entry.Name(), err)
+				continue
+			}
+			if err := verifyBackupManifestSignature(path, data, manifest, firstOptional(signingKey)); err != nil {
+				log.Printf("skip unauthenticated backup manifest %s: %v", entry.Name(), err)
+				continue
+			}
+			// A backup counts only in the directory of the site its
+			// manifest names.
+			if manifest.Site != site {
+				log.Printf("skip backup %s in %s's directory: manifest names site %q", entry.Name(), site, manifest.Site)
+				continue
+			}
+			// Do not retain manifest.Entries while scanning: a valid
+			// manifest can itself be several MiB for a large site.
+			candidates = append(candidates, candidate{path: path, site: manifest.Site, createdAt: manifest.CreatedAt})
 		}
-		if !matches(manifest.Site) {
-			continue
-		}
-		// Do not retain manifest.Entries while scanning the whole backup root:
-		// a valid manifest can itself be several MiB for a large site.
-		candidates = append(candidates, candidate{path: path, site: manifest.Site, createdAt: manifest.CreatedAt})
 	}
 	sort.Slice(candidates, func(i, j int) bool {
 		return candidates[i].createdAt.After(candidates[j].createdAt)
@@ -1501,17 +1532,21 @@ func listBackupsPage(root string, site SiteCapability, limit int, signingKey ...
 }
 
 // listBackupsPageForSites lists the newest backups across several authorized
-// sites in one scan of the backup root.
+// sites, reading only their backup directories.
 func listBackupsPageForSites(root string, sites []SiteCapability, limit int, signingKey ...string) ([]BackupResult, error) {
-	allowed := make(map[string]bool, len(sites))
+	names := make([]string, 0, len(sites))
+	seen := make(map[string]bool, len(sites))
 	for _, site := range sites {
 		if site == nil || site.Site() == "" {
 			return nil, errors.New("site capability is required to list backups")
 		}
-		allowed[site.Site()] = true
+		if !seen[site.Site()] {
+			seen[site.Site()] = true
+			names = append(names, site.Site())
+		}
 	}
-	if len(allowed) == 0 {
+	if len(names) == 0 {
 		return []BackupResult{}, nil
 	}
-	return listBackupsMatching(root, func(site string) bool { return allowed[site] }, limit, signingKey...)
+	return listBackupsMatching(root, names, limit, signingKey...)
 }

@@ -211,12 +211,7 @@ func TestWorkflowInterruption_BackupThenRestore(t *testing.T) {
 			if err := CleanupBackupStages(f.cfg.BackupRoot, time.Millisecond); err != nil {
 				t.Fatal(err)
 			}
-			entries, _ := os.ReadDir(f.cfg.BackupRoot)
-			for _, entry := range entries {
-				if entry.Name() != good {
-					t.Errorf("backup root holds %s after cleanup", entry.Name())
-				}
-			}
+			assertOnlyPublishedBackup(t, f.cfg.BackupRoot, good)
 			f.assertQuiescent(t)
 			if _, err := CreateSiteBackupContext(context.Background(), f.cfg, f.site, false); err != nil {
 				t.Fatalf("backup after recovery: %v", err)

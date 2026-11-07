@@ -121,9 +121,7 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 		root, cleanup, restoreErr = downloadOffsiteBackupWithLedgerContext(operationCtx, a.Config, request.Site, request.Backup, a.capacityLedger())
 		if restoreErr == nil {
 			defer cleanup()
-			cfg := a.Config
-			cfg.BackupRoot = root
-			result, restoreErr = backupRestoreFiles(operationCtx, cfg, request.Backup, access)
+			result, restoreErr = backupRestoreFiles(operationCtx, a.Config.withDownloadedBackup(root), request.Backup, access)
 		}
 	case "offsite-database":
 		var root string
@@ -138,9 +136,7 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 			var safety BackupResult
 			safety, restoreErr = databaseRestoreSafetyBackup(operationCtx, a.Config, access, previous, a.capacityLedger())
 			if restoreErr == nil {
-				cfg := a.Config
-				cfg.BackupRoot = root
-				result, restoreErr = restoreManagedDatabase(operationCtx, cfg, request.Backup, request.Site, request.Database, markDatabaseRestoreStarted(a.Config.RecoveryRoot, item.ID, request, safety), a.capacityLedger())
+				result, restoreErr = restoreManagedDatabase(operationCtx, a.Config.withDownloadedBackup(root), request.Backup, request.Site, request.Database, markDatabaseRestoreStarted(a.Config.RecoveryRoot, item.ID, request, safety), a.capacityLedger())
 				result.SafetyBackup = safety.Path
 				restoreErr = annotateDatabaseRestoreFailure(restoreErr, safety)
 			}
@@ -230,7 +226,7 @@ func databaseRestoreSafetyBackup(ctx context.Context, cfg Config, access SiteCap
 	if previous == nil {
 		return createSiteBackupContext(ctx, cfg, access, true, ledger)
 	}
-	path, err := safePath(cfg.BackupRoot, previous.SafetyBackup)
+	path, err := cfg.backupDirectory(previous.SafetyBackup)
 	if err != nil {
 		return BackupResult{}, doNotRetry(fmt.Errorf("an earlier attempt of this restore was interrupted and its safety backup name is invalid: %w", err))
 	}
@@ -373,7 +369,7 @@ func (a *App) rehearseBackupArchive(operationCtx context.Context, request durabl
 	// publication, so a rehearsal does not need to serialize with live-site
 	// mutations. Avoiding the mutation lock keeps this read-only check from
 	// delaying customer restores or deployments.
-	backupRoot, err := safePath(a.Config.BackupRoot, request.Backup)
+	backupRoot, err := a.Config.backupDirectory(request.Backup)
 	if err != nil {
 		return backupRehearsalResult{}, err
 	}
@@ -531,7 +527,7 @@ func (a *App) backupRehearse(w http.ResponseWriter, r *http.Request) {
 	if !a.requireCustomerScope(w, r, "backup:restore") {
 		return
 	}
-	backupRoot, err := safePath(a.Config.BackupRoot, input.Backup)
+	backupRoot, err := a.Config.backupDirectory(input.Backup)
 	if err != nil {
 		http.Error(w, "invalid backup", http.StatusUnprocessableEntity)
 		return
@@ -591,7 +587,7 @@ func (a *App) backupVerify(w http.ResponseWriter, r *http.Request) {
 	if !a.requireCustomerScope(w, r, "backup:read") {
 		return
 	}
-	path, err := safePath(a.Config.BackupRoot, input.Backup)
+	path, err := a.Config.backupDirectory(input.Backup)
 	if err != nil {
 		http.Error(w, "invalid backup", http.StatusUnprocessableEntity)
 		return
@@ -626,7 +622,7 @@ func (a *App) backupRestoreToStaging(w http.ResponseWriter, r *http.Request) {
 	input.Site = safeUser(input.Site)
 	input.Backup = strings.TrimSpace(input.Backup)
 	input.Domain = strings.ToLower(strings.TrimSpace(input.Domain))
-	backup, err := safePath(a.Config.BackupRoot, input.Backup)
+	backup, err := a.Config.backupDirectory(input.Backup)
 	if !validBackupName(input.Backup) || err != nil {
 		http.Error(w, "invalid backup", 422)
 		return
@@ -1069,7 +1065,7 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	if !validBackupName(backupName) {
 		return BackupRestoreResult{}, errors.New("invalid backup path")
 	}
-	backup, err := safePath(cfg.BackupRoot, backupName)
+	backup, err := cfg.backupDirectory(backupName)
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
@@ -1208,7 +1204,7 @@ func (a *App) backupRestoreFilesHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "job system unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	backup, err := safePath(a.Config.BackupRoot, input.Backup)
+	backup, err := a.Config.backupDirectory(input.Backup)
 	if err != nil {
 		http.Error(w, "invalid backup", http.StatusUnprocessableEntity)
 		return
@@ -1249,7 +1245,7 @@ func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, d
 	if !validBackupName(backupName) || !validManagedDatabaseIdentifier(database, databaseNameLimit(cfg)) {
 		return BackupRestoreResult{}, errors.New("invalid backup path")
 	}
-	backup, err := safePath(cfg.BackupRoot, backupName)
+	backup, err := cfg.backupDirectory(backupName)
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
@@ -1344,7 +1340,7 @@ func (a *App) backupRestoreDatabaseHTTP(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "managed database restore is unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	backup, err := safePath(a.Config.BackupRoot, input.Backup)
+	backup, err := a.Config.backupDirectory(input.Backup)
 	if err != nil {
 		http.Error(w, "invalid backup", http.StatusUnprocessableEntity)
 		return

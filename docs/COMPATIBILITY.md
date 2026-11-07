@@ -102,6 +102,11 @@ When it upgrades a running installation, the installer:
   and keep working. Sites created, imported or restored from cPanel after the
   upgrade are placed in `/home`. Production requires user quotas on the
   filesystem holding `/home` as well as `/var/www`.
+- **Backup layout.** On first start, backups in `/var/backups/stepanel` move
+  into per-site directories (`sites/SITE/`); entries whose owner cannot be
+  proven stay in place and are logged. An automatic revert moves them back;
+  a manual downgrade does so in step 6 below
+  ([Backup layout](OPERATIONS.md#backup-layout)).
 - **Privileged helpers.** Helpers and their shared libraries in
   `/usr/local/sbin` and `/usr/local/lib/stepanel` are replaced together; a
   helper refuses to run if a library it sources is missing or unsafe.
@@ -146,18 +151,22 @@ that copy. To return to the previous version:
    remove its `-wal` and `-shm` files. A release from before the SQLite
    control plane (v0.6.0, v0.7.0) ignores the database and reads its own
    state files, which the upgrade leaves in place.
-6. If the previous release predates the root broker (v0.6.0, v0.7.0), run
+6. Move backups back into the backup root, where releases before per-site
+   backup directories read them. Use the current release's binary, as the
+   service user:
+   `/opt/stepanel/stepanel backup-layout flatten /var/backups/stepanel`.
+7. If the previous release predates the root broker (v0.6.0, v0.7.0), run
    `systemctl disable stepanel-root-broker.service` so it does not start at
    the next boot.
-7. Re-run the previous release's `install.sh`.
-8. Check `/readyz` and verify the audit log with the previous release's
+8. Re-run the previous release's `install.sh`.
+9. Check `/readyz` and verify the audit log with the previous release's
    `stepanel verify-audit`.
 
 Control-plane changes made after the upgrade (jobs, accounts, settings,
 audit records) are lost. Sites placed in `/home` after the upgrade cannot be
 served by a release older than schema 21; delete or migrate them before
-downgrading. Site files, databases and backups themselves are not changed by
-the downgrade. A host rolled back this way can be upgraded again; if it is
+downgrading. Site files and databases are not changed by the downgrade, and
+backups are only moved back into the backup root (step 6). A host rolled back this way can be upgraded again; if it is
 upgraded to the same release, the copy from the first upgrade is reused, so
 settings changed under the older release in between must be reapplied.
 

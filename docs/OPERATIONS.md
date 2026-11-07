@@ -604,8 +604,8 @@ the local database helper:
 curl -fsS -X POST -H 'Content-Type: application/json' \
   --data '{"site":"ACCOUNT","include_databases":true}' \
   http://127.0.0.1:8090/api/backups
-/opt/stepanel/stepanel verify-backup /var/backups/stepanel/TIMESTAMP-ACCOUNT
-sha256sum -c /var/backups/stepanel/TIMESTAMP-ACCOUNT/backup.tar.gz.sha256
+/opt/stepanel/stepanel verify-backup /var/backups/stepanel/sites/ACCOUNT/TIMESTAMP-ACCOUNT
+sha256sum -c /var/backups/stepanel/sites/ACCOUNT/TIMESTAMP-ACCOUNT/backup.tar.gz.sha256
 ```
 
 API calls require the normal authenticated session and CSRF token; the command
@@ -623,6 +623,29 @@ creation time and prunes the oldest after replacement succeeds. Older retained
 archives are not all re-verified during pruning; run strict verification or a
 restore rehearsal to establish their recoverability. Safety dumps made before
 database deletion remain under `.database-deletions` for explicit DBA review.
+
+### Backup layout
+
+Each site's backups live in their own directory,
+`/var/backups/stepanel/sites/SITE/TIMESTAMP-SITE/`. Listing, retention and
+restore read only the requesting site's directory, so their cost does not grow
+with other sites' backups. Staging directories (`.backup-*`) and
+`.database-deletions` stay in the backup root, on the same filesystem, so
+publishing a backup is a single rename.
+
+Releases before this layout kept every backup directly in
+`/var/backups/stepanel`. The panel and worker move those backups into place
+when they start. A backup moves only when its manifest names the same site
+as its directory name. Anything else stays in the root and is logged at
+startup (`could not be attributed to a site`). Such an entry is not listed,
+restored or pruned until an operator inspects it and either moves it into the
+right site directory or removes it. The installer's automatic revert of a
+failed upgrade moves backups back. Before returning to an older release by
+hand, run, as the service user:
+
+```sh
+/opt/stepanel/stepanel backup-layout flatten /var/backups/stepanel
+```
 
 Backups expose separate `filesystem_consistency`, `database_consistency`, and
 `application_consistency` fields. The normal classification is
@@ -643,7 +666,7 @@ immutability, so use object-lock/immutable retention at the off-site provider.
 Verify without restoring or extracting through the CLI or API:
 
 ```sh
-/opt/stepanel/stepanel verify-backup /var/backups/stepanel/TIMESTAMP-ACCOUNT
+/opt/stepanel/stepanel verify-backup /var/backups/stepanel/sites/ACCOUNT/TIMESTAMP-ACCOUNT
 curl -fsS -X POST -H 'Content-Type: application/json' \
   --data '{"site":"ACCOUNT","backup":"TIMESTAMP-ACCOUNT"}' \
   http://127.0.0.1:8090/api/backups/verify

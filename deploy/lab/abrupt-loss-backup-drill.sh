@@ -137,7 +137,9 @@ case "$action" in
     done <<< "$names"
     # Staging left by the killed process must not be published or linger as
     # a backup; startup cleanup removes stale staging.
-    leftovers=$(find "$backup_root" -maxdepth 1 -name ".*$DRILL_SITE*" 2>/dev/null | wc -l)
+    # Stages (.backup-*) sit in the backup root; prune tombstones in the
+    # site's backup directory.
+    leftovers=$(( $(find "$backup_root" -maxdepth 1 -name '.backup-*' 2>/dev/null | wc -l) + $(find "$backup_root/sites/$DRILL_SITE" -maxdepth 1 -name '.*' 2>/dev/null | wc -l) ))
     # A fresh backup succeeds after recovery.
     fresh=$(backup_job)
     [[ $(wait_terminal "$fresh") == completed ]] || { echo 'fresh backup after recovery did not complete' >&2; exit 1; }

@@ -394,6 +394,9 @@ if (( post_upgrade_rollback )); then
     rm -f -- "$control_db"
   fi
   rm -f -- "$control_db-wal" "$control_db-shm"
+  # The previous release reads backups only from the backup root; the
+  # installed (current) release moves them back out of per-site directories.
+  runuser -u stepanel -- /opt/stepanel/stepanel backup-layout flatten /var/backups/stepanel
   if [[ ! -f $previous_root/deploy/stepanel-root-broker.service ]]; then
     systemctl disable stepanel-root-broker.service
   fi

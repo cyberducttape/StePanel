@@ -387,7 +387,7 @@ outbound-network policy.
 | --- | --- |
 | `/opt/stepanel` | Binary and web assets |
 | `/var/lib/ste-panel/imports` | Private cpmove staging |
-| `/var/backups/stepanel` | Private, verified site backup artifacts |
+| `/var/backups/stepanel` | Private, verified site backup artifacts, one directory per site under `sites/` |
 | `/var/lib/ste-panel/mail` | Private staged mailbox data |
 | `/etc/caddy/stepanel.d` | Default root-owned Caddy panel, PHP-site, and reverse-proxy definitions |
 | `/etc/apache2/stepanel-proxy` or `/etc/httpd/conf.d/stepanel-proxy` | Optional root-owned managed Apache reverse-proxy snippets |

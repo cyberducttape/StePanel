@@ -139,7 +139,7 @@ esac
 	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("RCLONE_FAKE_ROOT", fakeRemote)
 	t.Setenv("RCLONE_FAIL_MARKER", failMarker)
-	cfg := Config{WebRoot: webRoot, BackupRoot: backupRoot, ImportRoot: importRoot, OffsiteTarget: "s3:bucket/stepanel"}
+	cfg := Config{WebRoot: webRoot, BackupRoot: backupRoot, ImportRoot: importRoot, RecoveryRoot: filepath.Join(root, "recovery"), MaxEntries: 1000, OffsiteTarget: "s3:bucket/stepanel"}
 	backup, err := CreateSiteBackup(cfg, AuthorizedSite{site: "account"}, false)
 	if err != nil {
 		t.Fatal(err)
@@ -178,6 +178,17 @@ esac
 	defer cleanup()
 	if _, err := VerifySiteBackupStrict(restoredRoot, ""); err != nil {
 		t.Fatalf("strict offsite backup verification: %v", err)
+	}
+	// The offsite-files restore resolves the backup to the downloaded
+	// directory, not to a path in the backup root.
+	if err := os.WriteFile(filepath.Join(webRoot, "sites", "account", "public", "index.php"), []byte("changed"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := backupRestoreFiles(t.Context(), cfg.withDownloadedBackup(restoredRoot), filepath.Base(backup.Path), AuthorizedSite{site: "account"}); err != nil {
+		t.Fatalf("restore files from the downloaded offsite backup: %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(webRoot, "sites", "account", "public", "index.php")); err != nil || string(data) != "<?php echo 'ok';" {
+		t.Fatalf("restored site file = %q, %v", data, err)
 	}
 }
 
@@ -403,7 +414,7 @@ func TestOffsiteUploadStagingNamesAreSweepable(t *testing.T) {
 	}
 	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
 	backupRoot := filepath.Join(root, "backups")
-	backupPath := filepath.Join(backupRoot, "20261017-000000.000000000-account")
+	backupPath := filepath.Join(backupRoot, "sites", "account", "20261017-000000.000000000-account")
 	if err := os.MkdirAll(backupPath, 0700); err != nil {
 		t.Fatal(err)
 	}

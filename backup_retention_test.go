@@ -69,7 +69,8 @@ func TestCleanupBackupStagesSkipsOwnedStage(t *testing.T) {
 }
 
 func TestPruneSiteBackupsKeepsNewestAndOtherSites(t *testing.T) {
-	root := t.TempDir()
+	backupRoot := t.TempDir()
+	root := testSiteBackupDirectory(t, backupRoot, "demo")
 	for _, item := range []struct {
 		name      string
 		site      string
@@ -80,7 +81,7 @@ func TestPruneSiteBackupsKeepsNewestAndOtherSites(t *testing.T) {
 		{"20260103-000000.000000000-demo", "demo", time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)},
 		{"20260101-000000.000000000-other", "other", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
 	} {
-		dir := filepath.Join(root, item.name)
+		dir := filepath.Join(testSiteBackupDirectory(t, backupRoot, item.site), item.name)
 		if err := os.Mkdir(dir, 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -90,21 +91,22 @@ func TestPruneSiteBackupsKeepsNewestAndOtherSites(t *testing.T) {
 		}
 	}
 	access := AuthorizedSite{site: "demo"}
-	if _, err := pruneSiteBackups(root, access, 2, ""); err != nil {
+	if _, err := pruneSiteBackups(backupRoot, access, 2, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "20260101-000000.000000000-demo")); !os.IsNotExist(err) {
 		t.Fatal("oldest demo backup was not pruned")
 	}
 	for _, name := range []string{"20260102-000000.000000000-demo", "20260103-000000.000000000-demo", "20260101-000000.000000000-other"} {
-		if _, err := os.Stat(filepath.Join(root, name)); err != nil {
+		if _, err := os.Stat(filepath.Join(testSiteBackupDirectory(t, backupRoot, backupNameSite(name)), name)); err != nil {
 			t.Fatalf("expected %s to remain: %v", name, err)
 		}
 	}
 }
 
 func TestPruneSiteBackupsUsesManifestCreationTime(t *testing.T) {
-	root := t.TempDir()
+	backupRoot := t.TempDir()
+	root := testSiteBackupDirectory(t, backupRoot, "demo")
 	items := []struct {
 		name      string
 		createdAt time.Time
@@ -121,7 +123,7 @@ func TestPruneSiteBackupsUsesManifestCreationTime(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, ""); err != nil {
+	if _, err := pruneSiteBackups(backupRoot, AuthorizedSite{site: "demo"}, 1, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "renamed-new")); err != nil {
@@ -133,7 +135,8 @@ func TestPruneSiteBackupsUsesManifestCreationTime(t *testing.T) {
 }
 
 func TestPruneSiteBackupsFailsClosedOnUnownedCorruptDirectory(t *testing.T) {
-	root := t.TempDir()
+	backupRoot := t.TempDir()
+	root := testSiteBackupDirectory(t, backupRoot, "demo")
 	good := filepath.Join(root, "known-backup")
 	if err := os.Mkdir(good, 0700); err != nil {
 		t.Fatal(err)
@@ -148,7 +151,7 @@ func TestPruneSiteBackupsFailsClosedOnUnownedCorruptDirectory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(corrupt, "manifest.json"), []byte("{"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	report, err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, "")
+	report, err := pruneSiteBackups(backupRoot, AuthorizedSite{site: "demo"}, 1, "")
 	if err != nil {
 		t.Fatalf("an unattributable entry stopped retention: %v", err)
 	}
@@ -161,7 +164,8 @@ func TestPruneSiteBackupsFailsClosedOnUnownedCorruptDirectory(t *testing.T) {
 }
 
 func TestPruneSiteBackupsRefusesUnknownCreationTimeWithoutPruning(t *testing.T) {
-	root := t.TempDir()
+	backupRoot := t.TempDir()
+	root := testSiteBackupDirectory(t, backupRoot, "demo")
 	for _, name := range []string{"known-backup", "unknown-date-backup"} {
 		dir := filepath.Join(root, name)
 		if err := os.Mkdir(dir, 0700); err != nil {
@@ -175,7 +179,7 @@ func TestPruneSiteBackupsRefusesUnknownCreationTimeWithoutPruning(t *testing.T) 
 			t.Fatal(err)
 		}
 	}
-	if _, err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, "known-backup"); err == nil {
+	if _, err := pruneSiteBackups(backupRoot, AuthorizedSite{site: "demo"}, 1, "known-backup"); err == nil {
 		t.Fatal("retention accepted an unknown backup creation time")
 	}
 	for _, name := range []string{"known-backup", "unknown-date-backup"} {
@@ -186,7 +190,8 @@ func TestPruneSiteBackupsRefusesUnknownCreationTimeWithoutPruning(t *testing.T) 
 }
 
 func TestPruneSiteBackupsRejectsSymlinkManifestWithoutPruning(t *testing.T) {
-	root := t.TempDir()
+	backupRoot := t.TempDir()
+	root := testSiteBackupDirectory(t, backupRoot, "demo")
 	external := filepath.Join(t.TempDir(), "manifest.json")
 	if err := os.WriteFile(external, []byte(`{"site":"demo","created_at":"2026-01-01T00:00:00Z"}`), 0600); err != nil {
 		t.Fatal(err)
@@ -198,7 +203,7 @@ func TestPruneSiteBackupsRejectsSymlinkManifestWithoutPruning(t *testing.T) {
 	if err := os.Symlink(external, filepath.Join(backup, "manifest.json")); err != nil {
 		t.Fatal(err)
 	}
-	if report, err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, ""); err != nil || len(report.Unattributed) != 1 {
+	if report, err := pruneSiteBackups(backupRoot, AuthorizedSite{site: "demo"}, 1, ""); err != nil || len(report.Unattributed) != 1 {
 		t.Fatalf("symlinked manifest: report %+v, err %v; want it kept and reported", report, err)
 	}
 	if _, err := os.Lstat(backup); err != nil {
@@ -207,7 +212,8 @@ func TestPruneSiteBackupsRejectsSymlinkManifestWithoutPruning(t *testing.T) {
 }
 
 func TestPruneSiteBackupsProtectsNewlyVerifiedBackupAgainstClockOrdering(t *testing.T) {
-	root := t.TempDir()
+	backupRoot := t.TempDir()
+	root := testSiteBackupDirectory(t, backupRoot, "demo")
 	items := []struct {
 		name      string
 		createdAt time.Time
@@ -224,7 +230,7 @@ func TestPruneSiteBackupsProtectsNewlyVerifiedBackupAgainstClockOrdering(t *test
 			t.Fatal(err)
 		}
 	}
-	if _, err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, "verified-current"); err != nil {
+	if _, err := pruneSiteBackups(backupRoot, AuthorizedSite{site: "demo"}, 1, "verified-current"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "verified-current")); err != nil {
@@ -236,7 +242,8 @@ func TestPruneSiteBackupsProtectsNewlyVerifiedBackupAgainstClockOrdering(t *test
 }
 
 func TestPruneSiteBackupsRefusesMissingProtectedVerifiedBackup(t *testing.T) {
-	root := t.TempDir()
+	backupRoot := t.TempDir()
+	root := testSiteBackupDirectory(t, backupRoot, "demo")
 	dir := filepath.Join(root, "other-backup")
 	if err := os.Mkdir(dir, 0700); err != nil {
 		t.Fatal(err)
@@ -244,7 +251,7 @@ func TestPruneSiteBackupsRefusesMissingProtectedVerifiedBackup(t *testing.T) {
 	if err := writeBackupManifest(dir, BackupManifest{Version: 1, Site: "demo", Archive: "backup.tar.gz", CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, "missing-verified"); err == nil {
+	if _, err := pruneSiteBackups(backupRoot, AuthorizedSite{site: "demo"}, 1, "missing-verified"); err == nil {
 		t.Fatal("retention pruned without finding the just-verified recovery point")
 	}
 	if _, err := os.Stat(dir); err != nil {
@@ -256,7 +263,8 @@ func TestPruneSiteBackupsRefusesMissingProtectedVerifiedBackup(t *testing.T) {
 // a backup with a missing manifest; the next prune finishes the deletion and
 // ignores the tombstone when it inventories backups.
 func TestPruneSiteBackupsFinishesAnInterruptedDeletion(t *testing.T) {
-	root := t.TempDir()
+	backupRoot := t.TempDir()
+	root := testSiteBackupDirectory(t, backupRoot, "demo")
 	for _, item := range []struct {
 		name      string
 		createdAt time.Time
@@ -281,7 +289,7 @@ func TestPruneSiteBackupsFinishesAnInterruptedDeletion(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tombstone, "backup.tar.gz"), []byte("partial"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, ""); err != nil {
+	if _, err := pruneSiteBackups(backupRoot, AuthorizedSite{site: "demo"}, 1, ""); err != nil {
 		t.Fatalf("prune after an interrupted deletion: %v", err)
 	}
 	if _, err := os.Stat(tombstone); !os.IsNotExist(err) {
@@ -302,9 +310,25 @@ func TestPruneSiteBackupsFinishesAnInterruptedDeletion(t *testing.T) {
 	}
 }
 
+// testSiteBackupDirectory creates and returns site's backup directory.
+func testSiteBackupDirectory(t *testing.T, root, site string) string {
+	t.Helper()
+	dir, err := ensureBackupSiteDirectory(root, site)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// writeTestBackup publishes a backup in the directory of the site its name
+// is for, with a manifest naming site.
 func writeTestBackup(t *testing.T, root, name, site string, createdAt time.Time) {
 	t.Helper()
-	dir := filepath.Join(root, name)
+	owner := backupNameSite(name)
+	if owner == "" {
+		owner = site
+	}
+	dir := filepath.Join(testSiteBackupDirectory(t, root, owner), name)
 	if err := os.Mkdir(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -316,18 +340,19 @@ func writeTestBackup(t *testing.T, root, name, site string, createdAt time.Time)
 // F-03: another site's damaged backup must not stop this site's retention,
 // and must not be deleted by it.
 func TestPruneSiteBackupsIgnoresAnotherSitesDamagedBackup(t *testing.T) {
-	root := t.TempDir()
+	backupRoot := t.TempDir()
+	root := testSiteBackupDirectory(t, backupRoot, "demo")
 	day := func(d int) time.Time { return time.Date(2026, 1, d, 0, 0, 0, 0, time.UTC) }
-	writeTestBackup(t, root, "20260101-000000.000000000-demo", "demo", day(1))
-	writeTestBackup(t, root, "20260102-000000.000000000-demo", "demo", day(2))
-	damaged := filepath.Join(root, "20260101-000000.000000000-other")
+	writeTestBackup(t, backupRoot, "20260101-000000.000000000-demo", "demo", day(1))
+	writeTestBackup(t, backupRoot, "20260102-000000.000000000-demo", "demo", day(2))
+	damaged := filepath.Join(testSiteBackupDirectory(t, backupRoot, "other"), "20260101-000000.000000000-other")
 	if err := os.Mkdir(damaged, 0700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(damaged, "manifest.json"), []byte("{"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	report, err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, "")
+	report, err := pruneSiteBackups(backupRoot, AuthorizedSite{site: "demo"}, 1, "")
 	if err != nil {
 		t.Fatalf("another site's damaged backup stopped retention: %v", err)
 	}
@@ -341,7 +366,7 @@ func TestPruneSiteBackupsIgnoresAnotherSitesDamagedBackup(t *testing.T) {
 		t.Fatalf("another site's damaged backup was removed: %v", err)
 	}
 	// The damaged entry is reported by the site it is named for.
-	if report, err := pruneSiteBackups(root, AuthorizedSite{site: "other"}, 1, ""); err != nil || len(report.Unattributed) != 1 {
+	if report, err := pruneSiteBackups(backupRoot, AuthorizedSite{site: "other"}, 1, ""); err != nil || len(report.Unattributed) != 1 {
 		t.Fatalf("owning site's retention: report %+v, err %v; want the damaged entry reported", report, err)
 	}
 }
@@ -351,15 +376,15 @@ func TestPruneSiteBackupsSkipsOtherSitesManifests(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root can read a mode-000 manifest")
 	}
-	root := t.TempDir()
-	writeTestBackup(t, root, "20260101-000000.000000000-demo", "demo", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
-	writeTestBackup(t, root, "20260101-000000.000000000-other", "other", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
-	unreadable := filepath.Join(root, "20260101-000000.000000000-other", "manifest.json")
+	backupRoot := t.TempDir()
+	writeTestBackup(t, backupRoot, "20260101-000000.000000000-demo", "demo", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	writeTestBackup(t, backupRoot, "20260101-000000.000000000-other", "other", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	unreadable := filepath.Join(testSiteBackupDirectory(t, backupRoot, "other"), "20260101-000000.000000000-other", "manifest.json")
 	if err := os.Chmod(unreadable, 0); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(unreadable, 0600) })
-	if report, err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, ""); err != nil || len(report.Unattributed) != 0 {
+	if report, err := pruneSiteBackups(backupRoot, AuthorizedSite{site: "demo"}, 1, ""); err != nil || len(report.Unattributed) != 0 {
 		t.Fatalf("demo retention touched another site's manifest: report %+v, err %v", report, err)
 	}
 }
@@ -367,10 +392,11 @@ func TestPruneSiteBackupsSkipsOtherSitesManifests(t *testing.T) {
 // A backup named for this site whose manifest names another site is kept
 // and reported, never pruned as this site's.
 func TestPruneSiteBackupsReportsNameManifestMismatch(t *testing.T) {
-	root := t.TempDir()
-	writeTestBackup(t, root, "20260101-000000.000000000-demo", "other", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
-	writeTestBackup(t, root, "20260102-000000.000000000-demo", "demo", time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))
-	report, err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, "")
+	backupRoot := t.TempDir()
+	root := testSiteBackupDirectory(t, backupRoot, "demo")
+	writeTestBackup(t, backupRoot, "20260101-000000.000000000-demo", "other", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	writeTestBackup(t, backupRoot, "20260102-000000.000000000-demo", "demo", time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))
+	report, err := pruneSiteBackups(backupRoot, AuthorizedSite{site: "demo"}, 1, "")
 	if err != nil || len(report.Unattributed) != 1 || report.Unattributed[0] != "20260101-000000.000000000-demo" {
 		t.Fatalf("report %+v, err %v; want the mismatched entry reported", report, err)
 	}
@@ -440,35 +466,48 @@ func TestRetentionOutcomeIsPersistedAndExported(t *testing.T) {
 // Retention finishes only its own site's interrupted deletions; the startup
 // sweep finishes everyone's.
 func TestPruneSiteBackupsFinishesOnlyItsOwnTombstones(t *testing.T) {
-	root := t.TempDir()
-	writeTestBackup(t, root, "20260101-000000.000000000-demo", "demo", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
-	for _, name := range []string{"20250101-000000.000000000-demo", "20250101-000000.000000000-other"} {
-		if err := os.MkdirAll(filepath.Join(root, backupPruneTombstonePrefix+name, "data"), 0700); err != nil {
+	backupRoot := t.TempDir()
+	root := testSiteBackupDirectory(t, backupRoot, "demo")
+	writeTestBackup(t, backupRoot, "20260101-000000.000000000-demo", "demo", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	other := testSiteBackupDirectory(t, backupRoot, "other")
+	for _, tombstone := range []string{
+		filepath.Join(root, backupPruneTombstonePrefix+"20250101-000000.000000000-demo"),
+		filepath.Join(other, backupPruneTombstonePrefix+"20250101-000000.000000000-other"),
+		// Left in the backup root by a release before per-site directories.
+		filepath.Join(backupRoot, backupPruneTombstonePrefix+"20240101-000000.000000000-other"),
+	} {
+		if err := os.MkdirAll(filepath.Join(tombstone, "data"), 0700); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, ""); err != nil {
+	if _, err := pruneSiteBackups(backupRoot, AuthorizedSite{site: "demo"}, 1, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(root, backupPruneTombstonePrefix+"20250101-000000.000000000-demo")); !os.IsNotExist(err) {
 		t.Fatalf("demo's own tombstone was not finished: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, backupPruneTombstonePrefix+"20250101-000000.000000000-other")); err != nil {
+	if _, err := os.Stat(filepath.Join(other, backupPruneTombstonePrefix+"20250101-000000.000000000-other")); err != nil {
 		t.Fatalf("demo's retention touched another site's tombstone: %v", err)
 	}
-	if err := removePruneTombstones(root); err != nil {
+	if err := removePruneTombstones(backupRoot); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(root, backupPruneTombstonePrefix+"20250101-000000.000000000-other")); !os.IsNotExist(err) {
-		t.Fatalf("startup sweep left another site's tombstone: %v", err)
+	for _, tombstone := range []string{
+		filepath.Join(other, backupPruneTombstonePrefix+"20250101-000000.000000000-other"),
+		filepath.Join(backupRoot, backupPruneTombstonePrefix+"20240101-000000.000000000-other"),
+	} {
+		if _, err := os.Stat(tombstone); !os.IsNotExist(err) {
+			t.Fatalf("startup sweep left a tombstone %s: %v", tombstone, err)
+		}
 	}
 }
 
 // Every unattributed entry is counted, but the report and its single log
 // line carry a bounded number of names.
 func TestRetentionReportCountsAllButBoundsNames(t *testing.T) {
-	root := t.TempDir()
-	writeTestBackup(t, root, "20260101-000000.000000000-demo", "demo", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	backupRoot := t.TempDir()
+	root := testSiteBackupDirectory(t, backupRoot, "demo")
+	writeTestBackup(t, backupRoot, "20260101-000000.000000000-demo", "demo", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 	for i := 0; i < maxReportedUnattributedBackups+5; i++ {
 		if err := os.MkdirAll(filepath.Join(root, fmt.Sprintf("odd-entry-%02d", i)), 0700); err != nil {
 			t.Fatal(err)
@@ -477,7 +516,7 @@ func TestRetentionReportCountsAllButBoundsNames(t *testing.T) {
 	var logged bytes.Buffer
 	log.SetOutput(&logged)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
-	report, err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, "")
+	report, err := pruneSiteBackups(backupRoot, AuthorizedSite{site: "demo"}, 1, "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -156,12 +156,7 @@ func TestCrashDrill_Backup(t *testing.T) {
 			if err := CleanupBackupStages(f.cfg.BackupRoot, orphanedStagingMinAge); err != nil {
 				t.Fatal(err)
 			}
-			entries, _ := os.ReadDir(f.cfg.BackupRoot)
-			for _, entry := range entries {
-				if entry.Name() != good {
-					t.Errorf("backup root holds %s after cleanup", entry.Name())
-				}
-			}
+			assertOnlyPublishedBackup(t, f.cfg.BackupRoot, good)
 			f.assertQuiescent(t)
 			if _, err := CreateSiteBackupContext(context.Background(), f.cfg, f.site, false); err != nil {
 				t.Fatalf("backup after crash recovery: %v", err)
@@ -360,4 +355,29 @@ func TestCrashDrill_DeployDiesDuringSeal(t *testing.T) {
 		t.Fatalf("deploy after crash recovery: %v", err)
 	}
 	f.assertSite(t, map[string]string{"index.html": "v4"})
+}
+
+// assertOnlyPublishedBackup fails if the backup root holds anything besides
+// the per-site directories, or they hold anything besides good.
+func assertOnlyPublishedBackup(t *testing.T, root, good string) {
+	t.Helper()
+	entries, _ := os.ReadDir(root)
+	for _, entry := range entries {
+		if entry.Name() != backupSitesDirectory {
+			t.Errorf("backup root holds %s after cleanup", entry.Name())
+		}
+	}
+	sites, _ := backupSiteNames(root)
+	for _, site := range sites {
+		directory, err := backupSiteDirectory(root, site)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries, _ := os.ReadDir(directory)
+		for _, entry := range entries {
+			if entry.Name() != good {
+				t.Errorf("site %s's backup directory holds %s after cleanup", site, entry.Name())
+			}
+		}
+	}
 }

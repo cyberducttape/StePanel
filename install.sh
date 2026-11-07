@@ -886,6 +886,9 @@ systemctl is-enabled --quiet stepanel-worker.service 2>/dev/null && STEPANEL_WOR
 systemctl is-active --quiet stepanel-root-broker.service 2>/dev/null && STEPANEL_BROKER_WAS_ACTIVE=1
 systemctl is-enabled --quiet stepanel-root-broker.service 2>/dev/null && STEPANEL_BROKER_WAS_ENABLED=1
 UPGRADE_DRAIN_ACTIVE=0
+# Set when this upgrade introduces per-site backup directories.
+BACKUP_LAYOUT_INTRODUCED=0
+BACKUP_ROOT_DIR=/var/backups/stepanel
 # Set once this run stops StePanel's services. A run that fails before then
 # (a failed preflight, or a drain refused because jobs still run) leaves them
 # running as they were; restarting them would interrupt those jobs.
@@ -934,6 +937,10 @@ rollback_install() {
   if (( CONTROL_PLANE_TXN_ACTIVE )); then
     systemctl stop stepanel.service stepanel-worker.service 2>/dev/null || true
     control_plane_txn_rollback || echo 'Restoring the control-plane database failed; restore it from the snapshot in the install transaction.' >&2
+    # The restored release reads backups only from the backup root.
+    if (( BACKUP_LAYOUT_INTRODUCED )) && [[ -d $BACKUP_ROOT_DIR/sites ]]; then
+      upgrade_cli backup-layout flatten "$BACKUP_ROOT_DIR" || echo "Could not move backups back into $BACKUP_ROOT_DIR; run 'stepanel backup-layout flatten $BACKUP_ROOT_DIR' from this source tree as the service user." >&2
+    fi
   fi
   # The snapshot was taken while the upgrade drain was set; the restored
   # release must accept changes again (the flag would otherwise expire).
@@ -1052,6 +1059,10 @@ if (( STEPANEL_BROKER_WAS_ACTIVE )); then systemctl stop stepanel-root-broker.se
 # With every StePanel process stopped, snapshot the control-plane database so
 # a failed upgrade restores binary and database together.
 control_plane_txn_begin "$DATA_DIR/stepanel-control.db" "$INSTALL_TXN"
+# Releases before per-site backup directories read backups only from the
+# backup root. The candidate moves them into per-site directories when it
+# starts, so a revert of this upgrade moves them back (rollback_install).
+if [[ -d $BACKUP_ROOT_DIR && ! -L $BACKUP_ROOT_DIR && ! -e $BACKUP_ROOT_DIR/sites ]]; then BACKUP_LAYOUT_INTRODUCED=1; fi
 install_journal_record configuration transaction_ready reversible "registered file targets and control-plane database are snapshotted under $INSTALL_TXN"
 
 # Root-run recursive ownership and permission changes on tenant trees (site

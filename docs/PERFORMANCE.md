@@ -320,8 +320,8 @@ export STEPANEL_GIT_RELEASE_MAX_AGE_HOURS=168  # For 7 days
 ### Verification
 
 ```bash
-# Verify a backup offline (backups live under /var/backups/stepanel)
-/opt/stepanel/stepanel verify-backup /var/backups/stepanel/<backup-name>
+# Verify a backup offline (backups live under /var/backups/stepanel/sites/<site>)
+/opt/stepanel/stepanel verify-backup /var/backups/stepanel/sites/<site>/<backup-name>
 
 # Restore into an isolated staging site without touching production
 curl -X POST https://panel.example.com/api/backups/restore-to-staging \
