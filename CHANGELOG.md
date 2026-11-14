@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Security
 
+- The threat model is rewritten by trust boundary (STRIDE), with the controls
+  and residual risks for each, and the invariant that tenant code never runs
+  as the panel account. Following from it, the Composer record no longer runs
+  Git inside the tenant-controlled site tree: it reads `.git/HEAD` through
+  `os.Root`.
 - Orphaned-staging cleanup keeps any release stage an activation journal
   still names, since it may hold the previous release until recovery runs.
   The N-1 upgrade matrix now carries backups through the documented

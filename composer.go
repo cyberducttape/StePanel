@@ -1,6 +1,7 @@
 package stepanel
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -123,18 +125,66 @@ func composerVersion() string {
 	}
 	return strings.TrimSpace(string(out))
 }
+
+// gitHead reports the commit a site's checkout is on, for the Composer
+// record. The checkout is tenant-controlled, so it never runs git there: it
+// reads .git/HEAD (and the ref it names) through an os.Root confined to the
+// document root, which refuses symlinks out of the tree, and accepts only a
+// well-formed object ID. Anything else reports no commit.
 func gitHead(root string) string {
-	if !commandAvailable("git") {
-		return ""
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	out, err := runBoundedCommand(ctx, exec.CommandContext(ctx, "git", "-C", root, "rev-parse", "HEAD"))
+	tree, err := os.OpenRoot(root)
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+	defer tree.Close()
+	read := func(name string) string {
+		file, err := tree.Open(name)
+		if err != nil {
+			return ""
+		}
+		defer file.Close()
+		data, err := io.ReadAll(io.LimitReader(file, 512))
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(data))
+	}
+	head := read(".git/HEAD")
+	if ref, ok := strings.CutPrefix(head, "ref: "); ok {
+		if !gitHeadRefPattern.MatchString(ref) || strings.Contains(ref, "..") {
+			return ""
+		}
+		head = read(".git/" + ref)
+		if head == "" {
+			head = packedGitRef(tree, ref)
+		}
+	}
+	if !gitCommitPattern.MatchString(head) {
+		return ""
+	}
+	return head
 }
+
+// gitHeadRefPattern accepts the branch refs HEAD normally names.
+var gitHeadRefPattern = regexp.MustCompile(`^refs/heads/[A-Za-z0-9._/-]{1,200}$`)
+
+// packedGitRef finds ref in .git/packed-refs, read with a size limit.
+func packedGitRef(tree *os.Root, ref string) string {
+	file, err := tree.Open(".git/packed-refs")
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(io.LimitReader(file, 1<<20))
+	for scanner.Scan() {
+		id, name, ok := strings.Cut(strings.TrimSpace(scanner.Text()), " ")
+		if ok && name == ref {
+			return id
+		}
+	}
+	return ""
+}
+
 func boolString(v bool) string {
 	if v {
 		return "1"
