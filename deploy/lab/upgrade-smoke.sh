@@ -370,6 +370,13 @@ fi
 # before the SQLite control plane (v0.6.0, v0.7.0) reads its own state files,
 # which the upgrade leaves in place, and predates the root broker, which must
 # be disabled so it does not return at the next boot.
+# verify_backup_as_service runs BINARY verify-backup PATH with the service's
+# environment. /etc/ste-panel.env is a systemd environment file, not shell:
+# generated keys may contain "$", so it is read by systemd, never sourced.
+verify_backup_as_service() {
+  systemd-run --quiet --wait --pipe --collect --property=EnvironmentFile=/etc/ste-panel.env -- "$1" verify-backup "$2" >/dev/null
+}
+
 if (( post_upgrade_rollback )); then
   control_db=/var/lib/ste-panel/stepanel-control.db
   # Backups the candidate keeps in per-site directories (at least the one the
@@ -424,7 +431,7 @@ if (( post_upgrade_rollback )); then
     if [[ -f $backup_root/$name/backup.tar.gz.enc ]]; then
       echo "backup $name is encrypted by the newer release; $previous_version cannot read it, as documented"
     else
-      (set -a; . /etc/ste-panel.env; "$previous_root/stepanel" verify-backup "$backup_root/$name") >/dev/null || { echo "$previous_version cannot verify backup $name after the downgrade" >&2; exit 1; }
+      verify_backup_as_service "$previous_root/stepanel" "$backup_root/$name" || { echo "$previous_version cannot verify backup $name after the downgrade" >&2; exit 1; }
     fi
   done
   echo "post-upgrade rollback to $previous_version passed"
@@ -440,7 +447,7 @@ if (( post_upgrade_rollback )); then
   for name in "${layout_backups[@]}"; do
     path=$backup_root/sites/${name:26}/$name
     [[ -f $path/manifest.json ]] || { echo "backup $name was not moved back into its site directory" >&2; exit 1; }
-    (set -a; . /etc/ste-panel.env; /opt/stepanel/stepanel verify-backup "$path") >/dev/null || { echo "the candidate cannot verify backup $name after the round trip" >&2; exit 1; }
+    verify_backup_as_service /opt/stepanel/stepanel "$path" || { echo "the candidate cannot verify backup $name after the round trip" >&2; exit 1; }
   done
   echo 'repeat upgrade after rollback passed'
 fi

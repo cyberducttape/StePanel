@@ -92,7 +92,7 @@ for _ in $(seq 1 600); do
 done
 [[ -n $shadow ]] || fail 'the restore never created its shadow database'
 sleep 1
-systemctl kill --signal=SIGKILL "$service"
+systemctl kill --kill-who=main --signal=SIGKILL "$service"
 pass "killed $service while $shadow was loading"
 if wait "$restore_pid"; then
   restore_pid=''

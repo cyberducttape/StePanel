@@ -292,6 +292,8 @@ test('high-risk change confirmation exposes the complete review plan', async ({ 
     });
   });
   const dialog = page.locator('dialog.confirm-dialog');
+  // The typed confirmation takes focus when the dialog opens.
+  await expect(page.getByLabel('Type example.test to confirm')).toBeFocused();
   await expect(dialog).toContainText('Exact before/after configuration');
   await dialog.locator('summary').click();
   await expect(dialog).toContainText('"memory_limit": "256M"');
@@ -303,7 +305,6 @@ test('high-risk change confirmation exposes the complete review plan', async ({ 
   // open, and returns focus to what opened it when cancelled.
   await expect(page.getByRole('dialog', { name: 'Review risky change' })).toBeVisible();
   await expect(dialog).toHaveAccessibleDescription('Confirm only after reviewing the plan.');
-  await expect(page.getByLabel('Type example.test to confirm')).toBeFocused();
   const result = await new AxeBuilder({ page }).include('dialog.confirm-dialog').analyze();
   expect(result.violations, result.violations.map((violation) => `${violation.id}: ${violation.help}`).join('\n')).toEqual([]);
   await dialog.getByRole('button', { name: 'Cancel' }).click();

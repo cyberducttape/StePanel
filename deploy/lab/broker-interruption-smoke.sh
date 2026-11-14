@@ -175,7 +175,7 @@ for delay in $BROKER_KILL_DELAYS; do
   done
   [[ $state == running ]] || fail "creation of $site never ran (state ${state:-unknown})"
   sleep "$delay"
-  systemctl kill --signal=SIGKILL stepanel-root-broker.service
+  systemctl kill --kill-who=main --signal=SIGKILL stepanel-root-broker.service
   pass "round $round: killed the root broker ${delay}s into creating $site"
   for _ in $(seq 1 30); do systemctl is-active --quiet stepanel-root-broker.service && break; sleep 1; done
   systemctl is-active --quiet stepanel-root-broker.service || fail 'systemd did not restart the root broker'

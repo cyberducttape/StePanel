@@ -1550,24 +1550,6 @@ INSTALL_JOURNAL_TERMINAL=1
 trap - ERR EXIT INT TERM
 install_journal_record commit complete manual "core installation committed; optional integrations are reported separately and package changes remain" || echo 'Could not append installer commit record; preserve installer output as evidence.' >&2
 declare -a POST_COMMIT_CLEANUP_PENDING=()
-# Keep the environment file this run replaced, from its transaction backup,
-# so the committed upgrade can be undone with an older installer that refuses
-# the new file (docs/COMPATIBILITY.md). The upgrade is already committed, so
-# a failure here is reported, not fatal.
-# shellcheck source=deploy/lib/install-upgrade-retention.sh
-. "$ROOT_DIR/deploy/lib/install-upgrade-retention.sh"
-replaced_env=
-for index in "${!TXN_TARGETS[@]}"; do
-  if [[ ${TXN_TARGETS[$index]} == "$ENV_FILE" && ${TXN_EXISTED[$index]} == 1 ]]; then replaced_env=${TXN_BACKUPS[$index]}; fi
-done
-if [[ -n $replaced_env ]]; then
-  installed_release=$("$APP_DIR/stepanel" version 2>/dev/null | awk 'NR == 1 { print $2 }') || installed_release=
-  if retained_configuration=$(install_retain_replaced_configuration /var/lib/stepanel/upgrade-rollback "$replaced_env" "$ENV_FILE" "${installed_release:-unknown}"); then
-    [[ -z $retained_configuration ]] || echo "post_install_replaced_configuration=$retained_configuration"
-  else
-    echo 'post_install_replaced_configuration=unavailable; copy the previous environment file from a backup before any downgrade' >&2
-  fi
-fi
 for temporary in "${TXN_TEMPS[@]}"; do
   if ! rm -f "$temporary"; then POST_COMMIT_CLEANUP_PENDING+=("$temporary"); fi
 done
