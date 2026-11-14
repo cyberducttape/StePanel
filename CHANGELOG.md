@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Security
 
+- The destructive-action confirmation dialog is named by its title and
+  described by its message for screen readers, returns focus to the control
+  that opened it, and keeps the line breaks of multi-line messages such as the
+  rollback preview. The end-to-end suite now runs axe on the open dialog.
 - The threat model is rewritten by trust boundary (STRIDE), with the controls
   and residual risks for each, and the invariant that tenant code never runs
   as the panel account. Following from it, the Composer record no longer runs

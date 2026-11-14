@@ -1124,6 +1124,8 @@ dialog.confirm-dialog::backdrop { background: rgba(6, 10, 16, .68); }
 .confirm-dialog-body { padding: 24px; }
 .confirm-dialog-body h3 { margin: 0 0 10px; color: var(--panel-text); font-size: 17px; }
 .confirm-dialog-body p { margin: 0 0 14px; color: var(--panel-muted); font-size: 13px; line-height: 1.6; }
+/* Messages built from several lines (the rollback preview) keep their breaks. */
+.confirm-dialog-message { white-space: pre-line; }
 .confirm-dialog-facts {
   border: 1px solid var(--panel-line);
   border-radius: 10px;

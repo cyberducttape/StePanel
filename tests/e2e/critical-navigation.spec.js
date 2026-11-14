@@ -274,6 +274,11 @@ test('navigation: cPanel migration controls render', async ({ page }) => {
 
 test('high-risk change confirmation exposes the complete review plan', async ({ page }) => {
   await page.evaluate(() => {
+    const opener = document.createElement('button');
+    opener.id = 'reviewDialogOpener';
+    opener.textContent = 'Open review';
+    document.querySelector('main').append(opener);
+    opener.focus();
     window.__reviewDialog = window.StepanelUI.confirmDangerous({
       title: 'Review risky change', message: 'Confirm only after reviewing the plan.',
       confirmText: 'example.test', plan: {
@@ -294,6 +299,17 @@ test('high-risk change confirmation exposes the complete review plan', async ({ 
   await expect(dialog).toContainText('php-fpm -t');
   await expect(dialog).toContainText('During apply');
   await expect(dialog).toContainText('Restore the previous profile.');
+  // The dialog is announced by its title and message, passes axe while
+  // open, and returns focus to what opened it when cancelled.
+  await expect(page.getByRole('dialog', { name: 'Review risky change' })).toBeVisible();
+  await expect(dialog).toHaveAccessibleDescription('Confirm only after reviewing the plan.');
+  await expect(page.getByLabel('Type example.test to confirm')).toBeFocused();
+  const result = await new AxeBuilder({ page }).include('dialog.confirm-dialog').analyze();
+  expect(result.violations, result.violations.map((violation) => `${violation.id}: ${violation.help}`).join('\n')).toEqual([]);
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(await page.evaluate(() => window.__reviewDialog)).toBe(false);
+  await expect(page.locator('#reviewDialogOpener')).toBeFocused();
 });
 
 test('cPanel preflight exposes compatibility evidence and downloadable report', async ({ page }) => {

@@ -26,8 +26,15 @@
   // to { confirmed, values } and are used for explicit database restore
   // parameters without falling back to native prompt() dialogs.
   const confirmDangerous = ({ title, message, facts = [], confirmText, actionLabel = 'Confirm', extraField = null, extraFields = null, plan = null }) => new Promise((resolve) => {
-    const dialog = el('dialog', { className: 'confirm-dialog' });
-    const inputId = `confirm-input-${Math.random().toString(36).slice(2, 8)}`;
+    const idSuffix = Math.random().toString(36).slice(2, 8);
+    const titleId = `confirm-title-${idSuffix}`;
+    const messageId = `confirm-message-${idSuffix}`;
+    // The title names the dialog and the message describes it, so a screen
+    // reader announces both when it opens.
+    const dialog = el('dialog', { className: 'confirm-dialog', 'aria-labelledby': titleId, 'aria-describedby': messageId });
+    // Focus returns to whatever opened the dialog once it closes.
+    const opener = document.activeElement;
+    const inputId = `confirm-input-${idSuffix}`;
     const input = el('input', { id: inputId, type: 'text', autocomplete: 'off', required: true });
     const confirmButton = el('button', { type: 'submit', className: 'confirm-dialog-danger', disabled: true }, actionLabel);
     const definitions = extraFields || (extraField ? [{ name: 'value', ...extraField }] : []);
@@ -84,8 +91,8 @@
     })() : null;
     const form = el('form', { method: 'dialog', onSubmit: () => { dialog.close('confirm'); } }, [
       el('div', { className: 'confirm-dialog-body' }, [
-        el('h3', {}, title),
-        el('p', {}, message),
+        el('h3', { id: titleId }, title),
+        el('p', { id: messageId, className: 'confirm-dialog-message' }, message),
         facts.length ? el('div', { className: 'confirm-dialog-facts' }, facts.map(([label, value]) => el('div', {}, [label, el('strong', {}, value)]))) : null,
         planNode,
         ...extraFieldNodes,
@@ -107,6 +114,7 @@
         resolve({ confirmed, value: extraInputs.value ? extraInputs.value.value.trim() : '' });
       } else resolve(confirmed);
       dialog.remove();
+      if (opener && typeof opener.focus === 'function' && opener.isConnected) opener.focus();
     });
     document.body.append(dialog);
     dialog.showModal();
