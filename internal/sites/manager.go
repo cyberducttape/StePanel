@@ -130,6 +130,21 @@ type DefaultManager struct {
 	// hosting-account layout (ADR-0007); unset, every site is legacy.
 	homeRoot   string
 	placements PlacementLookup
+	// stageHeld, when set, reports stages that orphaned-staging cleanup
+	// must keep regardless of age: a lifecycle journal still names them.
+	stageHeld func(stage string) bool
+}
+
+// SetStageGuard registers held, which reports staging paths that a caller's
+// recovery journal still names. CleanupOrphanedStaging never removes such a
+// stage: after an indeterminate activation it may hold the previous
+// release, and only journal recovery may decide what to do with it.
+func (m *DefaultManager) SetStageGuard(held func(stage string) bool) {
+	m.stageHeld = held
+}
+
+func (m *DefaultManager) stageIsHeld(stage string) bool {
+	return m.stageHeld != nil && m.stageHeld(stage)
 }
 
 // NewDefaultManager validates and stores the configured web root. It
@@ -460,6 +475,9 @@ func (m *DefaultManager) CleanupOrphanedStaging(ctx context.Context, olderThan t
 				continue
 			}
 			releasePath := filepath.Join(siteRoot, release.Name())
+			if m.stageIsHeld(releasePath) {
+				continue
+			}
 			owner, active, err := tryLockStage(releasePath)
 			if err != nil {
 				if errors.Is(err, errStageLeaseMissing) {
@@ -542,7 +560,7 @@ func (m *DefaultManager) cleanupStageRoot(ctx context.Context, stageParent strin
 		if err := ctx.Err(); err != nil {
 			return removed, err
 		}
-		if !abandoned(entry) {
+		if !abandoned(entry) || m.stageIsHeld(filepath.Join(stageParent, entry.Name())) {
 			continue
 		}
 		owner, active, err := tryLockStage(filepath.Join(stageParent, entry.Name()))

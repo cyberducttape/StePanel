@@ -307,7 +307,7 @@ drain_probe=$(curl --silent --show-error --max-time 30 -o /dev/null -w '%{http_c
 # crash recovery resumes the job in the restarted worker.
 rm -f -- "$drain_dropin"
 systemctl daemon-reload
-systemctl kill --signal=SIGKILL stepanel-worker.service
+systemctl kill --kill-who=main --signal=SIGKILL stepanel-worker.service
 systemctl restart stepanel-worker.service
 wait_ready 'the candidate after releasing the held worker'
 drain_state=''
@@ -372,6 +372,12 @@ fi
 # be disabled so it does not return at the next boot.
 if (( post_upgrade_rollback )); then
   control_db=/var/lib/ste-panel/stepanel-control.db
+  # Backups the candidate keeps in per-site directories (at least the one the
+  # drain check took) must survive the downgrade and the repeat upgrade.
+  backup_root=/var/backups/stepanel
+  mapfile -t layout_backups < <(find "$backup_root/sites" -mindepth 2 -maxdepth 2 -type d ! -name '.*' -printf '%f\n' 2>/dev/null | sort)
+  (( ${#layout_backups[@]} > 0 )) || { echo 'no backup in per-site directories to carry through the downgrade' >&2; exit 1; }
+  echo "carrying ${#layout_backups[@]} backup(s) through the downgrade: ${layout_backups[*]}"
   # The copy to restore is the one made when the release now installed
   # replaced the previous one.
   installed_sha=$(sha256sum /opt/stepanel/stepanel | cut -d' ' -f1)
@@ -409,6 +415,18 @@ if (( post_upgrade_rollback )); then
   # The previous release must still accept the audit log, including the
   # records the upgraded release appended.
   "$previous_root/stepanel" verify-audit /var/lib/ste-panel/audit.jsonl
+  # Every backup is back where the previous release reads backups. Backups
+  # the candidate encrypted cannot be read by a release without backup
+  # encryption (docs/COMPATIBILITY.md); any others must still verify.
+  [[ ! -e $backup_root/sites ]] || { echo "$backup_root/sites remains after the downgrade" >&2; exit 1; }
+  for name in "${layout_backups[@]}"; do
+    [[ -f $backup_root/$name/manifest.json ]] || { echo "backup $name is not in $backup_root after the downgrade" >&2; exit 1; }
+    if [[ -f $backup_root/$name/backup.tar.gz.enc ]]; then
+      echo "backup $name is encrypted by the newer release; $previous_version cannot read it, as documented"
+    else
+      (set -a; . /etc/ste-panel.env; "$previous_root/stepanel" verify-backup "$backup_root/$name") >/dev/null || { echo "$previous_version cannot verify backup $name after the downgrade" >&2; exit 1; }
+    fi
+  done
   echo "post-upgrade rollback to $previous_version passed"
 
   # The rolled-back host must accept the same upgrade again.
@@ -417,5 +435,12 @@ if (( post_upgrade_rollback )); then
   wait_ready 'the candidate after upgrading the rolled-back host'
   assert_populated_upgrade_fixture
   /opt/stepanel/stepanel restore-control-plane "$control_db" --dry-run
+  # The repeat upgrade moves the backups into per-site directories again,
+  # and the candidate verifies each one, archive included.
+  for name in "${layout_backups[@]}"; do
+    path=$backup_root/sites/${name:26}/$name
+    [[ -f $path/manifest.json ]] || { echo "backup $name was not moved back into its site directory" >&2; exit 1; }
+    (set -a; . /etc/ste-panel.env; /opt/stepanel/stepanel verify-backup "$path") >/dev/null || { echo "the candidate cannot verify backup $name after the round trip" >&2; exit 1; }
+  done
   echo 'repeat upgrade after rollback passed'
 fi

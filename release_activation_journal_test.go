@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
+	"time"
 
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 	"golang.org/x/sys/unix"
@@ -443,5 +444,52 @@ func TestRecoveryRestoresTheMovedAsideReleaseByIdentity(t *testing.T) {
 	}
 	if _, err := os.Stat(newer); err != nil {
 		t.Fatalf("an unrelated retained release was consumed: %v", err)
+	}
+}
+
+// Periodic orphaned-staging cleanup keeps a stage an activation journal
+// still names, however old and unlocked: it may hold the previous release.
+func TestOrphanedStagingCleanupKeepsJournaledStages(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{WebRoot: filepath.Join(root, "www"), RecoveryRoot: filepath.Join(root, "recovery")}
+	if err := os.MkdirAll(filepath.Join(cfg.WebRoot, "sites", "example", "public"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Config: cfg}
+	var stages []string
+	for i := 0; i < 2; i++ {
+		stage, owner, err := app.createSiteReleaseStaging(context.Background(), "example", ".stepanel-release-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(stage, "index.html"), []byte("previous release"), 0640); err != nil {
+			t.Fatal(err)
+		}
+		owner.Close() // the lease is released, as after a process exit
+		old := time.Now().Add(-48 * time.Hour)
+		if err := os.Chtimes(stage, old, old); err != nil {
+			t.Fatal(err)
+		}
+		stages = append(stages, stage)
+	}
+	journal, err := newReleaseActivationJournal(cfg.RecoveryRoot, "example", stages[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.persist(); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := newSiteManagerForConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.CleanupOrphanedStaging(context.Background(), time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(stages[0], "index.html")); err != nil {
+		t.Fatalf("cleanup removed a stage its journal names: %v", err)
+	}
+	if _, err := os.Lstat(stages[1]); !os.IsNotExist(err) {
+		t.Fatalf("an abandoned stage no journal names was kept: %v", err)
 	}
 }

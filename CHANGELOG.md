@@ -8,6 +8,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Security
 
+- Orphaned-staging cleanup keeps any release stage an activation journal
+  still names, since it may hold the previous release until recovery runs.
+  The N-1 upgrade matrix now carries backups through the documented
+  downgrade and repeat upgrade, and its QEMU guest jobs kill only the
+  worker's main process (the whole-unit kill failed on the guest). The
+  compatibility notes now state that releases without backup encryption
+  (v0.6.0, v0.7.0) cannot read backups taken after an upgrade.
 - Release recovery no longer guesses. Activation journals record the
   identity of the document root they replace, and recovery restores that
   exact release instead of the newest retained one by name. An activation

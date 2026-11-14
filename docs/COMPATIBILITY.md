@@ -166,7 +166,14 @@ Control-plane changes made after the upgrade (jobs, accounts, settings,
 audit records) are lost. Sites placed in `/home` after the upgrade cannot be
 served by a release older than schema 21; delete or migrate them before
 downgrading. Site files and databases are not changed by the downgrade, and
-backups are only moved back into the backup root (step 6). A host rolled back this way can be upgraded again; if it is
+backups are only moved back into the backup root (step 6). Backups taken by the newer release are
+encrypted (`backup.tar.gz.enc`). v0.6.0 and v0.7.0 have no backup encryption
+and can neither verify nor restore them: after a downgrade, only backups taken
+before the upgrade are usable by the older release. Keep those, or restore
+from a newer backup with the newer release before downgrading. The upgrade
+matrix checks that every backup is back in the backup root after the
+downgrade, and that the newer release verifies all of them again after a
+repeat upgrade. A host rolled back this way can be upgraded again; if it is
 upgraded to the same release, the copy from the first upgrade is reused, so
 settings changed under the older release in between must be reapplied.
 

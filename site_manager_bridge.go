@@ -36,6 +36,7 @@ func newSiteManagerForConfig(cfg Config) (*siteauthority.DefaultManager, error) 
 		if err != nil {
 			return nil, fmt.Errorf("initialize site manager: %w", err)
 		}
+		guardJournaledStages(manager, cfg)
 		return manager, nil
 	}
 	homeRoot, err := filepath.Abs(cfg.HomeRoot)
@@ -48,7 +49,25 @@ func newSiteManagerForConfig(cfg Config) (*siteauthority.DefaultManager, error) 
 	if err != nil {
 		return nil, fmt.Errorf("initialize site manager: %w", err)
 	}
+	guardJournaledStages(manager, cfg)
 	return manager, nil
+}
+
+// releaseRecoveryRoot is where release activation journals live.
+func releaseRecoveryRoot(cfg Config) string {
+	if cfg.RecoveryRoot != "" {
+		return cfg.RecoveryRoot
+	}
+	return filepath.Join(cfg.WebRoot, "sites", ".stepanel-recovery")
+}
+
+// guardJournaledStages keeps orphaned-staging cleanup away from any stage a
+// release activation journal still names (see releaseStageHasJournal).
+func guardJournaledStages(manager *siteauthority.DefaultManager, cfg Config) {
+	recoveryRoot := releaseRecoveryRoot(cfg)
+	manager.SetStageGuard(func(stage string) bool {
+		return releaseStageHasJournal(recoveryRoot, stage)
+	})
 }
 
 // activateStagedSite keeps release publication behind the lifecycle manager
@@ -135,10 +154,7 @@ func (a *App) createSiteReleaseStaging(ctx context.Context, name, prefix string)
 }
 
 func (a *App) discardSiteReleaseStaging(ctx context.Context, name, stagedRoot string) error {
-	recoveryRoot := a.Config.RecoveryRoot
-	if recoveryRoot == "" {
-		recoveryRoot = filepath.Join(a.Config.WebRoot, "sites", ".stepanel-recovery")
-	}
+	recoveryRoot := releaseRecoveryRoot(a.Config)
 	// A stage an activation journal still names may hold the previous
 	// release after an indeterminate activation; journal recovery owns it.
 	if releaseStageHasJournal(recoveryRoot, stagedRoot) {
