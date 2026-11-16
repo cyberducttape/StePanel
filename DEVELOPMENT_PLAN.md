@@ -14,9 +14,11 @@ successful one-off smoke does not close a host-certification gate.
 
 ### M0y — Keep customer site and file workflows bound to their UI context (P1)
 
-**Status:** Implemented locally; Go `make check`, browser-script syntax checks,
-and frontend unit tests pass. The seeded customer-panel browser journey is
-pending because this environment has no disposable E2E server credentials.
+**Status:** Verified on `cdbb2519`; local full Chromium run passed 22 tests
+with one expected skip, and exact-source GitHub UI E2E, integration CI,
+CodeQL, and documentation checks passed. This closes the customer UI contract
+for the listed regressions; it does not close the separate host-certification
+gates.
 
 **Acceptance criteria**
 
@@ -31,8 +33,8 @@ pending because this environment has no disposable E2E server credentials.
   operator dashboard's scroll spy.
 - Seeded-browser regressions cover missing template controls, delayed reads
   across site switching, stale rows during folder navigation, and failed
-  inventory with successful retry. Run the journey against a disposable seeded
-  panel before counting this milestone complete.
+  inventory with successful retry. These passed in the local disposable
+  browser run and hosted `ui-e2e` job.
 - Documentation describes only implemented customer workflows and the actual
   single-host network prerequisite.
 

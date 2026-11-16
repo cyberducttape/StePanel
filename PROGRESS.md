@@ -1604,3 +1604,31 @@ does not close a current-source or power-loss gate.
   collected 23 tests and skipped all 23 because no disposable seeded instance
   credentials were configured. Browser test discovery and JS syntax checks
   alone are not acceptance evidence for the UI behavior.
+
+## Customer browser regression correction — 2026-11-15
+
+- The first exact-source UI run on `e1ccfdec` failed because the test's first
+  `/api/sites/overview` request belonged to the operator site grid, not the
+  customer panel. The failed job's Playwright trace confirmed the panel itself
+  had loaded normally; the failure was in test fault targeting.
+- Changed the fixture to let the site grid request succeed and inject a 503
+  into the following customer overview request. The retry then returns the
+  real mocked inventory. This specifically exercises “unavailable” versus
+  “empty” behavior.
+- Source `cdbb2519` passed the local disposable UI run: 22 browser tests passed,
+  one customer-credential isolation test was expectedly skipped. The targeted
+  customer workflow passed, including the 503/retry case, WordPress form
+  initialization, delayed cross-site file read, stale-row clearing, and
+  site-bound save.
+- The exact-source GitHub `ui-e2e` job passed on `cdbb2519` in run
+  [43781918565](https://github.com/cyberducttape/StePanel/actions/runs/43781918565).
+  The Go test/coverage job passed formatting, release check, vet, full tests,
+  ENOSPC, benchmarks, and coverage floors. The complete integration run then
+  passed race tests, recovery drills, real tmpfs ENOSPC recovery, MySQL 8.0
+  restore and restore-ENOSPC checks, PostgreSQL restore privilege checks,
+  static analysis, and the container/infrastructure checks. CodeQL passed in
+  [43781918626](https://github.com/cyberducttape/StePanel/actions/runs/43781918626).
+  The earlier UI failure on `e1ccfdec` was cancelled after the fixture fix;
+  the `cdbb2519` run is green. The separate install smoke on `e1ccfdec` is
+  still running and must be reviewed independently; the `cdbb2519` change
+  after it is test-fixture-only.
