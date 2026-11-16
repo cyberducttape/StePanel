@@ -30,6 +30,7 @@
   };
 
   const links = [...sidebar.querySelectorAll('a[href^="#"]')];
+  const customerPanel = document.body.classList.contains('customer-panel');
   const contextTitle = document.querySelector('#workspaceContextTitle');
   const defaultTitle = contextTitle ? contextTitle.textContent : '';
   // Link text without its decorative aria-hidden icon.
@@ -51,7 +52,7 @@
 
   // Scroll spy: the dashboard is one long page, so the highlighted section
   // follows what is on screen rather than only the last link clicked.
-  const sections = links
+  const sections = customerPanel ? [] : links
     .map((link) => ({ hash: link.getAttribute('href'), node: link.getAttribute('href') === '#main' ? null : document.querySelector(link.getAttribute('href')) }))
     .filter((entry) => entry.hash === '#main' || entry.node);
   let spyLockedUntil = 0;
@@ -76,19 +77,25 @@
     }
     setActive(current);
   };
-  window.addEventListener('scroll', () => { if (!spyFrame) spyFrame = requestAnimationFrame(spy); }, { passive: true });
-  window.addEventListener('scrollend', () => { spyLockedUntil = 0; spy(); });
+  if (!customerPanel) {
+    window.addEventListener('scroll', () => { if (!spyFrame) spyFrame = requestAnimationFrame(spy); }, { passive: true });
+    window.addEventListener('scrollend', () => { spyLockedUntil = 0; spy(); });
+    setActive(window.location.hash);
+    window.addEventListener('hashchange', () => setActive(window.location.hash));
+  }
 
   toggle.addEventListener('click', () => {
     if (sidebar.classList.contains('is-open')) close();
     else open();
   });
   backdrop.addEventListener('click', close);
-  setActive(window.location.hash);
-  window.addEventListener('hashchange', () => setActive(window.location.hash));
   // Selecting a section should close the drawer instead of leaving it open
   // behind the content it just scrolled to.
   links.forEach((link) => link.addEventListener('click', (event) => {
+    if (customerPanel) {
+      close();
+      return;
+    }
     const target = document.querySelector(link.getAttribute('href'));
     if (target) {
       // A native smooth-scroll across the full dashboard can take several

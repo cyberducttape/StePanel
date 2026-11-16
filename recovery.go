@@ -37,10 +37,14 @@ type SiteTransaction struct {
 	State       recovery.SiteTransactionState `json:"state"`
 	// RecoveryRequired keeps a journal durable when compensation could not be
 	// verified, even if its filesystem transaction reached a terminal state.
-	RecoveryRequired string            `json:"recovery_required,omitempty"`
-	CreatedAt        time.Time         `json:"created_at"`
-	UpdatedAt        time.Time         `json:"updated_at"`
-	Databases        []ManagedDatabase `json:"databases,omitempty"`
+	RecoveryRequired string `json:"recovery_required,omitempty"`
+	// RecoveryRetryable means compensation failed because the privileged broker
+	// was temporarily unreachable. Startup retries the idempotent journaled
+	// rollback after systemd has restarted the broker.
+	RecoveryRetryable bool              `json:"recovery_retryable,omitempty"`
+	CreatedAt         time.Time         `json:"created_at"`
+	UpdatedAt         time.Time         `json:"updated_at"`
+	Databases         []ManagedDatabase `json:"databases,omitempty"`
 	// Routes are web server routes the transaction publishes. Recovery and
 	// rollback remove them before the site they point at.
 	Routes []TrackedRoute `json:"routes,omitempty"`
@@ -393,9 +397,12 @@ func (t *SiteTransaction) MarkRecoveryRequired(cause error) error {
 		detail = detail[:4096]
 	}
 	previous := t.RecoveryRequired
+	previousRetryable := t.RecoveryRetryable
 	t.RecoveryRequired = detail
+	t.RecoveryRetryable = errors.Is(cause, rootbroker.ErrUnavailable)
 	if err := t.persist(); err != nil {
 		t.RecoveryRequired = previous
+		t.RecoveryRetryable = previousRetryable
 		return fmt.Errorf("persist recovery intervention: %w", err)
 	}
 	return nil
@@ -482,7 +489,7 @@ func (t *SiteTransaction) Rollback() error {
 		// The new site was already removed (a creation or recovery proof
 		// was torn down through stepanel-sitectl delete). There is nothing
 		// to preserve and no previous site to restore.
-		return t.setState(recovery.SiteTransactionRolledBack)
+		return t.completeRollback()
 	}
 	if err != nil {
 		return fmt.Errorf("open recovery site parent: %w", err)
@@ -509,7 +516,7 @@ func (t *SiteTransaction) Rollback() error {
 		_, backupErr := os.Lstat(backup)
 		_, homeErr := homeParent.Lstat(homeName)
 		if errors.Is(backupErr, os.ErrNotExist) && homeErr == nil {
-			return t.setState(recovery.SiteTransactionRolledBack)
+			return t.completeRollback()
 		}
 	}
 	if err := t.setState(recovery.SiteTransactionRollingBack); err != nil {
@@ -559,7 +566,19 @@ func (t *SiteTransaction) Rollback() error {
 			}
 		}
 	}
-	return t.setState(recovery.SiteTransactionRolledBack)
+	return t.completeRollback()
+}
+
+func (t *SiteTransaction) completeRollback() error {
+	previousRequired, previousRetryable := t.RecoveryRequired, t.RecoveryRetryable
+	t.RecoveryRequired = ""
+	t.RecoveryRetryable = false
+	if err := t.setState(recovery.SiteTransactionRolledBack); err != nil {
+		t.RecoveryRequired = previousRequired
+		t.RecoveryRetryable = previousRetryable
+		return err
+	}
+	return nil
 }
 
 func (t *SiteTransaction) persist() error {
@@ -671,7 +690,7 @@ func recoverSiteTransactionsWithRename(root, site string, renameForSite func(con
 		if site != "" && txn.Site != site {
 			continue
 		}
-		if txn.RecoveryRequired != "" {
+		if txn.RecoveryRequired != "" && !txn.RecoveryRetryable {
 			failures = append(failures, fmt.Errorf("transaction %s requires operator intervention: %s", txn.ID, txn.RecoveryRequired))
 			continue
 		}
@@ -758,7 +777,7 @@ func recoverTransactionDatabases(cfg Config, root string, lockSite siteLocker, s
 			}
 			continue
 		}
-		if txn.RecoveryRequired != "" || txn.State == recovery.SiteTransactionCommitted || txn.State == recovery.SiteTransactionRolledBack || len(txn.Databases) == 0 && len(txn.Routes) == 0 || (site != "" && txn.Site != site) {
+		if txn.RecoveryRequired != "" && !txn.RecoveryRetryable || txn.State == recovery.SiteTransactionCommitted || txn.State == recovery.SiteTransactionRolledBack || len(txn.Databases) == 0 && len(txn.Routes) == 0 || (site != "" && txn.Site != site) {
 			continue
 		}
 		siteCtx, unlock, lockErr := lockRecoveredSite(lockSite, txn.Site)
@@ -920,6 +939,7 @@ func resolveRecoveryIntervention(root, id string) error {
 		return err
 	}
 	txn.RecoveryRequired = ""
+	txn.RecoveryRetryable = false
 	if err := txn.persist(); err != nil {
 		return fmt.Errorf("clear recovery intervention: %w", err)
 	}

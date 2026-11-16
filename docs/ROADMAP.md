@@ -124,12 +124,13 @@ Prioritize these before broadening the service catalog:
 
 ### 2.0B — Hosting-panel parity for operator-managed fleets
 
-- **Customer file manager:** complete the current partial experience with
-  confined browsing, upload/download, rename, deletion, and permission
-  management. Acceptance requires tenant-scoped authorization, descriptor-rooted
-  filesystem operations, bounded transfers/listings, audit history, and
-  installed-host race and quota tests. This is a high-priority competitive
-  feature, but not a 1.0 release blocker.
+- **Customer file manager:** browsing, text editing, upload/download, rename,
+  and deletion are implemented with tenant-scoped authorization, bounded
+  transfers/listings, audit history, and descriptor-rooted operations in the
+  installed helper. Remaining work includes larger streaming transfers,
+  permission management, bulk workflows, and installed-host race/quota
+  certification. This is a high-priority competitive feature, but not a 1.0
+  release blocker.
 - **DNS lifecycle:** add provider adapters and import/exportable zone
   management, complete record reconciliation, and DNSSEC key/DS lifecycle
   support. Each adapter needs provider-contract tests and a read-after-write

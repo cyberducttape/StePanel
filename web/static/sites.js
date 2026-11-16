@@ -2225,7 +2225,7 @@
     const wordpressInputs = ['title', 'admin_user', 'admin_email', 'admin_password'].map((name) => createForm.elements[name]).filter(Boolean);
     const updateTemplateFields = () => {
       const wordpress = templateSelect.value === 'wordpress';
-      wordpressFields.hidden = !wordpress;
+      if (wordpressFields) wordpressFields.hidden = !wordpress;
       domainInput.required = wordpress;
       wordpressInputs.forEach((input) => { input.required = wordpress; });
     };

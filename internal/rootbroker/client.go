@@ -10,11 +10,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	stepanelhelper "github.com/cyberducttape/StePanel/internal/helper"
 	"github.com/cyberducttape/StePanel/internal/operations"
 	"github.com/cyberducttape/StePanel/internal/sitefiles"
 )
+
+// ErrUnavailable identifies a connection failure before a broker request was
+// delivered. Callers may safely defer journal reconciliation until the
+// supervised broker is available again.
+var ErrUnavailable = errors.New("root broker unavailable")
 
 // Client communicates with the root broker via the production subprocess
 // protocol or the isolated lab Unix-socket transport.
@@ -296,9 +303,9 @@ func (c *Client) executeStreamSocket(ctx context.Context, req *Request, content 
 // It is used only by the disposable install smoke, where container runtimes
 // may disable setuid transitions even for privileged containers.
 func (c *Client) executeSocket(ctx context.Context, req *Request, socketPath string) (*Response, error) {
-	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+	conn, err := dialBrokerSocket(ctx, socketPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to root broker socket: %w", err)
+		return nil, fmt.Errorf("%w: failed to connect to root broker socket: %w", ErrUnavailable, err)
 	}
 	defer conn.Close()
 	closed := make(chan struct{})
@@ -323,6 +330,52 @@ func (c *Client) executeSocket(ctx context.Context, req *Request, socketPath str
 		return nil, fmt.Errorf("failed to decode root broker socket response: %w", err)
 	}
 	return &resp, nil
+}
+
+// dialBrokerSocket tolerates the short interval in which systemd is restarting
+// the broker after a crash. A failed Unix-socket dial means no request bytes
+// have been sent, so retrying the connection cannot duplicate a mutation.
+// Once connected, the request is still sent exactly once; ambiguous response
+// failures are never retried here.
+func dialBrokerSocket(ctx context.Context, socketPath string) (net.Conn, error) {
+	const maxWait = 3 * time.Second
+	deadline := time.Now().Add(maxWait)
+	backoff := 50 * time.Millisecond
+	for {
+		conn, err := (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+		if err == nil {
+			return conn, nil
+		}
+		if ctx.Err() != nil {
+			return nil, errors.Join(ctx.Err(), err)
+		}
+		if !errors.Is(err, syscall.ECONNREFUSED) && !errors.Is(err, syscall.ENOENT) {
+			return nil, err
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return nil, err
+		}
+		wait := backoff
+		if wait > remaining {
+			wait = remaining
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return nil, errors.Join(ctx.Err(), err)
+		case <-timer.C:
+		}
+		if backoff < 200*time.Millisecond {
+			backoff *= 2
+		}
+	}
 }
 
 // ExecuteRaw sends a raw request using the provided reader/writer.

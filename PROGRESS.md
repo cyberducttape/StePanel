@@ -1553,3 +1553,40 @@ does not close a current-source or power-loss gate.
   Makefile; their latest results are context only. Hosted CI must run against
   this code before its CI status is considered current. The P0 table remains
   at 17 incomplete gates and production remains **NO-GO**.
+
+## Continuation — broker restart recovery and customer portal context — 2026-11-15
+
+- Worktree: `/home/stephanl/StePanel-next`, branch `next-work`, based on
+  `99876a2d8dd8cb1cfcaf1c50f762881a4c92d703`; no changes were pushed or
+  merged.
+- Addressed the installed-host broker restart failure: the unprivileged broker
+  client retries only `ENOENT`/`ECONNREFUSED` connection attempts before any
+  request bytes are sent. It never retries an ambiguous mutation after
+  connecting. Creation recovery journals distinguish retryable broker
+  unavailability from operator intervention and retry rollback after restart.
+- The updated Rocky Linux 9.8 installed host passed the focused broker
+  interruption smoke at 0.2, 1, and 3 second kill points. Each creation
+  completed after broker restart, each site terminated cleanly, and the smoke
+  reported `root broker interruption smoke passed`. This is targeted evidence;
+  the enclosing installed-host run was interrupted and its overall matrix is
+  not a pass. The prior round-2 failure remains a reproduced scenario now
+  covered by this focused rerun, not a completed repeated-host certification.
+- Customer UI changes guard optional WordPress creation controls and add the
+  controls to the customer form; bind file editor reads/saves, folder actions,
+  and uploads to their originating site/path; clear rows and disable the
+  toolbar while a new directory loads; preserve last-known inventory and show
+  retry on overview failure; and keep route navigation separate from the
+  operator scroll spy. Updated docs correct WordPress, CLI, file-manager, and
+  single-host network descriptions. M0y in `DEVELOPMENT_PLAN.md` tracks the
+  objective browser acceptance contract.
+- Local verification: `make check` passed (`go vet ./...` and all Go packages;
+  root package 99.382s), frontend unit tests passed 17/17, browser test
+  discovery listed 23 tests, JavaScript syntax checks passed, and
+  `git diff --check` passed. `npm run test:e2e` collected all 23 tests but
+  skipped them because `STEPANEL_E2E_BASE_URL` and credentials are
+  unavailable; no browser workflow is counted as passed.
+- Remaining blockers: hosted exact-source CI, browser execution of M0y, full
+  installed-host failure matrix, physical power-loss/ENOSPC/database-outage
+  repeats, repeated WordPress application recovery, upgrade certification,
+  capacity measurements, live notification delivery evidence, and independent
+  security review remain open. Production remains **NO-GO**.

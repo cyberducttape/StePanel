@@ -122,7 +122,9 @@ Do NOT use for:
 - **OS**: Linux (kernel 5.4+) with systemd
 - **Storage**: 100GB+ for backups + archives
 - **Memory**: 4GB minimum, 8GB recommended
-- **Network**: Public HTTPS, 2 static IPs (panel + failover DNS)
+- **Network**: One reachable address with public HTTPS for this single-host
+  deployment. A second address or automatic failover is not required or
+  provided; host failure recovery is operator-managed.
 
 ### Security Prerequisites
 
