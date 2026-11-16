@@ -33,7 +33,7 @@ and PHP run as.
 
 ## Create a Site
 
-Account owners can create a blank PHP site within their plan. The first
+Account owners can create a blank PHP or WordPress site within their plan. The first
 website becomes the main site in `public_html`; later ones are addon domains
 (or subdomains) and need their domain, which also names their folder. The
 site gets a PHP-FPM pool running as the account's system user and a
@@ -64,8 +64,11 @@ An API token needs the `site:deploy` scope.
 - Creating a site does not publish a domain. Connect a domain afterwards; it
   must pass domain ownership verification before the route goes live.
 
-WordPress and Node site templates are not available yet. Existing sites can
-use the tenant-scoped Git deployment workflow described in
+The WordPress option provisions the application, site-owned database and
+PHP-FPM pool, HTTPS configuration, security defaults, and scheduled backups.
+Follow the job to completion and verify the resulting site before sharing its
+URL. Node site creation is not available yet. Existing sites can use the
+tenant-scoped Git deployment workflow described in
 [Git deployments](GIT_DEPLOYMENTS.md); the repository and ref are validated,
 the deployment runs as a durable job, and the site must have a configured
 deploy key or use a public repository allowed by the host policy.

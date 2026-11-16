@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLabDirectBrokerRequiresSmokeMarker(t *testing.T) {
@@ -120,6 +121,55 @@ func TestClientExecuteUsesLabRootBrokerSocket(t *testing.T) {
 	}
 	if err := <-serverErr; err != nil {
 		t.Fatalf("socket server: %v", err)
+	}
+}
+
+func TestClientRetriesSocketDialWhileBrokerRestarts(t *testing.T) {
+	socketPath := filepath.Join(t.TempDir(), "root-broker.sock")
+	t.Setenv("STEPANEL_ENV", "production")
+	t.Setenv("STEPANEL_ROOT_BROKER_SOCKET", socketPath)
+	t.Setenv("STEPANEL_LAB_ROOT_BROKER_SOCKET", "")
+	client, err := NewClient("/usr/local/sbin/stepanel-root", "/var/www")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	serverErr := make(chan error, 1)
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		listener, listenErr := net.Listen("unix", socketPath)
+		if listenErr != nil {
+			serverErr <- listenErr
+			return
+		}
+		defer listener.Close()
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			serverErr <- acceptErr
+			return
+		}
+		defer conn.Close()
+		var request Request
+		if decodeErr := json.NewDecoder(conn).Decode(&request); decodeErr != nil {
+			serverErr <- decodeErr
+			return
+		}
+		if request.RequestType != "health" {
+			serverErr <- fmt.Errorf("unexpected request type %q", request.RequestType)
+			return
+		}
+		serverErr <- json.NewEncoder(conn).Encode(Response{OK: true})
+	}()
+
+	response, err := client.Execute(context.Background(), &Request{RequestType: "health"})
+	if err != nil {
+		t.Fatalf("Execute during broker restart: %v", err)
+	}
+	if !response.OK {
+		t.Fatalf("Execute response = %#v, want OK", response)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("fake broker: %v", err)
 	}
 }
 

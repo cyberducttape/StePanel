@@ -15,6 +15,7 @@ import (
 
 	"github.com/cyberducttape/StePanel/internal/operations"
 	"github.com/cyberducttape/StePanel/internal/recovery"
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 )
 
@@ -381,6 +382,47 @@ func TestRecoverSiteTransactionsRollsBackInterruptedSite(t *testing.T) {
 		t.Fatalf("recovered = %#v, want %q", recovered, txn.ID)
 	}
 	assertTestFile(t, filepath.Join(home, "index.html"), "old")
+}
+
+func TestBrokerUnavailableRecoveryIsRetriedOnNextStartup(t *testing.T) {
+	root := t.TempDir()
+	recoveryRoot := filepath.Join(root, "recovery")
+	home := filepath.Join(root, "site", "public")
+	writeTestFile(t, filepath.Join(home, "index.html"), "known-good")
+	txn, err := beginSiteTransaction(recoveryRoot, "", home, "test.restore", AuthorizedSite{site: "site"}, os.Rename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(home, "index.html"), "partial")
+	txn.rename = func(string, string) error {
+		return fmt.Errorf("snapshot restore: %w", rootbroker.ErrUnavailable)
+	}
+	rollbackErr := txn.Rollback()
+	if !errors.Is(rollbackErr, rootbroker.ErrUnavailable) {
+		t.Fatalf("Rollback error = %v, want broker unavailable", rollbackErr)
+	}
+	if err := txn.MarkRecoveryRequired(rollbackErr); err != nil {
+		t.Fatal(err)
+	}
+	if !txn.RecoveryRetryable || txn.RecoveryRequired == "" {
+		t.Fatalf("retryable recovery marker = %#v, want durable retryable cause", txn)
+	}
+
+	recovered, err := RecoverSiteTransactions(recoveryRoot)
+	if err != nil {
+		t.Fatalf("retry recovery after broker returns: %v", err)
+	}
+	if len(recovered) != 1 || recovered[0] != txn.ID {
+		t.Fatalf("recovered = %#v, want %q", recovered, txn.ID)
+	}
+	assertTestFile(t, filepath.Join(home, "index.html"), "known-good")
+	loaded, err := loadSiteTransaction(txn.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.RecoveryRequired != "" || loaded.RecoveryRetryable {
+		t.Fatalf("recovery marker remains after successful replay: required=%q retryable=%t", loaded.RecoveryRequired, loaded.RecoveryRetryable)
+	}
 }
 
 func TestRecoverSiteTransactionsPassesFencedLeaseToPrivilegedRename(t *testing.T) {

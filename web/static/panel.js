@@ -89,6 +89,14 @@
 
   let hosting = { sites: [] };
   let overviews = new Map();
+  let hostingLoaded = false;
+  let hostingError = null;
+  let overviewError = null;
+
+  const retryNotice = (message) => el('span', {}, [
+    document.createTextNode(`${message} `),
+    el('button', { type: 'button', className: 'quiet-action', onClick: () => loadHosting() }, 'Retry'),
+  ]);
 
   const siteMeta = (site) => el('div', { className: 'item-meta' }, [
     el('strong', {}, [site.site, site.kind ? el('span', { className: 'panel-kind' }, kindLabel[site.kind] || site.kind) : null]),
@@ -111,7 +119,12 @@
     $('#panelAccount').textContent = hosting.account || '—';
     $('#panelUnixUser').textContent = hosting.unix_user || 'Not yet created';
     $('#panelHome').textContent = hosting.home || '—';
-    $('#panelSitesStatus').hidden = true;
+    const siteStatus = $('#panelSitesStatus');
+    const issues = [];
+    if (hostingError) issues.push(`Website assignments could not be refreshed: ${hostingError}`);
+    if (overviewError) issues.push(`Domain and database details could not be refreshed: ${overviewError}`);
+    siteStatus.hidden = !issues.length;
+    siteStatus.replaceChildren(...(issues.length ? [retryNotice(issues.join(' '))] : []));
     renderSiteList($('#panelSiteList'), (site) => [
       site.placed ? el('a', { className: 'quiet-action', href: `#files`, onClick: () => fileManager.select(site.site) }, 'Files') : null,
       workspaceLink(site.site, 'domains', 'Domains'),
@@ -146,10 +159,12 @@
     if (!entries.length) {
       table.hidden = true;
       status.hidden = false;
-      status.textContent = 'No domains are connected yet.';
+      if (overviewError) status.replaceChildren(retryNotice(`Domain details are unavailable (${overviewError}); this is not an empty-domain result.`));
+      else status.textContent = 'No domains are connected yet.';
       return;
     }
-    status.hidden = true;
+    status.hidden = !overviewError;
+    if (overviewError) status.replaceChildren(retryNotice(`Showing the last loaded domain details. Refresh failed: ${overviewError}`));
     table.hidden = false;
     rows.replaceChildren(...entries.map(({ site, domain }) => el('tr', {}, [
       el('td', {}, el('strong', {}, domain)),
@@ -160,20 +175,34 @@
   };
 
   const loadHosting = async () => {
-    try {
-      const [account, overview] = await Promise.all([
-        api.get('/api/account/hosting', { errorMessage: 'Your hosting account is unavailable' }),
-        api.get('/api/sites/overview', { errorMessage: 'Website details are unavailable' }).catch(() => ({ sites: [] })),
-      ]);
-      hosting = { ...account, sites: account.sites || [] };
-      overviews = new Map((overview.sites || []).map((site) => [site.site, site]));
-      renderSummaries();
+    const [accountResult, overviewResult] = await Promise.allSettled([
+      api.get('/api/account/hosting', { errorMessage: 'Your hosting account is unavailable' }),
+      api.get('/api/sites/overview', { errorMessage: 'Website details are unavailable' }),
+    ]);
+    if (accountResult.status === 'fulfilled') {
+      hosting = { ...accountResult.value, sites: accountResult.value.sites || [] };
+      hostingLoaded = true;
+      hostingError = null;
       fileManager.setSites(hosting.sites.filter((site) => site.placed));
-    } catch (error) {
-      $('#panelSitesStatus').textContent = error.message;
-      $('#panelDomainsStatus').textContent = error.message;
-      fileManager.unavailable(error.message);
+    } else {
+      hostingError = accountResult.reason?.message || 'request failed';
     }
+    if (overviewResult.status === 'fulfilled') {
+      overviews = new Map((overviewResult.value.sites || []).map((site) => [site.site, site]));
+      overviewError = null;
+    } else {
+      overviewError = overviewResult.reason?.message || 'request failed';
+    }
+    if (!hostingLoaded) {
+      const message = hostingError || 'Your hosting account is unavailable';
+      $('#panelSitesStatus').hidden = false;
+      $('#panelSitesStatus').replaceChildren(retryNotice(`Website assignments are unavailable: ${message}`));
+      $('#panelDomainsStatus').hidden = false;
+      $('#panelDomainsStatus').replaceChildren(retryNotice(`Domain inventory is unavailable: ${message}`));
+      fileManager.unavailable(message);
+      return;
+    }
+    renderSummaries();
   };
 
   // ---------------------------------------------------------------------
@@ -207,11 +236,15 @@
     let pendingName = null;
     let loaded = false;
     let token = 0;
+    let editorRequest = 0;
+    let contextGeneration = 0;
 
-    const base = () => `/api/sites/files/${encodeURIComponent(site)}`;
+    const base = (siteName = site) => `/api/sites/files/${encodeURIComponent(siteName)}`;
     const join = (dir, name) => (dir ? `${dir}/${name}` : name);
     const docRoot = () => (sites.find((entry) => entry.site === site) || {}).doc_root || '';
     const setStatus = (message, state = '') => ui.setStatus(status, message, state);
+    const isCurrent = (context) => Boolean(context && context.token === token && context.generation === contextGeneration && context.site === site && context.path === path);
+    const isCurrentEditor = (session) => Boolean(session && session.generation === contextGeneration && session.site === site && session.directory === path);
 
     if (!writable) {
       ['#fileNewFolder', '#fileNewFile'].forEach((selector) => { $(selector).hidden = true; });
@@ -233,20 +266,24 @@
 
     const icon = (type) => ({ dir: '▸', file: '·', link: '↪' }[type] || '?');
 
-    const row = (entry) => {
-      const target = join(path, entry.name);
+    const row = (entry, context) => {
+      const target = join(context.path, entry.name);
       const nameButton = el('button', {
         type: 'button', className: 'file-name', 'data-type': entry.type,
         disabled: entry.type !== 'dir' && entry.type !== 'file',
-        onClick: () => (entry.type === 'dir' ? open(target) : edit(target)),
+        onClick: () => {
+          if (!isCurrent(context)) return;
+          if (entry.type === 'dir') open(target, context.site);
+          else edit(target, context);
+        },
       }, [el('span', { className: 'file-icon', 'aria-hidden': 'true' }, icon(entry.type)), entry.name]);
       const actions = [];
       if (entry.type === 'file') {
-        actions.push(el('a', { href: `${base()}/content?path=${encodeURIComponent(target)}&download=1`, download: entry.name, 'aria-label': `Download ${entry.name}` }, 'Download'));
+        actions.push(el('a', { href: `${base(context.site)}/content?path=${encodeURIComponent(target)}&download=1`, download: entry.name, 'aria-label': `Download ${entry.name}` }, 'Download'));
       }
       if (writable) {
-        actions.push(el('button', { type: 'button', 'aria-label': `Rename ${entry.name}`, onClick: () => askName('rename', entry) }, 'Rename'));
-        actions.push(el('button', { type: 'button', className: 'danger', 'aria-label': `Delete ${entry.name}`, onClick: () => remove(entry) }, 'Delete'));
+        actions.push(el('button', { type: 'button', 'aria-label': `Rename ${entry.name}`, onClick: () => askName('rename', entry, context) }, 'Rename'));
+        actions.push(el('button', { type: 'button', className: 'danger', 'aria-label': `Delete ${entry.name}`, onClick: () => remove(entry, context) }, 'Delete'));
       }
       return el('tr', {}, [
         el('td', {}, nameButton),
@@ -257,30 +294,48 @@
       ]);
     };
 
-    async function open(dir) {
-      if (!site) return;
+    async function open(dir, targetSite = site) {
+      if (!targetSite) return;
+      const changed = targetSite !== site || dir !== path;
+      if (changed) {
+        contextGeneration++;
+        closeEditor();
+      }
+      site = targetSite;
       path = dir;
       renderBreadcrumbs();
       hideNameForm();
       const current = ++token;
+      const context = { site: targetSite, path: dir, token: current, generation: contextGeneration };
+      rows.replaceChildren();
+      table.hidden = true;
+      toolbar.inert = true;
+      toolbar.setAttribute('aria-busy', 'true');
       setStatus('Loading folder…', 'pending');
       try {
-        const listing = await api.get(`${base()}?path=${encodeURIComponent(dir)}`, { errorMessage: 'Could not list this folder' });
-        if (current !== token) return;
+        const listing = await api.get(`${base(targetSite)}?path=${encodeURIComponent(dir)}`, { errorMessage: 'Could not list this folder' });
+        if (!isCurrent(context)) return;
         const entries = listing.entries || [];
-        rows.replaceChildren(...entries.map(row));
+        rows.replaceChildren(...entries.map((entry) => row(entry, context)));
         table.hidden = !entries.length;
         if (!entries.length) setStatus('This folder is empty.');
         else setStatus(listing.truncated ? `Showing the first ${entries.length} entries; use SFTP for the rest.` : ui.plural(entries.length, 'item'));
       } catch (error) {
-        if (current !== token) return;
+        if (!isCurrent(context)) return;
         rows.replaceChildren();
         table.hidden = true;
         setStatus(error.message, 'error');
+      } finally {
+        if (isCurrent(context)) {
+          toolbar.inert = false;
+          toolbar.removeAttribute('aria-busy');
+        }
       }
     }
 
-    async function edit(target) {
+    async function edit(target, context = { site, path, token, generation: contextGeneration }) {
+      if (!isCurrent(context)) return;
+      const request = ++editorRequest;
       editing = null;
       editor.hidden = false;
       editorHeading.textContent = target;
@@ -289,23 +344,26 @@
       editorSave.disabled = true;
       ui.setStatus(editorStatus, 'Opening file…', 'pending');
       try {
-        const file = await api.get(`${base()}/content?path=${encodeURIComponent(target)}`, { errorMessage: 'Could not open this file' });
+        const file = await api.get(`${base(context.site)}/content?path=${encodeURIComponent(target)}`, { errorMessage: 'Could not open this file' });
+        if (request !== editorRequest || !isCurrent(context)) return;
         if (!file.text) {
           ui.setStatus(editorStatus, 'This is a binary file; download it to view it.', 'error');
           return;
         }
-        editing = target;
+        editing = { site: context.site, path: target, directory: context.path, generation: context.generation };
         editorText.value = file.content;
         editorText.disabled = false;
         editorSave.disabled = !writable;
         ui.setStatus(editorStatus, `${formatBytes(file.size)} · ${writable ? 'saving replaces the file and keeps its permissions' : 'read only'}`);
         editorText.focus();
       } catch (error) {
+        if (request !== editorRequest || !isCurrent(context)) return;
         ui.setStatus(editorStatus, error.message, 'error');
       }
     }
 
     const closeEditor = () => {
+      editorRequest++;
       editing = null;
       editor.hidden = true;
       editorText.value = '';
@@ -313,6 +371,12 @@
 
     const save = async () => {
       if (!editing) return;
+      const session = editing;
+      if (!isCurrentEditor(session)) {
+        closeEditor();
+        ui.setStatus(editorStatus, 'The website or folder changed. Reopen the file before saving.', 'error');
+        return;
+      }
       const body = new Blob([editorText.value], { type: 'application/octet-stream' });
       if (body.size > MAX_WRITE) {
         ui.setStatus(editorStatus, 'The file is larger than 4 MB; upload it over SFTP instead.', 'error');
@@ -321,9 +385,9 @@
       editorSave.disabled = true;
       ui.setStatus(editorStatus, 'Saving…', 'pending');
       try {
-        await api.request(`${base()}/content?path=${encodeURIComponent(editing)}`, { method: 'PUT', body, errorMessage: 'Could not save the file' });
-        ui.setStatus(editorStatus, `Saved ${editing}.`, 'success');
-        open(path);
+        await api.request(`${base(session.site)}/content?path=${encodeURIComponent(session.path)}`, { method: 'PUT', body, errorMessage: 'Could not save the file' });
+        ui.setStatus(editorStatus, `Saved ${session.path}.`, 'success');
+        if (isCurrentEditor(session)) open(session.directory, session.site);
       } catch (error) {
         ui.setStatus(editorStatus, error.message, 'error');
       } finally {
@@ -332,8 +396,9 @@
     };
 
     // The name form serves "new folder", "new file" and "rename".
-    const askName = (mode, entry = null) => {
-      pendingName = { mode, entry };
+    const askName = (mode, entry = null, context = { site, path, token, generation: contextGeneration }) => {
+      if (!isCurrent(context)) return;
+      pendingName = { mode, entry, context: { ...context } };
       nameForm.hidden = false;
       nameLabel.textContent = { folder: 'New folder name', file: 'New file name', rename: `New name for ${entry?.name}` }[mode];
       nameSubmit.textContent = mode === 'rename' ? 'Rename' : 'Create';
@@ -356,24 +421,31 @@
         setStatus('Use a name without slashes or control characters.', 'error');
         return;
       }
-      const { mode, entry } = pendingName;
+      const { mode, entry, context } = pendingName;
+      if (!isCurrent(context)) {
+        hideNameForm();
+        setStatus('The website or folder changed. Choose the action again.', 'error');
+        return;
+      }
       nameSubmit.disabled = true;
       try {
         let done;
         if (mode === 'folder') {
-          await api.post(`${base()}/mkdir`, { path: join(path, name) }, { errorMessage: 'Could not create the folder' });
+          await api.post(`${base(context.site)}/mkdir`, { path: join(context.path, name) }, { errorMessage: 'Could not create the folder' });
           done = `Created ${name}.`;
         } else if (mode === 'file') {
-          await api.request(`${base()}/content?path=${encodeURIComponent(join(path, name))}`, { method: 'PUT', body: new Blob([]), errorMessage: 'Could not create the file' });
+          await api.request(`${base(context.site)}/content?path=${encodeURIComponent(join(context.path, name))}`, { method: 'PUT', body: new Blob([]), errorMessage: 'Could not create the file' });
           done = `Created ${name}.`;
         } else {
-          await api.post(`${base()}/rename`, { path: join(path, entry.name), destination: join(path, name) }, { errorMessage: 'Could not rename' });
+          await api.post(`${base(context.site)}/rename`, { path: join(context.path, entry.name), destination: join(context.path, name) }, { errorMessage: 'Could not rename' });
           done = `Renamed ${entry.name} to ${name}.`;
         }
         hideNameForm();
-        await open(path);
-        setStatus(done, 'success');
-        if (mode === 'file') edit(join(path, name));
+        if (isCurrent(context)) {
+          await open(context.path, context.site);
+          setStatus(done, 'success');
+          if (mode === 'file') edit(join(context.path, name));
+        }
       } catch (error) {
         setStatus(error.message, 'error');
       } finally {
@@ -382,19 +454,24 @@
     });
     $('#fileNameCancel').addEventListener('click', hideNameForm);
 
-    const remove = async (entry) => {
+    const remove = async (entry, context) => {
+      if (!isCurrent(context)) return;
       const confirmed = await ui.confirmDangerous({
         title: `Delete ${entry.name}?`,
         message: entry.type === 'dir' ? 'The folder and everything in it are deleted permanently. Take a backup first if you may need them.' : 'The file is deleted permanently. Take a backup first if you may need it.',
-        facts: [['Website', site], ['Path', join(path, entry.name)]],
+        facts: [['Website', context.site], ['Path', join(context.path, entry.name)]],
         confirmText: entry.name,
         actionLabel: 'Delete',
       });
       if (!confirmed) return;
+      if (!isCurrent(context)) {
+        setStatus('The website or folder changed. Choose the action again.', 'error');
+        return;
+      }
       try {
-        await api.post(`${base()}/delete`, { path: join(path, entry.name) }, { errorMessage: 'Could not delete' });
-        if (editing && (editing === join(path, entry.name) || editing.startsWith(`${join(path, entry.name)}/`))) closeEditor();
-        await open(path);
+        await api.post(`${base(context.site)}/delete`, { path: join(context.path, entry.name) }, { errorMessage: 'Could not delete' });
+        if (editing && (editing.site === context.site && (editing.path === join(context.path, entry.name) || editing.path.startsWith(`${join(context.path, entry.name)}/`)))) closeEditor();
+        if (isCurrent(context)) await open(context.path, context.site);
         setStatus(`Deleted ${entry.name}.`, 'success');
       } catch (error) {
         setStatus(error.message, 'error');
@@ -403,6 +480,7 @@
 
     upload.addEventListener('change', async () => {
       const files = [...upload.files];
+      const uploadContext = { site, path, token, generation: contextGeneration };
       upload.value = '';
       for (const file of files) {
         if (file.size > MAX_WRITE) {
@@ -417,14 +495,14 @@
       for (const [index, file] of files.entries()) {
         setStatus(`Uploading ${file.name} (${index + 1} of ${files.length})…`, 'pending');
         try {
-          await api.request(`${base()}/content?path=${encodeURIComponent(join(path, file.name))}`, { method: 'PUT', body: file, errorMessage: `Could not upload ${file.name}` });
+          await api.request(`${base(uploadContext.site)}/content?path=${encodeURIComponent(join(uploadContext.path, file.name))}`, { method: 'PUT', body: file, errorMessage: `Could not upload ${file.name}` });
         } catch (error) {
           setStatus(error.message, 'error');
-          open(path);
+          if (isCurrent(uploadContext)) open(uploadContext.path, uploadContext.site);
           return;
         }
       }
-      await open(path);
+      if (isCurrent(uploadContext)) await open(uploadContext.path, uploadContext.site);
       if (files.length) setStatus(`Uploaded ${ui.plural(files.length, 'file')}.`, 'success');
     });
 
@@ -440,9 +518,7 @@
       }
     });
     siteSelect.addEventListener('change', () => {
-      site = siteSelect.value;
-      closeEditor();
-      open('');
+      open('', siteSelect.value);
     });
 
     return {
@@ -450,12 +526,31 @@
         sites = list;
         siteSelect.replaceChildren(...sites.map((entry) => el('option', { value: entry.site }, `${entry.site}${entry.kind ? ` · ${kindLabel[entry.kind] || entry.kind}` : ''}`)));
         if (!sites.length) {
+          if (site) contextGeneration++;
+          token++;
+          site = '';
+          path = '';
+          closeEditor();
+          hideNameForm();
+          rows.replaceChildren();
+          table.hidden = true;
           siteSelect.disabled = true;
           toolbar.hidden = true;
           setStatus('None of your websites are in your home directory yet, so there are no files to manage here.');
           return;
         }
-        if (!sites.some((entry) => entry.site === site)) site = sites[0].site;
+        if (!sites.some((entry) => entry.site === site)) {
+          site = sites[0].site;
+          path = '';
+          contextGeneration++;
+          token++;
+          closeEditor();
+          hideNameForm();
+          rows.replaceChildren();
+          table.hidden = true;
+        }
+        siteSelect.disabled = false;
+        toolbar.hidden = false;
         siteSelect.value = site;
         if (currentView === 'files') this.activate();
       },
@@ -463,8 +558,14 @@
       select(name) {
         if (!sites.some((entry) => entry.site === name)) return;
         site = name;
+        path = '';
+        contextGeneration++;
+        token++;
         siteSelect.value = name;
         closeEditor();
+        hideNameForm();
+        rows.replaceChildren();
+        table.hidden = true;
         loaded = false;
       },
       activate() {
@@ -473,6 +574,10 @@
         open('');
       },
       unavailable(message) {
+        token++;
+        closeEditor();
+        rows.replaceChildren();
+        table.hidden = true;
         siteSelect.disabled = true;
         toolbar.hidden = true;
         setStatus(message, 'error');

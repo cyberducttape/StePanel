@@ -216,7 +216,9 @@ to validate a candidate before the guarded maintenance-window restore:
 `stepanel restore-control-plane SOURCE --replace`.
 
 For API automation, build or install `stepanelctl` and set `STEPANEL_URL` and
-`STEPANEL_TOKEN`. The read-only operator CLI emits the API's JSON directly:
+`STEPANEL_TOKEN`. `stepanelctl` supports both read-only inspection and
+state-changing workflows such as site creation, backup/restore, migration,
+and provisioning. Its output is machine-readable JSON:
 
 ```sh
 stepanelctl doctor --production
