@@ -75,10 +75,12 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
   await page.route('**/api/account/hosting', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(hosting) }));
-  let failOverviewOnce = true;
+  let overviewRequests = 0;
   await page.route('**/api/sites/overview', (route) => {
-    if (failOverviewOnce) {
-      failOverviewOnce = false;
+    overviewRequests++;
+    // sites.js loads the Websites grid first; fail the subsequent customer
+    // overview request so this exercises panel.js's unavailable-state UI.
+    if (overviewRequests === 2) {
       return route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"overview unavailable for test"}' });
     }
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sites: [
