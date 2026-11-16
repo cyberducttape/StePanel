@@ -1590,3 +1590,17 @@ does not close a current-source or power-loss gate.
   repeats, repeated WordPress application recovery, upgrade certification,
   capacity measurements, live notification delivery evidence, and independent
   security review remain open. Production remains **NO-GO**.
+
+## Merge-source verification — 2026-11-15
+
+- Merged `next-work` into the latest `origin/main` (which advanced to
+  `7da02b21` after the feature branch was created) with no conflicts. Merge
+  source is `e6602f25af31d1e6ee43386b747b68f547832135`.
+- `make check` passed on the merged source after downloading the updated
+  dependencies: generated API artifact validation, shell/cgroup/runtime
+  contracts, `go vet ./...`, and all Go tests. Root package completed in
+  99.575s; rootbroker package passed in 6.014s.
+- The customer Playwright flow remains unverified at runtime: the suite
+  collected 23 tests and skipped all 23 because no disposable seeded instance
+  credentials were configured. Browser test discovery and JS syntax checks
+  alone are not acceptance evidence for the UI behavior.
