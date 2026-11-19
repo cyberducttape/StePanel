@@ -136,7 +136,9 @@ func operationFailureCause(status int, operation, site, public string, cause err
 	return &siteOperationError{status: status, message: public + "; an administrator can find the cause in the panel log", cause: cause}
 }
 
-// errDeploymentHistoryUnavailable is the service form of historyUnavailable.
+// errDeploymentHistoryUnavailable refuses a deployment whose history could
+// not be recorded before any host change, so it never runs without an
+// operator-visible record.
 var errDeploymentHistoryUnavailable = &siteOperationError{status: http.StatusServiceUnavailable, message: "deployment history is unavailable; no changes were made", structured: true}
 
 // writeSiteOperationError answers an HTTP request with a service failure. r
