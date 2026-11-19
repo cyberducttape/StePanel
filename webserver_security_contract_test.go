@@ -71,7 +71,9 @@ func TestCaddyVHostDeniesSensitiveFilesAndRejectsSymlinks(t *testing.T) {
 		`systemctl enable "$unit"`,
 		`systemctl enable "$flags_unit"`,
 		`systemctl start "$unit"`,
-		`systemctl restart "$flags_unit"`,
+		`systemctl reload "$flags_unit"`,
+		`systemctl start "$flags_unit"`,
+		`ExecReload=/usr/bin/mount -o remount,bind,nosymfollow %s`,
 		`systemctl stop "$unit"`,
 		`systemctl stop "$flags_unit"`,
 		`systemctl disable "$unit"`,
@@ -99,6 +101,12 @@ func TestCaddyVHostDeniesSensitiveFilesAndRejectsSymlinks(t *testing.T) {
 		if !strings.Contains(source, required) {
 			t.Fatalf("Caddy helper is missing protection %q", required)
 		}
+	}
+	// Caddy Requires= each view's policy unit, so restarting that unit also
+	// restarts Caddy; a second restart moments later can interrupt a
+	// certificate write and leave Caddy unable to start.
+	if strings.Contains(source, `systemctl restart "$flags_unit"`) {
+		t.Fatal("Caddy helper must not restart a policy unit that Caddy requires")
 	}
 	if strings.Contains(source, "write_fstab_target") || strings.Contains(source, "/etc/fstab is unavailable") {
 		t.Fatal("Caddy view creation must not depend on writing /etc/fstab")

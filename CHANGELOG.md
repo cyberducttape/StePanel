@@ -179,6 +179,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Publishing a site's first Caddy route no longer restarts Caddy twice.
+  Caddy requires each site view's no-follow policy unit, so the helper's
+  restart of that unit restarted Caddy, and its own activation restarted it
+  again moments later. When the second restart interrupted a certificate
+  write, Caddy kept truncated metadata and refused to start (seen in the
+  weekly quota-enabled install smoke). The helper now starts or reloads the
+  policy unit, which does not propagate to Caddy.
 - File-manager directory listings no longer spool a complete tenant-controlled
   directory to a root-owned temporary file. Enumeration now stops at the
   5,001st source entry, streams at most 2 MiB of results, runs with the site

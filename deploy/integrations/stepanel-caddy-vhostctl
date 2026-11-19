@@ -125,7 +125,8 @@ write_mount_flags_unit() {
     printf '[Unit]\nDescription=Apply no-follow policy to StePanel Caddy view %s\n' "$target"
     printf 'Requires=%s\nAfter=%s\nBefore=caddy.service\n\n' "$unit" "$unit"
     printf '[Service]\nType=oneshot\nRemainAfterExit=yes\nNoNewPrivileges=yes\nCapabilityBoundingSet=CAP_SYS_ADMIN\nRestrictNamespaces=yes\n'
-    printf 'ExecStart=/usr/bin/mount -o remount,bind,nosymfollow %s\n\n' "$target"
+    printf 'ExecStart=/usr/bin/mount -o remount,bind,nosymfollow %s\n' "$target"
+    printf 'ExecReload=/usr/bin/mount -o remount,bind,nosymfollow %s\n\n' "$target"
     printf '[Install]\nWantedBy=multi-user.target\nRequiredBy=caddy.service\n'
   } > "$temp"
   chmod 0644 "$temp"
@@ -168,7 +169,16 @@ start_managed_mount() {
   systemctl enable "$unit"
   systemctl enable "$flags_unit"
   systemctl start "$unit"
-  systemctl restart "$flags_unit"
+  # Caddy Requires= the policy unit, so restarting it restarts Caddy too, and
+  # activate_caddy then restarts Caddy again moments later. A restart that
+  # lands while Caddy is writing a certificate can leave truncated metadata
+  # that stops Caddy from starting. Start the unit when it is inactive and
+  # reload (which re-runs the remount and does not propagate) when it is not.
+  if systemctl is-active --quiet "$flags_unit"; then
+    systemctl reload "$flags_unit"
+  else
+    systemctl start "$flags_unit"
+  fi
   [[ $(host_findmnt -no TARGET -T "$target" 2>/dev/null || true) == "$target" ]] || {
     echo "systemd did not expose the Caddy view mount $target to the helper" >&2
     return 1
