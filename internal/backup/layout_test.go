@@ -81,3 +81,13 @@ func TestSiteNamesListsOnlySiteDirectories(t *testing.T) {
 		t.Fatalf("SiteNames = %v, %v", sites, err)
 	}
 }
+
+func TestSiteNamesReportsAnUnreadableSitesRoot(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(SitesRoot(root), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SiteNames(root); err == nil {
+		t.Fatal("SiteNames ignored a sites root that is not a directory")
+	}
+}
