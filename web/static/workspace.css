@@ -1097,14 +1097,16 @@ body[data-theme] > .app-shell { zoom: var(--ui-scale, 1); min-height: calc(100vh
   overflow: auto;
   border: 1px solid var(--panel-line);
   border-radius: 10px;
+  /* The terminal-style background is the same in every appearance, so the
+     text colours are fixed to match it rather than following the theme. */
   background: #0b131c;
   padding: 14px 16px;
   font: 12px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: var(--panel-text);
+  color: #dce6f0;
   white-space: pre-wrap;
   word-break: break-word;
 }
-.log-viewer:empty::before { content: "No log lines to show."; color: var(--panel-muted); }
+.log-viewer:empty::before { content: "No log lines to show."; color: #a9b5c5; }
 
 /* Confirmation dialog for destructive actions: shows the object's context
    (what it is, what uses it, when it was last verified) instead of a bare

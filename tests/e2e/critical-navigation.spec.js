@@ -266,6 +266,62 @@ test('site settings expose measured PHP-FPM demand and quota evidence', async ({
   await expect(panel).toContainText('administrator approval and a separate preview');
 });
 
+// Every site workspace tab, including the forms the tabs build in
+// JavaScript, passes axe in two states. With only the site inventory
+// stubbed, each tab's own requests reach the disposable instance, which
+// knows no such site, so tabs render their unavailable states. With the
+// per-site inventories stubbed empty, list tabs render their empty states.
+async function scanSiteWorkspaceTabs(page, siteName) {
+  await page.reload();
+  await page.getByRole('link', { name: 'Sites', exact: true }).click();
+  await page.getByRole('button', { name: /Manage site/ }).first().click();
+  const tabs = page.getByRole('tablist', { name: `${siteName} sections` }).getByRole('tab');
+  const panel = page.locator('#workspace-panel');
+  const count = await tabs.count();
+  expect(count).toBeGreaterThanOrEqual(12);
+  for (let index = 0; index < count; index += 1) {
+    const tab = tabs.nth(index);
+    const label = (await tab.textContent()).trim();
+    await tab.click();
+    await expect(tab).toHaveAttribute('aria-selected', 'true');
+    await expect(panel).toHaveAttribute('aria-labelledby', await tab.getAttribute('id'));
+    await expect(panel.locator(':scope > p.import-note', { hasText: 'Loading…' })).toHaveCount(0);
+    const result = await new AxeBuilder({ page }).include('#siteDetail').analyze();
+    expect(result.violations, `${label} tab:\n` + result.violations.map((violation) => `${violation.id}: ${violation.help} (${violation.nodes.map((node) => node.target.join(' ')).join(', ')})`).join('\n')).toEqual([]);
+  }
+}
+
+function stubSiteInventory(page, site) {
+  const json = (body) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  return Promise.all([
+    page.route('**/api/sites/overview', (route) => route.fulfill(json({ sites: [site] }))),
+    page.route(`**/api/sites/overview/${site.site}`, (route) => route.fulfill(json(site))),
+  ]);
+}
+
+test('every site workspace tab passes axe when its data is unavailable', async ({ page }) => {
+  const site = { site: 'e2e-a11y', routes: [{ domain: 'a11y.example.test', state: 'applied' }], applications: [], database_count: 0 };
+  await stubSiteInventory(page, site);
+  await scanSiteWorkspaceTabs(page, site.site);
+});
+
+test('every site workspace tab passes axe with empty inventories', async ({ page }) => {
+  const site = { site: 'e2e-empty', routes: [], applications: [], database_count: 0 };
+  const json = (body) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  await stubSiteInventory(page, site);
+  await page.route('**/api/backups?site=e2e-empty*', (route) => route.fulfill(json({ backups: [] })));
+  await page.route('**/api/databases', (route) => route.fulfill(json({ databases: [] })));
+  await page.route('**/api/deployments?site=e2e-empty', (route) => route.fulfill(json({ deployments: [] })));
+  await page.route('**/api/workers/e2e-empty', (route) => route.fulfill(json({ workers: [] })));
+  await page.route('**/api/tasks/e2e-empty', (route) => route.fulfill(json({ tasks: [] })));
+  await page.route('**/api/sites/access/e2e-empty', (route) => route.fulfill(json({ sftp_enabled: false, shell_enabled: false, keys: [] })));
+  await scanSiteWorkspaceTabs(page, site.site);
+  // The empty states are list items, so assistive technology announces the
+  // list and its single explanatory entry.
+  await page.getByRole('tab', { name: 'Backups' }).click();
+  await expect(page.locator('#workspace-panel ul.resource-list > li.empty-state')).toHaveText('No backups yet. Create one above.');
+});
+
 test('navigation: cPanel migration controls render', async ({ page }) => {
   await page.getByRole('link', { name: 'Migrations' }).click();
   await expect(page.locator('#cpmoveForm')).toBeVisible();

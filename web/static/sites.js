@@ -917,7 +917,7 @@
           renderDomainsTab(site, panel, ctx);
         } catch (error) { output.textContent = error.message; }
       }, { className: 'danger' })]) : null,
-    ])) : [el('p', { className: 'empty-state' }, 'No domains connected yet.')]);
+    ])) : [el('li', { className: 'empty-state' }, 'No domains connected yet.')]);
 
     panel.replaceChildren(
       el('p', { className: 'panel-intro' }, 'Connect a domain to this site. Point its DNS A/AAAA record at this server; StePanel does not manage DNS zones.'),
@@ -1261,7 +1261,7 @@
           } catch (error) { output.textContent = error.message; }
         }, { className: 'danger' }),
       ]) : null,
-    ])) : el('p', { className: 'empty-state' }, 'No databases for this site yet.'));
+    ])) : el('li', { className: 'empty-state' }, 'No databases for this site yet.'));
 
     panel.replaceChildren(
       el('p', { className: 'panel-intro' }, "This site's managed databases. StePanel never displays stored passwords or runs arbitrary SQL." ),
@@ -1645,7 +1645,7 @@
           ctx.can('backup:restore') ? ctx.button('Restore to staging', () => restoreToStaging(backup, false)) : null,
           (backup.databases || []).length && ctx.can('backup:restore') ? ctx.button('Restore files + database', () => restoreToStaging(backup, true)) : null,
         ]),
-      ])) : [el('p', { className: 'empty-state' }, 'No backups yet. Create one above.')]),
+      ])) : [el('li', { className: 'empty-state' }, 'No backups yet. Create one above.')]),
     );
   }
 
@@ -1708,7 +1708,7 @@
             try { await ctx.deleteJSON(`/api/workers/${encodeURIComponent(site)}/${encodeURIComponent(worker.name)}`); output.textContent = 'Deleted.'; renderWorkersTab(site, panel, ctx); } catch (error) { output.textContent = error.message; }
           }, { className: 'danger' }),
         ]),
-      ])) : [el('p', { className: 'empty-state' }, 'No workers configured for this site.')]),
+      ])) : [el('li', { className: 'empty-state' }, 'No workers configured for this site.')]),
       output,
     );
 
@@ -1791,7 +1791,7 @@
             try { await ctx.deleteJSON(`/api/tasks/${encodeURIComponent(site)}/${encodeURIComponent(task.name)}`); output.textContent = 'Deleted.'; renderTasksTab(site, panel, ctx); } catch (error) { output.textContent = error.message; }
           }, { className: 'danger' }),
         ]),
-      ])) : [el('p', { className: 'empty-state' }, 'No scheduled tasks yet.')]),
+      ])) : [el('li', { className: 'empty-state' }, 'No scheduled tasks yet.')]),
       output,
     );
 
@@ -1880,7 +1880,7 @@
         keyOutput.textContent = 'Removing…';
         try { await ctx.deleteJSON(`/api/sites/access/${encodeURIComponent(site)}/${encodeURIComponent(key.label)}`); keyOutput.textContent = 'Removed.'; renderSecurityTab(site, panel, ctx); } catch (error) { keyOutput.textContent = error.message; }
       }, { className: 'danger' })]),
-    ])) : [el('p', { className: 'empty-state' }, 'No SSH keys added yet.')]);
+    ])) : [el('li', { className: 'empty-state' }, 'No SSH keys added yet.')]);
 
     const labelField = field({ label: 'Key label', name: 'label', pattern: '[A-Za-z0-9_.-]{1,64}', required: true });
     const keyField = field({ label: 'Public key', tag: 'textarea', name: 'public_key', required: true, hint: 'ssh-ed25519 AAAA… (DSA keys are not permitted).', rows: 3 });

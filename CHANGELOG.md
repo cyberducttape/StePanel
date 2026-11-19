@@ -190,6 +190,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Site log output is readable in the light appearance. The log viewer kept
+  its dark background but took its text colour from the theme, which put
+  dark text on a near-black background.
+- Empty site lists (domains, databases, backups, workers, tasks, SSH keys)
+  render their empty-state message as a list item, so screen readers no
+  longer meet a list containing a paragraph. Browser tests now run axe on
+  every site workspace tab, with unavailable and with empty inventories.
 - Publishing a site's first Caddy route no longer restarts Caddy twice.
   Caddy requires each site view's no-follow policy unit, so the helper's
   restart of that unit restarted Caddy, and its own activation restarted it
