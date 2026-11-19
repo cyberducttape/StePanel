@@ -126,38 +126,66 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input StagingRequest
-	if err := decodeJSON(w, r, 4096, &input); err != nil {
+	if err := decodeJSON(w, r, stagingCreateBodyLimit, &input); err != nil {
 		http.Error(w, "invalid JSON", 400)
 		return
 	}
+	result, err := a.createStaging(r.Context(), httpSiteRequester{a, r}, input)
+	if err != nil {
+		writeSiteOperationError(w, r, err)
+		return
+	}
+	writeJSON(w, 202, result)
+}
+
+const stagingCreateBodyLimit = 4096
+
+func validateStagingCreatePayload(body []byte) error {
+	var input StagingRequest
+	if err := decodeOperationBody(body, stagingCreateBodyLimit, &input); err != nil {
+		return errors.New("invalid JSON")
+	}
+	return nil
+}
+
+// executeStagingCreateCommand runs a queued staging clone. The service
+// repeats every ownership, scope and domain check against current state.
+func executeStagingCreateCommand(a *App, ctx context.Context, command siteOperationCommand, principal siteOperationPrincipal) ([]byte, error) {
+	var input StagingRequest
+	if err := decodeOperationBody(command.Body, stagingCreateBodyLimit, &input); err != nil || safeUser(input.Site) != command.Site {
+		return nil, errors.New("invalid staging command")
+	}
+	return siteOperationResult(a.createStaging(ctx, durableSiteRequester{a: a, principal: principal, operation: command.Operation}, input))
+}
+
+// createStaging clones a source site into a staging site and publishes its
+// route. It is the service behind the HTTP handler and the durable worker.
+func (a *App) createStaging(ctx context.Context, req siteRequester, input StagingRequest) (*StagingResult, error) {
 	input.Source = safeUser(input.Source)
 	input.Site = safeUser(input.Site)
 	input.Domain = strings.ToLower(strings.TrimSpace(input.Domain))
 	if input.Source == "" || input.Site == "" || input.Source == input.Site || isRecoveryProofSiteName(input.Site) || !domainname.Valid(input.Domain) {
-		http.Error(w, "invalid staging source, site, or domain", 422)
-		return
+		return nil, operationFailure(422, "invalid staging source, site, or domain")
 	}
-	if _, ok := a.requireSiteAccess(w, r, input.Source, "site is not assigned to this account", 403); !ok {
-		return
+	if _, ok := req.siteAccess(input.Source); !ok {
+		return nil, operationFailure(403, "site is not assigned to this account")
 	}
-	targetAccess, okTarget := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", 403)
+	targetAccess, okTarget := req.siteAccess(input.Site)
 	if !okTarget {
-		return
+		return nil, operationFailure(403, "site is not assigned to this account")
 	}
-	if !a.requireCustomerScope(w, r, "site:deploy") {
-		return
+	if !req.customerScope("site:deploy") {
+		return nil, operationFailure(http.StatusForbidden, "API token lacks the site:deploy scope")
 	}
-	if !a.Auth.IsAdministrator(r) {
+	if !req.administrator() {
 		if a.Domains == nil {
-			http.Error(w, "domain ownership must be verified before staging activation", http.StatusConflict)
-			return
+			return nil, operationFailure(http.StatusConflict, "domain ownership must be verified before staging activation")
 		}
-		verifyCtx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		verifyCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		verifyErr := a.verifyCustomerDomain(verifyCtx, input.Site, input.Domain)
 		cancel()
 		if verifyErr != nil {
-			http.Error(w, "domain ownership must be verified before staging activation", http.StatusConflict)
-			return
+			return nil, operationFailure(http.StatusConflict, "domain ownership must be verified before staging activation")
 		}
 	}
 	input.SourceDatabase = strings.ToLower(strings.TrimSpace(input.SourceDatabase))
@@ -169,25 +197,21 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 		// name, so a clone must hold those keys to exclude them.
 		lockKeys = append(lockKeys, databaseLockKey(input.SourceDatabase), databaseLockKey(input.TargetDatabase))
 	}
-	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLocksContext(r.Context(), lockKeys...)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLocksContext(ctx, lockKeys...)
 	if lockErr != nil {
-		http.Error(w, "site is busy", http.StatusConflict)
-		return
+		return nil, operationFailure(http.StatusConflict, "site is busy")
 	}
 	defer releaseUnlock()
-	if !a.customerRouteStillAuthorized(r, input.Site, input.Domain) {
-		http.Error(w, "site access or domain ownership changed before staging could be activated", http.StatusConflict)
-		return
+	if !req.routeStillAuthorized(input.Site, input.Domain) {
+		return nil, operationFailure(http.StatusConflict, "site access or domain ownership changed before staging could be activated")
 	}
 	if input.Database {
 		if a.Config.DBCtl == "" || !validManagedDatabaseIdentifier(input.SourceDatabase, databaseNameLimit(a.Config)) || !validManagedDatabaseIdentifier(input.TargetDatabase, databaseNameLimit(a.Config)) || !validManagedDatabaseIdentifier(input.TargetUser, 32) || input.TargetUser[0] < 'a' || input.TargetUser[0] > 'z' || !validDatabasePassword(input.TargetPassword) {
-			http.Error(w, "source_database, target_database, target_user, and target_password are required for database cloning", 422)
-			return
+			return nil, operationFailure(422, "source_database, target_database, target_user, and target_password are required for database cloning")
 		}
 		inventory, err := managedDatabaseInventory(a.Config)
 		if err != nil {
-			http.Error(w, "managed database inventory is unavailable", 503)
-			return
+			return nil, operationFailure(503, "managed database inventory is unavailable")
 		}
 		owned := false
 		for _, database := range inventory {
@@ -197,76 +221,63 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if !owned {
-			http.Error(w, "source database is not registered to the source site", 403)
-			return
+			return nil, operationFailure(403, "source database is not registered to the source site")
 		}
 	}
 	source, err := siteDocRoot(a.Config, input.Source)
 	if err != nil {
-		http.Error(w, "invalid source", 422)
-		return
+		return nil, operationFailure(422, "invalid source")
 	}
 	dest, err := siteDocRoot(a.Config, input.Site)
 	if err != nil {
-		http.Error(w, "invalid destination", 422)
-		return
+		return nil, operationFailure(422, "invalid destination")
 	}
 	if _, err := os.Stat(source); err != nil {
-		http.Error(w, "source site does not exist", 422)
-		return
+		return nil, operationFailure(422, "source site does not exist")
 	}
 	wordpressClone := false
 	productionDomain := ""
 	if input.Files {
 		wpConfig, pathErr := safePath(source, "wp-config.php")
 		if pathErr != nil {
-			http.Error(w, "could not safely inspect source WordPress configuration", http.StatusServiceUnavailable)
-			return
+			return nil, operationFailure(http.StatusServiceUnavailable, "could not safely inspect source WordPress configuration")
 		}
 		if info, statErr := os.Lstat(wpConfig); statErr == nil {
 			if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-				http.Error(w, "source wp-config.php is not a regular file", http.StatusUnprocessableEntity)
-				return
+				return nil, operationFailure(http.StatusUnprocessableEntity, "source wp-config.php is not a regular file")
 			}
 			wordpressClone = true
 		} else if !errors.Is(statErr, os.ErrNotExist) {
-			http.Error(w, "could not inspect source WordPress configuration", http.StatusServiceUnavailable)
-			return
+			return nil, operationFailure(http.StatusServiceUnavailable, "could not inspect source WordPress configuration")
 		}
 		if wordpressClone && !input.Database {
-			http.Error(w, "WordPress file cloning requires a separate staging database; production database sharing is refused", http.StatusUnprocessableEntity)
-			return
+			return nil, operationFailure(http.StatusUnprocessableEntity, "WordPress file cloning requires a separate staging database; production database sharing is refused")
 		}
 		if wordpressClone {
 			current, readErr := runWordPress(operationCtx, a.Config, rootbroker.WordPressRequest{Action: "option-get", Site: input.Source, Name: "siteurl"})
 			parsed, parseErr := url.Parse(strings.TrimSpace(current.Output))
 			if readErr != nil || parseErr != nil || !domainname.Valid(parsed.Hostname()) || !managedSiteRouteExists(a.Routes, input.Source, parsed.Hostname()) {
-				http.Error(w, "WordPress canonical URL must match an applied managed production domain", http.StatusConflict)
-				return
+				return nil, operationFailure(http.StatusConflict, "WordPress canonical URL must match an applied managed production domain")
 			}
 			productionDomain = strings.ToLower(parsed.Hostname())
 		}
 	}
 	marker, err := sitePrivatePath(a.Config, input.Site, ".stepanel-staging-noindex")
 	if err != nil {
-		http.Error(w, "invalid staging marker path", 422)
-		return
+		return nil, operationFailure(422, "invalid staging marker path")
 	}
 	previousMarker, markerErr := os.ReadFile(marker)
 	if markerErr != nil && !errors.Is(markerErr, os.ErrNotExist) {
-		http.Error(w, "could not inspect staging indexing protection", 503)
-		return
+		return nil, operationFailure(503, "could not inspect staging indexing protection")
 	}
 	markerExisted := markerErr == nil
 	originPath, originPathErr := sitePrivatePath(a.Config, input.Site, stagingOriginMarker)
 	if originPathErr != nil {
-		http.Error(w, "invalid staging origin metadata path", http.StatusUnprocessableEntity)
-		return
+		return nil, operationFailure(http.StatusUnprocessableEntity, "invalid staging origin metadata path")
 	}
 	previousOrigin, originErr := os.ReadFile(originPath)
 	if originErr != nil && !errors.Is(originErr, os.ErrNotExist) {
-		http.Error(w, "could not inspect staging origin metadata", http.StatusServiceUnavailable)
-		return
+		return nil, operationFailure(http.StatusServiceUnavailable, "could not inspect staging origin metadata")
 	}
 	originExisted := originErr == nil
 	var previousEnvironment map[string]environmentValue
@@ -323,8 +334,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	if err := siteHelperContext(operationCtx, a.Config, "prepare", input.Site); err != nil {
-		http.Error(w, "could not prepare staging site", 502)
-		return
+		return nil, operationFailure(502, "could not prepare staging site")
 	}
 	noIndex := input.NoIndex == nil || *input.NoIndex
 	if wordpressClone {
@@ -334,44 +344,37 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	basicAuth := input.BasicAuth != nil && *input.BasicAuth
 	if basicAuth && !stagingBasicAuthSupported(a.Config.WebServer) {
-		http.Error(w, "Basic Auth staging protection is currently supported only for Caddy and Apache", http.StatusUnprocessableEntity)
-		return
+		return nil, operationFailure(http.StatusUnprocessableEntity, "Basic Auth staging protection is currently supported only for Caddy and Apache")
 	}
 	if wordpressClone && !basicAuth {
-		http.Error(w, "WordPress staging clones must enable Basic Auth before database-backed customer content is published", http.StatusUnprocessableEntity)
-		return
+		return nil, operationFailure(http.StatusUnprocessableEntity, "WordPress staging clones must enable Basic Auth before database-backed customer content is published")
 	}
 	authHash := ""
 	if basicAuth {
 		input.AuthUser = strings.TrimSpace(input.AuthUser)
 		if len(input.AuthUser) < 1 || len(input.AuthUser) > 64 || strings.ContainsAny(input.AuthUser, "\x00\r\n:") || len(input.AuthPassword) < 12 || len(input.AuthPassword) > 256 || strings.ContainsAny(input.AuthPassword, "\x00\r\n") {
-			http.Error(w, "valid Basic Auth username and password are required", 422)
-			return
+			return nil, operationFailure(422, "valid Basic Auth username and password are required")
 		}
 		var err error
 		hash, err := bcrypt.GenerateFromPassword([]byte(input.AuthPassword), bcrypt.DefaultCost)
 		if err != nil {
-			http.Error(w, "could not hash staging credentials", 500)
-			return
+			return nil, operationFailure(500, "could not hash staging credentials")
 		}
 		authHash = string(hash)
 		input.AuthPassword = ""
 	}
 	if noIndex {
 		if err := writeAtomic(marker, []byte("managed staging noindex\n"), 0600); err != nil {
-			http.Error(w, "could not apply staging indexing protection", 503)
-			return
+			return nil, operationFailure(503, "could not apply staging indexing protection")
 		}
 	}
 	txn, err := beginManagedSiteTransaction(operationCtx, a.Config, dest, "staging.clone", targetAccess)
 	if err != nil {
-		http.Error(w, "could not begin staging transaction", 503)
-		return
+		return nil, operationFailure(503, "could not begin staging transaction")
 	}
 	managerStage, managerStageOwner, err := createSiteManagerStaging(operationCtx, a.Config, input.Site, ".stepanel-staging-")
 	if err != nil {
-		http.Error(w, "could not create lifecycle staging tree", 503)
-		return
+		return nil, operationFailure(503, "could not create lifecycle staging tree")
 	}
 	defer func() {
 		if err := releaseSiteManagerStagingLease(a.Config, managerStage, managerStageOwner); err != nil {
@@ -402,13 +405,11 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 	}()
 	if input.Files {
 		if err := copyTreeContext(operationCtx, source, managerStage); err != nil {
-			writeOperationFailure(w, http.StatusBadGateway, "staging clone", input.Site, "could not copy staging files", err)
-			return
+			return nil, operationFailureCause(http.StatusBadGateway, "staging clone", input.Site, "could not copy staging files", err)
 		}
 	}
 	if err := a.activateStagedSite(operationCtx, input.Site, managerStage); err != nil {
-		http.Error(w, "could not publish staging site through lifecycle manager", 503)
-		return
+		return nil, operationFailure(503, "could not publish staging site through lifecycle manager")
 	}
 	managerActivated = true
 	if input.Environment && a.Environments != nil {
@@ -422,29 +423,24 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		a.Environments.mu.RUnlock()
 		if err = a.Environments.replaceSiteValues(input.Site, copied, true); err != nil {
-			http.Error(w, "could not persist staging environment", 503)
-			return
+			return nil, operationFailure(503, "could not persist staging environment")
 		}
 	}
 	if err := siteHelperContext(operationCtx, a.Config, "seal", input.Site); err != nil {
-		http.Error(w, "could not seal staging site", 502)
-		return
+		return nil, operationFailure(502, "could not seal staging site")
 	}
 	if input.Database {
 		if err := txn.TrackDatabase(ManagedDatabase{Name: input.TargetDatabase, User: input.TargetUser, Kind: "panel"}); err != nil {
-			http.Error(w, "could not record staging database recovery intent", http.StatusServiceUnavailable)
-			return
+			return nil, operationFailure(http.StatusServiceUnavailable, "could not record staging database recovery intent")
 		}
 		_, err = cloneManagedDatabaseToStagingContext(operationCtx, a.Config, input.SourceDatabase, input.TargetDatabase, input.TargetUser, input.TargetPassword, targetAccess, a.capacityLedger())
 		if err != nil {
-			writeOperationFailure(w, http.StatusBadGateway, "staging clone", input.Site, "could not clone staging database", err)
-			return
+			return nil, operationFailureCause(http.StatusBadGateway, "staging clone", input.Site, "could not clone staging database", err)
 		}
 	}
 	if wordpressClone {
 		if err := configureStagingWordPress(operationCtx, a.Config, input); err != nil {
-			writeOperationFailure(w, http.StatusBadGateway, "staging clone", input.Site, "could not isolate the staging WordPress database and URLs", err)
-			return
+			return nil, operationFailureCause(http.StatusBadGateway, "staging clone", input.Site, "could not isolate the staging WordPress database and URLs", err)
 		}
 	}
 	vhostAction := "apply"
@@ -456,53 +452,44 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 		args = append(args, input.AuthUser, authHash)
 	}
 	if err := txn.TrackRoute(routeName, input.Domain); err != nil {
-		http.Error(w, "could not record staging route recovery intent", http.StatusServiceUnavailable)
-		return
+		return nil, operationFailure(http.StatusServiceUnavailable, "could not record staging route recovery intent")
 	}
 	if err := runVhostMutation(operationCtx, a.Config, vhostAction, args[1:]...); err != nil {
-		http.Error(w, "could not activate staging route", 502)
-		return
+		return nil, operationFailure(502, "could not activate staging route")
 	}
 	if err := operationCtx.Err(); err != nil {
-		http.Error(w, "staging route activation cancelled because the mutation lock was lost", http.StatusConflict)
-		return
+		return nil, operationFailure(http.StatusConflict, "staging route activation cancelled because the mutation lock was lost")
 	}
 	routeApplied = true
 	if err := txn.MarkRouteApplied(routeName); err != nil {
-		http.Error(w, "could not record staging route activation", http.StatusServiceUnavailable)
-		return
+		return nil, operationFailure(http.StatusServiceUnavailable, "could not record staging route activation")
 	}
 	if a.Routes != nil {
 		if err := a.Routes.save(routeState(routeName, input.Site, input.Domain, "applied")); err != nil {
-			http.Error(w, "staging route applied but route state could not be persisted", http.StatusServiceUnavailable)
-			return
+			return nil, operationFailure(http.StatusServiceUnavailable, "staging route applied but route state could not be persisted")
 		}
 	}
 	if wordpressClone {
 		origin := stagingOrigin{ProductionSite: input.Source, ProductionDomain: productionDomain, StagingDomain: input.Domain, ProductionDB: input.SourceDatabase, StagingDB: input.TargetDatabase, StagingUser: input.TargetUser, CreatedAt: time.Now().UTC()}
 		encoded, err := json.Marshal(origin)
 		if err != nil {
-			http.Error(w, "could not encode staging origin", http.StatusInternalServerError)
-			return
+			return nil, operationFailure(http.StatusInternalServerError, "could not encode staging origin")
 		}
 		if err := writeAtomic(originPath, append(encoded, '\n'), 0600); err != nil {
-			http.Error(w, "could not persist staging origin for guarded promotion", http.StatusServiceUnavailable)
-			return
+			return nil, operationFailure(http.StatusServiceUnavailable, "could not persist staging origin for guarded promotion")
 		}
 	}
 	if err := txn.Commit(); err != nil {
-		http.Error(w, "could not commit staging transaction", 503)
-		return
+		return nil, operationFailure(503, "could not commit staging transaction")
 	}
 	ok = true
 	stateCommitted = true
 	if err := operationCtx.Err(); err != nil {
-		http.Error(w, "staging creation cancelled because the mutation lock was lost", http.StatusConflict)
-		return
+		return nil, operationFailure(http.StatusConflict, "staging creation cancelled because the mutation lock was lost")
 	}
 	result := StagingResult{Source: input.Source, Site: input.Site, Domain: input.Domain, FilesCopied: input.Files, EnvironmentCopied: input.Environment, DatabaseCopied: input.Database, TargetDatabase: input.TargetDatabase, SecretsCopied: false, CreatedAt: time.Now().UTC(), WordPressPromotionReady: wordpressClone}
-	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "staging.created", input.Site, input.Source+" -> "+input.Domain)
-	writeJSON(w, 202, result)
+	TelemetryAudit(a.Config.AuditLog, req.actor(), "staging.created", input.Site, input.Source+" -> "+input.Domain)
+	return &result, nil
 }
 
 func cloneManagedDatabaseToStagingContext(ctx context.Context, cfg Config, source, target, user, password string, site SiteCapability, ledger *capacityLedger) (bool, error) {

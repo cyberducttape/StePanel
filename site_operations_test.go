@@ -6,7 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"io"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,12 +20,16 @@ type siteOperationObservation struct {
 	username string
 	token    bool
 	scopes   []string
-	csrf     bool
+	webhook  *authenticatedWebhook
 	deadline time.Duration
 	body     string
 	path     string
 }
 
+// newSiteOperationFixture registers a "test.echo" operation whose typed
+// executor records what the worker passed it. A 2xx status returns response
+// as the job result; any other status fails the job with response as its
+// message. GET requests are answered synchronously by its handler.
 func newSiteOperationFixture(t *testing.T, status int, response string) (*App, *siteOperationObservation) {
 	t.Helper()
 	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
@@ -37,19 +41,29 @@ func newSiteOperationFixture(t *testing.T, status int, response string) (*App, *
 	siteOperationRoutes["test.echo"] = siteOperationRoute{
 		handler: func(a *App) http.HandlerFunc {
 			return func(w http.ResponseWriter, r *http.Request) {
-				seen.username = a.Auth.UsernameForRequest(r)
-				seen.token = a.Auth.IsAPITokenRequest(r)
-				seen.scopes, _ = r.Context().Value(apiTokenScopesKey{}).([]string)
-				seen.csrf = a.Auth.CSRF(r)
-				if deadline, ok := r.Context().Deadline(); ok {
-					seen.deadline = time.Until(deadline)
-				}
-				data, _ := io.ReadAll(r.Body)
-				seen.body = string(data)
 				seen.path = r.URL.RequestURI()
 				w.WriteHeader(status)
 				_, _ = w.Write([]byte(response))
 			}
+		},
+		validate: func([]byte) error { return nil },
+		execute: func(a *App, ctx context.Context, command siteOperationCommand, principal siteOperationPrincipal) ([]byte, error) {
+			seen.username = principal.Actor
+			seen.token = principal.Token
+			seen.scopes = principal.Scopes
+			seen.webhook = principal.Webhook
+			if deadline, ok := ctx.Deadline(); ok {
+				seen.deadline = time.Until(deadline)
+			}
+			seen.body = string(command.Body)
+			seen.path = command.Path
+			if command.Query != "" {
+				seen.path += "?" + command.Query
+			}
+			if status < 200 || status > 299 {
+				return nil, errors.New(response)
+			}
+			return []byte(response), nil
 		},
 		site: siteFromBody,
 	}
@@ -124,7 +138,7 @@ func TestDifferentSiteOperationsWithoutIdempotencyKeyAreBothQueued(t *testing.T)
 
 // A long operation is queued instead of run in the request, then replayed by
 // the worker as the original requester with the original body.
-func TestSiteOperationQueuesAndReplaysAsTheRequester(t *testing.T) {
+func TestSiteOperationQueuesAndExecutesAsTheRequester(t *testing.T) {
 	app, seen := newSiteOperationFixture(t, http.StatusOK, `{"commit":"abc123"}`)
 	body := `{"site":"shop","ref":"main"}`
 	response := httptest.NewRecorder()
@@ -150,13 +164,13 @@ func TestSiteOperationQueuesAndReplaysAsTheRequester(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(output) != `{"commit":"abc123"}` {
-		t.Fatalf("output = %s, want the handler's response", output)
+		t.Fatalf("output = %s, want the executor's result", output)
 	}
-	if seen.username != "admin" || !seen.token || len(seen.scopes) != 1 || seen.scopes[0] != "admin:operate" || !seen.csrf {
-		t.Fatalf("replayed identity = %+v", seen)
+	if seen.username != "admin" || !seen.token || len(seen.scopes) != 1 || seen.scopes[0] != "admin:operate" || seen.webhook != nil {
+		t.Fatalf("executed principal = %+v", seen)
 	}
 	if seen.body != body || seen.path != "/api/test/echo?dry=1" {
-		t.Fatalf("replayed request = %q %q", seen.path, seen.body)
+		t.Fatalf("executed command = %q %q", seen.path, seen.body)
 	}
 	if seen.deadline < siteOperationDefaultDeadline-time.Minute || seen.deadline > siteOperationDefaultDeadline {
 		t.Fatalf("operation deadline = %s, want %s", seen.deadline, siteOperationDefaultDeadline)
@@ -209,7 +223,7 @@ func TestExternalWorkerAdmissionRejectsWhenNoCompatibleWorkerExists(t *testing.T
 	app.Jobs.RequireCompatibleWorker(true)
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/sites/git-deploy", strings.NewReader(`{"site":"shop","repository":"https://github.com/acme/shop.git"}`))
-	request = request.WithContext(context.WithValue(request.Context(), replayedIdentityKey{}, "admin"))
+	request = request.WithContext(context.WithValue(request.Context(), apiTokenUsernameKey{}, "admin"))
 	app.siteOperation("git.deploy")(response, request)
 	if response.Code != http.StatusServiceUnavailable {
 		t.Fatalf("admission status = %d %s, want 503", response.Code, response.Body.String())
@@ -219,8 +233,8 @@ func TestExternalWorkerAdmissionRejectsWhenNoCompatibleWorkerExists(t *testing.T
 	}
 }
 
-func TestSiteOperationReplaysBrowserSessionIdentity(t *testing.T) {
-	app, seen := newSiteOperationFixture(t, http.StatusOK, "done")
+func TestSiteOperationExecutesWithBrowserSessionIdentity(t *testing.T) {
+	app, seen := newSiteOperationFixture(t, http.StatusOK, `{"done":true}`)
 	payload, _ := json.Marshal(siteOperationPayload{Operation: "test.echo", Path: "/api/test/echo", Body: []byte(`{"site":"shop"}`), Site: "shop", Actor: "admin"})
 	if _, err := app.Jobs.Enqueue(siteOperationKind, "shop", "", payload, 1); err != nil {
 		t.Fatal(err)
@@ -229,28 +243,49 @@ func TestSiteOperationReplaysBrowserSessionIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(output) != `{"message":"done"}` {
-		t.Fatalf("plain-text output = %s, want it wrapped as JSON", output)
+	if string(output) != `{"done":true}` {
+		t.Fatalf("output = %s", output)
 	}
-	if seen.username != "admin" || seen.token || !seen.csrf || !app.Auth.IsAdministrator(httptest.NewRequest(http.MethodGet, "/", nil).WithContext(context.WithValue(context.Background(), replayedIdentityKey{}, "admin"))) {
-		t.Fatalf("session replay identity = %+v", seen)
+	if seen.username != "admin" || seen.token || len(seen.scopes) != 0 || seen.webhook != nil {
+		t.Fatalf("session principal = %+v", seen)
 	}
 }
 
-func TestSiteOperationFailureCarriesTheHandlerMessage(t *testing.T) {
-	for response, want := range map[string]string{
-		"invalid release pipeline\n":                         "invalid release pipeline",
-		`{"error":"container image not allowed","code":403}`: "container image not allowed",
-		"": "Unprocessable Entity",
-	} {
-		app, _ := newSiteOperationFixture(t, http.StatusUnprocessableEntity, response)
-		payload, _ := json.Marshal(siteOperationPayload{Operation: "test.echo", Path: "/api/test/echo", Site: "shop", Actor: "admin"})
-		if _, err := app.Jobs.Enqueue(siteOperationKind, "shop", "", payload, 1); err != nil {
-			t.Fatal(err)
+// An executor's error is the job's failure message, unchanged.
+func TestSiteOperationFailureCarriesTheExecutorMessage(t *testing.T) {
+	app, _ := newSiteOperationFixture(t, http.StatusUnprocessableEntity, "invalid release pipeline")
+	payload, _ := json.Marshal(siteOperationPayload{Operation: "test.echo", Path: "/api/test/echo", Site: "shop", Actor: "admin"})
+	if _, err := app.Jobs.Enqueue(siteOperationKind, "shop", "", payload, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.handleSiteOperationJob(context.Background(), claimSiteOperation(t, app)); err == nil || err.Error() != "invalid release pipeline" {
+		t.Fatalf("failure = %v, want the executor's message", err)
+	}
+}
+
+// Every queued operation runs through a typed executor; none falls back to
+// replaying its HTTP handler.
+func TestEverySiteOperationHasATypedExecutor(t *testing.T) {
+	for name, route := range siteOperationRoutes {
+		if route.execute == nil || route.validate == nil {
+			t.Errorf("site operation %s lacks a typed validator or executor", name)
 		}
-		if _, err := app.handleSiteOperationJob(context.Background(), claimSiteOperation(t, app)); err == nil || err.Error() != want {
-			t.Fatalf("failure for %q = %v, want %q", response, err, want)
-		}
+	}
+}
+
+// A route registered without an executor is refused at execution rather
+// than replayed through its handler.
+func TestSiteOperationWithoutExecutorIsRefused(t *testing.T) {
+	app, seen := newSiteOperationFixture(t, http.StatusOK, `{}`)
+	route := siteOperationRoutes["test.echo"]
+	route.execute = nil
+	siteOperationRoutes["test.echo"] = route
+	payload, _ := json.Marshal(siteOperationPayload{Operation: "test.echo", Path: "/api/test/echo", Site: "shop", Actor: "admin"})
+	if _, err := app.Jobs.Enqueue(siteOperationKind, "shop", "", payload, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.handleSiteOperationJob(context.Background(), claimSiteOperation(t, app)); err == nil || seen.path != "" {
+		t.Fatalf("operation without an executor = %v, ran = %v", err, seen.path != "")
 	}
 }
 
@@ -465,22 +500,20 @@ func TestLongSiteOperationRenewsLeasePastShortLeasePeriods(t *testing.T) {
 	completed := make(chan struct{})
 	const operation = "test.long-restore"
 	siteOperationRoutes[operation] = siteOperationRoute{
-		timeout: siteOperationTimeoutRestore,
-		site:    siteFromBody,
-		handler: func(*App) http.HandlerFunc {
-			return func(w http.ResponseWriter, r *http.Request) {
-				deadline, ok := r.Context().Deadline()
-				if !ok || time.Until(deadline) < siteOperationRestoreDeadline-time.Minute {
-					http.Error(w, "restore deadline was truncated", http.StatusGatewayTimeout)
-					return
-				}
-				select {
-				case <-time.After(250 * time.Millisecond):
-					close(completed)
-					w.WriteHeader(http.StatusNoContent)
-				case <-r.Context().Done():
-					http.Error(w, r.Context().Err().Error(), http.StatusGatewayTimeout)
-				}
+		timeout:  siteOperationTimeoutRestore,
+		site:     siteFromBody,
+		validate: func([]byte) error { return nil },
+		execute: func(_ *App, ctx context.Context, _ siteOperationCommand, _ siteOperationPrincipal) ([]byte, error) {
+			deadline, ok := ctx.Deadline()
+			if !ok || time.Until(deadline) < siteOperationRestoreDeadline-time.Minute {
+				return nil, errors.New("restore deadline was truncated")
+			}
+			select {
+			case <-time.After(250 * time.Millisecond):
+				close(completed)
+				return []byte(`{}`), nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
 			}
 		},
 	}

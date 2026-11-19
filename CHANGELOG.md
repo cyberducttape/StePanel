@@ -8,6 +8,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Security
 
+- Queued site operations no longer replay their HTTP handler in the worker.
+  The release pipeline, Git deploy, staging create and promote, and
+  restore-to-staging (local and offsite) now run through typed executors
+  that call the same services as their HTTP handlers, re-checking ownership,
+  role, token scope and, for webhook deliveries, the signed site and its
+  current allowlists when the job starts. The worker no longer builds a
+  synthetic request, and the replayed-identity context that let such a
+  request skip the CSRF check is gone. A malformed queued body is now
+  refused with `422` when it is submitted instead of failing as a job, and
+  administrator tokens queued for a restore to staging are no longer refused
+  at execution for lacking the customer `backup:restore` scope.
 - The destructive-action confirmation dialog is named by its title and
   described by its message for screen readers, returns focus to the control
   that opened it, and keeps the line breaks of multi-line messages such as the

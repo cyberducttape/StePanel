@@ -157,10 +157,14 @@ for six site-operation routes and are tracked separately below.
 
 ### M0s — Remove HTTP-handler replay from durable site operations (P1)
 
-**Status:** Open. Four routes already use typed executors; six routes still
-replay handlers: release pipeline, Git deploy, staging create/promote, and
-local/offsite restore-to-staging. Complete this extraction without changing
-HTTP authorization, audit, mutation-lock, webhook, or recovery semantics.
+**Status:** Implemented locally on 2026-11-18; exact-source CI pending. All
+ten site-operation routes have typed validators and executors. The release
+pipeline, Git deploy, staging create/promote, and local/offsite
+restore-to-staging handlers are now thin adapters over shared services that
+take a `siteRequester` (HTTP request or durable principal). The worker no
+longer synthesizes HTTP requests, and the replay fallback, its response
+translation, and the replayed-identity context that `Auth` trusted are
+removed. Malformed queued bodies are now refused at admission (422).
 
 **Acceptance criteria**
 
@@ -460,8 +464,8 @@ rates, and no capacity-based rejection of otherwise-valid tokens.
 ### M0b — Report effective security posture and extract typed operation paths (P1/P2)
 
 **Status:** Security reporting and typed services for Node tooling and Python
-deployment are implemented. Remaining site-operation routes still replay
-HTTP handlers and are not considered migrated.
+deployment are implemented. Every site-operation route now has a typed
+service (M0s).
 
 Latest Python extraction verification: full `make check`, focused Python
 authorization/deployment tests, and the focused race test pass. This closes
@@ -488,8 +492,8 @@ request.
 - Migrate each remaining route in focused changes, preserving audit, lock,
   validation, retry, and recovery contracts. Node tooling, Python deployment,
   Composer install, and sandboxed runner builds now use typed worker services.
-  Remaining routes still replay handlers; remove the fallback only after every
-  registered route has a tested typed service.
+  All registered routes have tested typed services and the fallback is
+  removed (M0s).
 - Installed Apache runtime tests from allowed and denied sources are required
   before reporting effective IP enforcement as verified.
 
@@ -638,7 +642,7 @@ unverified where they cannot establish application-level behavior.
 and sandboxed runner builds have typed worker executors. Node deployment now
 uses shared typed application, Node-selection, and proxy services from both
 HTTP and durable-job entry points; its synthetic HTTP replay has been removed.
-Six other site-operation routes still replay handlers.
+The remaining six routes were converted under M0s; no route replays a handler.
 
 **Acceptance criteria**
 
@@ -1015,9 +1019,9 @@ Scope and ordering are defined in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Current sequencing
 
-1. Continue typed service extraction from high-risk durable operations in
-   focused changes. Keep the handler-replay fallback until each route has
-   equivalent validation, authorization, audit, locking, and recovery tests.
+1. Typed service extraction for durable site operations is complete (M0s);
+   move the backup/restore and deployment services into `internal/` packages
+   in focused changes.
 2. Obtain an accessible disposable KVM certification host/runner and execute
    M1 before broader production claims.
 3. Complete M2 and M3 with real installed services while retaining failure

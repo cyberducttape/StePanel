@@ -137,7 +137,7 @@ func TestAppDeployRefusesCorruptExistingManifest(t *testing.T) {
 
 func appDeployTestRequest(body string) *http.Request {
 	request := httptest.NewRequest(http.MethodPost, "/api/apps/deploy", strings.NewReader(body))
-	return request.WithContext(context.WithValue(request.Context(), replayedIdentityKey{}, "admin"))
+	return request.WithContext(context.WithValue(request.Context(), apiTokenUsernameKey{}, "admin"))
 }
 
 func TestValidAppManifestRejectsUnexpectedRoot(t *testing.T) {

@@ -36,10 +36,42 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input ReleasePipelineRequest
-	if err := decodeJSON(w, r, 48<<10, &input); err != nil {
+	if err := decodeJSON(w, r, releasePipelineBodyLimit, &input); err != nil {
 		http.Error(w, "invalid JSON", 400)
 		return
 	}
+	result, err := a.runReleasePipeline(r.Context(), httpSiteRequester{a, r}, input)
+	if err != nil {
+		writeSiteOperationError(w, r, err)
+		return
+	}
+	writeJSON(w, 202, result)
+}
+
+const releasePipelineBodyLimit = 48 << 10
+
+func validateReleasePipelinePayload(body []byte) error {
+	var input ReleasePipelineRequest
+	if err := decodeOperationBody(body, releasePipelineBodyLimit, &input); err != nil {
+		return errors.New("invalid JSON")
+	}
+	return nil
+}
+
+// executeReleasePipelineCommand runs a queued release pipeline. The service
+// re-checks the requester's ownership and scope against current state.
+func executeReleasePipelineCommand(a *App, ctx context.Context, command siteOperationCommand, principal siteOperationPrincipal) ([]byte, error) {
+	var input ReleasePipelineRequest
+	if err := decodeOperationBody(command.Body, releasePipelineBodyLimit, &input); err != nil || safeUser(input.Site) != command.Site {
+		return nil, errors.New("invalid release pipeline command")
+	}
+	return siteOperationResult(a.runReleasePipeline(ctx, durableSiteRequester{a: a, principal: principal, operation: command.Operation}, input))
+}
+
+// runReleasePipeline checks out a ref, builds it in the sandboxed runner,
+// validates the artifact and activates it. It is the service behind the HTTP
+// handler and the durable worker.
+func (a *App) runReleasePipeline(ctx context.Context, req siteRequester, input ReleasePipelineRequest) (*gitDeployResult, error) {
 	input.Site = safeUser(input.Site)
 	input.Repository = strings.TrimSpace(input.Repository)
 	input.Ref = strings.TrimSpace(input.Ref)
@@ -48,20 +80,17 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 		input.Ref = "main"
 	}
 	if input.Site == "" {
-		http.Error(w, "invalid release pipeline", 422)
-		return
+		return nil, operationFailure(422, "invalid release pipeline")
 	}
-	access, ok := a.requireSiteAccess(w, r, input.Site, "invalid release pipeline", 422)
+	access, ok := req.siteAccess(input.Site)
 	if !ok {
-		return
+		return nil, operationFailure(422, "invalid release pipeline")
 	}
-	if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
-		http.Error(w, "insufficient token scope for release pipelines", http.StatusForbidden)
-		return
+	if !req.customerScope("site:deploy") {
+		return nil, operationFailure(http.StatusForbidden, "insufficient token scope for release pipelines")
 	}
 	if !gitRefPattern.MatchString(input.Ref) || !runnerImagePattern.MatchString(input.Image) || len(input.Commands) == 0 || len(input.Commands) > 16 {
-		http.Error(w, "invalid release pipeline", 422)
-		return
+		return nil, operationFailure(422, "invalid release pipeline")
 	}
 	// The direct /api/runner/build path enforces the registry allowlist
 	// and (when configured) the narrow image allowlist; the release
@@ -74,47 +103,38 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 	}
 	imageRef, err := ValidateContainerImageForSite(input.Image, allowed)
 	if err != nil {
-		http.Error(w, "container image not allowed: "+err.Error(), 403)
-		return
+		return nil, operationFailure(403, "container image not allowed: "+err.Error())
 	}
 	if patterns := ParseImagePatternList(a.Config.RunnerAllowedImages); len(patterns) > 0 && !ImageAllowedByPatterns(imageRef, patterns) {
-		http.Error(w, "container image not in the configured STEPANEL_RUNNER_ALLOWED_IMAGES allowlist", 403)
-		return
+		return nil, operationFailure(403, "container image not in the configured STEPANEL_RUNNER_ALLOWED_IMAGES allowlist")
 	}
 	for _, line := range input.Commands {
 		if len(line) == 0 || len(line) > 1024 || strings.ContainsAny(line, "\x00\r\n") {
-			http.Error(w, "invalid build command", 422)
-			return
+			return nil, operationFailure(422, "invalid build command")
 		}
 	}
 	repository, err := parseGitRepository(input.Repository, a.Config.GitAllowedHosts)
 	if err != nil {
-		http.Error(w, err.Error(), 422)
-		return
+		return nil, operationFailure(422, err.Error())
 	}
 	siteRoot, err := existingManagedSiteState(a.Config, input.Site)
 	if err != nil {
-		http.Error(w, "invalid site root", 422)
-		return
+		return nil, operationFailure(422, "invalid site root")
 	}
 	if _, err := siteDocRoot(a.Config, input.Site); err != nil {
-		http.Error(w, "invalid site root", 422)
-		return
+		return nil, operationFailure(422, "invalid site root")
 	}
-	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), input.Site)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, input.Site)
 	if lockErr != nil {
-		http.Error(w, "site is busy", http.StatusConflict)
-		return
+		return nil, operationFailure(http.StatusConflict, "site is busy")
 	}
 	defer releaseUnlock()
 	if err := operationCtx.Err(); err != nil {
-		http.Error(w, "release cancelled because the mutation lock was lost", http.StatusConflict)
-		return
+		return nil, operationFailure(http.StatusConflict, "release cancelled because the mutation lock was lost")
 	}
-	intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.release.pipeline", input.Site, input.Repository+"@"+input.Ref)
+	intent, err := BeginSecurityAudit(a.Config.AuditLog, req.actor(), "site.release.pipeline", input.Site, input.Repository+"@"+input.Ref)
 	if err != nil {
-		refuseWithoutSecurityAudit(w)
-		return
+		return nil, errAuditRefusal
 	}
 	var outcome string
 	defer intent.Finish(&outcome, "pipeline did not activate a release")
@@ -122,19 +142,16 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	deploymentID, err := newJobID("deployment")
 	if err != nil {
-		http.Error(w, "could not create deployment identity", http.StatusInternalServerError)
-		return
+		return nil, operationFailure(http.StatusInternalServerError, "could not create deployment identity")
 	}
 	result := gitDeployResult{DeploymentID: deploymentID, Site: input.Site, Repository: input.Repository, Ref: input.Ref}
 	if err := a.recordDeployment(input.Site, "checkout", "running", "pipeline checkout started", result, ""); err != nil {
-		historyUnavailable(w, r)
-		return
+		return nil, errDeploymentHistoryUnavailable
 	}
 	release, commit, releaseOwner, err := a.checkoutPipelineRelease(ctx, access, repository, input.Ref)
 	if err != nil {
 		_ = a.recordDeployment(input.Site, "checkout", "failed", err.Error(), result, "") // failure already marks readiness
-		http.Error(w, "Git checkout failed", 502)
-		return
+		return nil, operationFailure(502, "Git checkout failed")
 	}
 	result.Commit = commit
 	defer func() {
@@ -145,41 +162,34 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 	}()
 	if input.Backup {
 		if err := a.recordDeployment(input.Site, "backup", "running", "pre-activation backup started", result, ""); err != nil {
-			historyUnavailable(w, r)
-			return
+			return nil, errDeploymentHistoryUnavailable
 		}
 		if _, err := createSiteBackupContext(operationCtx, a.Config, access, true, a.capacityLedger()); err != nil {
 			_ = a.recordDeployment(input.Site, "backup", "failed", err.Error(), result, "") // failure already marks readiness
-			http.Error(w, "pre-activation backup failed", 502)
-			return
+			return nil, operationFailure(502, "pre-activation backup failed")
 		}
 		if err := a.recordDeployment(input.Site, "backup", "completed", "verified pre-activation backup", result, ""); err != nil {
-			historyUnavailable(w, r)
-			return
+			return nil, errDeploymentHistoryUnavailable
 		}
 	}
 	if err := a.runPipelineBuild(ctx, input.Site, input.Image, input.Commands, release); err != nil {
 		_ = a.recordDeployment(input.Site, "build", "failed", err.Error(), result, "") // failure already marks readiness
-		http.Error(w, "sandboxed build failed", 502)
-		return
+		return nil, operationFailure(502, "sandboxed build failed")
 	}
 	artifact := filepath.Join(siteRoot, ".stepanel-artifact")
 	if err := validateGitRelease(artifact, a.Config.MaxEntries); err != nil {
 		_ = a.recordDeployment(input.Site, "build", "failed", "artifact unsafe: "+err.Error(), result, artifact) // failure already marks readiness
-		http.Error(w, "build artifact is unsafe", 422)
-		return
+		return nil, operationFailure(422, "build artifact is unsafe")
 	}
 	artifactBytes, err := gitReleaseTreeSize(artifact, a.Config.GitReleaseMaxTreeBytes)
 	if err != nil {
 		_ = a.recordDeployment(input.Site, "build", "failed", "artifact size limit exceeded", result, artifact) // failure already marks readiness
-		http.Error(w, "build artifact exceeds the release size limit", 422)
-		return
+		return nil, operationFailure(422, "build artifact exceeds the release size limit")
 	}
 	if err := a.discardSiteReleaseStaging(operationCtx, input.Site, release); err != nil {
 		log.Printf("release pipeline checkout cleanup failed for site %s: %v", input.Site, err)
 		_ = a.recordDeployment(input.Site, "build", "failed", "could not discard Git checkout staging: "+err.Error(), result, release)
-		http.Error(w, "could not replace source with artifact", 500)
-		return
+		return nil, operationFailure(500, "could not replace source with artifact")
 	}
 	_ = releaseOwner.Close()
 	releaseOwner = nil
@@ -191,64 +201,54 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("release pipeline staging directory creation failed for site %s: %v", input.Site, err)
 		_ = a.recordDeployment(input.Site, "build", "failed", "could not create artifact staging directory: "+err.Error(), result, artifact)
-		http.Error(w, "could not create release staging directory", 500)
-		return
+		return nil, operationFailure(500, "could not create release staging directory")
 	}
 	artifactReservation, err := a.capacityLedger().reserve(a.Config, "git-pipeline-artifact", release, []capacityDemand{{Path: gitStageCapacityPath(release), Bytes: uint64(artifactBytes)}})
 	if err != nil {
 		log.Printf("release pipeline artifact admission failed for site %s: %v", input.Site, err)
 		_ = a.recordDeployment(input.Site, "build", "failed", err.Error(), result, artifact)
-		http.Error(w, "insufficient capacity to stage build artifact", http.StatusInsufficientStorage)
-		return
+		return nil, operationFailure(http.StatusInsufficientStorage, "insufficient capacity to stage build artifact")
 	}
 	defer artifactReservation.release()
 	if err := copyGitArtifactTree(operationCtx, artifact, release, a.Config.GitReleaseMaxTreeBytes, artifactBytes); err != nil {
 		log.Printf("release pipeline artifact copy failed for site %s: %v", input.Site, err)
 		_ = a.recordDeployment(input.Site, "build", "failed", err.Error(), result, artifact)
-		http.Error(w, "could not stage build artifact", 500)
-		return
+		return nil, operationFailure(500, "could not stage build artifact")
 	}
 	if err := runRunnerBuild(operationCtx, a.Config, rootbroker.RunnerRequest{Action: "artifact-cleanup", Site: input.Site}); err != nil {
 		log.Printf("release pipeline artifact cleanup failed for site %s: %v", input.Site, err)
 		_ = a.recordDeployment(input.Site, "build", "failed", err.Error(), result, artifact)
-		http.Error(w, "could not clean up build artifact", 500)
-		return
+		return nil, operationFailure(500, "could not clean up build artifact")
 	}
 	if err := ctx.Err(); err != nil {
 		_ = a.recordDeployment(input.Site, "build", "failed", err.Error(), result, release)
-		http.Error(w, "release cancelled before activation", http.StatusConflict)
-		return
+		return nil, operationFailure(http.StatusConflict, "release cancelled before activation")
 	}
 	if _, err := os.Stat(release); err != nil {
 		log.Printf("release pipeline staged artifact disappeared for site %s: %v", input.Site, err)
 		_ = a.recordDeployment(input.Site, "build", "failed", "staged artifact disappeared: "+err.Error(), result, release)
-		http.Error(w, "could not stage build artifact", 500)
-		return
+		return nil, operationFailure(500, "could not stage build artifact")
 	}
 	if err := validateGitRelease(release, a.Config.MaxEntries); err != nil {
 		_ = a.recordDeployment(input.Site, "build", "failed", "staged artifact unsafe: "+err.Error(), result, release)
-		http.Error(w, "staged build artifact is unsafe", 422)
-		return
+		return nil, operationFailure(422, "staged build artifact is unsafe")
 	}
 	if _, err := gitReleaseTreeSize(release, a.Config.GitReleaseMaxTreeBytes); err != nil {
 		_ = a.recordDeployment(input.Site, "build", "failed", "staged artifact exceeded size limit: "+err.Error(), result, release)
-		http.Error(w, "could not stage build artifact", 500)
-		return
+		return nil, operationFailure(500, "could not stage build artifact")
 	}
 	if err := a.recordDeployment(input.Site, "build", "completed", "validated sandbox artifact", result, release); err != nil {
-		historyUnavailable(w, r)
-		return
+		return nil, errDeploymentHistoryUnavailable
 	}
 	previous, err := a.activatePipelineRelease(operationCtx, input.Site, release)
 	if err != nil {
 		_ = a.recordDeployment(input.Site, "activation", "failed", err.Error(), result, "") // failure already marks readiness
-		http.Error(w, "atomic activation failed", 503)
-		return
+		return nil, operationFailure(503, "atomic activation failed")
 	}
 	outcome = input.Repository + "@" + commit
 	result.Previous = previous
 	a.finishCommittedRelease(operationCtx, "activation", "atomic built release activated", release, previous, &result, false)
-	writeJSON(w, 202, result)
+	return &result, nil
 }
 
 func copyGitArtifactTree(ctx context.Context, source, destination string, maxBytes, expectedBytes int64) error {

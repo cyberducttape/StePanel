@@ -436,7 +436,7 @@ func TestBackupVerifyRefusesAnotherSitesBackupLikeAFailedVerification(t *testing
 		body := strings.NewReader(`{"backup":"` + f.backup + `","site":"` + site + `"}`)
 		recorder := httptest.NewRecorder()
 		request := httptest.NewRequest(http.MethodPost, "/api/backups/verify", body)
-		request = request.WithContext(context.WithValue(request.Context(), replayedIdentityKey{}, "admin"))
+		request = request.WithContext(context.WithValue(request.Context(), apiTokenUsernameKey{}, "admin"))
 		f.app.backupVerify(recorder, request)
 		want := http.StatusOK
 		if site == "other" {

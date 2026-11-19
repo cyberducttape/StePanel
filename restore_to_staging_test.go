@@ -3,6 +3,7 @@ package stepanel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -144,14 +145,14 @@ func postStagingRestore(t *testing.T, app *App, body string) *httptest.ResponseR
 func TestRestoreToStagingPathRejectsUnsafeSiteBeforeFilesystemLookup(t *testing.T) {
 	app := &App{}
 	request := httptest.NewRequest(http.MethodPost, "/api/backups/restore-to-staging", nil)
-	response := httptest.NewRecorder()
-	app.backupRestoreToStagingPath(response, request, RestoreToStagingRequest{
+	_, err := app.restoreBackupToStaging(request.Context(), httpSiteRequester{app, request}, RestoreToStagingRequest{
 		Site:   "../outside",
 		Backup: "backup",
 		Domain: "staging.example.org",
 	}, filepath.Join(t.TempDir(), "backup"))
-	if response.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("unsafe staging site returned HTTP %d, want %d", response.Code, http.StatusUnprocessableEntity)
+	var failure *siteOperationError
+	if !errors.As(err, &failure) || failure.status != http.StatusUnprocessableEntity {
+		t.Fatalf("unsafe staging site returned %v, want HTTP %d", err, http.StatusUnprocessableEntity)
 	}
 }
 

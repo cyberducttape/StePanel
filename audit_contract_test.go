@@ -250,7 +250,7 @@ func TestSecurityAuditReconciliationEndpointClosesRecordWithoutReplay(t *testing
 	}
 	body, _ := json.Marshal(map[string]string{"operation_id": intent.operationID, "evidence": "restore job verified; customer site responds successfully"})
 	request := httptest.NewRequest(http.MethodPost, "/api/security/audit/reconciliation", strings.NewReader(string(body)))
-	request = request.WithContext(context.WithValue(request.Context(), replayedIdentityKey{}, "admin"))
+	request = request.WithContext(context.WithValue(request.Context(), apiTokenUsernameKey{}, "admin"))
 	response := httptest.NewRecorder()
 	app.securityAuditReconciliation(response, request)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"mutation_replayed":false`) {

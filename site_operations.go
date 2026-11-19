@@ -1,7 +1,6 @@
 package stepanel
 
 import (
-	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -9,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"time"
 
@@ -19,10 +17,11 @@ import (
 
 // Long-running site operations are durable "site.operation" jobs. The HTTP
 // request is authenticated, CSRF-checked, and admitted with a site identity.
-// Routes with typed executors dispatch directly to operation services; the
-// remaining routes temporarily retain HTTP-handler replay while their
-// validation and authorization contracts are extracted. No HTTP connection
-// is held for the duration of the work, and a dropped browser does not cancel it.
+// The worker decodes the queued body into the route's typed command and
+// calls the operation's service directly; it never synthesizes an HTTP
+// request. The service repeats ownership, role, scope and (for webhooks)
+// signed-site checks against current state. No HTTP connection is held for
+// the duration of the work, and a dropped browser does not cancel it.
 const siteOperationKind = "site.operation"
 
 // Site operations have bounded, operation-specific budgets. The restore
@@ -81,9 +80,9 @@ type siteOperationRoute struct {
 	// site names the site the operation mutates. It owns the job, so
 	// operations on one site run one at a time.
 	site func(path string, body []byte) string
-	// scope is the customer scope the handler requires. It is checked before
-	// queueing so an unauthorized requester gets 403 rather than a job that
-	// can only fail; the handler checks it again when the job replays.
+	// scope is the customer scope the operation requires. It is checked
+	// before queueing so an unauthorized requester gets 403 rather than a job
+	// that can only fail; the service checks it again when the job runs.
 	scope string
 }
 
@@ -104,19 +103,22 @@ type siteOperationPrincipal struct {
 	Actor  string
 	Token  bool
 	Scopes []string
+	// Webhook is the signed-site authorization of a webhook delivery,
+	// rebuilt from the current webhook configuration when the job starts.
+	Webhook *authenticatedWebhook
 }
 
 var siteOperationRoutes = map[string]siteOperationRoute{
-	"release.pipeline":          {handler: func(a *App) http.HandlerFunc { return a.releasePipeline }, site: siteFromBody, scope: "site:deploy"},
+	"release.pipeline":          {handler: func(a *App) http.HandlerFunc { return a.releasePipeline }, validate: validateReleasePipelinePayload, execute: executeReleasePipelineCommand, site: siteFromBody, scope: "site:deploy"},
 	"runner.build":              {handler: func(a *App) http.HandlerFunc { return a.runnerBuild }, validate: validateRunnerBuildPayload, execute: executeRunnerBuildCommand, site: siteFromBody, scope: "site:deploy"},
-	"git.deploy":                {handler: func(a *App) http.HandlerFunc { return a.gitDeploy }, site: siteFromBody, scope: "deploy:write"},
+	"git.deploy":                {handler: func(a *App) http.HandlerFunc { return a.gitDeploy }, validate: validateGitDeployPayload, execute: executeGitDeployCommand, site: siteFromBody, scope: "deploy:write"},
 	"composer.install":          {handler: func(a *App) http.HandlerFunc { return a.composer }, validate: validateComposerInstallPayload, execute: executeComposerInstallCommand, site: siteFromPath("/api/composer/"), scope: "site:deploy"},
 	"node.tooling":              {handler: func(a *App) http.HandlerFunc { return a.nodeTooling }, validate: validateNodeToolingPayload, execute: executeNodeToolingCommand, site: siteFromBody, scope: "site:deploy"},
 	"python.deploy":             {handler: func(a *App) http.HandlerFunc { return a.pythonDeploy }, validate: validatePythonAppPayload, execute: executePythonDeploymentCommand, site: siteFromBody, scope: "deploy:write"},
-	"staging.create":            {handler: func(a *App) http.HandlerFunc { return a.stagingCreate }, site: siteFromBody, scope: "site:deploy", timeout: siteOperationTimeoutStaging},
-	"staging.promote":           {handler: func(a *App) http.HandlerFunc { return a.stagingPromote }, site: siteFromBody, scope: "site:deploy"},
-	"backup.restore-to-staging": {handler: func(a *App) http.HandlerFunc { return a.backupRestoreToStaging }, site: siteFromBody, scope: "backup:restore", timeout: siteOperationTimeoutRestore},
-	"backup.offsite-to-staging": {handler: func(a *App) http.HandlerFunc { return a.backupRestoreOffsiteToStaging }, site: siteFromBody, scope: "backup:restore", timeout: siteOperationTimeoutOffsiteRestore},
+	"staging.create":            {handler: func(a *App) http.HandlerFunc { return a.stagingCreate }, validate: validateStagingCreatePayload, execute: executeStagingCreateCommand, site: siteFromBody, scope: "site:deploy", timeout: siteOperationTimeoutStaging},
+	"staging.promote":           {handler: func(a *App) http.HandlerFunc { return a.stagingPromote }, validate: validateStagingPromotionPayload, execute: executeStagingPromotionCommand, site: siteFromBody, scope: "site:deploy"},
+	"backup.restore-to-staging": {handler: func(a *App) http.HandlerFunc { return a.backupRestoreToStaging }, validate: validateRestoreToStagingPayload, execute: executeRestoreToStagingCommand, site: siteFromBody, scope: "backup:restore", timeout: siteOperationTimeoutRestore},
+	"backup.offsite-to-staging": {handler: func(a *App) http.HandlerFunc { return a.backupRestoreOffsiteToStaging }, validate: validateRestoreToStagingPayload, execute: executeOffsiteRestoreToStagingCommand, site: siteFromBody, scope: "backup:restore", timeout: siteOperationTimeoutOffsiteRestore},
 }
 
 func siteFromBody(_ string, body []byte) string {
@@ -217,11 +219,6 @@ func (a *App) revalidateQueuedSession(actor string, binding queuedSession) error
 	return doNotRetry(errors.New("the account's sessions were revoked after this operation was queued; submit it again"))
 }
 
-// replayedIdentityKey carries a browser-session requester into the worker
-// that replays their site operation. API-token requesters are replayed with
-// the token identity and scopes that Auth.Require recorded.
-type replayedIdentityKey struct{}
-
 // siteOperation answers POST requests for a long operation with a queued
 // durable job. Other methods (Composer status) are served synchronously.
 func (a *App) siteOperation(name string) http.HandlerFunc {
@@ -310,16 +307,15 @@ func (a *App) enqueueSiteOperation(w http.ResponseWriter, r *http.Request, paylo
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "status_url": "/api/jobs/" + job.ID, "operation": payload.Operation, "site": payload.Site})
 }
 
-// handleSiteOperationJob executes a typed service where one is registered;
-// transitional routes replay their handler and convert its HTTP response to
-// a durable job result.
+// handleSiteOperationJob revalidates the queuing principal and runs the
+// route's typed executor.
 func (a *App) handleSiteOperationJob(ctx context.Context, item Job) ([]byte, error) {
 	var payload siteOperationPayload
 	if err := json.Unmarshal(item.Payload, &payload); err != nil {
 		return nil, fmt.Errorf("decode site operation: %w", err)
 	}
 	route, ok := siteOperationRoutes[payload.Operation]
-	if !ok || payload.Site == "" || !strings.HasPrefix(payload.Path, "/api/") {
+	if !ok || route.execute == nil || payload.Site == "" || !strings.HasPrefix(payload.Path, "/api/") {
 		return nil, fmt.Errorf("invalid site operation %q", payload.Operation)
 	}
 	if item.Progress > 0 {
@@ -362,49 +358,24 @@ func (a *App) handleSiteOperationJob(ctx context.Context, item Job) ([]byte, err
 			return nil, doNotRetry(errors.New("the webhook signing secret changed after this delivery was accepted; the deployment was not run"))
 		}
 		config.Site = payload.Site
-		operationCtx = context.WithValue(operationCtx, gitWebhookSiteKey{}, newAuthenticatedWebhook(config))
+		webhook := newAuthenticatedWebhook(config)
+		principal.Webhook = &webhook
 	case payload.Token:
 		token, err := a.revalidateQueuedToken(payload)
 		if err != nil {
 			return nil, err
 		}
-		operationCtx = context.WithValue(operationCtx, apiTokenUsernameKey{}, token.Username)
-		operationCtx = context.WithValue(operationCtx, apiTokenScopesKey{}, token.Scopes)
-		operationCtx = context.WithValue(operationCtx, apiTokenIDKey{}, token.ID)
 		principal.Actor = token.Username
 		principal.Scopes = append([]string(nil), token.Scopes...)
 	case payload.Actor != "":
 		if err := a.revalidateQueuedSession(payload.Actor, payload.queuedSession); err != nil {
 			return nil, err
 		}
-		operationCtx = context.WithValue(operationCtx, replayedIdentityKey{}, payload.Actor)
 	}
-	if route.execute != nil {
-		return route.execute(a, operationCtx, siteOperationCommand{
-			Operation: payload.Operation, Path: payload.Path, Query: payload.Query,
-			Site: payload.Site, Body: append([]byte(nil), payload.Body...),
-		}, principal)
-	}
-	target := payload.Path
-	if payload.Query != "" {
-		target += "?" + payload.Query
-	}
-	request := httptest.NewRequestWithContext(operationCtx, http.MethodPost, target, bytes.NewReader(payload.Body))
-	request.Header.Set("Content-Type", "application/json")
-	request.RemoteAddr = "127.0.0.1:0"
-	response := httptest.NewRecorder()
-	route.handler(a)(response, request)
-	body := bytes.TrimSpace(response.Body.Bytes())
-	if response.Code < 200 || response.Code > 299 {
-		return nil, errors.New(siteOperationFailure(response.Code, body))
-	}
-	if len(body) == 0 {
-		return []byte(`{}`), nil
-	}
-	if json.Valid(body) {
-		return body, nil
-	}
-	return json.Marshal(map[string]string{"message": string(body)})
+	return route.execute(a, operationCtx, siteOperationCommand{
+		Operation: payload.Operation, Path: payload.Path, Query: payload.Query,
+		Site: payload.Site, Body: append([]byte(nil), payload.Body...),
+	}, principal)
 }
 
 // revalidateQueuedToken enforces the queued-work contract for API tokens: an
@@ -428,31 +399,6 @@ func (a *App) revalidateQueuedToken(payload siteOperationPayload) (apiTokenIdent
 		return apiTokenIdentity{}, errors.New("queuing API token no longer belongs to the requester")
 	}
 	return token, nil
-}
-
-// siteOperationFailure is the job error for a non-2xx handler response: the
-// handler's own message, which is already written for the requester.
-func siteOperationFailure(status int, body []byte) string {
-	var structured struct {
-		Error   string `json:"error"`
-		Message string `json:"message"`
-	}
-	message := string(body)
-	if json.Unmarshal(body, &structured) == nil {
-		if structured.Message != "" {
-			message = structured.Message
-		} else if structured.Error != "" {
-			message = structured.Error
-		}
-	}
-	if message == "" {
-		message = http.StatusText(status)
-	}
-	const limit = 2000
-	if len(message) > limit {
-		message = message[:limit] + "…"
-	}
-	return message
 }
 
 // recoverInterruptedSiteOperation repairs a site whose operation a worker

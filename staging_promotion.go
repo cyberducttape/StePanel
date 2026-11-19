@@ -233,66 +233,88 @@ func (a *App) stagingPromote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input stagingPromotionRequest
-	if err := decodeJSON(w, r, 4096, &input); err != nil {
+	if err := decodeJSON(w, r, stagingPromotionBodyLimit, &input); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
+	result, err := a.promoteStaging(r.Context(), httpSiteRequester{a, r}, input)
+	if err != nil {
+		writeSiteOperationError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+const stagingPromotionBodyLimit = 4096
+
+func validateStagingPromotionPayload(body []byte) error {
+	var input stagingPromotionRequest
+	if err := decodeOperationBody(body, stagingPromotionBodyLimit, &input); err != nil {
+		return errors.New("invalid JSON")
+	}
+	return nil
+}
+
+// executeStagingPromotionCommand runs a queued staging promotion. The service
+// repeats the ownership, scope and preview checks against current state.
+func executeStagingPromotionCommand(a *App, ctx context.Context, command siteOperationCommand, principal siteOperationPrincipal) ([]byte, error) {
+	var input stagingPromotionRequest
+	if err := decodeOperationBody(command.Body, stagingPromotionBodyLimit, &input); err != nil || safeUser(input.Site) != command.Site {
+		return nil, errors.New("invalid staging promotion command")
+	}
+	return siteOperationResult(a.promoteStaging(ctx, durableSiteRequester{a: a, principal: principal, operation: command.Operation}, input))
+}
+
+// promoteStaging replaces a production WordPress site with its verified
+// staging copy. It is the service behind the HTTP handler and the worker.
+func (a *App) promoteStaging(ctx context.Context, req siteRequester, input stagingPromotionRequest) (map[string]any, error) {
 	input.Source, input.Site = safeUser(input.Source), safeUser(input.Site)
 	// Validate before any lock is taken: an empty or identical pair must never
 	// reach the mutation locks or the promotion state checks.
 	if input.Source == "" || input.Site == "" || input.Source == input.Site {
-		http.Error(w, "invalid staging or production site", http.StatusUnprocessableEntity)
-		return
+		return nil, operationFailure(http.StatusUnprocessableEntity, "invalid staging or production site")
 	}
-	if _, ok := a.requireSiteAccess(w, r, input.Site, "production site is not assigned to this account", http.StatusForbidden); !ok {
-		return
+	if _, ok := req.siteAccess(input.Site); !ok {
+		return nil, operationFailure(http.StatusForbidden, "production site is not assigned to this account")
 	}
-	if _, ok := a.requireSiteAccess(w, r, input.Source, "staging site is not assigned to this account", http.StatusForbidden); !ok {
-		return
+	if _, ok := req.siteAccess(input.Source); !ok {
+		return nil, operationFailure(http.StatusForbidden, "staging site is not assigned to this account")
 	}
-	if !a.requireCustomerScope(w, r, "site:deploy") {
-		return
+	if !req.customerScope("site:deploy") {
+		return nil, operationFailure(http.StatusForbidden, "API token lacks the site:deploy scope")
 	}
 	// Database drops and credential rotations lock only "database:<name>",
 	// so discover both databases first, lock them with the sites, and
 	// require the locked names to still be the active ones.
 	unlocked, _, err := a.stagingPromotionState(input.Source, input.Site)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
-		return
+		return nil, operationFailure(http.StatusConflict, err.Error())
 	}
-	operationCtx, release, err := a.acquireSiteMutationLocksContext(r.Context(), stagingPromotionLockKeys(unlocked)...)
+	operationCtx, release, err := a.acquireSiteMutationLocksContext(ctx, stagingPromotionLockKeys(unlocked)...)
 	if err != nil {
-		http.Error(w, "production or staging site is busy", http.StatusConflict)
-		return
+		return nil, operationFailure(http.StatusConflict, "production or staging site is busy")
 	}
 	defer release()
 	before, proposed, err := a.stagingPromotionState(input.Source, input.Site)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
-		return
+		return nil, operationFailure(http.StatusConflict, err.Error())
 	}
 	if before.StagingDatabase != unlocked.StagingDatabase || before.ActiveDatabase != unlocked.ActiveDatabase {
-		http.Error(w, "promotion databases changed while waiting for locks; generate a new preview", http.StatusConflict)
-		return
+		return nil, operationFailure(http.StatusConflict, "promotion databases changed while waiting for locks; generate a new preview")
 	}
 	if err := changePreviewRequired(input.PreviewToken); err != nil || !a.verifyChangePreview(input.PreviewToken, "wordpress.staging-promote:"+input.Site, before, proposed) {
-		http.Error(w, "promotion state changed or the preview expired; generate a new preview", http.StatusConflict)
-		return
+		return nil, operationFailure(http.StatusConflict, "promotion state changed or the preview expired; generate a new preview")
 	}
-	access, err := a.authorizeDurableSiteJob(input.Site, a.Auth.UsernameForRequest(r), false)
+	access, err := a.authorizeDurableSiteJob(input.Site, req.actor(), false)
 	if err != nil {
-		http.Error(w, "production site access is no longer active", http.StatusForbidden)
-		return
+		return nil, operationFailure(http.StatusForbidden, "production site access is no longer active")
 	}
 	if a.Config.BackupRoot == "" || a.Config.DBCtl == "" || a.Config.WPCLI == "" {
-		http.Error(w, "verified backup, managed database, and WP-CLI services are required for promotion", http.StatusServiceUnavailable)
-		return
+		return nil, operationFailure(http.StatusServiceUnavailable, "verified backup, managed database, and WP-CLI services are required for promotion")
 	}
-	intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "wordpress.staging.promoted", input.Site, "staging_site="+input.Source)
+	intent, err := BeginSecurityAudit(a.Config.AuditLog, req.actor(), "wordpress.staging.promoted", input.Site, "staging_site="+input.Source)
 	if err != nil {
-		refuseWithoutSecurityAudit(w)
-		return
+		return nil, errAuditRefusal
 	}
 	var outcome string
 	defer intent.Finish(&outcome, "promotion did not complete")
@@ -302,18 +324,15 @@ func (a *App) stagingPromote(w http.ResponseWriter, r *http.Request) {
 		err = failureInjection("promote", "backup")
 	}
 	if err != nil {
-		writeOperationFailure(w, http.StatusServiceUnavailable, "WordPress promotion", input.Site, "promotion refused because the production safety backup failed", err)
-		return
+		return nil, operationFailureCause(http.StatusServiceUnavailable, "WordPress promotion", input.Site, "promotion refused because the production safety backup failed", err)
 	}
 	productionRoot, err := siteDocRoot(a.Config, input.Site)
 	if err != nil {
-		http.Error(w, "production document root is unavailable", http.StatusConflict)
-		return
+		return nil, operationFailure(http.StatusConflict, "production document root is unavailable")
 	}
 	txn, err := beginManagedSiteTransaction(operationCtx, a.Config, productionRoot, "staging.promote", access)
 	if err != nil {
-		http.Error(w, "could not journal promotion rollback state", http.StatusServiceUnavailable)
-		return
+		return nil, operationFailure(http.StatusServiceUnavailable, "could not journal promotion rollback state")
 	}
 	manager := a.siteManager
 	if manager == nil {
@@ -321,14 +340,12 @@ func (a *App) stagingPromote(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil || manager == nil {
 		rollbackPromotionSetup(txn, input.Site)
-		http.Error(w, "could not initialize site lifecycle manager", http.StatusServiceUnavailable)
-		return
+		return nil, operationFailure(http.StatusServiceUnavailable, "could not initialize site lifecycle manager")
 	}
 	stage, stageOwner, err := manager.CreateSiteStagingLease(operationCtx, input.Site, ".stepanel-promote-")
 	if err != nil {
 		rollbackPromotionSetup(txn, input.Site)
-		http.Error(w, "could not create production activation staging", http.StatusServiceUnavailable)
-		return
+		return nil, operationFailure(http.StatusServiceUnavailable, "could not create production activation staging")
 	}
 	defer func() {
 		if err := manager.ReleaseStagingLease(stage, stageOwner); err != nil {
@@ -383,29 +400,23 @@ func (a *App) stagingPromote(w http.ResponseWriter, r *http.Request) {
 	}()
 	stagingRoot, err := siteDocRoot(a.Config, input.Source)
 	if err != nil {
-		http.Error(w, "staging document root is unavailable", http.StatusConflict)
-		return
+		return nil, operationFailure(http.StatusConflict, "staging document root is unavailable")
 	}
 	if err := copyTreeContext(operationCtx, stagingRoot, stage); err != nil || failureInjection("promote", "copy") != nil {
-		writeOperationFailure(w, http.StatusBadGateway, "WordPress promotion", input.Site, "could not copy staging files", err)
-		return
+		return nil, operationFailureCause(http.StatusBadGateway, "WordPress promotion", input.Site, "could not copy staging files", err)
 	}
 	if err := writeWordPressMaintenanceMarker(stage); err != nil {
-		http.Error(w, "could not protect the production cutover with WordPress maintenance mode", http.StatusServiceUnavailable)
-		return
+		return nil, operationFailure(http.StatusServiceUnavailable, "could not protect the production cutover with WordPress maintenance mode")
 	}
 	password, err := randomWordPressDBPassword()
 	if err != nil {
-		http.Error(w, "could not allocate a new production database credential", http.StatusInternalServerError)
-		return
+		return nil, operationFailure(http.StatusInternalServerError, "could not allocate a new production database credential")
 	}
 	if candidateDB, candidateUser, err = newPromotionDatabaseIdentity(input.Site); err != nil {
-		http.Error(w, "could not allocate a candidate database identity", http.StatusInternalServerError)
-		return
+		return nil, operationFailure(http.StatusInternalServerError, "could not allocate a candidate database identity")
 	}
 	if err := txn.TrackDatabase(ManagedDatabase{Name: candidateDB, User: candidateUser, Kind: "panel"}); err != nil {
-		http.Error(w, "could not record candidate database recovery intent", http.StatusServiceUnavailable)
-		return
+		return nil, operationFailure(http.StatusServiceUnavailable, "could not record candidate database recovery intent")
 	}
 	sourceDB := before.StagingDatabase
 	err = host.CloneDatabase(operationCtx, a, sourceDB, candidateDB, candidateUser, password, access)
@@ -413,98 +424,79 @@ func (a *App) stagingPromote(w http.ResponseWriter, r *http.Request) {
 		err = failureInjection("promote", "clone")
 	}
 	if err != nil {
-		writeOperationFailure(w, http.StatusBadGateway, "WordPress promotion", input.Site, "could not create and validate promoted database", err)
-		return
+		return nil, operationFailureCause(http.StatusBadGateway, "WordPress promotion", input.Site, "could not create and validate promoted database", err)
 	}
 	if err := failureInjection("promote", "activate"); err != nil {
-		http.Error(w, "could not atomically activate staged production files", http.StatusServiceUnavailable)
-		return
+		return nil, operationFailure(http.StatusServiceUnavailable, "could not atomically activate staged production files")
 	}
 	if err := a.activateStagedSite(operationCtx, input.Site, stage); err != nil {
-		http.Error(w, "could not atomically activate staged production files", http.StatusServiceUnavailable)
-		return
+		return nil, operationFailure(http.StatusServiceUnavailable, "could not atomically activate staged production files")
 	}
 	activated = true
 	if err := siteHelperContext(operationCtx, a.Config, "seal", input.Site); err != nil || failureInjection("promote", "seal") != nil {
-		http.Error(w, "could not seal promoted production files", http.StatusServiceUnavailable)
-		return
+		return nil, operationFailure(http.StatusServiceUnavailable, "could not seal promoted production files")
 	}
 	dbHost := strings.TrimSpace(a.Config.DBHost)
 	if dbHost == "" {
 		dbHost = "localhost"
 	}
 	if err := failureInjection("promote", "configure"); err != nil {
-		http.Error(w, "could not connect promoted files to their isolated database", http.StatusBadGateway)
-		return
+		return nil, operationFailure(http.StatusBadGateway, "could not connect promoted files to their isolated database")
 	}
 	for _, setting := range []struct{ name, value string }{{"DB_NAME", candidateDB}, {"DB_USER", candidateUser}, {"DB_HOST", dbHost}} {
 		if _, err := runWordPress(operationCtx, a.Config, rootbroker.WordPressRequest{Action: "config-set", Site: input.Site, Name: setting.name, Value: setting.value}); err != nil {
-			writeOperationFailure(w, http.StatusBadGateway, "WordPress promotion", input.Site, "could not connect promoted files to their isolated database", err)
-			return
+			return nil, operationFailureCause(http.StatusBadGateway, "WordPress promotion", input.Site, "could not connect promoted files to their isolated database", err)
 		}
 	}
 	if _, err := runWordPress(operationCtx, a.Config, rootbroker.WordPressRequest{Action: "config-set-password", Site: input.Site, Secret: password}); err != nil {
-		writeOperationFailure(w, http.StatusBadGateway, "WordPress promotion", input.Site, "could not configure promoted database credentials", err)
-		return
+		return nil, operationFailureCause(http.StatusBadGateway, "WordPress promotion", input.Site, "could not configure promoted database credentials", err)
 	}
 	stagingURL := "https://" + before.StagingRoute
 	productionURL := "https://" + before.ProductionRoute
 	if _, err := runWordPress(operationCtx, a.Config, rootbroker.WordPressRequest{Action: "search-replace", Site: input.Site, Search: stagingURL, Replace: productionURL}); err != nil {
-		writeOperationFailure(w, http.StatusBadGateway, "WordPress promotion", input.Site, "could not rewrite staged WordPress URLs for production", err)
-		return
+		return nil, operationFailureCause(http.StatusBadGateway, "WordPress promotion", input.Site, "could not rewrite staged WordPress URLs for production", err)
 	}
 	for _, option := range []string{"home", "siteurl"} {
 		if _, err := runWordPress(operationCtx, a.Config, rootbroker.WordPressRequest{Action: "option-update", Site: input.Site, Name: option, Value: productionURL}); err != nil {
-			http.Error(w, "could not verify the promoted WordPress URL configuration", http.StatusBadGateway)
-			return
+			return nil, operationFailure(http.StatusBadGateway, "could not verify the promoted WordPress URL configuration")
 		}
 	}
 	if _, err := runWordPress(operationCtx, a.Config, rootbroker.WordPressRequest{Action: "db-check", Site: input.Site}); err != nil {
-		http.Error(w, "promoted WordPress database did not pass WP-CLI database integrity validation", http.StatusBadGateway)
-		return
+		return nil, operationFailure(http.StatusBadGateway, "promoted WordPress database did not pass WP-CLI database integrity validation")
 	}
 	activeDB, err := wordpressConfigValue(a.Config, input.Site, "DB_NAME")
 	if err != nil || activeDB != candidateDB {
-		http.Error(w, "promoted WordPress database identity did not verify", http.StatusBadGateway)
-		return
+		return nil, operationFailure(http.StatusBadGateway, "promoted WordPress database identity did not verify")
 	}
 	privatePath, err = sitePrivatePath(a.Config, input.Site, wordpressPromotionRecordName)
 	if err != nil {
-		http.Error(w, "could not resolve promotion recovery metadata path", http.StatusServiceUnavailable)
-		return
+		return nil, operationFailure(http.StatusServiceUnavailable, "could not resolve promotion recovery metadata path")
 	}
 	previousPromotion, promotionMarkerErr = readStateFile(privatePath, 16<<10)
 	if promotionMarkerErr != nil && !errors.Is(promotionMarkerErr, os.ErrNotExist) {
-		http.Error(w, "could not inspect the previous promotion recovery record", http.StatusServiceUnavailable)
-		return
+		return nil, operationFailure(http.StatusServiceUnavailable, "could not inspect the previous promotion recovery record")
 	}
 	promotionMarkerExisted = promotionMarkerErr == nil
 	record := wordpressPromotionRecord{SourceSite: input.Source, Backup: filepath.Base(safety.Path), PreviousDatabase: before.ActiveDatabase, ActiveDatabase: candidateDB, CompletedAt: time.Now().UTC()}
 	encoded, err := json.Marshal(record)
 	if err != nil {
-		http.Error(w, "could not encode promotion recovery record", http.StatusInternalServerError)
-		return
+		return nil, operationFailure(http.StatusInternalServerError, "could not encode promotion recovery record")
 	}
 	if err := writeAtomic(privatePath, append(encoded, '\n'), 0600); err != nil {
-		http.Error(w, "could not persist promotion recovery record", http.StatusServiceUnavailable)
-		return
+		return nil, operationFailure(http.StatusServiceUnavailable, "could not persist promotion recovery record")
 	}
 	markerWritten = true
 	if err := failureInjection("promote", "record"); err != nil {
-		http.Error(w, "could not persist promotion recovery record", http.StatusServiceUnavailable)
-		return
+		return nil, operationFailure(http.StatusServiceUnavailable, "could not persist promotion recovery record")
 	}
 	if _, err := runWordPress(operationCtx, a.Config, rootbroker.WordPressRequest{Action: "maintenance-deactivate", Site: input.Site}); err != nil {
-		http.Error(w, "could not remove the production maintenance gate after promotion", http.StatusBadGateway)
-		return
+		return nil, operationFailure(http.StatusBadGateway, "could not remove the production maintenance gate after promotion")
 	}
 	if err := failureInjection("promote", "commit"); err != nil {
-		http.Error(w, "could not commit the promotion recovery journal", http.StatusServiceUnavailable)
-		return
+		return nil, operationFailure(http.StatusServiceUnavailable, "could not commit the promotion recovery journal")
 	}
 	if err := txn.Commit(); err != nil {
-		http.Error(w, "could not commit the promotion recovery journal", http.StatusServiceUnavailable)
-		return
+		return nil, operationFailure(http.StatusServiceUnavailable, "could not commit the promotion recovery journal")
 	}
 	committed = true
 	if a.MetadataCache != nil {
@@ -512,7 +504,7 @@ func (a *App) stagingPromote(w http.ResponseWriter, r *http.Request) {
 	}
 	outcome = "staging=" + input.Source + " previous_database=" + before.ActiveDatabase + " promoted_database=" + candidateDB + " safety_backup=" + filepath.Base(safety.Path)
 	result := map[string]any{"site": input.Site, "source": input.Source, "domain": before.ProductionRoute, "database": candidateDB, "previous_database_retained": before.ActiveDatabase, "safety_backup": filepath.Base(safety.Path), "database_verified": true, "application_verification": "WP-CLI database bootstrap passed; public HTTP response still requires operator validation."}
-	writeJSON(w, http.StatusOK, result)
+	return result, nil
 }
 
 // stagingPromotionHost is the promotion's boundary to verified backups and

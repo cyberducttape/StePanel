@@ -150,8 +150,12 @@ func RevocationAudit(auditLog, actor, action, target, detail string) {
 // refuseWithoutSecurityAudit answers a request whose Class A intent could
 // not be recorded. Nothing was changed.
 func refuseWithoutSecurityAudit(w http.ResponseWriter) {
-	http.Error(w, "audit persistence is unavailable; the operation was not performed", http.StatusServiceUnavailable)
+	writeSiteOperationError(w, nil, errAuditRefusal)
 }
+
+// errAuditRefusal is the service-level form of
+// refuseWithoutSecurityAudit, for operations shared with durable workers.
+var errAuditRefusal = operationFailure(http.StatusServiceUnavailable, "audit persistence is unavailable; the operation was not performed")
 
 // TelemetryAudit records a Class B event. It never fails the caller; an
 // unhealthy audit sink is logged rather than hidden.

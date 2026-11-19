@@ -609,94 +609,130 @@ func (a *App) backupVerify(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"verified": true, "backup": input.Backup, "site": manifest.Site, "consistency": manifest.Consistency, "filesystem_consistency": manifest.FilesystemConsistency, "database_consistency": manifest.DatabaseConsistency, "application_consistency": manifest.ApplicationConsistency, "web_requests_quiesced": manifest.WebRequestsQuiesced, "archive_verified": manifest.ArchiveVerified, "database_dump_verified": manifest.DatabaseDumpVerified, "application_quiesced": manifest.ApplicationQuiesced, "filesystem_snapshot": manifest.FilesystemSnapshot, "manifest_signed": manifest.SignatureAlgorithm != ""})
 }
 
+// restoreToStagingBodyLimit bounds both restore-to-staging request bodies.
+const restoreToStagingBodyLimit = 4096
+
 func (a *App) backupRestoreToStaging(w http.ResponseWriter, r *http.Request) {
+	a.serveRestoreToStaging(w, r, a.restoreLocalBackupToStaging)
+}
+
+func (a *App) backupRestoreOffsiteToStaging(w http.ResponseWriter, r *http.Request) {
+	a.serveRestoreToStaging(w, r, a.restoreOffsiteBackupToStaging)
+}
+
+type restoreToStagingService func(context.Context, siteRequester, RestoreToStagingRequest) (map[string]any, error)
+
+func (a *App) serveRestoreToStaging(w http.ResponseWriter, r *http.Request, service restoreToStagingService) {
 	if r.Method != http.MethodPost || !a.Auth.CSRF(r) {
 		http.Error(w, "invalid request", 403)
 		return
 	}
 	var input RestoreToStagingRequest
-	if e := decodeJSON(w, r, 4096, &input); e != nil {
+	if e := decodeJSON(w, r, restoreToStagingBodyLimit, &input); e != nil {
 		http.Error(w, "invalid JSON", 400)
 		return
 	}
+	result, err := service(r.Context(), httpSiteRequester{a, r}, input)
+	if err != nil {
+		writeSiteOperationError(w, r, err)
+		return
+	}
+	writeJSON(w, 202, result)
+}
+
+func validateRestoreToStagingPayload(body []byte) error {
+	var input RestoreToStagingRequest
+	if err := decodeOperationBody(body, restoreToStagingBodyLimit, &input); err != nil {
+		return errors.New("invalid JSON")
+	}
+	return nil
+}
+
+// executeRestoreToStagingCommand runs a queued local restore into a staging
+// site; executeOffsiteRestoreToStagingCommand downloads the offsite copy
+// first. The services repeat every ownership and scope check.
+func executeRestoreToStagingCommand(a *App, ctx context.Context, command siteOperationCommand, principal siteOperationPrincipal) ([]byte, error) {
+	return executeRestoreToStaging(a, ctx, command, principal, a.restoreLocalBackupToStaging)
+}
+
+func executeOffsiteRestoreToStagingCommand(a *App, ctx context.Context, command siteOperationCommand, principal siteOperationPrincipal) ([]byte, error) {
+	return executeRestoreToStaging(a, ctx, command, principal, a.restoreOffsiteBackupToStaging)
+}
+
+func executeRestoreToStaging(a *App, ctx context.Context, command siteOperationCommand, principal siteOperationPrincipal, service restoreToStagingService) ([]byte, error) {
+	var input RestoreToStagingRequest
+	if err := decodeOperationBody(command.Body, restoreToStagingBodyLimit, &input); err != nil || safeUser(input.Site) != command.Site {
+		return nil, errors.New("invalid restore-to-staging command")
+	}
+	return siteOperationResult(service(ctx, durableSiteRequester{a: a, principal: principal, operation: command.Operation}, input))
+}
+
+// restoreLocalBackupToStaging restores a local backup into a new staging site.
+func (a *App) restoreLocalBackupToStaging(ctx context.Context, req siteRequester, input RestoreToStagingRequest) (map[string]any, error) {
 	input.Site = safeUser(input.Site)
 	input.Backup = strings.TrimSpace(input.Backup)
 	input.Domain = strings.ToLower(strings.TrimSpace(input.Domain))
 	backup, err := a.Config.backupDirectory(input.Backup)
 	if !validBackupName(input.Backup) || err != nil {
-		http.Error(w, "invalid backup", 422)
-		return
+		return nil, operationFailure(422, "invalid backup")
 	}
-	a.backupRestoreToStagingPath(w, r, input, backup)
+	return a.restoreBackupToStaging(ctx, req, input, backup)
 }
 
-func (a *App) backupRestoreOffsiteToStaging(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost || !a.Auth.CSRF(r) {
-		http.Error(w, "invalid request", 403)
-		return
-	}
-	var input RestoreToStagingRequest
-	if e := decodeJSON(w, r, 4096, &input); e != nil {
-		http.Error(w, "invalid JSON", 400)
-		return
-	}
+// restoreOffsiteBackupToStaging downloads an offsite backup of a site the
+// requester may access and restores it into a new staging site.
+func (a *App) restoreOffsiteBackupToStaging(ctx context.Context, req siteRequester, input RestoreToStagingRequest) (map[string]any, error) {
 	input.SourceSite = safeUser(input.SourceSite)
 	input.Site = safeUser(input.Site)
 	input.Backup = strings.TrimSpace(input.Backup)
 	input.Domain = strings.ToLower(strings.TrimSpace(input.Domain))
 	if input.SourceSite == "" || !validBackupName(input.Backup) {
-		http.Error(w, "invalid or inaccessible source site", http.StatusForbidden)
-		return
+		return nil, operationFailure(http.StatusForbidden, "invalid or inaccessible source site")
 	}
-	if _, ok := a.requireSiteAccess(w, r, input.SourceSite, "invalid or inaccessible source site", http.StatusForbidden); !ok {
-		return
+	if _, ok := req.siteAccess(input.SourceSite); !ok {
+		return nil, operationFailure(http.StatusForbidden, "invalid or inaccessible source site")
 	}
-	if !a.Auth.HasRequiredCustomerScope(r, "backup:restore") {
-		http.Error(w, "API token lacks the backup:restore scope", http.StatusForbidden)
-		return
+	if !req.customerScope("backup:restore") {
+		return nil, operationFailure(http.StatusForbidden, "API token lacks the backup:restore scope")
 	}
-	root, cleanup, err := downloadOffsiteBackupWithLedgerContext(r.Context(), a.Config, input.SourceSite, input.Backup, a.capacityLedger())
+	root, cleanup, err := downloadOffsiteBackupWithLedgerContext(ctx, a.Config, input.SourceSite, input.Backup, a.capacityLedger())
 	if err != nil {
-		http.Error(w, "could not download offsite backup: "+err.Error(), http.StatusBadGateway)
-		return
+		return nil, operationFailure(http.StatusBadGateway, "could not download offsite backup: "+err.Error())
 	}
 	defer cleanup()
-	a.backupRestoreToStagingPath(w, r, input, root)
+	return a.restoreBackupToStaging(ctx, req, input, root)
 }
 
-func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request, input RestoreToStagingRequest, backup string) {
+// restoreBackupToStaging verifies a backup and restores it into a new
+// staging site. Both restore-to-staging services end here.
+func (a *App) restoreBackupToStaging(ctx context.Context, req siteRequester, input RestoreToStagingRequest, backup string) (map[string]any, error) {
 	// Re-validate here as well as at the HTTP entry points. This helper is also
 	// called by the offsite restore path, and keeping the validation adjacent to
 	// the path construction makes the path-safety invariant explicit.
 	if !validSiteName(input.Site) || input.Backup == "." || input.Backup == "" || !domainname.Valid(input.Domain) {
-		http.Error(w, "invalid restore destination", 422)
-		return
+		return nil, operationFailure(422, "invalid restore destination")
 	}
-	access, ok := a.requireSiteAccess(w, r, input.Site, "invalid restore destination", 422)
+	access, ok := req.siteAccess(input.Site)
 	if !ok {
-		return
+		return nil, operationFailure(422, "invalid restore destination")
 	}
-	if !a.Auth.HasRequiredCustomerScope(r, "backup:restore") {
-		http.Error(w, "API token lacks the backup:restore scope", http.StatusForbidden)
-		return
+	if !req.customerScope("backup:restore") {
+		return nil, operationFailure(http.StatusForbidden, "API token lacks the backup:restore scope")
 	}
-	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), input.Site)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, input.Site)
 	if lockErr != nil {
-		http.Error(w, "site restore is busy", http.StatusConflict)
-		return
+		return nil, operationFailure(http.StatusConflict, "site restore is busy")
 	}
 	defer releaseUnlock()
-	if claimed := claimedBackupSite(backup); claimed == "" || !a.canAccessSite(r, claimed) {
-		http.Error(w, "backup verification failed", 422)
-		return
+	if claimed := claimedBackupSite(backup); claimed == "" || !req.canAccess(claimed) {
+		return nil, operationFailure(422, "backup verification failed")
 	}
 	manifest, e := VerifySiteBackupStrict(backup, a.Config.BackupSigningKey, a.Config.backupDecryptionKeys()...)
 	if e != nil {
-		http.Error(w, "backup verification failed", 422)
-		return
+		return nil, operationFailure(422, "backup verification failed")
 	}
-	if _, ok := a.requireSiteAccess(w, r, manifest.Site, "backup source site is not assigned to this account", http.StatusForbidden); !ok {
-		return
+	if _, ok := req.siteAccess(manifest.Site); !ok {
+		return nil, operationFailure(http.StatusForbidden, "backup source site is not assigned to this account")
 	}
 	// Validate database restore parameters (if provided)
 	input.Database = strings.ToLower(strings.TrimSpace(input.Database))
@@ -710,61 +746,50 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		TargetPassword: input.TargetPassword,
 	}, manifest)
 	if len(dbValidationErrors) > 0 {
-		http.Error(w, strings.Join(dbValidationErrors, "; "), http.StatusUnprocessableEntity)
-		return
+		return nil, operationFailure(http.StatusUnprocessableEntity, strings.Join(dbValidationErrors, "; "))
 	}
 
 	// Determine if database restoration is requested
 	hasDatabase := input.Database != "" && input.TargetDatabase != "" && input.TargetUser != "" && input.TargetPassword != ""
 	dest, e := siteDocRoot(a.Config, input.Site)
 	if e != nil {
-		http.Error(w, "invalid destination", 422)
-		return
+		return nil, operationFailure(422, "invalid destination")
 	}
 	// dest is produced by safePath, which rejects absolute/traversal components
 	// and symlinked path components beneath the configured web root; input.Site
 	// is also constrained by validSiteName above.
 	if _, e = os.Stat(dest); e == nil {
-		http.Error(w, "staging destination already exists", 409)
-		return
+		return nil, operationFailure(409, "staging destination already exists")
 	}
 	if e = os.MkdirAll(a.Config.ImportRoot, 0700); e != nil {
-		http.Error(w, "could not prepare restore staging", 500)
-		return
+		return nil, operationFailure(500, "could not prepare restore staging")
 	}
 	stage, stageLock, e := createImportStage(a.Config.ImportRoot, "backup-restore-")
 	if e != nil {
-		http.Error(w, "could not prepare restore staging", 500)
-		return
+		return nil, operationFailure(500, "could not prepare restore staging")
 	}
 	defer removeImportStage(stage, stageLock)
 	archivePath, archiveErr := safePath(backup, manifest.Archive)
 	if archiveErr != nil {
-		http.Error(w, "invalid verified backup path", 422)
-		return
+		return nil, operationFailure(422, "invalid verified backup path")
 	}
 	if e = extractBackupArchiveContext(operationCtx, archivePath, stage, a.Config.backupDecryptionKeys(), manifest); e != nil {
-		http.Error(w, "could not extract verified backup", 502)
-		return
+		return nil, operationFailure(502, "could not extract verified backup")
 	}
 	source, e := safePath(stage, "site", "public")
 	if e != nil {
-		http.Error(w, "invalid backup layout", 422)
-		return
+		return nil, operationFailure(422, "invalid backup layout")
 	}
 	info, statErr := os.Stat(source)
 	if statErr != nil {
-		http.Error(w, "could not inspect backup site files: "+statErr.Error(), http.StatusUnprocessableEntity)
-		return
+		return nil, operationFailure(http.StatusUnprocessableEntity, "could not inspect backup site files: "+statErr.Error())
 	}
 	if !info.IsDir() {
-		http.Error(w, "backup site files are not a directory", http.StatusUnprocessableEntity)
-		return
+		return nil, operationFailure(http.StatusUnprocessableEntity, "backup site files are not a directory")
 	}
 	managerStage, managerStageOwner, stageErr := createSiteManagerStaging(operationCtx, a.Config, input.Site, ".stepanel-backup-restore-")
 	if stageErr != nil {
-		http.Error(w, "could not create lifecycle staging tree", 503)
-		return
+		return nil, operationFailure(503, "could not create lifecycle staging tree")
 	}
 	defer func() {
 		if err := releaseSiteManagerStagingLease(a.Config, managerStage, managerStageOwner); err != nil {
@@ -782,8 +807,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 	}()
 	txn, e = beginManagedSiteTransaction(operationCtx, a.Config, dest, "backup.restore-to-staging", access)
 	if e != nil {
-		http.Error(w, "could not journal restore", 503)
-		return
+		return nil, operationFailure(503, "could not journal restore")
 	}
 	committed := false
 	defer func() {
@@ -827,62 +851,50 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		}
 	}()
 	if e = siteHelperContext(operationCtx, a.Config, "prepare", input.Site); e != nil {
-		http.Error(w, "could not prepare isolated staging site", 502)
-		return
+		return nil, operationFailure(502, "could not prepare isolated staging site")
 	}
 	marker, markerErr := sitePrivatePath(a.Config, input.Site, ".stepanel-staging-noindex")
 	if markerErr != nil {
-		http.Error(w, "invalid staging marker path", 422)
-		return
+		return nil, operationFailure(422, "invalid staging marker path")
 	}
 	if e = writeAtomic(marker, []byte("managed restore staging noindex\n"), 0600); e != nil {
-		http.Error(w, "could not apply restore indexing protection", 503)
-		return
+		return nil, operationFailure(503, "could not apply restore indexing protection")
 	}
 	if e = copyTreeContext(operationCtx, source, managerStage); e != nil {
-		http.Error(w, "could not restore site files", 502)
-		return
+		return nil, operationFailure(502, "could not restore site files")
 	}
 	if e = a.activateStagedSite(operationCtx, input.Site, managerStage); e != nil {
-		http.Error(w, "could not publish restored site through lifecycle manager", 503)
-		return
+		return nil, operationFailure(503, "could not publish restored site through lifecycle manager")
 	}
 	managerActivated = true
 	if e = siteHelperContext(operationCtx, a.Config, "seal", input.Site); e != nil {
-		http.Error(w, "could not seal restored site", 502)
-		return
+		return nil, operationFailure(502, "could not seal restored site")
 	}
 	if hasDatabase {
 		if e = txn.TrackDatabase(ManagedDatabase{Name: input.TargetDatabase, User: input.TargetUser, Kind: "panel"}); e != nil {
-			http.Error(w, "could not journal staging database", 503)
-			return
+			return nil, operationFailure(503, "could not journal staging database")
 		}
 		_, e = restoreDatabaseIntoStagingContext(operationCtx, a.Config, stage, input, a.capacityLedger())
 		if e != nil {
-			http.Error(w, "could not restore staging database: "+e.Error(), 502)
-			return
+			return nil, operationFailure(502, "could not restore staging database: "+e.Error())
 		}
 	}
 	routeName := siteVHostConfigName(a.Config.WebServer, input.Site, input.Domain)
 	if e = txn.TrackRoute(routeName, input.Domain); e != nil {
-		http.Error(w, "could not journal staging route", 503)
-		return
+		return nil, operationFailure(503, "could not journal staging route")
 	}
 	if e = runVhostMutation(operationCtx, a.Config, "apply", input.Site, input.Domain); e != nil {
-		http.Error(w, "could not activate restored staging route", 502)
-		return
+		return nil, operationFailure(502, "could not activate restored staging route")
 	}
 	if e = txn.MarkRouteApplied(routeName); e != nil {
-		http.Error(w, "could not record activated staging route", 503)
-		return
+		return nil, operationFailure(503, "could not record activated staging route")
 	}
 	if e = txn.Commit(); e != nil {
-		http.Error(w, "could not commit restore", 503)
-		return
+		return nil, operationFailure(503, "could not commit restore")
 	}
 	committed = true
-	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "backup.restore-to-staging", input.Site, input.Backup)
-	writeJSON(w, 202, map[string]any{"site": input.Site, "domain": input.Domain, "backup": input.Backup, "source_site": manifest.Site, "files_restored": true, "databases_restored": hasDatabase, "database": input.TargetDatabase, "restore_mode": "staging", "consistency": manifest.Consistency, "created_at": time.Now().UTC()})
+	TelemetryAudit(a.Config.AuditLog, req.actor(), "backup.restore-to-staging", input.Site, input.Backup)
+	return map[string]any{"site": input.Site, "domain": input.Domain, "backup": input.Backup, "source_site": manifest.Site, "files_restored": true, "databases_restored": hasDatabase, "database": input.TargetDatabase, "restore_mode": "staging", "consistency": manifest.Consistency, "created_at": time.Now().UTC()}, nil
 }
 
 // cleanupStagingRestoreDatabase compensates a failed staged restore using an

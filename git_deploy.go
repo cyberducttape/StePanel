@@ -1154,16 +1154,68 @@ func sanitizeGitError(output string) string {
 // only trusted deploy target and refuse any body claim that disagrees.
 func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 	webhookAuth, isWebhook := webhookAuthorization(r)
-	webhookSite := webhookAuth.Site
 	if r.Method != http.MethodPost || (!a.Auth.CSRF(r) && !isWebhook) {
 		http.Error(w, "invalid request", http.StatusForbidden)
 		return
 	}
 	var input gitDeployRequest
-	if err := decodeJSON(w, r, 16<<10, &input); err != nil {
+	if err := decodeJSON(w, r, gitDeployBodyLimit, &input); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
+	var webhook *authenticatedWebhook
+	if isWebhook {
+		webhook = &webhookAuth
+	}
+	result, err := a.deployGit(r.Context(), httpSiteRequester{a, r}, webhook, input)
+	if err != nil {
+		writeSiteOperationError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, result)
+}
+
+const gitDeployBodyLimit = 16 << 10
+
+func validateGitDeployPayload(body []byte) error {
+	var input gitDeployRequest
+	if err := decodeOperationBody(body, gitDeployBodyLimit, &input); err != nil {
+		return errors.New("invalid JSON")
+	}
+	return nil
+}
+
+// executeGitDeployCommand runs a queued Git deployment. A webhook delivery
+// deploys only to the site its signature authorized, under the policy
+// re-read when the job started; any other requester's ownership and scope
+// are re-checked against current state.
+func executeGitDeployCommand(a *App, ctx context.Context, command siteOperationCommand, principal siteOperationPrincipal) ([]byte, error) {
+	var input gitDeployRequest
+	if err := decodeOperationBody(command.Body, gitDeployBodyLimit, &input); err != nil {
+		return nil, errors.New("invalid Git deployment command")
+	}
+	if principal.Webhook != nil {
+		if principal.Webhook.Site != command.Site {
+			return nil, errors.New("invalid Git deployment command")
+		}
+	} else if safeUser(input.Site) != command.Site {
+		return nil, errors.New("invalid Git deployment command")
+	}
+	requester := durableSiteRequester{a: a, principal: principal, operation: command.Operation}
+	return siteOperationResult(a.deployGit(ctx, requester, principal.Webhook, input))
+}
+
+// deployGit clones a repository ref into release staging, validates it and
+// activates it. webhook is non-nil for a signed webhook delivery, which may
+// deploy only to its authorized site and within its allowlists. It is the
+// service behind the HTTP handler and the durable worker.
+func (a *App) deployGit(ctx context.Context, req siteRequester, webhook *authenticatedWebhook, input gitDeployRequest) (*gitDeployResult, error) {
+	isWebhook := webhook != nil
+	var webhookAuth authenticatedWebhook
+	if isWebhook {
+		webhookAuth = *webhook
+	}
+	webhookSite := webhookAuth.Site
 	input.Site = safeUser(input.Site)
 	input.Repository = strings.TrimSpace(input.Repository)
 	input.Ref = strings.TrimSpace(input.Ref)
@@ -1177,23 +1229,20 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		// formats that omit "site" continue to work.
 		if input.Site != "" && input.Site != webhookSite {
 			TelemetryAudit(a.Config.AuditLog, "webhook", "webhook.site.mismatch", webhookSite, fmt.Sprintf("body claimed site %q", input.Site))
-			http.Error(w, "webhook body targets a different site than the URL signature authorized", http.StatusForbidden)
-			return
+			return nil, operationFailure(http.StatusForbidden, "webhook body targets a different site than the URL signature authorized")
 		}
 		input.Site = webhookSite
 	}
 	if input.Site == "" || !gitRefPattern.MatchString(input.Ref) {
-		http.Error(w, "invalid site or Git ref", http.StatusUnprocessableEntity)
-		return
+		return nil, operationFailure(http.StatusUnprocessableEntity, "invalid site or Git ref")
 	}
 	if !isWebhook {
-		if _, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", http.StatusForbidden); !ok {
-			return
+		if _, ok := req.siteAccess(input.Site); !ok {
+			return nil, operationFailure(http.StatusForbidden, "site is not assigned to this account")
 		}
 	}
-	if !isWebhook && !a.Auth.HasRequiredCustomerScope(r, "deploy:write") {
-		http.Error(w, "API token lacks the deploy:write scope", http.StatusForbidden)
-		return
+	if !isWebhook && !req.customerScope("deploy:write") {
+		return nil, operationFailure(http.StatusForbidden, "API token lacks the deploy:write scope")
 	}
 
 	if isWebhook {
@@ -1201,17 +1250,15 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		// authenticated this request. Re-reading them here would fail open on
 		// a transient store error and race configuration changes.
 		if len(webhookAuth.Repositories) == 0 || !webhookRepositoryAllowed(webhookAuth, input.Repository) {
-			http.Error(w, "repository is not authorized for this webhook", http.StatusForbidden)
 			TelemetryAudit(a.Config.AuditLog, "webhook", "webhook.deploy.unauthorized", input.Site, fmt.Sprintf("repository not in whitelist: %s", input.Repository))
-			return
+			return nil, operationFailure(http.StatusForbidden, "repository is not authorized for this webhook")
 		}
 		if len(webhookAuth.AllowedRefs) == 0 || !matchRefPattern(input.Ref, webhookAuth.AllowedRefs) {
-			http.Error(w, "ref is not authorized for this webhook", http.StatusForbidden)
 			TelemetryAudit(a.Config.AuditLog, "webhook", "webhook.deploy.unauthorized", input.Site, fmt.Sprintf("ref not in whitelist: %s", input.Ref))
-			return
+			return nil, operationFailure(http.StatusForbidden, "ref is not authorized for this webhook")
 		}
 	}
-	actor := a.Auth.AuditActor(r)
+	actor := req.actor()
 	if isWebhook {
 		actor = "webhook"
 	}
@@ -1221,8 +1268,7 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 	// record), and record an outcome on every path.
 	intent, err := BeginSecurityAudit(a.Config.AuditLog, actor, "site.git-deployed", input.Site, input.Repository+"@"+input.Ref)
 	if err != nil {
-		refuseWithoutSecurityAudit(w)
-		return
+		return nil, errAuditRefusal
 	}
 	deployed := false
 	defer func() {
@@ -1230,40 +1276,33 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 			intent.Failed("deployment did not activate a release")
 		}
 	}()
-	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), input.Site)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, input.Site)
 	if lockErr != nil {
-		http.Error(w, "site is busy", http.StatusConflict)
-		return
+		return nil, operationFailure(http.StatusConflict, "site is busy")
 	}
 	defer releaseUnlock()
 	if err := operationCtx.Err(); err != nil {
-		http.Error(w, "Git deployment cancelled because the mutation lock was lost", http.StatusConflict)
-		return
+		return nil, operationFailure(http.StatusConflict, "Git deployment cancelled because the mutation lock was lost")
 	}
 	repository, err := parseGitRepository(input.Repository, a.Config.GitAllowedHosts)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
-		return
+		return nil, operationFailure(http.StatusUnprocessableEntity, err.Error())
 	}
 	if _, err := existingManagedDocRoot(a.Config, input.Site); err != nil {
-		http.Error(w, "invalid site root", http.StatusUnprocessableEntity)
-		return
+		return nil, operationFailure(http.StatusUnprocessableEntity, "invalid site root")
 	}
 	gitPath, err := exec.LookPath("git")
 	if err != nil {
-		http.Error(w, "Git is not installed", http.StatusServiceUnavailable)
-		return
+		return nil, operationFailure(http.StatusServiceUnavailable, "Git is not installed")
 	}
 	releaseGitSlot, err := a.acquireGitCloneAdmission(operationCtx)
 	if err != nil {
-		http.Error(w, "Git deployment rejected by host memory admission: "+err.Error(), http.StatusInsufficientStorage)
-		return
+		return nil, operationFailure(http.StatusInsufficientStorage, "Git deployment rejected by host memory admission: "+err.Error())
 	}
 	defer releaseGitSlot()
 	release, releaseOwner, err := a.createSiteReleaseStaging(operationCtx, input.Site, ".stepanel-release-")
 	if err != nil {
-		http.Error(w, "unable to create release staging directory", http.StatusInternalServerError)
-		return
+		return nil, operationFailure(http.StatusInternalServerError, "unable to create release staging directory")
 	}
 	defer func() {
 		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), input.Site, release))
@@ -1271,16 +1310,14 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 	}()
 	stageLimit, err := gitCloneStageLimit(a.Config.GitReleaseMaxTreeBytes)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInsufficientStorage)
-		return
+		return nil, operationFailure(http.StatusInsufficientStorage, err.Error())
 	}
 	// A host without enforceable project quotas can never run a Git deploy;
 	// report that before the capacity reservation, whose outcome depends on
 	// how full the disk happens to be.
 	projectID, err := a.enableGitStageQuota(operationCtx, input.Site, release, stageLimit)
 	if err != nil {
-		http.Error(w, "Git deployment requires enforceable project quotas on its staging filesystem: "+err.Error(), http.StatusServiceUnavailable)
-		return
+		return nil, operationFailure(http.StatusServiceUnavailable, "Git deployment requires enforceable project quotas on its staging filesystem: "+err.Error())
 	}
 	quotaActive := true
 	defer func() {
@@ -1295,8 +1332,7 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		// The detail names host paths and byte counts; log it for the
 		// operator and give the requester the generic refusal.
 		log.Printf("Git clone staging admission refused for site %s: %v", input.Site, err)
-		http.Error(w, "insufficient capacity for aggregate Git clone staging", http.StatusInsufficientStorage)
-		return
+		return nil, operationFailure(http.StatusInsufficientStorage, "insufficient capacity for aggregate Git clone staging")
 	}
 	defer reservation.release()
 	ctx, cancel := context.WithTimeout(operationCtx, 10*time.Minute)
@@ -1304,51 +1340,41 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 	cloneOutput, err := cloneGitRepository(ctx, a.Config, input.Site, repository.URL, input.Ref, release, a.Config.GitReleaseMaxTreeBytes, projectID)
 	if err != nil {
 		log.Printf("Git clone failed for site %s (repo %s): %v\nOutput: %s", input.Site, input.Repository, err, strings.TrimSpace(string(cloneOutput)))
-		http.Error(w, sanitizeGitError(string(cloneOutput)), http.StatusBadGateway)
-		return
+		return nil, operationFailure(http.StatusBadGateway, sanitizeGitError(string(cloneOutput)))
 	}
 	commit, err := identifyGitCommit(ctx, gitPath, release)
 	if err != nil {
 		log.Printf("Git checkout commit identification failed for site %s: %v", input.Site, err)
-		http.Error(w, "unable to identify checked-out commit", http.StatusBadGateway)
-		return
+		return nil, operationFailure(http.StatusBadGateway, "unable to identify checked-out commit")
 	}
 	if err := validateGitRelease(release, a.Config.MaxEntries); err != nil {
-		http.Error(w, "repository contains an unsafe release tree: "+err.Error(), http.StatusUnprocessableEntity)
-		return
+		return nil, operationFailure(http.StatusUnprocessableEntity, "repository contains an unsafe release tree: "+err.Error())
 	}
 	if err := validateGitReleaseSize(release, a.Config.GitReleaseMaxTreeBytes); err != nil {
-		http.Error(w, "repository exceeds the configured release size limit", http.StatusRequestEntityTooLarge)
-		return
+		return nil, operationFailure(http.StatusRequestEntityTooLarge, "repository exceeds the configured release size limit")
 	}
 	if err := os.RemoveAll(filepath.Join(release, ".git")); err != nil {
-		http.Error(w, "unable to remove Git metadata from release", http.StatusInternalServerError)
-		return
+		return nil, operationFailure(http.StatusInternalServerError, "unable to remove Git metadata from release")
 	}
 	if err := a.disableGitStageQuota(operationCtx, input.Site, release, projectID); err != nil {
-		http.Error(w, "unable to remove temporary Git staging quota before activation: "+err.Error(), http.StatusServiceUnavailable)
-		return
+		return nil, operationFailure(http.StatusServiceUnavailable, "unable to remove temporary Git staging quota before activation: "+err.Error())
 	}
 	quotaActive = false
 	if err := operationCtx.Err(); err != nil {
-		http.Error(w, "Git activation cancelled because the mutation lock was lost", http.StatusConflict)
-		return
+		return nil, operationFailure(http.StatusConflict, "Git activation cancelled because the mutation lock was lost")
 	}
 	deploymentID, err := newJobID("deployment")
 	if err != nil {
-		http.Error(w, "could not create deployment identity", http.StatusInternalServerError)
-		return
+		return nil, operationFailure(http.StatusInternalServerError, "could not create deployment identity")
 	}
 	result := gitDeployResult{DeploymentID: deploymentID, Site: input.Site, Repository: input.Repository, Ref: input.Ref, Commit: commit}
 	if err := a.recordDeployment(input.Site, "activation", "running", "atomic Git release activation started", result, ""); err != nil {
-		historyUnavailable(w, r)
-		return
+		return nil, errDeploymentHistoryUnavailable
 	}
 	previous, err := a.activatePipelineRelease(operationCtx, input.Site, release)
 	if err != nil {
 		_ = a.recordDeployment(input.Site, "activation", "failed", err.Error(), result, "") // failure already marks readiness
-		http.Error(w, "unable to activate the new release", http.StatusInternalServerError)
-		return
+		return nil, operationFailure(http.StatusInternalServerError, "unable to activate the new release")
 	}
 	// The release is live from here on; record that before any later check
 	// can return early.
@@ -1356,7 +1382,7 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 	intent.Completed(input.Repository + "@" + commit)
 	result.Previous = previous
 	a.finishCommittedRelease(operationCtx, "activation", "atomic Git release activated", release, previous, &result, true)
-	writeJSON(w, http.StatusAccepted, result)
+	return &result, nil
 }
 
 func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
