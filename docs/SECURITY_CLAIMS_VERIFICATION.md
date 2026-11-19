@@ -29,7 +29,7 @@ Last verified: 2026-10-02 against `main`.
 
 ### Backup archives are encrypted (Verified)
 - **Configuration:** `STEPANEL_BACKUP_ENCRYPTION_KEY`.
-- **Implementation:** `backup_encryption.go`: versioned envelope
+- **Implementation:** `internal/backup/encryption.go`: versioned envelope
   (`AES-256-GCM-HKDF-STREAM-v2`). Each backup derives its own subkey with
   HKDF-SHA256 from the configured key and a random 32-byte salt; chunk nonces
   are the chunk index plus a final-chunk flag, unique under that subkey; the
@@ -37,7 +37,7 @@ Last verified: 2026-10-02 against `main`.
   data. Truncation, reordering, appended data, and header edits are rejected.
   The manifest records the key id, never the key, and retired keys in
   `STEPANEL_BACKUP_ENCRYPTION_PREVIOUS_KEYS` still decrypt older backups.
-- **Tests:** `backup_encryption_test.go`: `TestBackupEncryptionRejectsTampering`,
+- **Tests:** `internal/backup/encryption_test.go`: `TestBackupEncryptionRejectsTampering`,
   `TestBackupEncryptionKeyRotation`, `TestBackupEncryptionReadsVersionOneArchives`;
   `backups_test.go`: `TestCreateSiteBackupEncryptsArchivePayload`.
 - **Boundary:** backups written before this release use the v1 format

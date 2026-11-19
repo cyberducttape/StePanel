@@ -31,7 +31,8 @@ orchestration:
   `site_usage.go`, `domain_claims.go`,
   `certificates.go`, `node_proxy.go`, `staging.go`, `staging_cleanup.go`,
   `htaccess.go`
-- **Backups and recovery**: `backups.go`, `backup_encryption.go`,
+- **Backups and recovery**: `backups.go`, `internal/backup` (archive
+  encryption, tree validation),
   `backup_restore.go`, `backup_restore_validation.go`, `backup_retention.go`,
   `backup_schedule.go`, `offsite.go`, `recovery.go`, `recovery_status.go`,
   `dr.go`, `retention.go`, `startup_recovery.go`, `startup_barrier.go`

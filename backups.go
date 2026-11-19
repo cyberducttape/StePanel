@@ -416,7 +416,7 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 	}
 	if cfg.BackupEncryptionKey != "" {
 		encryptedPath := filepath.Join(tempDir, "backup.tar.gz.enc")
-		keyID, err := encryptBackupArchive(archivePath, encryptedPath, cfg.BackupEncryptionKey)
+		keyID, err := backup.EncryptArchive(archivePath, encryptedPath, cfg.BackupEncryptionKey)
 		if err != nil {
 			return result, fmt.Errorf("encrypt backup archive: %w", err)
 		}
@@ -425,7 +425,7 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 		}
 		archivePath = encryptedPath
 		manifest.Archive = "backup.tar.gz.enc"
-		manifest.Encryption = backupEncryptionName
+		manifest.Encryption = backup.EncryptionScheme
 		manifest.EncryptionKeyID = keyID
 		archiveInfo, err = os.Stat(archivePath)
 		if err != nil {
@@ -976,7 +976,7 @@ func VerifyBackupArchiveWithKey(path string, manifest BackupManifest, keys []str
 		return errors.New("invalid backup manifest metadata")
 	}
 	if manifest.Archive == "backup.tar.gz.enc" {
-		if !isBackupEncryptionName(manifest.Encryption) || !hasBackupKey(keys) {
+		if !backup.IsEncryptionScheme(manifest.Encryption) || !backup.HasKey(keys) {
 			return errors.New("encrypted backup requires its encryption key")
 		}
 	} else if manifest.Encryption != "" || manifest.EncryptionKeyID != "" {
@@ -1002,7 +1002,7 @@ func VerifyBackupArchiveWithKey(path string, manifest BackupManifest, keys []str
 		return fmt.Errorf("rewind backup archive: %w", err)
 	}
 	if manifest.Archive == "backup.tar.gz.enc" {
-		return withDecryptedBackupArchiveReader(file, keys, manifest.Encryption, func(archivePath string) error {
+		return backup.WithDecryptedArchiveReader(file, keys, manifest.Encryption, func(archivePath string) error {
 			plaintext, _, err := openRegularNoFollow(archivePath, nil)
 			if err != nil {
 				return err

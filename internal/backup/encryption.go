@@ -1,4 +1,4 @@
-package stepanel
+package backup
 
 import (
 	"bufio"
@@ -14,6 +14,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	h "github.com/cyberducttape/StePanel/internal/helper"
 )
 
 // Backup archive encryption.
@@ -45,7 +47,8 @@ const (
 	backupEncryptionNonceV1  = 12
 
 	backupEncryptionFormat = "STEPANEL-BACKUP-ENC-2\n"
-	backupEncryptionName   = "AES-256-GCM-HKDF-STREAM-v2"
+	// EncryptionScheme is the manifest name of the current format.
+	EncryptionScheme       = "AES-256-GCM-HKDF-STREAM-v2"
 	backupEncryptionInfoV2 = "stepanel backup archive encryption v2"
 
 	backupEncryptionChunk  = 1 << 20
@@ -57,15 +60,15 @@ const (
 
 var backupEncryptionHeaderV2Len = len(backupEncryptionFormat) + backupKeyIDBytes + backupSaltBytes + 4
 
-// isBackupEncryptionName reports whether a manifest names a supported scheme.
-func isBackupEncryptionName(name string) bool {
-	return name == backupEncryptionName || name == backupEncryptionNameV1
+// IsEncryptionScheme reports whether a manifest names a supported scheme.
+func IsEncryptionScheme(name string) bool {
+	return name == EncryptionScheme || name == backupEncryptionNameV1
 }
 
-// backupKeyID identifies a configured backup encryption key without
+// KeyID identifies a configured backup encryption key without
 // revealing it. It is stable for a key and recorded in each backup's header
 // and manifest.
-func backupKeyID(key string) string {
+func KeyID(key string) string {
 	mac := hmac.New(sha256.New, []byte(key))
 	mac.Write([]byte("stepanel backup encryption key id"))
 	return hex.EncodeToString(mac.Sum(nil)[:backupKeyIDBytes])
@@ -121,13 +124,13 @@ func backupChunkNonceV1(base []byte, index uint32) []byte {
 	return nonce
 }
 
-// encryptBackupArchive writes src to dst in the current (v2) format and
+// EncryptArchive writes src to dst in the current (v2) format and
 // returns the id of the key it used.
-func encryptBackupArchive(src, dst, key string) (string, error) {
+func EncryptArchive(src, dst, key string) (string, error) {
 	if err := usableBackupKey(key); err != nil {
 		return "", err
 	}
-	input, _, err := openRegularNoFollow(src, nil)
+	input, _, err := h.OpenRegularNoFollow(src, nil)
 	if err != nil {
 		return "", err
 	}
@@ -143,7 +146,7 @@ func encryptBackupArchive(src, dst, key string) (string, error) {
 			_ = os.Remove(dst)
 		}
 	}()
-	keyID := backupKeyID(key)
+	keyID := KeyID(key)
 	rawKeyID, err := hex.DecodeString(keyID)
 	if err != nil {
 		return "", err
@@ -209,14 +212,14 @@ func encryptBackupArchive(src, dst, key string) (string, error) {
 	return keyID, nil
 }
 
-// decryptBackupArchiveReader decrypts input into a new file at dst. scheme is
+// decryptArchiveReader decrypts input into a new file at dst. scheme is
 // the encryption name from the signed manifest; the archive header must
 // match it, so a manifest cannot be paired with a weaker format. keys holds
 // every configured key, current first.
-func decryptBackupArchiveReader(input io.Reader, dst string, keys []string, scheme string) error {
+func decryptArchiveReader(input io.Reader, dst string, keys []string, scheme string) error {
 	var expected string
 	switch scheme {
-	case backupEncryptionName:
+	case EncryptionScheme:
 		expected = backupEncryptionFormat
 	case backupEncryptionNameV1:
 		expected = backupEncryptionFormatV1
@@ -273,7 +276,7 @@ func decryptBackupStreamV2(input io.Reader, output io.Writer, keys []string, mag
 	}
 	key := ""
 	for _, candidate := range keys {
-		if usableBackupKey(candidate) == nil && backupKeyID(candidate) == keyID {
+		if usableBackupKey(candidate) == nil && KeyID(candidate) == keyID {
 			key = candidate
 			break
 		}
@@ -383,12 +386,12 @@ func decryptBackupStreamV1(input io.Reader, output io.Writer, keys []string) err
 	}
 }
 
-// withDecryptedBackupArchiveReader decrypts the already-open encrypted input
+// WithDecryptedArchiveReader decrypts the already-open encrypted input
 // into a private temporary file. Keeping the input descriptor owned by the
 // caller prevents a path replacement between checksum verification and
 // decryption from changing the bytes that are consumed.
-func withDecryptedBackupArchiveReader(input io.Reader, keys []string, scheme string, fn func(string) error) (returnErr error) {
-	if !hasBackupKey(keys) {
+func WithDecryptedArchiveReader(input io.Reader, keys []string, scheme string, fn func(string) error) (returnErr error) {
+	if !HasKey(keys) {
 		return errors.New("backup encryption key is not configured")
 	}
 	temp, err := os.CreateTemp("", ".backup-decrypt-*")
@@ -410,7 +413,7 @@ func withDecryptedBackupArchiveReader(input io.Reader, keys []string, scheme str
 			_ = os.Remove(tempPath)
 		}
 	}()
-	if err := decryptBackupArchiveReader(input, tempPath, keys, scheme); err != nil {
+	if err := decryptArchiveReader(input, tempPath, keys, scheme); err != nil {
 		return err
 	}
 	callbackErr := fn(tempPath)
@@ -428,7 +431,8 @@ func withDecryptedBackupArchiveReader(input io.Reader, keys []string, scheme str
 	return nil
 }
 
-func hasBackupKey(keys []string) bool {
+// HasKey reports whether keys contains at least one configured key.
+func HasKey(keys []string) bool {
 	for _, key := range keys {
 		if usableBackupKey(key) == nil {
 			return true

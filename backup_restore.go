@@ -981,7 +981,7 @@ func extractBackupArchiveContext(ctx context.Context, archive, destination strin
 		_ = file.Close()
 		return err
 	}
-	consumeErr := withDecryptedBackupArchiveReader(file, encryptionKeys, manifest.Encryption, func(plaintext string) error {
+	consumeErr := backup.WithDecryptedArchiveReader(file, encryptionKeys, manifest.Encryption, func(plaintext string) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}

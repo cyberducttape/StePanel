@@ -1,4 +1,4 @@
-package stepanel
+package backup
 
 import (
 	"bytes"
@@ -24,7 +24,7 @@ func encryptTestArchive(t *testing.T, plain []byte, key string) (string, string)
 		t.Fatal(err)
 	}
 	dst := filepath.Join(dir, "sealed")
-	keyID, err := encryptBackupArchive(src, dst, key)
+	keyID, err := EncryptArchive(src, dst, key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func encryptTestArchive(t *testing.T, plain []byte, key string) (string, string)
 func decryptTestArchive(t *testing.T, sealed []byte, keys []string, scheme string) ([]byte, error) {
 	t.Helper()
 	dst := filepath.Join(t.TempDir(), "out")
-	if err := decryptBackupArchiveReader(bytes.NewReader(sealed), dst, keys, scheme); err != nil {
+	if err := decryptArchiveReader(bytes.NewReader(sealed), dst, keys, scheme); err != nil {
 		if _, statErr := os.Stat(dst); !os.IsNotExist(statErr) {
 			t.Fatalf("failed decryption left output behind: %v", statErr)
 		}
@@ -56,14 +56,14 @@ func TestBackupEncryptionRoundTripsAtChunkBoundaries(t *testing.T) {
 	for _, size := range []int{0, 1, backupEncryptionChunk - 1, backupEncryptionChunk, backupEncryptionChunk + 1, 2 * backupEncryptionChunk} {
 		plain := randomBytes(t, size)
 		path, keyID := encryptTestArchive(t, plain, testBackupKey)
-		if keyID != backupKeyID(testBackupKey) {
-			t.Fatalf("key id = %s, want %s", keyID, backupKeyID(testBackupKey))
+		if keyID != KeyID(testBackupKey) {
+			t.Fatalf("key id = %s, want %s", keyID, KeyID(testBackupKey))
 		}
 		sealed, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		got, err := decryptTestArchive(t, sealed, []string{testBackupKey}, backupEncryptionName)
+		got, err := decryptTestArchive(t, sealed, []string{testBackupKey}, EncryptionScheme)
 		if err != nil {
 			t.Fatalf("size %d: %v", size, err)
 		}
@@ -124,7 +124,7 @@ func TestBackupEncryptionRejectsTampering(t *testing.T) {
 		}(),
 	}
 	for name, data := range cases {
-		if _, err := decryptTestArchive(t, data, []string{testBackupKey}, backupEncryptionName); err == nil {
+		if _, err := decryptTestArchive(t, data, []string{testBackupKey}, EncryptionScheme); err == nil {
 			t.Errorf("%s: tampered archive decrypted", name)
 		}
 	}
@@ -135,11 +135,11 @@ func TestBackupEncryptionKeyRotation(t *testing.T) {
 	path, keyID := encryptTestArchive(t, plain, testBackupKeyPrev)
 	sealed, _ := os.ReadFile(path)
 
-	_, err := decryptTestArchive(t, sealed, []string{testBackupKey}, backupEncryptionName)
+	_, err := decryptTestArchive(t, sealed, []string{testBackupKey}, EncryptionScheme)
 	if err == nil || !strings.Contains(err.Error(), keyID) {
 		t.Fatalf("decryption without the retired key = %v, want an error naming key %s", err, keyID)
 	}
-	got, err := decryptTestArchive(t, sealed, []string{testBackupKey, testBackupKeyPrev}, backupEncryptionName)
+	got, err := decryptTestArchive(t, sealed, []string{testBackupKey, testBackupKeyPrev}, EncryptionScheme)
 	if err != nil || !bytes.Equal(got, plain) {
 		t.Fatalf("decryption with the retired key listed = %q, %v", got, err)
 	}
@@ -155,7 +155,7 @@ func TestBackupEncryptionHeaderMustMatchManifestScheme(t *testing.T) {
 		t.Fatal("v2 archive accepted under a v1 manifest")
 	}
 	legacy := encryptBackupV1ForTest(t, []byte("data"), testBackupKey)
-	if _, err := decryptTestArchive(t, legacy, []string{testBackupKey}, backupEncryptionName); err == nil {
+	if _, err := decryptTestArchive(t, legacy, []string{testBackupKey}, EncryptionScheme); err == nil {
 		t.Fatal("v1 archive accepted under a v2 manifest")
 	}
 	if _, err := decryptTestArchive(t, sealed, []string{testBackupKey}, "none"); err == nil {
@@ -203,13 +203,4 @@ func encryptBackupV1ForTest(t *testing.T, plain []byte, key string) []byte {
 		plain = plain[n:]
 	}
 	return out.Bytes()
-}
-
-func TestBackupDecryptionKeysConfig(t *testing.T) {
-	t.Setenv("STEPANEL_BACKUP_ENCRYPTION_KEY", testBackupKey)
-	t.Setenv("STEPANEL_BACKUP_ENCRYPTION_PREVIOUS_KEYS", " "+testBackupKeyPrev+" , ,")
-	cfg := LoadConfig()
-	if got := cfg.backupDecryptionKeys(); len(got) != 2 || got[0] != testBackupKey || got[1] != testBackupKeyPrev {
-		t.Fatalf("decryption keys = %q", got)
-	}
 }

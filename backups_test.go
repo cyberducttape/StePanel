@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"github.com/cyberducttape/StePanel/internal/backup"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -369,7 +370,7 @@ func TestCreateSiteBackupEncryptsArchivePayload(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := readTestBackupManifest(t, result.Path)
-	if manifest.Archive != "backup.tar.gz.enc" || manifest.Encryption != backupEncryptionName || manifest.EncryptionKeyID != backupKeyID(key) {
+	if manifest.Archive != "backup.tar.gz.enc" || manifest.Encryption != backup.EncryptionScheme || manifest.EncryptionKeyID != backup.KeyID(key) {
 		t.Fatalf("encrypted manifest = %#v", manifest)
 	}
 	if _, err := os.Stat(filepath.Join(result.Path, "backup.tar.gz")); !os.IsNotExist(err) {
