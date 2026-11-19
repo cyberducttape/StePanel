@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/backup"
 )
 
 // writeFlatBackup writes a backup where releases before per-site
@@ -23,17 +25,8 @@ func writeFlatBackup(t *testing.T, root, name, site string) string {
 	return dir
 }
 
-func TestBackupPathResolvesTheNamedSitesDirectory(t *testing.T) {
+func TestDownloadedBackupResolvesOutsideTheBackupRoot(t *testing.T) {
 	root := t.TempDir()
-	path, err := backupPath(root, "20260101-000000.000000000-my-shop")
-	if err != nil || path != filepath.Join(root, "sites", "my-shop", "20260101-000000.000000000-my-shop") {
-		t.Fatalf("backupPath = %q, %v", path, err)
-	}
-	for _, name := range []string{"", "renamed-new", "../20260101-000000.000000000-demo", "20260101-000000.000000000-demo/../x", ".pruning-20260101-000000.000000000-demo"} {
-		if _, err := backupPath(root, name); err == nil {
-			t.Errorf("backupPath accepted %q", name)
-		}
-	}
 	downloaded := filepath.Join(t.TempDir(), "offsite-restore-1")
 	if got, err := (Config{BackupRoot: root}).withDownloadedBackup(downloaded).backupDirectory("20260101-000000.000000000-demo"); err != nil || got != downloaded {
 		t.Fatalf("downloaded backup resolved to %q, %v", got, err)
@@ -74,7 +67,7 @@ func TestMigrateBackupLayoutMovesProvenBackupsOnly(t *testing.T) {
 		t.Fatalf("migration = %+v, want 3 moved and 4 left", report)
 	}
 	for _, name := range []string{"20260101-000000.000000000-demo", "20260102-000000.000000000-demo", "20260101-000000.000000000-other"} {
-		if _, err := os.Stat(filepath.Join(root, "sites", backupNameSite(name), name, "manifest.json")); err != nil {
+		if _, err := os.Stat(filepath.Join(root, "sites", backup.NameSite(name), name, "manifest.json")); err != nil {
 			t.Errorf("%s was not moved into its site's directory: %v", name, err)
 		}
 		if _, err := os.Lstat(filepath.Join(root, name)); !os.IsNotExist(err) {

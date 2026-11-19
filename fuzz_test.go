@@ -3,6 +3,8 @@ package stepanel
 import (
 	"strings"
 	"testing"
+
+	"github.com/cyberducttape/StePanel/internal/backup"
 )
 
 func FuzzSafeUser(f *testing.F) {
@@ -30,11 +32,11 @@ func FuzzValidBackupName(f *testing.F) {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, value string) {
-		if !validBackupName(value) {
+		if !backup.ValidName(value) {
 			return
 		}
 		if len(value) > 160 || value == "." || value == ".." || strings.ContainsAny(value, "/\\"+string(rune(0))) {
-			t.Fatalf("validBackupName accepted unsafe value %q", value)
+			t.Fatalf("backup.ValidName accepted unsafe value %q", value)
 		}
 	})
 }

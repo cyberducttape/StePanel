@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/backup"
 )
 
 func TestCleanupBackupStagesRemovesOnlyExpiredTemporaryDirectories(t *testing.T) {
@@ -98,7 +100,7 @@ func TestPruneSiteBackupsKeepsNewestAndOtherSites(t *testing.T) {
 		t.Fatal("oldest demo backup was not pruned")
 	}
 	for _, name := range []string{"20260102-000000.000000000-demo", "20260103-000000.000000000-demo", "20260101-000000.000000000-other"} {
-		if _, err := os.Stat(filepath.Join(testSiteBackupDirectory(t, backupRoot, backupNameSite(name)), name)); err != nil {
+		if _, err := os.Stat(filepath.Join(testSiteBackupDirectory(t, backupRoot, backup.NameSite(name)), name)); err != nil {
 			t.Fatalf("expected %s to remain: %v", name, err)
 		}
 	}
@@ -324,7 +326,7 @@ func testSiteBackupDirectory(t *testing.T, root, site string) string {
 // is for, with a manifest naming site.
 func writeTestBackup(t *testing.T, root, name, site string, createdAt time.Time) {
 	t.Helper()
-	owner := backupNameSite(name)
+	owner := backup.NameSite(name)
 	if owner == "" {
 		owner = site
 	}
@@ -402,21 +404,6 @@ func TestPruneSiteBackupsReportsNameManifestMismatch(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "20260101-000000.000000000-demo")); err != nil {
 		t.Fatalf("mismatched entry was deleted: %v", err)
-	}
-}
-
-func TestBackupNameSiteParsesOnlyPublishedNames(t *testing.T) {
-	for name, want := range map[string]string{
-		"20260101-000000.000000000-demo":    "demo",
-		"20260101-000000.000000000-my-shop": "my-shop",
-		"renamed-new":                       "",
-		"20260101-000000.000000000-":        "",
-		"2026010x-000000.000000000-demo":    "",
-		"20260101-000000.000000000-Bad/One": "",
-	} {
-		if got := backupNameSite(name); got != want {
-			t.Errorf("backupNameSite(%q) = %q, want %q", name, got, want)
-		}
 	}
 }
 

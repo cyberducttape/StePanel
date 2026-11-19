@@ -71,7 +71,7 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 	if err := json.Unmarshal(item.Payload, &request); err != nil {
 		return nil, fmt.Errorf("decode backup restore job payload: %w", err)
 	}
-	if safeUser(request.Site) == "" || !validBackupName(request.Backup) || request.Actor == "" {
+	if safeUser(request.Site) == "" || !backup.ValidName(request.Backup) || request.Actor == "" {
 		return nil, errors.New("invalid durable backup restore payload")
 	}
 	access, err := a.authorizeDurableSiteJob(request.Site, request.Actor, false)
@@ -214,7 +214,7 @@ func interruptedDatabaseRestore(recoveryRoot, jobID string, request durableBacku
 	if err := json.Unmarshal(data, &marker); err != nil {
 		return nil, doNotRetry(fmt.Errorf("an earlier attempt of this restore was interrupted and its marker %s is unreadable, so its pre-restore safety backup is unknown: %w", filepath.Base(path), err))
 	}
-	if marker.Site != request.Site || marker.Database != request.Database || !validBackupName(marker.SafetyBackup) {
+	if marker.Site != request.Site || marker.Database != request.Database || !backup.ValidName(marker.SafetyBackup) {
 		return nil, doNotRetry(fmt.Errorf("an earlier attempt of this restore was interrupted and its marker %s does not match the job", filepath.Base(path)))
 	}
 	return &marker, nil
@@ -291,7 +291,7 @@ func (a *App) handleBackupRehearsalJob(ctx context.Context, item Job) ([]byte, e
 	if err := json.Unmarshal(item.Payload, &request); err != nil {
 		return nil, fmt.Errorf("decode backup rehearsal job payload: %w", err)
 	}
-	if safeUser(request.Site) == "" || !validBackupName(request.Backup) || strings.TrimSpace(request.Actor) == "" {
+	if safeUser(request.Site) == "" || !backup.ValidName(request.Backup) || strings.TrimSpace(request.Actor) == "" {
 		return nil, errors.New("invalid backup rehearsal payload")
 	}
 	if _, err := a.authorizeDurableSiteJob(request.Site, request.Actor, request.Scheduled); err != nil {
@@ -517,7 +517,7 @@ func (a *App) backupRehearse(w http.ResponseWriter, r *http.Request) {
 	}
 	input.Site = safeUser(input.Site)
 	input.Backup = strings.TrimSpace(input.Backup)
-	if input.Site == "" || !validBackupName(input.Backup) {
+	if input.Site == "" || !backup.ValidName(input.Backup) {
 		http.Error(w, "invalid backup", http.StatusUnprocessableEntity)
 		return
 	}
@@ -577,7 +577,7 @@ func (a *App) backupVerify(w http.ResponseWriter, r *http.Request) {
 	}
 	input.Site = safeUser(input.Site)
 	input.Backup = strings.TrimSpace(input.Backup)
-	if input.Site == "" || !validBackupName(input.Backup) {
+	if input.Site == "" || !backup.ValidName(input.Backup) {
 		http.Error(w, "invalid backup", http.StatusUnprocessableEntity)
 		return
 	}
@@ -672,11 +672,11 @@ func (a *App) restoreLocalBackupToStaging(ctx context.Context, req siteRequester
 	input.Site = safeUser(input.Site)
 	input.Backup = strings.TrimSpace(input.Backup)
 	input.Domain = strings.ToLower(strings.TrimSpace(input.Domain))
-	backup, err := a.Config.backupDirectory(input.Backup)
-	if !validBackupName(input.Backup) || err != nil {
+	directory, err := a.Config.backupDirectory(input.Backup)
+	if !backup.ValidName(input.Backup) || err != nil {
 		return nil, operationFailure(422, "invalid backup")
 	}
-	return a.restoreBackupToStaging(ctx, req, input, backup)
+	return a.restoreBackupToStaging(ctx, req, input, directory)
 }
 
 // restoreOffsiteBackupToStaging downloads an offsite backup of a site the
@@ -686,7 +686,7 @@ func (a *App) restoreOffsiteBackupToStaging(ctx context.Context, req siteRequest
 	input.Site = safeUser(input.Site)
 	input.Backup = strings.TrimSpace(input.Backup)
 	input.Domain = strings.ToLower(strings.TrimSpace(input.Domain))
-	if input.SourceSite == "" || !validBackupName(input.Backup) {
+	if input.SourceSite == "" || !backup.ValidName(input.Backup) {
 		return nil, operationFailure(http.StatusForbidden, "invalid or inaccessible source site")
 	}
 	if _, ok := req.siteAccess(input.SourceSite); !ok {
@@ -1074,7 +1074,7 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 		return BackupRestoreResult{}, err
 	}
 	siteName := site.Site()
-	if !validBackupName(backupName) {
+	if !backup.ValidName(backupName) {
 		return BackupRestoreResult{}, errors.New("invalid backup path")
 	}
 	backup, err := cfg.backupDirectory(backupName)
@@ -1208,7 +1208,7 @@ func (a *App) backupRestoreFilesHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	input.Site = safeUser(input.Site)
 	input.Backup = strings.TrimSpace(input.Backup)
-	if input.Site == "" || !validBackupName(input.Backup) || input.Confirm != "RESTORE_FILES" {
+	if input.Site == "" || !backup.ValidName(input.Backup) || input.Confirm != "RESTORE_FILES" {
 		http.Error(w, "site, backup, and confirm=RESTORE_FILES are required", http.StatusUnprocessableEntity)
 		return
 	}
@@ -1254,7 +1254,7 @@ func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, d
 	if err := ctx.Err(); err != nil {
 		return BackupRestoreResult{}, err
 	}
-	if !validBackupName(backupName) || !validManagedDatabaseIdentifier(database, databaseNameLimit(cfg)) {
+	if !backup.ValidName(backupName) || !validManagedDatabaseIdentifier(database, databaseNameLimit(cfg)) {
 		return BackupRestoreResult{}, errors.New("invalid backup path")
 	}
 	backup, err := cfg.backupDirectory(backupName)
@@ -1344,7 +1344,7 @@ func (a *App) backupRestoreDatabaseHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 	input.Site = safeUser(input.Site)
 	input.Backup = strings.TrimSpace(input.Backup)
-	if input.Site == "" || !validBackupName(input.Backup) || !validManagedDatabaseIdentifier(input.Database, 64) || input.Confirm != "RESTORE_DATABASE" {
+	if input.Site == "" || !backup.ValidName(input.Backup) || !validManagedDatabaseIdentifier(input.Database, 64) || input.Confirm != "RESTORE_DATABASE" {
 		http.Error(w, "site, backup, database, and confirm=RESTORE_DATABASE are required", http.StatusUnprocessableEntity)
 		return
 	}
@@ -1391,7 +1391,7 @@ func (a *App) backupRestoreOffsiteFilesHTTP(w http.ResponseWriter, r *http.Reque
 	}
 	input.Site = safeUser(input.Site)
 	input.Backup = strings.TrimSpace(input.Backup)
-	if input.Site == "" || !validBackupName(input.Backup) || input.Confirm != "RESTORE_OFFSITE_FILES" {
+	if input.Site == "" || !backup.ValidName(input.Backup) || input.Confirm != "RESTORE_OFFSITE_FILES" {
 		http.Error(w, "site, backup, and confirm=RESTORE_OFFSITE_FILES are required", http.StatusUnprocessableEntity)
 		return
 	}
@@ -1429,7 +1429,7 @@ func (a *App) backupRestoreOffsiteDatabaseHTTP(w http.ResponseWriter, r *http.Re
 	}
 	input.Site = safeUser(input.Site)
 	input.Backup = strings.TrimSpace(input.Backup)
-	if input.Site == "" || !validBackupName(input.Backup) || !validManagedDatabaseIdentifier(input.Database, 64) || input.Confirm != "RESTORE_OFFSITE_DATABASE" {
+	if input.Site == "" || !backup.ValidName(input.Backup) || !validManagedDatabaseIdentifier(input.Database, 64) || input.Confirm != "RESTORE_OFFSITE_DATABASE" {
 		http.Error(w, "site, backup, database, and confirm=RESTORE_OFFSITE_DATABASE are required", http.StatusUnprocessableEntity)
 		return
 	}

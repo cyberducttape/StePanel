@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"github.com/cyberducttape/StePanel/internal/backup"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +15,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/backup"
 )
 
 func TestBackupStageIsRecoverableAfterProcessKill(t *testing.T) {

@@ -10,62 +10,21 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+
+	"github.com/cyberducttape/StePanel/internal/backup"
 )
-
-// Backup layout. Published backups live in one directory per site:
-//
-//	BACKUP_ROOT/sites/<site>/<timestamp>-<site>/
-//
-// so listing, retention and restore read only the requesting site's
-// entries, however many sites and backups the host holds. Staging
-// directories (.backup-*), database safety copies (.database-deletions) and
-// anything whose owner could not be proven stay in BACKUP_ROOT itself.
-// Releases before this layout kept every backup directly in BACKUP_ROOT;
-// migrateBackupLayout moves them at startup.
-const backupSitesDirectory = "sites"
-
-// backupSitesRoot is the directory holding every site's backup directory.
-func backupSitesRoot(root string) string {
-	return filepath.Join(root, backupSitesDirectory)
-}
-
-// backupSiteDirectory is the directory holding one site's backups.
-func backupSiteDirectory(root, site string) (string, error) {
-	if site == "" || safeUser(site) != site {
-		return "", fmt.Errorf("invalid backup site %q", site)
-	}
-	return safePath(backupSitesRoot(root), site)
-}
-
-// backupPath resolves a published backup name to its directory. The name
-// carries the site it was taken for, so no listing is needed. The manifest,
-// not the name, still proves ownership wherever a backup is used.
-func backupPath(root, name string) (string, error) {
-	if !validBackupName(name) {
-		return "", errors.New("invalid backup name")
-	}
-	site := backupNameSite(name)
-	if site == "" {
-		return "", errors.New("backup name does not identify a site")
-	}
-	directory, err := backupSiteDirectory(root, site)
-	if err != nil {
-		return "", err
-	}
-	return safePath(directory, name)
-}
 
 // backupDirectory resolves name for this configuration: the downloaded
 // offsite backup when the configuration was prepared for one, otherwise the
 // published backup in BACKUP_ROOT.
 func (c Config) backupDirectory(name string) (string, error) {
 	if c.downloadedBackup != "" {
-		if !validBackupName(name) {
+		if !backup.ValidName(name) {
 			return "", errors.New("invalid backup name")
 		}
 		return c.downloadedBackup, nil
 	}
-	return backupPath(c.BackupRoot, name)
+	return backup.Path(c.BackupRoot, name)
 }
 
 // withDownloadedBackup returns a configuration whose backup lookups resolve
@@ -78,11 +37,11 @@ func (c Config) withDownloadedBackup(directory string) Config {
 // ensureBackupSiteDirectory creates a site's backup directory (and the
 // sites directory) durably, owner-only like BACKUP_ROOT.
 func ensureBackupSiteDirectory(root, site string) (string, error) {
-	directory, err := backupSiteDirectory(root, site)
+	directory, err := backup.SiteDirectory(root, site)
 	if err != nil {
 		return "", err
 	}
-	for _, dir := range []string{backupSitesRoot(root), directory} {
+	for _, dir := range []string{backup.SitesRoot(root), directory} {
 		info, err := os.Lstat(dir)
 		if errors.Is(err, os.ErrNotExist) {
 			if err := os.Mkdir(dir, 0700); err != nil && !errors.Is(err, os.ErrExist) {
@@ -101,24 +60,6 @@ func ensureBackupSiteDirectory(root, site string) (string, error) {
 		}
 	}
 	return directory, nil
-}
-
-// backupSiteNames lists the sites that have a backup directory.
-func backupSiteNames(root string) ([]string, error) {
-	entries, err := os.ReadDir(backupSitesRoot(root))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	sites := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() && safeUser(entry.Name()) == entry.Name() {
-			sites = append(sites, entry.Name())
-		}
-	}
-	return sites, nil
 }
 
 // backupLayoutMigration reports what migrateBackupLayout did.
@@ -166,15 +107,15 @@ func migrateBackupLayout(root string) (backupLayoutMigration, error) {
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if strings.HasPrefix(name, ".") || name == backupSitesDirectory {
+		if strings.HasPrefix(name, ".") || name == backup.SitesDirectory {
 			continue
 		}
 		if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
 			leave(name, errors.New("not a backup directory"))
 			continue
 		}
-		site := backupNameSite(name)
-		if site == "" || !validBackupName(name) {
+		site := backup.NameSite(name)
+		if site == "" || !backup.ValidName(name) {
 			leave(name, errors.New("name does not follow <timestamp>-<site>"))
 			continue
 		}
@@ -276,12 +217,12 @@ func flattenBackupLayout(root string) (backupLayoutMigration, error) {
 		return report, fmt.Errorf("lock backup layout: %w", err)
 	}
 	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
-	sites, err := backupSiteNames(root)
+	sites, err := backup.SiteNames(root)
 	if err != nil {
 		return report, err
 	}
 	for _, site := range sites {
-		directory, err := backupSiteDirectory(root, site)
+		directory, err := backup.SiteDirectory(root, site)
 		if err != nil {
 			return report, err
 		}
@@ -297,17 +238,17 @@ func flattenBackupLayout(root string) (backupLayoutMigration, error) {
 			if strings.HasPrefix(name, ".") {
 				continue
 			}
-			if !entry.IsDir() || !validBackupName(name) || backupNameSite(name) != site {
+			if !entry.IsDir() || !backup.ValidName(name) || backup.NameSite(name) != site {
 				report.Unattributed++
 				if len(report.Names) < maxReportedUnattributedBackups {
-					report.Names = append(report.Names, filepath.Join(backupSitesDirectory, site, name))
+					report.Names = append(report.Names, filepath.Join(backup.SitesDirectory, site, name))
 				}
 				continue
 			}
 			if _, err := os.Lstat(filepath.Join(root, name)); err == nil {
 				report.Unattributed++
 				if len(report.Names) < maxReportedUnattributedBackups {
-					report.Names = append(report.Names, filepath.Join(backupSitesDirectory, site, name))
+					report.Names = append(report.Names, filepath.Join(backup.SitesDirectory, site, name))
 				}
 				continue
 			} else if !errors.Is(err, os.ErrNotExist) {
@@ -330,7 +271,7 @@ func flattenBackupLayout(root string) (backupLayoutMigration, error) {
 			return report, err
 		}
 	}
-	if err := os.Remove(backupSitesRoot(root)); err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, syscall.ENOTEMPTY) && !errors.Is(err, syscall.EEXIST) {
+	if err := os.Remove(backup.SitesRoot(root)); err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, syscall.ENOTEMPTY) && !errors.Is(err, syscall.EEXIST) {
 		return report, err
 	}
 	return report, syncDirectory(root)
@@ -347,10 +288,10 @@ func runBackupLayoutFlatten(root string) error {
 	// The command succeeds only when an older release will see every
 	// backup: nothing may be left below the per-site directory.
 	if report.Unattributed > 0 {
-		return fmt.Errorf("%d entr(ies) remain in %s (first: %s); a release that reads only %s cannot see them. Move or remove them, then run this again", report.Unattributed, backupSitesRoot(root), strings.Join(report.Names, ", "), root)
+		return fmt.Errorf("%d entr(ies) remain in %s (first: %s); a release that reads only %s cannot see them. Move or remove them, then run this again", report.Unattributed, backup.SitesRoot(root), strings.Join(report.Names, ", "), root)
 	}
-	if _, statErr := os.Lstat(backupSitesRoot(root)); statErr == nil {
-		return fmt.Errorf("%s still exists; stop StePanel (a backup may have been published during the flatten) and run this again", backupSitesRoot(root))
+	if _, statErr := os.Lstat(backup.SitesRoot(root)); statErr == nil {
+		return fmt.Errorf("%s still exists; stop StePanel (a backup may have been published during the flatten) and run this again", backup.SitesRoot(root))
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return statErr
 	}

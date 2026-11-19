@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cyberducttape/StePanel/internal/backup"
 	"github.com/cyberducttape/StePanel/internal/recovery"
 	"github.com/cyberducttape/StePanel/internal/state"
 )
@@ -56,7 +57,7 @@ func uploadOffsiteContext(parent context.Context, cfg Config, result BackupResul
 		return errors.New("offsite backup path is outside the configured backup root")
 	}
 	// A absolute backup sits in its own site's directory under the root.
-	if expected, err := backupPath(backupRoot, filepath.Base(absolute)); err != nil || absolute != expected || backupNameSite(filepath.Base(absolute)) != result.Site {
+	if expected, err := backup.Path(backupRoot, filepath.Base(absolute)); err != nil || absolute != expected || backup.NameSite(filepath.Base(absolute)) != result.Site {
 		return errors.New("offsite backup path is outside the configured backup root")
 	}
 	backupPath := absolute
@@ -232,7 +233,7 @@ func sweepOffsiteUploadStaging(parent context.Context, cfg Config, now time.Time
 		}
 		backupName, suffix, found := strings.Cut(parts[1], offsiteUploadStagingInfix)
 		match := offsiteStagingSuffixPattern.FindStringSubmatch(suffix)
-		if !found || match == nil || !validBackupName(backupName) {
+		if !found || match == nil || !backup.ValidName(backupName) {
 			continue
 		}
 		prefix := target + "/" + parts[0] + "/" + parts[1]
@@ -430,7 +431,7 @@ func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, back
 // hold stays attached to the returned staging cleanup until the caller has
 // finished using the downloaded archive.
 func downloadOffsiteBackupWithLedgerContext(parent context.Context, cfg Config, site, backupName string, ledger *capacityLedger) (string, func(), error) {
-	if safeUser(site) == "" || !validBackupName(backupName) {
+	if safeUser(site) == "" || !backup.ValidName(backupName) {
 		return "", func() {}, errors.New("invalid offsite backup identity")
 	}
 	if err := validateOffsiteTarget(cfg.OffsiteTarget); err != nil {
@@ -589,7 +590,7 @@ func downloadOffsiteObjectLimit(parent context.Context, remoteRoot, localRoot, o
 }
 
 func buildOffsiteRemoteRoot(target, site, backupName string) (string, error) {
-	if err := validateOffsiteTarget(target); err != nil || safeUser(site) == "" || !validBackupName(backupName) {
+	if err := validateOffsiteTarget(target); err != nil || safeUser(site) == "" || !backup.ValidName(backupName) {
 		return "", errors.New("invalid offsite remote identity")
 	}
 	return strings.TrimRight(target, "/") + "/" + site + "/" + backupName, nil
@@ -612,18 +613,6 @@ func offsiteRemoteObject(root, object string) (string, error) {
 		return "", errors.New("invalid offsite remote object")
 	}
 	return root + "/" + object, nil
-}
-
-func validBackupName(name string) bool {
-	if len(name) < 1 || len(name) > 160 || name == "." || name == ".." {
-		return false
-	}
-	for _, r := range name {
-		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("._-", r)) {
-			return false
-		}
-	}
-	return true
 }
 
 // maxOffsiteListingBytes bounds the manifest and completion-marker listing
@@ -706,7 +695,7 @@ func listOffsiteBackupsContext(parent context.Context, cfg Config) ([]offsiteBac
 		parts := strings.Split(strings.Trim(strings.TrimSpace(line), "/"), "/")
 		// Upload staging prefixes carry a manifest copy but are never complete
 		// backups, so a recovery proof must not select them.
-		if len(parts) != 3 || safeUser(parts[0]) == "" || !validBackupName(parts[1]) || strings.Contains(parts[1], offsiteUploadStagingInfix) {
+		if len(parts) != 3 || safeUser(parts[0]) == "" || !backup.ValidName(parts[1]) || strings.Contains(parts[1], offsiteUploadStagingInfix) {
 			continue
 		}
 		key := parts[0] + "\x00" + parts[1]

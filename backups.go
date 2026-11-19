@@ -1425,7 +1425,7 @@ func listBackupsMatching(root string, sites []string, limit int, signingKey ...s
 	// Site directories are discovered by listing the sites directory, so
 	// requested names select entries but never form a path. That listing
 	// holds one name per site, not per backup.
-	discovered, err := backupSiteNames(root)
+	discovered, err := backup.SiteNames(root)
 	if err != nil {
 		return nil, err
 	}
@@ -1439,7 +1439,7 @@ func listBackupsMatching(root string, sites []string, limit int, signingKey ...s
 		if !matches(site) {
 			continue
 		}
-		directory := filepath.Join(backupSitesRoot(root), site)
+		directory := filepath.Join(backup.SitesRoot(root), site)
 		entries, err := os.ReadDir(directory)
 		if errors.Is(err, os.ErrNotExist) {
 			continue

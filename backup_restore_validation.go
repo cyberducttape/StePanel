@@ -96,7 +96,7 @@ func ValidateRestoreStagingInput(input RestoreToStagingRequest) []string {
 
 	if input.Backup == "" {
 		errs = append(errs, "backup name is required")
-	} else if !validBackupName(input.Backup) {
+	} else if !backup.ValidName(input.Backup) {
 		errs = append(errs, "backup name is invalid")
 	}
 

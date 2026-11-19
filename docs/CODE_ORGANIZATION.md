@@ -32,7 +32,7 @@ orchestration:
   `certificates.go`, `node_proxy.go`, `staging.go`, `staging_cleanup.go`,
   `htaccess.go`
 - **Backups and recovery**: `backups.go`, `internal/backup` (archive
-  encryption, tree validation),
+  encryption, backup naming and per-site layout, tree validation),
   `backup_restore.go`, `backup_restore_validation.go`, `backup_retention.go`,
   `backup_schedule.go`, `offsite.go`, `recovery.go`, `recovery_status.go`,
   `dr.go`, `retention.go`, `startup_recovery.go`, `startup_barrier.go`

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cyberducttape/StePanel/internal/backup"
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 )
 
@@ -363,13 +364,13 @@ func assertOnlyPublishedBackup(t *testing.T, root, good string) {
 	t.Helper()
 	entries, _ := os.ReadDir(root)
 	for _, entry := range entries {
-		if entry.Name() != backupSitesDirectory {
+		if entry.Name() != backup.SitesDirectory {
 			t.Errorf("backup root holds %s after cleanup", entry.Name())
 		}
 	}
-	sites, _ := backupSiteNames(root)
+	sites, _ := backup.SiteNames(root)
 	for _, site := range sites {
-		directory, err := backupSiteDirectory(root, site)
+		directory, err := backup.SiteDirectory(root, site)
 		if err != nil {
 			t.Fatal(err)
 		}

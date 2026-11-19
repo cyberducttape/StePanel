@@ -24,6 +24,7 @@ import (
 
 	"github.com/cyberducttape/StePanel/internal/audit"
 	authpolicy "github.com/cyberducttape/StePanel/internal/auth"
+	"github.com/cyberducttape/StePanel/internal/backup"
 	"github.com/cyberducttape/StePanel/internal/domainname"
 	httputil "github.com/cyberducttape/StePanel/internal/http"
 	"github.com/cyberducttape/StePanel/internal/metadata"
@@ -1397,7 +1398,7 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 		}
 		// A job recorded before per-site backup directories names the
 		// backup's old place directly in the root; the name finds it now.
-		candidate, resolveErr := backupPath(root, filepath.Base(persisted))
+		candidate, resolveErr := backup.Path(root, filepath.Base(persisted))
 		if resolveErr != nil {
 			return nil, fmt.Errorf("persisted backup is not reusable: %w", resolveErr)
 		}

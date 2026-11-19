@@ -12,6 +12,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/backup"
 )
 
 const backupStageLockName = ".stepanel-stage.lock"
@@ -136,23 +138,6 @@ func (r *backupRetentionReport) logSummary(site string) {
 	log.Printf("backup retention for %s kept %d entries whose ownership could not be established (first %d: %s; first cause: %v)", site, r.UnattributedCount, len(r.Unattributed), strings.Join(r.Unattributed, ", "), r.firstCause)
 }
 
-// backupNameTimestampLength is the width of the creation timestamp that
-// starts every published backup name (see createSiteBackupContext).
-const backupNameTimestampLength = len("20060102-150405.000000000")
-
-// backupNameSite returns the site a published backup is named for, or "" for
-// a name that does not follow the "<timestamp>-<site>" layout. Names are only
-// a scan filter: ownership is always proven by the manifest before deletion.
-func backupNameSite(name string) string {
-	if len(name) <= backupNameTimestampLength+1 || name[backupNameTimestampLength] != '-' {
-		return ""
-	}
-	if _, err := time.Parse("20060102-150405.000000000", name[:backupNameTimestampLength]); err != nil {
-		return ""
-	}
-	return safeUser(name[backupNameTimestampLength+1:])
-}
-
 // pruneSiteBackups retains the newest manifest-dated backups and explicitly
 // protects protectedVerifiedName, which must be the basename of the backup
 // that just passed archive verification. The protected artifact takes one
@@ -166,11 +151,11 @@ func backupNameSite(name string) string {
 func pruneSiteBackups(root string, site SiteCapability, keep int, protectedVerifiedName string) (backupRetentionReport, error) {
 	var report backupRetentionReport
 	siteName := site.Site()
-	if safeUser(siteName) == "" || keep < 1 || (protectedVerifiedName != "" && !validBackupName(protectedVerifiedName)) {
+	if safeUser(siteName) == "" || keep < 1 || (protectedVerifiedName != "" && !backup.ValidName(protectedVerifiedName)) {
 		return report, errors.New("invalid backup retention policy")
 	}
 	// From here on root is the site's backup directory.
-	root, err := backupSiteDirectory(root, siteName)
+	root, err := backup.SiteDirectory(root, siteName)
 	if err != nil {
 		return report, err
 	}
@@ -196,7 +181,7 @@ func pruneSiteBackups(root string, site SiteCapability, keep int, protectedVerif
 		if !entry.IsDir() || entry.Name()[0] == '.' {
 			continue
 		}
-		namedFor := backupNameSite(entry.Name())
+		namedFor := backup.NameSite(entry.Name())
 		if namedFor != "" && namedFor != siteName {
 			report.unattributed(entry.Name(), fmt.Errorf("named for site %q in %s's backup directory", namedFor, siteName))
 			continue
@@ -299,7 +284,7 @@ const backupPruneTombstonePrefix = ".pruning-"
 // in place could leave a backup without its manifest, and retention refuses
 // to prune a directory whose owner it cannot read.
 func discardBackup(root, name string) error {
-	if !validBackupName(name) {
+	if !backup.ValidName(name) {
 		return fmt.Errorf("refusing to discard invalid backup name %q", name)
 	}
 	tombstone := filepath.Join(root, backupPruneTombstonePrefix+name)
@@ -322,12 +307,12 @@ func discardBackup(root, name string) error {
 // own site's directory.
 func removePruneTombstones(root string) error {
 	directories := []string{root}
-	sites, err := backupSiteNames(root)
+	sites, err := backup.SiteNames(root)
 	if err != nil {
 		return err
 	}
 	for _, site := range sites {
-		directory, err := backupSiteDirectory(root, site)
+		directory, err := backup.SiteDirectory(root, site)
 		if err != nil {
 			return err
 		}
