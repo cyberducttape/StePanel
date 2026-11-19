@@ -157,7 +157,8 @@ for six site-operation routes and are tracked separately below.
 
 ### M0s — Remove HTTP-handler replay from durable site operations (P1)
 
-**Status:** Implemented locally on 2026-11-18; exact-source CI pending. All
+**Status:** Implemented 2026-11-18; exact-source CI integration (including race
+tests and the UI suite) passed on `e5ddeee2` in run 44466623034. All
 ten site-operation routes have typed validators and executors. The release
 pipeline, Git deploy, staging create/promote, and local/offsite
 restore-to-staging handlers are now thin adapters over shared services that
