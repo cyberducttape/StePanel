@@ -1035,7 +1035,11 @@ state, service health, and successful post-recovery invariants.
 [44724016501](https://github.com/cyberducttape/StePanel/actions/runs/44724016501)
 passed one installed WordPress database-backed HTTP recovery proof with
 measured RTO 5.022 s. This does not verify the other five runtime combinations
-or the repeated cohort. Earlier six-host run `44516615547` passed a database-backed
+or the repeated cohort. Current-code six-host install smoke
+[44729127788](https://github.com/cyberducttape/StePanel/actions/runs/44729127788)
+is active on code-equivalent source `059ba72e`; it must complete all six hosts
+and have its recovery-proof logs reviewed. Earlier six-host run `44516615547`
+passed a database-backed
 WordPress HTTP recovery proof on all six Ubuntu 24.04, AlmaLinux 9, and Rocky
 Linux 9 Apache/Caddy combinations (4.756–7.106 s measured RTO); see the
 [2026-11-19 result](docs/lab-results/2026-11-19-six-host-recovery-64281ca.md).
@@ -1049,6 +1053,10 @@ recovery. Current-code single-host install smoke
 [44724016501](https://github.com/cyberducttape/StePanel/actions/runs/44724016501)
 and six-host cohort [44725816245](https://github.com/cyberducttape/StePanel/actions/runs/44725816245)
 are active; inspect all host logs and artifacts before counting results.
+A scheduled six-host install smoke
+[44729127788](https://github.com/cyberducttape/StePanel/actions/runs/44729127788)
+also started on code-equivalent source `059ba72e`; it is a single iteration,
+not the required repeated cohort.
 
 On a clean disposable destination, restore a real WordPress site including
 files and a populated database, configure PHP-FPM and the virtual host, then

@@ -24,6 +24,11 @@
   are still running. The cohort has started its first six-host iteration; no
   full repetition is counted until all six jobs and their artifacts are
   reviewed.
+- A scheduled six-host install smoke
+  [44729127788](https://github.com/cyberducttape/StePanel/actions/runs/44729127788)
+  is also active on code-equivalent source `059ba72e`; all six OS/web-server
+  jobs are running. It is a single iteration and does not substitute for the
+  20-repeat cohort.
 - Exact-source evidence generation initially hit the unauthenticated GitHub
   API rate limit locally; the authenticated evidence workflow completed and
   uploaded the artifact. No product failure was observed. An older-source

@@ -103,13 +103,15 @@ and [44685011516](https://github.com/cyberducttape/StePanel/actions/runs/4468501
 were cancelled on stale source or before the recovery scenarios. Capacity run
 [44674647682](https://github.com/cyberducttape/StePanel/actions/runs/44674647682)
 failed its 500-site workload, and physical power-loss, database-restore ENOSPC,
-and other failure gates remain open. Current-code evidence runs started
-2026-11-20 are tracked in [`PROGRESS.md`](../PROGRESS.md): installed smoke
-44724016501, N-1 upgrade 44724039602, the six-host recovery cohort 44725816245,
-and the 500-site capacity profile 44725885994. At the latest review, those
-runs were still active; none is counted until its final status and artifacts
-are reviewed. Exact-source CI, browser E2E, and CodeQL passed on code-equivalent
-source in release-evidence run 44727737839. Production remains **NO-GO**.
+and other failure gates remain open. Current-code evidence is tracked in
+[`PROGRESS.md`](../PROGRESS.md): installed smoke 44724016501 passed one
+AlmaLinux 9/Caddy/MariaDB recovery iteration and database-backed WordPress
+HTTP proof (RTO 5.022 s). A scheduled six-host smoke 44729127788 is running
+on code-equivalent source `059ba72e`. N-1 upgrade 44724039602, six-host
+20-repeat cohort 44725816245, and the 500-site profile 44725885994 are also
+active; their results await completion and artifact review. Exact-source CI,
+browser E2E, and CodeQL passed in evidence run 44727737839. Production remains
+**NO-GO**.
 
 | Requirement | Current status | Evidence / remaining work |
 |-------------|----------------|---------------------------|
