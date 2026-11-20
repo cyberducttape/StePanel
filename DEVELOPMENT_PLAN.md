@@ -284,7 +284,11 @@ backslashes, so earlier passing PostgreSQL runs do not prove rejection of the
 actual `\!`, `\copy`, and `\o` commands. The fixtures now contain exactly one
 leading backslash and assert that property before invoking restore. Shell
 syntax, ShellCheck, and the isolated fixture-prefix check pass locally; the
-real-server PostgreSQL smoke on this corrected source is pending hosted CI.
+MySQL/MariaDB smoke now also asserts that its `\!` and `\.` fixtures contain
+exactly one leading backslash. `make check` passes on `0caad3f4` (root package
+119.6s), along with ShellCheck, Bash syntax, smoke-workflow bounds, and the
+isolated fixture-prefix checks. No local database server or MySQL OS identity
+is available, so the real-server smokes remain pending hosted CI.
 
 **Acceptance criteria**
 

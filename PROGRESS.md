@@ -19,6 +19,11 @@
 - The corrected real-server test has not yet run. A current-source CI run must
   pass the PostgreSQL restore smoke before this security regression can be
   considered verified.
+- On exact source `0caad3f4`, `make check` passed API artifact validation, shell
+  contracts, `go vet ./...`, and all Go packages (root package 119.6s). The
+  current hosted integration run is queued. This host has no MySQL server or
+  `mysql` OS account, so both real-server database-client smokes remain
+  unverified locally.
 
 ## Current-source CI and recovery cohort — 2026-11-20
 
