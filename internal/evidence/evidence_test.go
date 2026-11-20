@@ -25,7 +25,7 @@ const (
 // file and run ID.
 type fakeAPI struct {
 	runs map[string][]Run
-	jobs map[int64][]string // job conclusions; "" means still running
+	jobs map[int64][]string // conclusions; queued/waiting/in_progress are statuses
 	// requests records the paths requested, for assertions on pagination.
 	requests []string
 }
@@ -48,9 +48,12 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		all := f.jobs[id]
 		var jobs []map[string]string
 		for i := (page - 1) * 100; i < len(all) && i < page*100; i++ {
-			if all[i] == "" {
+			switch all[i] {
+			case "":
 				jobs = append(jobs, map[string]string{"status": "in_progress"})
-			} else {
+			case "queued", "pending", "requested", "waiting", "in_progress", "unknown":
+				jobs = append(jobs, map[string]string{"status": all[i]})
+			default:
 				jobs = append(jobs, map[string]string{"status": "completed", "conclusion": all[i]})
 			}
 		}
@@ -128,7 +131,7 @@ func TestCollectSeparatesQuotaFilesystemVariants(t *testing.T) {
 			"quota-install-smoke.yml": {legacyUntyped, ext4Queued, xfsPassed},
 		},
 		jobs: map[int64][]string{
-			6: {""},
+			6: {"queued"},
 			5: {"success"},
 			7: {"failure"},
 		},
@@ -141,7 +144,7 @@ func TestCollectSeparatesQuotaFilesystemVariants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := results[0]; !got.Matches || got.Run.ID != 6 || got.Jobs != (Jobs{Total: 1, Running: 1}) {
+	if got := results[0]; !got.Matches || got.Run.ID != 6 || got.Jobs != (Jobs{Total: 1, Queued: 1}) {
 		t.Errorf("ext4 result = %+v; should select the ext4 queued run, not another filesystem or an untyped historical run", got)
 	}
 	if got := results[1]; !got.Matches || got.Run.ID != 5 || got.Jobs != (Jobs{Total: 1, Passed: 1}) {
@@ -197,6 +200,23 @@ func TestJobsPaginatesLargeRuns(t *testing.T) {
 	}
 }
 
+func TestJobsDistinguishesQueuedWaitingRunningAndUnknown(t *testing.T) {
+	api := &fakeAPI{jobs: map[int64][]string{
+		10: {"queued", "waiting", "", "unknown", "success"},
+	}}
+	jobs, err := newClient(t, api).Jobs(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Jobs{Total: 5, Passed: 1, Queued: 1, Waiting: 1, Running: 1, Unknown: 1}
+	if jobs != want {
+		t.Fatalf("jobs = %+v, want %+v", jobs, want)
+	}
+	if got, want := jobSummary(jobs), "1/5 passed, 1 queued, 1 waiting, 1 running, 1 unknown status"; got != want {
+		t.Fatalf("jobSummary() = %q, want %q", got, want)
+	}
+}
+
 func TestClientReportsAPIErrorsAndSendsToken(t *testing.T) {
 	var auth string
 	client := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -238,10 +258,12 @@ func TestRenderStatesWhatCountsAndWhatDoesNot(t *testing.T) {
 	matched := run(2, shaB, "completed", "success")
 	matched.Event = "pull_request"
 	running := run(3, shaA, "in_progress", "")
+	queued := run(5, shaA, "queued", "")
 	stale := run(4, shaC, "completed", "failure")
 	results := []Result{
 		{Check: Check{Name: "CI", Scope: Code}, Run: &matched, Matches: true, Jobs: Jobs{Total: 1, Passed: 1}},
 		{Check: Check{Name: "Smoke", Scope: Code}, Run: &running, Matches: true, Jobs: Jobs{Total: 6, Passed: 4, Running: 2}},
+		{Check: Check{Name: "Queued smoke", Scope: Code}, Run: &queued, Matches: true, Jobs: Jobs{Total: 2, Queued: 2}},
 		{Check: Check{Name: "Cohort", Scope: Code}, Run: &stale, Jobs: Jobs{Total: 2, Passed: 1, Failed: 1}},
 		{Check: Check{Name: "Docs", Scope: Tree}},
 	}
@@ -256,9 +278,10 @@ func TestRenderStatesWhatCountsAndWhatDoesNot(t *testing.T) {
 		"Report generated: 2026-10-27 03:04 UTC",
 		"| CI | identical code | ✅ passed | `bbbbbbb` (pull_request) | 0m | [2](https://example.invalid/runs/2) | 1/1 passed |",
 		"| Smoke | identical code | ⏳ in progress | this commit | 0m | [3](https://example.invalid/runs/3) | 4/6 passed, 2 running |",
+		"| Queued smoke | identical code | ⏳ queued | this commit | 0m | [5](https://example.invalid/runs/5) | 0/2 passed, 2 queued |",
 		"| Cohort | identical code | ⚠️ no equivalent run; latest was ❌ failed | `ccccccc` (push) | 0m | [4](https://example.invalid/runs/4) | 1/2 passed, 1 failed |",
 		"| Docs | identical tree | — no runs | — | — | — | — |",
-		"**Executable checks:** 1 passed, 3 incomplete, 0 failed, 2 without equivalent evidence.",
+		"**Executable checks:** 1 passed, 4 incomplete, 0 failed, 2 without equivalent evidence.",
 		"2 check(s) have no run on equivalent content",
 	} {
 		if !strings.Contains(report, want) {

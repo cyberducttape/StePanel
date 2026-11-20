@@ -79,7 +79,7 @@ type Run struct {
 
 // Jobs counts a run's jobs by outcome.
 type Jobs struct {
-	Total, Passed, Failed, Running int
+	Total, Passed, Failed, Queued, Waiting, Running, Unknown int
 }
 
 // Result is the evidence found for one check.
@@ -186,13 +186,21 @@ func (c *Client) Jobs(ctx context.Context, runID int64) (Jobs, error) {
 		}
 		for _, job := range listing.Jobs {
 			counts.Total++
-			switch {
-			case job.Status != "completed":
+			switch job.Status {
+			case "completed":
+				if job.Conclusion == "success" || job.Conclusion == "skipped" {
+					counts.Passed++
+				} else {
+					counts.Failed++
+				}
+			case "queued", "pending", "requested":
+				counts.Queued++
+			case "waiting":
+				counts.Waiting++
+			case "in_progress":
 				counts.Running++
-			case job.Conclusion == "success" || job.Conclusion == "skipped":
-				counts.Passed++
 			default:
-				counts.Failed++
+				counts.Unknown++
 			}
 		}
 		if len(listing.Jobs) < 100 || counts.Total >= listing.TotalCount {
@@ -420,8 +428,17 @@ func jobSummary(jobs Jobs) string {
 	if jobs.Failed > 0 {
 		text += fmt.Sprintf(", %d failed", jobs.Failed)
 	}
+	if jobs.Queued > 0 {
+		text += fmt.Sprintf(", %d queued", jobs.Queued)
+	}
+	if jobs.Waiting > 0 {
+		text += fmt.Sprintf(", %d waiting", jobs.Waiting)
+	}
 	if jobs.Running > 0 {
 		text += fmt.Sprintf(", %d running", jobs.Running)
+	}
+	if jobs.Unknown > 0 {
+		text += fmt.Sprintf(", %d unknown status", jobs.Unknown)
 	}
 	return text
 }

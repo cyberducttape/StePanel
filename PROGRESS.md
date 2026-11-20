@@ -1,5 +1,20 @@
 # Production-readiness progress
 
+## Evidence report job-state accuracy — 2026-11-20
+
+- Fixed the release evidence generator so queued, waiting, running, completed,
+  and unrecognized GitHub Actions jobs are reported as distinct states. A
+  queued CI job is no longer misleadingly counted as running or incomplete
+  execution evidence.
+- Added tests for state classification and rendered summaries. `go test
+  ./internal/evidence -count=1`, `go test -race ./internal/evidence -count=1`,
+  `git diff --check`, and full `make check` passed. The full check included
+  generated API validation, helper and shell contracts, `go vet ./...`, and
+  all Go packages.
+- Exact-source hosted CI and host certification for the resulting commit are
+  pending; this change does not close any production certification gates.
+  Production remains **NO-GO**.
+
 ## Run CI-equivalent race suite and inspect upgrade failure — 2026-11-20
 
 - `go test -p 1 -race -timeout 15m ./...` passed all packages on the current
