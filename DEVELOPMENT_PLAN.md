@@ -946,7 +946,11 @@ Current-source KVM abrupt-loss operation drills
 [44731756198](https://github.com/cyberducttape/StePanel/actions/runs/44731756198)
 started on `94b90f5e` for file restore, database restore, Git deployment,
 retention, and control-plane writes; results are pending. A QEMU guest kill is
-not physical host power-loss evidence. The earlier AlmaLinux 9/Caddy/MariaDB
+not physical host power-loss evidence, and that run uses QEMU `writeback`, so
+the host page cache can preserve acknowledged guest writes. The abrupt-loss
+workflow now defaults future runs to `cache=none` to remove that cushion; this
+still does not simulate loss of the physical host or storage controller. The
+earlier AlmaLinux 9/Caddy/MariaDB
 installed smoke
 and single-iteration recovery run
 [44686046786](https://github.com/cyberducttape/StePanel/actions/runs/44686046786)
