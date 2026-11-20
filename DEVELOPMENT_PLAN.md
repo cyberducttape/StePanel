@@ -274,7 +274,17 @@ is created and the live database is unchanged.
 ### M0 — Restore green exact-source CI
 
 **Priority:** Immediate release hygiene  
-**Status:** Green on current code source `1e6db18` with documentation commit
+**Latest exact-source status:** CI integration on `c127e212` passed formatting,
+release checks, vet, the full non-race Go suite, ENOSPC drills, benchmarks, and
+coverage floors; UI E2E and CodeQL also passed. The race job failed only in
+`TestLongSiteOperationRenewsLeasePastShortLeasePeriods`: its 90 ms test lease
+could expire during race-instrumented SQLite work before the simulated restore
+finished. The regression now uses a 2 s lease and a 5 s operation to require
+multiple renewals with CI scheduling headroom. The focused race test passed
+five consecutive runs locally; exact-source integration rerun is pending.
+Production remains **NO-GO** until the rerun and the separate host gates pass.
+
+**Historical status:** Green on current code source `1e6db18` with documentation commit
 `b2be13f`: CI integration passed on the identical code tree, and CodeQL,
 documentation, release evidence, and the exact-code six-host install/recovery
 matrix passed. The matrix is one iteration per OS/web-server pair; it is not a

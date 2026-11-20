@@ -524,7 +524,9 @@ func TestSiteOperationTimeoutClasses(t *testing.T) {
 
 func TestLongSiteOperationRenewsLeasePastShortLeasePeriods(t *testing.T) {
 	app, _ := newSiteOperationFixture(t, http.StatusOK, `{}`)
-	app.Jobs.leaseTTL = 90 * time.Millisecond
+	// Leave enough headroom for the race detector and a loaded CI runner while
+	// still requiring several successful renewals during this operation.
+	app.Jobs.leaseTTL = 2 * time.Second
 	completed := make(chan struct{})
 	const operation = "test.long-restore"
 	siteOperationRoutes[operation] = siteOperationRoute{
@@ -537,7 +539,7 @@ func TestLongSiteOperationRenewsLeasePastShortLeasePeriods(t *testing.T) {
 				return nil, errors.New("restore deadline was truncated")
 			}
 			select {
-			case <-time.After(250 * time.Millisecond):
+			case <-time.After(5 * time.Second):
 				close(completed)
 				return []byte(`{}`), nil
 			case <-ctx.Done():
