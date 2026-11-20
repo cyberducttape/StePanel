@@ -587,8 +587,7 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 	if a.Config.WebRoot == "" {
 		return nil, errors.New("site creation requires a configured web root")
 	}
-	access, err := a.authorizeBoundDurableSiteJob(req.Site, req.Actor, req.TenantID, req.TenantBound, false)
-	if err != nil {
+	if _, err := a.authorizeBoundDurableSiteJob(req.Site, req.Actor, req.TenantID, req.TenantBound, false); err != nil {
 		return nil, fmt.Errorf("site creation authorization: %w", err)
 	}
 	var customerAccount HostingAccount
@@ -610,7 +609,7 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 		return nil, fmt.Errorf("acquire site mutation lock: %w", err)
 	}
 	defer release()
-	access, err = a.authorizeBoundDurableSiteJob(req.Site, req.Actor, req.TenantID, req.TenantBound, false)
+	access, err := a.authorizeBoundDurableSiteJob(req.Site, req.Actor, req.TenantID, req.TenantBound, false)
 	if err != nil {
 		return nil, fmt.Errorf("site creation authorization: %w", err)
 	}

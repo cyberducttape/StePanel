@@ -142,12 +142,17 @@ func TestQueuedCPanelAndWPressRestoresStayBoundToTenant(t *testing.T) {
 				if err := os.WriteFile(cpmoveUploadMetadataPath(app.Config.ImportRoot, upload.ID), metadata, 0600); err != nil {
 					t.Fatal(err)
 				}
-				item.Payload, err = json.Marshal(durableCPMoveRequest{UploadID: upload.ID, Filename: upload.Filename, User: "shop", Actor: "admin", TenantID: tenantID, TenantBound: tenantBound})
+				payload, marshalErr := json.Marshal(durableCPMoveRequest{UploadID: upload.ID, Filename: upload.Filename, User: "shop", Actor: "admin", TenantID: tenantID, TenantBound: tenantBound})
+				if marshalErr != nil {
+					t.Fatal(marshalErr)
+				}
+				item.Payload = payload
 			} else {
-				item.Payload, err = json.Marshal(durableWPressRequest{TempPath: filepath.Join(app.Config.ImportRoot, "staged.wpress"), Size: 0, SHA256: strings.Repeat("0", 64), Site: "shop", DBSuffix: "db", DBUserSuffix: "db", Password: "0123456789abcdef", SiteURL: "https://example.com", TargetPrefix: "wp_", Actor: "admin", TenantID: tenantID, TenantBound: tenantBound})
-			}
-			if err != nil {
-				t.Fatal(err)
+				payload, marshalErr := json.Marshal(durableWPressRequest{TempPath: filepath.Join(app.Config.ImportRoot, "staged.wpress"), Size: 0, SHA256: strings.Repeat("0", 64), Site: "shop", DBSuffix: "db", DBUserSuffix: "db", Password: "0123456789abcdef", SiteURL: "https://example.com", TargetPrefix: "wp_", Actor: "admin", TenantID: tenantID, TenantBound: tenantBound})
+				if marshalErr != nil {
+					t.Fatal(marshalErr)
+				}
+				item.Payload = payload
 			}
 			accounts.accounts["tenant-a"] = HostingAccount{Username: "tenant-a", Plan: "professional"}
 			accounts.accounts["tenant-b"] = HostingAccount{Username: "tenant-b", Plan: "professional", Sites: []string{"shop"}}

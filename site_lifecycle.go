@@ -246,8 +246,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 	if safeUser(request.Site) == "" || request.Actor == "" {
 		return nil, errors.New("site termination requires site and actor")
 	}
-	access, err := a.authorizeSiteTermination(request, item.ID)
-	if err != nil {
+	if _, err := a.authorizeSiteTermination(request, item.ID); err != nil {
 		return nil, err
 	}
 	if err := a.Jobs.CheckNotCancelled(item.ID); err != nil {
@@ -258,7 +257,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 		return nil, fmt.Errorf("acquire durable site lock: %w", err)
 	}
 	defer release()
-	access, err = a.authorizeSiteTermination(request, item.ID)
+	access, err := a.authorizeSiteTermination(request, item.ID)
 	if err != nil {
 		return nil, err
 	}

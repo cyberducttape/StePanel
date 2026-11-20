@@ -1253,8 +1253,7 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 	if safeUser(request.User) == "" || request.Filename == "" || request.Size < 0 || uploadErr != nil || upload.Owner != request.Actor || request.Filename != upload.Filename || request.Size != upload.Size {
 		return nil, errors.New("invalid durable cpmove job payload")
 	}
-	access, err := a.authorizeBoundDurableSiteJob(request.User, request.Actor, request.TenantID, request.TenantBound, false)
-	if err != nil {
+	if _, err := a.authorizeBoundDurableSiteJob(request.User, request.Actor, request.TenantID, request.TenantBound, false); err != nil {
 		return nil, err
 	}
 	if ctx.Err() != nil {
@@ -1287,7 +1286,7 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 	if err := operationCtx.Err(); err != nil {
 		return nil, err
 	}
-	access, err = a.authorizeBoundDurableSiteJob(request.User, request.Actor, request.TenantID, request.TenantBound, false)
+	access, err := a.authorizeBoundDurableSiteJob(request.User, request.Actor, request.TenantID, request.TenantBound, false)
 	if err != nil {
 		return nil, err
 	}
@@ -1381,8 +1380,7 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 	if safeUser(request.Site) == "" || request.Actor == "" || (request.Scheduled && request.KeepLast < 1) {
 		return nil, errors.New("invalid durable backup job payload")
 	}
-	access, err := a.authorizeBoundDurableSiteJob(request.Site, request.Actor, request.TenantID, request.TenantBound, request.Scheduled)
-	if err != nil {
+	if _, err := a.authorizeBoundDurableSiteJob(request.Site, request.Actor, request.TenantID, request.TenantBound, request.Scheduled); err != nil {
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -1399,7 +1397,7 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 	if err := operationCtx.Err(); err != nil {
 		return nil, err
 	}
-	access, err = a.authorizeBoundDurableSiteJob(request.Site, request.Actor, request.TenantID, request.TenantBound, request.Scheduled)
+	access, err := a.authorizeBoundDurableSiteJob(request.Site, request.Actor, request.TenantID, request.TenantBound, request.Scheduled)
 	if err != nil {
 		return nil, err
 	}
@@ -1540,8 +1538,7 @@ func (a *App) handleWPressJob(ctx context.Context, item Job) ([]byte, error) {
 		}
 		return nil, err
 	}
-	access, err := a.authorizeBoundDurableSiteJob(request.Site, request.Actor, request.TenantID, request.TenantBound, false)
-	if err != nil {
+	if _, err := a.authorizeBoundDurableSiteJob(request.Site, request.Actor, request.TenantID, request.TenantBound, false); err != nil {
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -1567,7 +1564,7 @@ func (a *App) handleWPressJob(ctx context.Context, item Job) ([]byte, error) {
 	if err := operationCtx.Err(); err != nil {
 		return nil, err
 	}
-	access, err = a.authorizeBoundDurableSiteJob(request.Site, request.Actor, request.TenantID, request.TenantBound, false)
+	access, err := a.authorizeBoundDurableSiteJob(request.Site, request.Actor, request.TenantID, request.TenantBound, false)
 	if err != nil {
 		return nil, err
 	}

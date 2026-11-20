@@ -1,5 +1,25 @@
 # Production-readiness progress
 
+## Fix exact-source staticcheck failure — 2026-11-20
+
+- Exact-source CI integration for `4ef3514a` passed the UI E2E/accessibility,
+  race, and tmpfs ENOSPC stages, then failed `staticcheck` on seven
+  `SA4006` reports: pre-lock authorization capabilities were assigned but
+  intentionally replaced after lock acquisition, and a test marshal error
+  was overwritten before checking.
+- Kept both pre-lock and post-lock authorization checks; changed the first
+  check to discard its unused capability and made the post-lock value the one
+  used for mutations. The test now checks each JSON marshal result directly.
+- Evidence on the working tree: `go run honnef.co/go/tools/cmd/staticcheck@2026.1 ./...`
+  passed; focused tenant/lifecycle tests passed; full `make check` passed
+  (vet, all Go packages, API artifacts, shell contracts). The browser E2E,
+  documentation, and CodeQL jobs had passed on `4ef3514a`; the host install
+  and capacity workflows were still running when this entry was written.
+- Next: commit and push this CI fix, verify exact-source integration reruns
+  staticcheck and finishes, then inspect the six-host install and capacity
+  artifacts. Production remains **NO-GO**; M0i and host-certification gates
+  remain incomplete.
+
 ## Bind customer site creation to its reserved tenant — 2026-11-20
 
 - Site-creation admission now records the site tenant after customer assignment

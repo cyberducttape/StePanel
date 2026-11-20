@@ -83,8 +83,7 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 	if safeUser(request.Site) == "" || !backup.ValidName(request.Backup) || request.Actor == "" {
 		return nil, errors.New("invalid durable backup restore payload")
 	}
-	access, err := a.authorizeBoundDurableSiteJob(request.Site, request.Actor, request.TenantID, request.TenantBound, false)
-	if err != nil {
+	if _, err := a.authorizeBoundDurableSiteJob(request.Site, request.Actor, request.TenantID, request.TenantBound, false); err != nil {
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -98,7 +97,7 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 		return nil, fmt.Errorf("acquire durable site lock: %w", lockErr)
 	}
 	defer releaseUnlock()
-	access, err = a.authorizeBoundDurableSiteJob(request.Site, request.Actor, request.TenantID, request.TenantBound, false)
+	access, err := a.authorizeBoundDurableSiteJob(request.Site, request.Actor, request.TenantID, request.TenantBound, false)
 	if err != nil {
 		return nil, err
 	}
