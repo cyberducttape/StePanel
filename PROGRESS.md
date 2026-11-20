@@ -1,5 +1,22 @@
 # Production-readiness progress
 
+## Add installed-host package descendant containment probe — 2026-11-20
+
+- Added `deploy/lab/site-package-cgroup-smoke.sh` and wired it into the
+  installed-host smoke after applying a site's resource slice. It invokes the
+  real `stepanel-appctl composer-install` path using a temporary fake Composer
+  executable, launches a detached session, confirms its `/proc` cgroup matches
+  the transient unit, checks the unit's site slice and task/runtime bounds,
+  verifies the site slice has an effective memory limit, stops the unit, and
+  checks the detached process is no longer running. The existing Composer
+  executable is restored on normal exit and the disposable host is the target
+  for this privileged integration probe.
+- Added shell syntax coverage to `make shell-contract-check` and added the
+  probe to CI ShellCheck. Local `make shell-contract-check`, ShellCheck of the
+  new probe, `scripts/check-action-pins.sh`, and `git diff --check` passed. The
+  probe cannot be exercised on this non-systemd development host; exact-source
+  installed-host execution is required before M0i can claim host evidence.
+
 ## Current-source install recovery evidence — 2026-11-20
 
 - The exact-source AlmaLinux 9/Caddy/MariaDB installation and one-iteration

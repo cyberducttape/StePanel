@@ -764,6 +764,13 @@ bound. Rootless container builds retain their existing transient-unit and
 container limits. This does not make shared-kernel hosting safe for mutually
 hostile tenants.
 
+An installed-host probe is now wired into `deploy/lab/install-smoke.sh`. It
+runs the real Composer entry point with a harmless fake executable that starts
+a detached session, verifies the child shares the transient unit's cgroup and
+site resource slice, checks effective task/runtime/memory limits, stops the
+unit, and verifies the descendant exits. Local syntax, ShellCheck, and shell
+contract checks pass; exact-source host execution is pending.
+
 **Acceptance criteria**
 
 - Store methods cannot be called with raw site-name strings; missing or empty

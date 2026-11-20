@@ -494,6 +494,8 @@ PY
 
 apply_smoke_vhost "$site" ci-smoke.localhost
 /usr/local/sbin/stepanel-appctl resource-apply "$site" 100 100 128 512 100 256
+bash /work/deploy/lab/site-package-cgroup-smoke.sh \
+  "$site" "$site_user" "/var/www/sites/$site/public"
 socket_root=$(sed -n 's/^STEPANEL_PHP_SOCKET_ROOT="\([^"]*\)"$/\1/p' /etc/ste-panel.env)
 [[ $socket_root == /run/php || $socket_root == /run/php-fpm ]] || { echo "unexpected PHP socket root: $socket_root" >&2; exit 1; }
 for fpm_unit in $(systemctl list-unit-files --type=service --no-legend 'php*-fpm.service' 'php-fpm.service' | awk '{print $1}'); do
