@@ -13,18 +13,38 @@
   in CI run [44739044630](https://github.com/cyberducttape/StePanel/actions/runs/44739044630).
   Browser coverage includes Chromium and accessibility checks; it is not a
   cross-browser certification.
-- The remaining Go CI job for that source was still running when this entry
-  was written. Local `make check` passed for the concurrent file-read limiter.
-  Production remains **NO-GO** pending the open release gates.
+- Local `make check` passed for the concurrent file-read limiter. The later
+  exact-source CI and installed-host results are recorded below. Production
+  remains **NO-GO** pending the open release gates.
 - The initial docs workflow caught a reference-check false positive from a
   regex written in the progress note. The wording was corrected; the docs
   workflow passed on updated `main` in run
   [44739502546](https://github.com/cyberducttape/StePanel/actions/runs/44739502546).
-- Dedicated CI was dispatched on current code source `1e66dc58` and passed in
-  run [44740769089](https://github.com/cyberducttape/StePanel/actions/runs/44740769089):
-  formatting, release-tree contract, `go vet`, the full Go suite, frontend
-  unit tests, and shell syntax. The integration workflow's race suite remains
-  active on code-equivalent source `d0ed0fa3`.
+- Dedicated CI was first dispatched on code-equivalent source `1e66dc58` and
+  passed. A later exact-source run on `de6f96f7` also passed; see the current
+  CI section below.
+
+## Current-source CI and installed-host smoke passed — 2026-11-20
+
+- Source `de6f96f7a902833397820bc9dd3e8f720327ea73` passed CI integration
+  [44741756748](https://github.com/cyberducttape/StePanel/actions/runs/44741756748)
+  including the full Go suite, race tests, UI browser/accessibility job, and
+  package checks; PR-CI
+  [44741882511](https://github.com/cyberducttape/StePanel/actions/runs/44741882511),
+  CodeQL [44741756870](https://github.com/cyberducttape/StePanel/actions/runs/44741756870),
+  and documentation [44742113006](https://github.com/cyberducttape/StePanel/actions/runs/44742113006)
+  also passed.
+- The newly triggered exact-source installed-host smoke
+  [44741756889](https://github.com/cyberducttape/StePanel/actions/runs/44741756889)
+  passed on AlmaLinux 9/Caddy/MariaDB. It passed one recovery-matrix iteration,
+  including filectl, database/import/backup/restore recovery and broker
+  interruption checks, and proved a restored WordPress application over HTTPS
+  with an 8.929-second measured RTO. The artifact is summarized in
+  [`the reviewed report`](docs/lab-results/2026-11-20-almalinux9-install-44741756889.md).
+- This is one host and one iteration. The six-host 20-repeat cohort, the
+  cache-disabled abrupt-loss run, and the 500-site capacity profile remain in
+  progress; none of their results is counted yet. Production remains
+  **NO-GO**.
 
 ## Bound concurrent file reads and directory listings — 2026-11-20
 

@@ -44,16 +44,13 @@ combinations on code-equivalent source; see the [reviewed result](docs/lab-resul
 **Status:** Verified locally on current `main` (`c2f976ec`) with a fresh
 binary and the seeded account-owner browser journey (1/1 passed). Hosted
 `ui-e2e` and accessibility checks passed in run
-[44739044630](https://github.com/cyberducttape/StePanel/actions/runs/44739044630)
-on code source `d0ed0fa3`. The journey checks WordPress creation controls, no
+[44741756748](https://github.com/cyberducttape/StePanel/actions/runs/44741756748)
+on exact source `de6f96f7`. The journey checks WordPress creation controls, no
 uncaught browser errors, failed-inventory retry, delayed file-read invalidation
 after a site switch, stale rows during folder navigation, and no cross-site
-write. Local frontend unit tests passed 17/17. Dedicated CI on current code
-source `1e66dc58` passed in run
-[44740769089](https://github.com/cyberducttape/StePanel/actions/runs/44740769089),
-including vet, the full Go suite, frontend unit tests, and shell syntax. The
-integration workflow's race suite remains active on code-equivalent source
-`d0ed0fa3`. This closes the listed customer UI regressions; it does not close
+write. Local frontend unit tests passed 17/17. Exact-source CI on `de6f96f7`
+passed the full Go suite and race tests, and the dedicated PR-CI run passed as
+well. This closes the listed customer UI regressions; it does not close
 separate host-certification gates.
 
 **Acceptance criteria**
@@ -279,11 +276,11 @@ and operations resolve beneath an opened document-root descriptor. A new
 nonblocking limiter admits at most four file reads/listings per tenant and 32
 per panel process; excess requests receive HTTP 429 with `Retry-After: 5`.
 Focused tests cover per-tenant fairness, the host cap, slot release, and the
-retry response. `make check` and focused race tests passed locally; the hosted
-customer `ui-e2e` job passed on code-equivalent source `d0ed0fa3`; dedicated
-CI passed on current code source `1e66dc58` in run 44740769089. The integration
-workflow's full race job remains active. This does not establish hostile
-multi-tenant isolation.
+retry response. `make check` and focused race tests passed locally. Exact-source
+CI integration [44741756748](https://github.com/cyberducttape/StePanel/actions/runs/44741756748)
+passed the customer `ui-e2e` job and Go race tests. The exact-source
+AlmaLinux 9/Caddy/MariaDB install smoke [44741756889](https://github.com/cyberducttape/StePanel/actions/runs/44741756889)
+also passed. This does not establish hostile multi-tenant isolation.
 
 **Acceptance criteria**
 
