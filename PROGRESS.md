@@ -9,6 +9,10 @@
   `go test ./internal/audit -count=1` both pass. This covers local periodic
   detection; independent off-host checkpoints and installed alert delivery
   remain separate production evidence gaps.
+- Full `make check` passed on `807d680455f2c57953f76d4e4f6c8f694faa397a`:
+  generated API artifacts, shell/helper contracts, `go vet ./...`, and
+  `GOMAXPROCS=2 go test -p 1 -timeout 10m ./...`; the root package took
+  119.6 seconds. This progress update changes documentation only.
 - Rechecked the reported customer workspace and file-manager issues. They are
   already fixed in source: the customer create form includes WordPress fields
   and the initializer handles optional markup; file-editor context is bound to
