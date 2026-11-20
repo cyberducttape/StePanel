@@ -984,13 +984,18 @@ The older-source full matrix [44701903618](https://github.com/cyberducttape/SteP
 cohort [44702646288](https://github.com/cyberducttape/StePanel/actions/runs/44702646288),
 and 20-repeat cohort [44686066552](https://github.com/cyberducttape/StePanel/actions/runs/44686066552)
 were cancelled because their source trees do not match current `main`; one
-completed repetition from 44686066552 is historical only. Current-source
-six-host cohort [44725816245](https://github.com/cyberducttape/StePanel/actions/runs/44725816245)
-was dispatched on `f464f79d6287741eefd14174caaac35cd9f18534` and is running its
-first repetition. The current-code single-host install smoke
+completed repetition from 44686066552 is historical only. The six-host cohort
+[44725816245](https://github.com/cyberducttape/StePanel/actions/runs/44725816245)
+was dispatched while `f464f79d6287741eefd14174caaac35cd9f18534` was `main` and
+is still running its first repetition. Main has since advanced to `634e99ce`
+with capacity-probe and workflow-contract changes outside the product runtime
+path; completed host artifacts still require source comparison and review
+before they are counted. The current-code single-host smoke
 [44724016501](https://github.com/cyberducttape/StePanel/actions/runs/44724016501)
-is also running. No current-source recovery pass is counted until all six host
-jobs and their uploaded artifacts are reviewed.
+completed successfully on source `6e80a189` with a database-backed WordPress
+recovery proof (RTO 5.022 s); it predates current main and is one host/one
+iteration only. No current-source repeated recovery pass is counted until the
+cohort completes and its host artifacts are reviewed.
 
 Earlier exact-source run
 [44516615547](https://github.com/cyberducttape/StePanel/actions/runs/44516615547)

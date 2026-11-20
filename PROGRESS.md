@@ -1,5 +1,26 @@
 # Production-readiness progress
 
+## Reconcile installed-host evidence status — 2026-11-20
+
+- Rechecked the tracked workflow handles. Installation smoke
+  [44724016501](https://github.com/cyberducttape/StePanel/actions/runs/44724016501)
+  is complete and successful on `6e80a189`, with one database-backed
+  WordPress restore proof (RTO 5.022 s); it is not current-commit or repeated
+  recovery evidence. The six-host 20-repeat cohort
+  [44725816245](https://github.com/cyberducttape/StePanel/actions/runs/44725816245)
+  remains in progress on `f464f79d`. Main has advanced to `634e99ce`; the
+  changes since that cohort are in the capacity harness, documentation, and
+  abrupt-loss workflow, so its host results need source mapping and review
+  before counting.
+- Abrupt-loss run using QEMU writeback
+  [44731756198](https://github.com/cyberducttape/StePanel/actions/runs/44731756198)
+  remains in progress on `94b90f5e`; the cache-bypassing follow-up
+  [44735170833](https://github.com/cyberducttape/StePanel/actions/runs/44735170833)
+  is pending. Latest exact-main CI integration, install smoke, CodeQL,
+  documentation, capacity profile, and release-evidence workflows were
+  queued at this check; none is reported as passed. Recovery and production
+  gates remain open.
+
 ## Investigate 500-site KVM capacity failure — 2026-11-20
 
 - Reviewed the completed Rocky Linux 9 profile
