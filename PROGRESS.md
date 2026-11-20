@@ -1,5 +1,23 @@
 # Production-readiness progress
 
+## Customer website workspace and file-manager race regressions — 2026-11-20
+
+- Rechecked the reported initialization and cross-context file actions on
+  current `main` (`6a88aae6`). The customer template includes the WordPress
+  fields; file reads and mutations carry their originating site/path/generation;
+  folder navigation clears prior rows, invalidates the editor, and makes the
+  toolbar inert while the new listing is pending.
+- Built a fresh binary from this checkout and ran
+  `STEPANEL_E2E_GREP='customer panel: views, file manager and accessibility'
+  scripts/e2e-ui-test.sh /tmp/stepanel-ui-current`. The seeded account-owner
+  browser flow passed (1/1), including no page errors, WordPress form
+  initialization, a delayed read across a site switch with no cross-site
+  write, stale-row clearing, and accessibility checks.
+- These findings are already fixed and their regression coverage is already in
+  the repository; this run adds current-source local evidence. M0y remains
+  separate from host certification and production remains **NO-GO** pending
+  the open installed-host gates.
+
 ## Alert retry persistence across restart — 2026-11-20
 
 - Added a regression that records a webhook outage in the durable alert
