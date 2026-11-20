@@ -932,14 +932,24 @@ also failed during install smoke before the capacity workload began. The Rocky L
 completed on diagnostic source `8382e9c4` but had 210 site-request timeouts;
 the reviewed result is linked under M4.
 
-Current `main` source `a7594a45` is code-identical to `3acc333c` and differs
-only in documentation. The one-iteration full six-host matrix
+The live full six-host matrix
 [44701903618](https://github.com/cyberducttape/StePanel/actions/runs/44701903618)
-is running. The dedicated current-source 20-repeat cohort
+uses `f35e4b71`; the 20-repeat cohort
 [44702646288](https://github.com/cyberducttape/StePanel/actions/runs/44702646288)
-has started its first six-host repetition. Neither contributes a completed
-recovery pass until every required host job succeeds and its evidence is
-reviewed.
+uses `a7594a45`. Both are still running their first six-host repetition.
+An additional older-source cohort
+[44686066552](https://github.com/cyberducttape/StePanel/actions/runs/44686066552)
+on `e1195ccc` is also still active.
+Current `main` (`80bad3e8`) has three non-Markdown changes since those
+sources: the corrected literal MySQL/PostgreSQL client-command smoke fixtures
+and a notification retry persistence test. No production Go code changed,
+but the exact-source evidence verifier does not count those runs for current
+`main`. Runs `44701903618` and `44702646288` are runtime-code-equivalent and
+remain useful for diagnosis; the older `e1195ccc` run is historical evidence.
+The updated smokes and tests must also pass on the current tree before those
+gates can close. No recovery pass is counted until all six hosts and their
+artifacts are reviewed. None of the three active recovery runs has produced a
+completed repetition yet.
 
 Earlier exact-source run
 [44516615547](https://github.com/cyberducttape/StePanel/actions/runs/44516615547)
@@ -1088,7 +1098,16 @@ choosing a tuning correction. The first current-source attempt
 failed in the shared installed-host Composer cgroup probe before the workload
 started; the probe `PATH` issue has since been fixed.
 The capacity failure must be diagnosed and a remediation measured before
-publishing the envelope.
+publishing the envelope. A phase-instrumented 500-site profile
+[44708429712](https://github.com/cyberducttape/StePanel/actions/runs/44708429712)
+was queued on `80bad3e8` but cancelled before starting after an already-running
+profile was confirmed to use the same capacity-probe code. The active profile
+[44699996203](https://github.com/cyberducttape/StePanel/actions/runs/44699996203)
+uses `3acc333c`, whose capacity probe is unchanged from current `main`; current
+`main` differs in other non-Markdown smoke/test files, so its result can inform
+diagnosis but is not exact-source release evidence. Review its phase timings
+and failure samples when the run completes, then rerun on the release source
+after any corrective change.
 
 Benchmark a named supported host with representative PHP traffic, databases,
 backups, migrations, and control-plane reads/writes. Measure CPU/RAM, disk and

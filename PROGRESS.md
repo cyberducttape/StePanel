@@ -58,25 +58,32 @@
 
 ## Current-source CI and recovery cohort — 2026-11-20
 
-- Exact-code CI integration [44699909154](https://github.com/cyberducttape/StePanel/actions/runs/44699909154)
-  passed on `3acc333c`; current `main` (`a7594a45`) differs only in Markdown
-  documentation. Go tests, race tests, recovery drills, tmpfs ENOSPC, database
-  restore checks, browser E2E/accessibility, and the integration checks all
-  passed. CodeQL and documentation checks also passed on the current docs
-  source.
+- CI integration [44699909154](https://github.com/cyberducttape/StePanel/actions/runs/44699909154)
+  passed on `3acc333c`. Current `main` (`80bad3e8`) has three non-Markdown
+  changes since that run: literal SQL client-command smoke-fixture corrections
+  and an alert retry persistence test. Production Go code is unchanged, but
+  the exact-source evidence checker does not count the older run as equivalent
+  until the current fixtures/tests pass. `bash scripts/check-action-pins.sh`
+  passes on current `main`; CI integration, CodeQL, and documentation runs for
+  `80bad3e8` were queued/pending at the last check.
 - Started one full six-host recovery iteration
   [44701903618](https://github.com/cyberducttape/StePanel/actions/runs/44701903618)
-  and the dedicated 20-repeat cohort
+  on `f35e4b71` and the dedicated 20-repeat cohort
   [44702646288](https://github.com/cyberducttape/StePanel/actions/runs/44702646288)
-  on current `main`. Both are in progress; no host recovery result is counted
-  yet. The cohort's first complete six-host repetition is underway.
-- The current-source 500-site profile
+  on `a7594a45`. Both are still in progress on their first six-host
+  repetition; current `main` has the three non-Markdown changes above, so
+  these remain useful but are not counted as exact-source passes.
+- The older-source cohort
+  [44686066552](https://github.com/cyberducttape/StePanel/actions/runs/44686066552)
+  on `e1195ccc` remains active as well. No repetition from any of the three
+  cohorts is counted until all six host jobs and artifacts are reviewed.
+- The phase-instrumented 500-site profile
   [44699996203](https://github.com/cyberducttape/StePanel/actions/runs/44699996203)
-  and installed-host smoke
-  [44699909128](https://github.com/cyberducttape/StePanel/actions/runs/44699909128)
-  remain active. A fresh exact-source release-evidence report is also running
-  for `a7594a45`. Production remains **NO-GO** until the P0 host, recovery,
-  alert-delivery, and capacity requirements are met.
+  is still running on `3acc333c`. Its capacity-probe code matches current
+  `main`; the result can diagnose the prior site's HTTP timeouts but will not
+  count as exact-source release evidence. A duplicate dispatch on `80bad3e8`
+  was cancelled before it started. Production remains **NO-GO** until the P0
+  host, recovery, alert-delivery, and capacity requirements are met.
 
 ## Reverify customer workspace and file-context regressions — 2026-11-20
 
