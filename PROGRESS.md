@@ -12,13 +12,16 @@
   used for mutations. The test now checks each JSON marshal result directly.
 - Evidence on the working tree: `go run honnef.co/go/tools/cmd/staticcheck@2026.1 ./...`
   passed; focused tenant/lifecycle tests passed; full `make check` passed
-  (vet, all Go packages, API artifacts, shell contracts). The browser E2E,
-  documentation, and CodeQL jobs had passed on `4ef3514a`; the host install
-  and capacity workflows were still running when this entry was written.
-- Next: commit and push this CI fix, verify exact-source integration reruns
-  staticcheck and finishes, then inspect the six-host install and capacity
-  artifacts. Production remains **NO-GO**; M0i and host-certification gates
-  remain incomplete.
+  (vet, all Go packages, API artifacts, shell contracts). Commit `9f8c75ac`
+  is pushed with the requested author identity. Exact-source CI integration
+  [44679148277](https://github.com/cyberducttape/StePanel/actions/runs/44679148277)
+  passed both jobs, including static analysis, race tests, recovery drills,
+  real tmpfs ENOSPC recovery, MySQL restore/ENOSPC/server-kill checks,
+  PostgreSQL restore privileges, Python deployment, container and manifest
+  validation, and the browser E2E/accessibility suite.
+- The exact-source AlmaLinux 9/Caddy installation smoke and the large KVM
+  capacity rerun are still running; neither is counted as passed. Production
+  remains **NO-GO**; M0i and host-certification gates remain incomplete.
 
 ## Bind customer site creation to its reserved tenant — 2026-11-20
 
