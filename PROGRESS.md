@@ -1,5 +1,21 @@
 # Production-readiness progress
 
+## Correct PostgreSQL restore attack fixtures — 2026-11-20
+
+- Review of `deploy/lab/dbctl-restore-pg-smoke.sh` found its purported
+  `\\!`, `\\copy`, and `\\o` inputs encoded two literal leading backslashes.
+  The smoke could reject plain SQL while never testing the actual `psql`
+  client commands named in the test and plan. Earlier PostgreSQL smoke passes
+  are not counted as evidence for those exact commands.
+- Corrected the inputs to single-backslash `\!`, `\copy`, and multiline `\o`
+  fixtures. Added an in-smoke assertion that rejects fixture strings unless
+  they start with exactly one backslash. The extracted fixtures passed the
+  assertion locally, including the multiline case; `bash -n`, ShellCheck, and
+  `git diff --check` passed.
+- The corrected real-server test has not yet run. A current-source CI run must
+  pass the PostgreSQL restore smoke before this security regression can be
+  considered verified.
+
 ## Current-source CI and recovery cohort — 2026-11-20
 
 - Exact-code CI integration [44699909154](https://github.com/cyberducttape/StePanel/actions/runs/44699909154)

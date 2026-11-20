@@ -276,16 +276,15 @@ is still running; this does not establish hostile multi-tenant isolation.
 
 ### M0n — Remove psql client-command execution from PostgreSQL restores (P0)
 
-**Status:** Implemented; local full Go tests and vet pass. Exact-source CI
-integration run [44665400225](https://github.com/cyberducttape/StePanel/actions/runs/44665400225)
-passed the PostgreSQL restore privilege smoke and the full integration suite.
-Native PostgreSQL dumps now use custom format, are archived as
-`.dump`, and restore through `pg_restore` as the restricted loader. Plain SQL
-is rejected at the privileged helper boundary. A root-owned cross-process
-lock serializes shared-loader role grants, loads, revocations, and interrupted
-restore reconciliation. The real-server CI smoke attempts `\!`, `\copy`,
-and `\o`, plus a concurrent cross-tenant `SET ROLE`, and verifies no marker
-is created and the live database is unchanged.
+**Status:** Restore implementation uses custom-format PostgreSQL archives,
+`pg_restore` as the restricted loader, rejects plain SQL at the privileged
+helper boundary, and serializes shared-loader grants through a root-owned
+cross-process lock. A review found the prior smoke fixtures had two leading
+backslashes, so earlier passing PostgreSQL runs do not prove rejection of the
+actual `\!`, `\copy`, and `\o` commands. The fixtures now contain exactly one
+leading backslash and assert that property before invoking restore. Shell
+syntax, ShellCheck, and the isolated fixture-prefix check pass locally; the
+real-server PostgreSQL smoke on this corrected source is pending hosted CI.
 
 **Acceptance criteria**
 
@@ -295,8 +294,9 @@ is created and the live database is unchanged.
   changing the live database.
 - A second restore process cannot assume another tenant's database-owner role
   while the first restore's membership is active.
-- CI evidence is tied to the exact source commit. Existing plain-SQL
-  PostgreSQL backup compatibility must remain explicitly documented.
+- CI evidence is tied to the exact source commit and the corrected real-server
+  fixtures pass. Existing plain-SQL PostgreSQL backup compatibility must
+  remain explicitly documented.
 
 ### M0 — Restore green exact-source CI
 

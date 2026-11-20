@@ -88,13 +88,15 @@ pass "restore replaces the database exactly and the site's role owns and can use
 before=$(snapshot)
 P -c "CREATE DATABASE \"pgrvictim_$suffix\"" > /dev/null
 attacks=(
-  "\\! touch $marker_shell"
-  "\\copy (SELECT 1) TO PROGRAM 'touch $marker_copy'"
-  "\\o $marker_output
+  "\! touch $marker_shell"
+  "\copy (SELECT 1) TO PROGRAM 'touch $marker_copy'"
+  "\o $marker_output
 SELECT 'this must never be written by psql';
-\\o"
+\o"
 )
 for attack in "${attacks[@]}"; do
+  backslash=$(printf '\134')
+  [[ $attack == "$backslash"?* && $attack != "$backslash$backslash"* ]] || fail 'psql attack fixture must start with exactly one backslash'
   if printf 'CREATE TABLE innocent (id INT);\n%s\n' "$attack" | "$helper" restore-dump "$db" "$site" 2> "$work/error"; then
     fail "a plain SQL script was accepted as a PostgreSQL restore archive: $attack"
   fi
