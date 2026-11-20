@@ -16,8 +16,11 @@
   worker interruption across import/backup/restore/termination, and account
   suspension recovery also passed. This is one host and one repetition only.
 - N-1 upgrade matrix
-  [44724039602](https://github.com/cyberducttape/StePanel/actions/runs/44724039602),
-  six-host recovery cohort
+  [44724039602](https://github.com/cyberducttape/StePanel/actions/runs/44724039602)
+  passed all six jobs. It covered v0.6.0/v0.7.0 in disposable systemd
+  containers and Ubuntu 24.04 QEMU/Apache guests, including verification
+  interruption. This is one limited matrix run, not full upgrade certification.
+  Six-host recovery cohort
   [44725816245](https://github.com/cyberducttape/StePanel/actions/runs/44725816245),
   and 500-site KVM capacity profile
   [44725885994](https://github.com/cyberducttape/StePanel/actions/runs/44725885994)
@@ -35,6 +38,17 @@
   recovery cohort was cancelled to free runners; its partial work does not
   count. No code change was needed in this continuation; this documentation
   update records the latest workflow evidence.
+
+## Current-code N-1 upgrade matrix passed — 2026-11-20
+
+- N-1 matrix [44724039602](https://github.com/cyberducttape/StePanel/actions/runs/44724039602)
+  completed 6/6 jobs on source `6e80a189`, whose non-Markdown tree matches
+  current `main`. Both v0.6.0 and v0.7.0 were exercised in disposable systemd
+  containers and Ubuntu 24.04 QEMU/Apache guests, with ordinary and verification
+  interruption paths. All jobs passed.
+- This does not certify populated installations, every supported OS/web-server
+  combination, every rollback boundary, or a production release. The release
+  decision remains **NO-GO** pending the open P0 gates.
 
 ## Retry transient package-mirror failures in host test setup — 2026-11-20
 

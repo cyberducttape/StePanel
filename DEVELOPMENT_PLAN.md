@@ -1169,8 +1169,11 @@ downgrade procedure. This remains historical upgrade evidence, not current
 release-candidate certification. Current-code N-1 matrix
 [44724039602](https://github.com/cyberducttape/StePanel/actions/runs/44724039602)
 was dispatched on `6e80a189`, which is code-equivalent to current `main`.
-Five of six jobs have passed; the final QEMU guest case is still running, so
-there is not yet a complete matrix result. The earlier run
+It passed all six jobs: v0.6.0 and v0.7.0 upgrade cases in disposable systemd
+containers and Ubuntu 24.04 QEMU guests, including verification-interruption
+cases. This is one run on a limited platform set; populated installations,
+other supported distributions, and additional failure boundaries still need
+release-candidate evidence. The earlier run
 [44712444760](https://github.com/cyberducttape/StePanel/actions/runs/44712444760)
 was stopped after an apt-mirror failure before the upgrade scenario.
 
