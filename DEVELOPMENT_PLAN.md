@@ -817,10 +817,14 @@ a detached session, verifies the child shares the transient unit's cgroup and
 site resource slice, checks effective task/runtime/memory limits, stops the
 unit, and verifies the descendant exits. Local syntax, ShellCheck, and shell
 contract checks pass. The initial attempt failed at Composer lookup because
-the smoke inherited a restricted `PATH`; after setting it explicitly,
-installed-host smoke [44686046786](https://github.com/cyberducttape/StePanel/actions/runs/44686046786)
-passed on AlmaLinux 9/Caddy/MariaDB. The remaining matrix combinations are
-being exercised by the current-source cohort.
+the smoke inherited a restricted `PATH`; after setting it explicitly, the
+source-specific installed-host smoke
+[44686046786](https://github.com/cyberducttape/StePanel/actions/runs/44686046786)
+passed on AlmaLinux 9/Caddy/MariaDB at `e1195ccc`. Current `main` has later
+production file-manager changes, so this is historical evidence for that
+source. Other combinations are in flight on `f35e4b71` and `a7594a45`; their
+runtime code matches the current tree, but they are not exact-source evidence
+and are not counted until all jobs and artifacts are reviewed.
 
 **Acceptance criteria**
 
@@ -908,9 +912,11 @@ durable job state. Keep the token out of API serialization.
 
 ### M1 — Complete installed-host failure recovery (P0)
 
-**Status:** Open. Exact-source AlmaLinux 9/Caddy/MariaDB installed smoke and
-single-iteration recovery run [44686046786](https://github.com/cyberducttape/StePanel/actions/runs/44686046786)
-passed on `e1195ccc`. It passed the installed cgroup descendant-containment
+**Status:** Open. Source-specific AlmaLinux 9/Caddy/MariaDB installed smoke
+and single-iteration recovery run
+[44686046786](https://github.com/cyberducttape/StePanel/actions/runs/44686046786)
+passed on `e1195ccc`; current `main` has later non-Markdown changes, so this is
+not current-source evidence. It passed the installed cgroup descendant-containment
 probe, control-plane database-outage check, file-manager and PHP-FPM checks,
 cPanel and database-client-command restore checks, broker interruption, app
 lifecycle, worker interruption during cPanel import/backup/restore/database
@@ -940,11 +946,11 @@ uses `a7594a45`. Both are still running their first six-host repetition.
 An additional older-source cohort
 [44686066552](https://github.com/cyberducttape/StePanel/actions/runs/44686066552)
 on `e1195ccc` is also still active.
-Current `main` (`80bad3e8`) has three non-Markdown changes since those
-sources: the corrected literal MySQL/PostgreSQL client-command smoke fixtures
-and a notification retry persistence test. No production Go code changed,
-but the exact-source evidence verifier does not count those runs for current
-`main`. Runs `44701903618` and `44702646288` are runtime-code-equivalent and
+Current `main` (`4ff67a09`; same non-Markdown tree as `80bad3e8`) has three
+non-Markdown changes since those sources: the corrected literal MySQL/PostgreSQL
+client-command smoke fixtures and a notification retry persistence test. No
+production Go code changed, but the exact-source evidence verifier does not
+count those runs for current `main`. Runs `44701903618` and `44702646288` are runtime-code-equivalent and
 remain useful for diagnosis; the older `e1195ccc` run is historical evidence.
 The updated smokes and tests must also pass on the current tree before those
 gates can close. No recovery pass is counted until all six hosts and their
@@ -1022,17 +1028,20 @@ state, service health, and successful post-recovery invariants.
 
 ### M2 — Certify application recovery and supported runtime matrix (P0)
 
-**Status:** Partial. Exact-source run `44516615547` passed a database-backed
+**Status:** Partial. Earlier six-host run `44516615547` passed a database-backed
 WordPress HTTP recovery proof on all six Ubuntu 24.04, AlmaLinux 9, and Rocky
 Linux 9 Apache/Caddy combinations (4.756–7.106 s measured RTO); see the
 [2026-11-19 result](docs/lab-results/2026-11-19-six-host-recovery-64281ca.md).
 This is one pass per combination in disposable systemd containers, not
 repeated or physical-host certification. The earlier full six-host run
 [`41189484718`](https://github.com/cyberducttape/StePanel/actions/runs/41189484718)
-is retained as historical evidence. Current-source AlmaLinux 9/Caddy/MariaDB
-run [44686046786](https://github.com/cyberducttape/StePanel/actions/runs/44686046786)
-also passed the database-backed proof (5.273 s RTO), but does not establish
-the full matrix or repeated recovery.
+is retained as historical evidence. The one-host proof in run
+[44686046786](https://github.com/cyberducttape/StePanel/actions/runs/44686046786)
+is also on older source `e1195ccc` and does not establish current-source
+recovery. Six-host runs [44701903618](https://github.com/cyberducttape/StePanel/actions/runs/44701903618)
+and [44702646288](https://github.com/cyberducttape/StePanel/actions/runs/44702646288)
+remain in progress; neither is counted until every host job and artifact is
+reviewed.
 
 On a clean disposable destination, restore a real WordPress site including
 files and a populated database, configure PHP-FPM and the virtual host, then
@@ -1085,7 +1094,7 @@ The reviewed diagnostic-source result is
 [`here`](docs/lab-results/2026-11-20-capacity-large-8382e9c.md); it is not an
 exact-current-source certification. The capacity probe now collects bounded
 per-site PHP-FPM queue/saturation and site-cgroup CPU/memory samples from
-`/metrics` during load. The exact-source profile
+`/metrics` during load. The earlier profile on source `e1195ccc`
 [44686066350](https://github.com/cyberducttape/StePanel/actions/runs/44686066350)
 completed with 184/9,791 site requests timing out at 15 seconds. FPM metrics
 showed zero saturation and queue depth, but were available for only 473/504
@@ -1098,16 +1107,16 @@ choosing a tuning correction. The first current-source attempt
 failed in the shared installed-host Composer cgroup probe before the workload
 started; the probe `PATH` issue has since been fixed.
 The capacity failure must be diagnosed and a remediation measured before
-publishing the envelope. A phase-instrumented 500-site profile
-[44708429712](https://github.com/cyberducttape/StePanel/actions/runs/44708429712)
-was queued on `80bad3e8` but cancelled before starting after an already-running
-profile was confirmed to use the same capacity-probe code. The active profile
+publishing the envelope. The phase-instrumented 500-site profile
 [44699996203](https://github.com/cyberducttape/StePanel/actions/runs/44699996203)
-uses `3acc333c`, whose capacity probe is unchanged from current `main`; current
-`main` differs in other non-Markdown smoke/test files, so its result can inform
-diagnosis but is not exact-source release evidence. Review its phase timings
-and failure samples when the run completes, then rerun on the release source
-after any corrective change.
+on `3acc333c` completed setup and workload collection but failed while
+aggregating samples: the report helper expected four-field site samples when
+admin samples have three fields. No JSON or Markdown report was produced, so
+that run supplies no usable latency measurements. A regression test now covers
+both sample shapes; rerun the full profile after this harness fix and review
+the resulting phase timings before changing product defaults. This run was
+not exact-source evidence because other non-Markdown files differ from current
+`main`.
 
 Benchmark a named supported host with representative PHP traffic, databases,
 backups, migrations, and control-plane reads/writes. Measure CPU/RAM, disk and
@@ -1126,17 +1135,18 @@ load.
 
 ### M5 — Certify upgrade, rollback, and security lifecycle (P0)
 
-**Status:** Partial. Exact-code-equivalent N-1 run
+**Status:** Partial. A historical N-1 run on source `3f2580b`
 [44663143624](https://github.com/cyberducttape/StePanel/actions/runs/44663143624)
 passed 6/6 v0.6.0/v0.7.0 upgrade jobs on 2026-11-20 (systemd containers and
 Ubuntu 24.04 QEMU guests); reviewed details are in
 [the run report](docs/lab-results/2026-11-20-upgrade-matrix-3f2580b.md).
-The test source differs from `8556e9fe` only in documentation and the
-workflow-dispatch line in `.github/workflows/ci.yml`; product code and upgrade
-scripts match. The injected broken-candidate path explicitly reports that
-installer rollback alone did not complete host recovery; the tested success
-uses the documented operator downgrade procedure. This is useful upgrade
-evidence, not full production certification.
+That run was code-equivalent to `8556e9fe` at the time, but current `main`
+has 50 non-Markdown files changed since source `3f2580b`; it is not evidence
+for the current installer, migrations, or rollback code. The injected
+broken-candidate path explicitly reports that installer rollback alone did
+not complete host recovery; the tested success uses the documented operator
+downgrade procedure. This remains historical upgrade evidence, not current
+release-candidate certification.
 
 The API lifecycle policy is now published in
 [`docs/API_COMPATIBILITY.md`](docs/API_COMPATIBILITY.md). Candidate validation

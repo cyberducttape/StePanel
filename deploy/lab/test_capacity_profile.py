@@ -159,6 +159,27 @@ class CapacityProbeTest(unittest.TestCase):
         self.assertEqual(summary["fpm_unavailable_site_samples"], ["cap-1", "cap-2"])
         self.assertEqual(summary["saturated_site_samples"], ["cap-4"])
 
+    def test_window_summary_accepts_site_and_admin_sample_shapes(self):
+        site_results = [
+            (10, 200, 0.1, {"total_s": 0.1}),
+            (20, 503, 0.2, {"total_s": 0.2}),
+            (30, 200, 0.3, {"total_s": 0.3}),
+        ]
+        admin_results = [
+            (10, 200, 0.01),
+            (20, 503, 0.02),
+            (30, 200, 0.03),
+        ]
+
+        self.assertEqual(
+            capacity_profile.window_latencies(site_results, False, 20, 30),
+            [0.1],
+        )
+        self.assertEqual(
+            capacity_profile.window_latencies(admin_results, True, 20, 30),
+            [0.03],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -216,6 +216,16 @@ def summarize(latencies):
     }
 
 
+def window_latencies(results, inside, begin, end):
+    """Return successful sample latencies in or outside an operation window.
+
+    Site samples have a fourth timing-details field while administrative
+    samples do not. The common timestamp/status/latency prefix is intentional.
+    """
+    return [row[2] for row in results
+            if 200 <= row[1] < 400 and ((begin <= row[0] <= end) == inside)]
+
+
 def create_site(panel, name, domain):
     status, created = panel.call("POST", "/api/sites", {"site": name, "template": "php"})
     if status != 202:
@@ -514,7 +524,7 @@ def main():
 
     def window(results, inside):
         begin, end = heavy_window
-        return [s for (t, status, s, _timings) in results if 200 <= status < 400 and ((begin <= t <= end) == inside)]
+        return window_latencies(results, inside, begin, end)
 
     def phase_window(results, inside):
         begin, end = heavy_window

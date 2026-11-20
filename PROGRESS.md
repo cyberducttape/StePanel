@@ -1,5 +1,34 @@
 # Production-readiness progress
 
+## Reconcile installed evidence with current source — 2026-11-20
+
+- The phase-instrumented 500-site run
+  [44699996203](https://github.com/cyberducttape/StePanel/actions/runs/44699996203)
+  on `3acc333c` completed site setup and workload collection but failed during
+  report aggregation. The summary helper unpacked admin samples as four-field
+  tuples although they contain three fields, so no report artifact was
+  produced. Added a regression test covering both site and admin sample
+  shapes; all 8 capacity-probe unit tests pass locally. A full profile rerun is
+  still required, and the old run provides no usable capacity measurements.
+- Generated the exact-source release report for `4ff67a09` at 09:20 UTC. It
+  recorded **NO-GO**, 4 complete and 17 incomplete P0 items, with 9 executable
+  checks incomplete and 6 without equivalent-source evidence. Current
+  installed-host and capacity runs had not produced reviewed results.
+- Compared source trees instead of relying on labels in older notes. The
+  successful one-host WordPress/cgroup run `44686046786` is from `e1195ccc`;
+  22 non-Markdown files changed between that source and current `main`,
+  including production file-manager/helper code. The successful upgrade matrix
+  `44663143624` is from `3f2580b`; 50 non-Markdown files changed since it.
+  Those results are valid for their recorded sources but are not current-source
+  certification.
+- Corrected `DEVELOPMENT_PLAN.md` and `docs/V1_PRODUCTION_GATES.md` to mark the
+  old runs as historical, distinguish runtime-equivalent from exact-source
+  results, and retain the required reruns as open. Current release evidence
+  still awaits exact-source CI, installed recovery, upgrade, and capacity
+  results. Production remains **NO-GO**.
+- `bash scripts/check-action-pins.sh` passes; documentation references, links,
+  and whitespace checks pass against these corrections.
+
 ## Customer website workspace and file-manager race regressions — 2026-11-20
 
 - Rechecked the reported initialization and cross-context file actions on
