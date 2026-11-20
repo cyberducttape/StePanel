@@ -16,6 +16,10 @@
 - The remaining Go CI job for that source was still running when this entry
   was written. Local `make check` passed for the concurrent file-read limiter.
   Production remains **NO-GO** pending the open release gates.
+- The initial docs workflow caught a reference-check false positive from a
+  regex written in the progress note. The wording was corrected; the docs
+  workflow passed on updated `main` in run
+  [44739502546](https://github.com/cyberducttape/StePanel/actions/runs/44739502546).
 
 ## Bound concurrent file reads and directory listings — 2026-11-20
 
@@ -31,8 +35,9 @@
   passed. `make check` includes `go vet ./...`, the serial full Go suite, and
   the repository's local validation scripts. `DEVELOPMENT_PLAN.md` M0o records
   the six-host file-manager race result and the added concurrency bound.
-  Exact-source hosted CI and installed validation remain pending. Production
-  remains **NO-GO**.
+  The hosted customer browser journey passed on code-equivalent source
+  `d0ed0fa3`; its full Go CI job was still running. Installed-host validation
+  of the new limiter remains pending. Production remains **NO-GO**.
 
 ## Reconcile installed-host evidence status — 2026-11-20
 
@@ -48,12 +53,15 @@
   before counting.
 - Abrupt-loss run using QEMU writeback
   [44731756198](https://github.com/cyberducttape/StePanel/actions/runs/44731756198)
-  remains in progress on `94b90f5e`; the cache-bypassing follow-up
+  completed successfully on `94b90f5e`. Artifact review found all five
+  injected-loss scenarios passed; the report is
+  [`2026-11-20-kvm-abrupt-loss-operations-94b90f5.md`](docs/lab-results/2026-11-20-kvm-abrupt-loss-operations-94b90f5.md).
+  This is one pass, with writeback caching, and does not close the gate. The
+  cache-bypassing follow-up
   [44735170833](https://github.com/cyberducttape/StePanel/actions/runs/44735170833)
-  is pending. Latest exact-main CI integration, install smoke, CodeQL,
-  documentation, capacity profile, and release-evidence workflows were
-  queued at this check; none is reported as passed. Recovery and production
-  gates remain open.
+  and the 20-repeat cohort remain in progress. Exact-source CI Go tests and
+  capacity profiling are also in progress. Recovery and production gates
+  remain open.
 
 ## Investigate 500-site KVM capacity failure — 2026-11-20
 
@@ -133,20 +141,21 @@
   uploaded the artifact. No product failure was observed. An older-source
   recovery cohort was cancelled to free runners; its partial work does not
   count.
-- Current-source QEMU abrupt-loss operation drill
+- QEMU abrupt-loss operation drill
   [44731756198](https://github.com/cyberducttape/StePanel/actions/runs/44731756198)
-  is now running on `94b90f5e`, covering file restore, database restore, Git
-  deployment, retention, and control-plane writes. It is an injected guest
-  SIGKILL test, not physical host power-loss certification. Results remain
-  unreviewed; the 20-repeat six-host cohort and 500-site capacity run are also
-  still active.
+  completed on `94b90f5e`. All five injected guest-loss scenarios passed:
+  file restore, database restore, Git deployment, retention, and control-plane
+  writes. The database stayed unchanged immediately after the interrupted
+  restore; retry used the first safety backup and matched all eight tables.
+  See the [reviewed artifact report](docs/lab-results/2026-11-20-kvm-abrupt-loss-operations-94b90f5.md).
+  This is one pass and not physical host power-loss certification.
 - The initial abrupt-loss run uses QEMU `writeback`, so host page cache may
   preserve acknowledged writes after QEMU is killed. Updated the workflow to
   use `VM_DISK_CACHE=none` for follow-up testing and dispatched
   [run 44735170833](https://github.com/cyberducttape/StePanel/actions/runs/44735170833)
-  for the same five scenarios. It is queued behind the current KVM run and is
-  not counted until completion and artifact review. `cache=none` strengthens
-  guest-crash evidence but does not simulate physical host power loss.
+  for the same five scenarios. It is now running and is not counted until
+  completion and artifact review. `cache=none` strengthens guest-crash
+  evidence but does not simulate physical host power loss.
 
 ## Current-code N-1 upgrade matrix passed — 2026-11-20
 
