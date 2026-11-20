@@ -47,6 +47,22 @@ cat > "$work/source-command.sql" <<SQL
 \\. $source_tmp
 SQL
 
+assert_single_backslash_command() {
+  local path=$1 command=$2 line expected
+  expected=$(printf '\\%s' "$command")
+  IFS= read -r line < "$path" || { echo "could not read $command fixture: $path" >&2; return 1; }
+  [[ $line == "$expected"* ]] || {
+    printf 'fixture %s must start with exactly one backslash followed by %s\n' "$path" "$command" >&2
+    return 1
+  }
+}
+
+# Keep the attack fixtures honest: a doubled slash is not a mysql client
+# command and could otherwise let this smoke pass without exercising the guard.
+assert_single_backslash_command "$source_tmp" '!'
+assert_single_backslash_command "$work/system-command.sql" '!'
+assert_single_backslash_command "$work/source-command.sql" '.'
+
 assert_client_command_rejected() {
   local path=$1 command_name=$2 dump=$3 marker=$4 dump_bytes
   local log="$work/$path-$command_name.log"

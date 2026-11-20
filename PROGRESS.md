@@ -12,6 +12,10 @@
   they start with exactly one backslash. The extracted fixtures passed the
   assertion locally, including the multiline case; `bash -n`, ShellCheck, and
   `git diff --check` passed.
+- Applied the same fixture-integrity check to the MySQL/MariaDB import smoke
+  for both `\!` and `\.` commands. `bash -n`, ShellCheck, smoke-workflow bounds,
+  and a local single-backslash fixture check pass; database execution remains
+  part of hosted integration CI.
 - The corrected real-server test has not yet run. A current-source CI run must
   pass the PostgreSQL restore smoke before this security regression can be
   considered verified.
