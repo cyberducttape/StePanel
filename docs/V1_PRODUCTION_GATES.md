@@ -121,11 +121,14 @@ follow-up 44735170833 is active. The 500-site profile 44725885994 completed and 
 while the panel API stayed responsive and both heavy backups completed. Its
 source `f464f79d` predates current `main`; the [reviewed report](./lab-results/2026-11-20-capacity-large-f464f79.md)
 does not certify capacity or identify the request-path cause. On code-equivalent
-source `d0ed0fa3`, browser E2E passed in CI run 44739044630; its full Go test
-job was still running at this update. Documentation checks passed on the
-current documentation source in run 44739502546. CodeQL passed on
-code-equivalent source `788de3d3` in run 44739502475. Production remains
-**NO-GO**.
+source `d0ed0fa3`, browser E2E passed in CI run 44739044630; its integration
+job reached race testing and remains active. Dedicated CI on current code source
+`1e66dc58` passed in run 44740769089, including formatting, `go vet`, all Go
+tests, frontend unit tests, and shell syntax. The separate integration race
+job remains in progress on code-equivalent source `d0ed0fa3`. Documentation
+checks passed on current documentation source in run 44739502546. CodeQL
+passed on code-equivalent source `788de3d3` in run 44739502475. Production
+remains **NO-GO**.
 
 | Requirement | Current status | Evidence / remaining work |
 |-------------|----------------|---------------------------|

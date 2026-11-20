@@ -48,9 +48,13 @@ binary and the seeded account-owner browser journey (1/1 passed). Hosted
 on code source `d0ed0fa3`. The journey checks WordPress creation controls, no
 uncaught browser errors, failed-inventory retry, delayed file-read invalidation
 after a site switch, stale rows during folder navigation, and no cross-site
-write. Local frontend unit tests passed 17/17. The full hosted Go job was still
-running its race tests at the latest check. This closes the listed customer UI
-regressions; it does not close separate host-certification gates.
+write. Local frontend unit tests passed 17/17. Dedicated CI on current code
+source `1e66dc58` passed in run
+[44740769089](https://github.com/cyberducttape/StePanel/actions/runs/44740769089),
+including vet, the full Go suite, frontend unit tests, and shell syntax. The
+integration workflow's race suite remains active on code-equivalent source
+`d0ed0fa3`. This closes the listed customer UI regressions; it does not close
+separate host-certification gates.
 
 **Acceptance criteria**
 
@@ -276,9 +280,10 @@ nonblocking limiter admits at most four file reads/listings per tenant and 32
 per panel process; excess requests receive HTTP 429 with `Retry-After: 5`.
 Focused tests cover per-tenant fairness, the host cap, slot release, and the
 retry response. `make check` and focused race tests passed locally; the hosted
-customer `ui-e2e` job passed on code-equivalent source `d0ed0fa3`. The full
-hosted Go CI race job was still running at the latest check. This does not
-establish hostile multi-tenant isolation.
+customer `ui-e2e` job passed on code-equivalent source `d0ed0fa3`; dedicated
+CI passed on current code source `1e66dc58` in run 44740769089. The integration
+workflow's full race job remains active. This does not establish hostile
+multi-tenant isolation.
 
 **Acceptance criteria**
 
