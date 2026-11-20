@@ -202,6 +202,8 @@ jobs:
       - run: bash -n deploy/lab/sftp-access-smoke.sh deploy/lab/filectl-smoke.sh deploy/lab/customer-site-smoke.sh deploy/lab/ftps-access-smoke.sh deploy/lab/sitectl-acl-smoke.sh deploy/lab/python-dependencies-smoke.sh
       - name: Check FTPS PAM probe syntax
         run: python3 -m py_compile deploy/lab/ftps-pam-probe.py
+      - name: Test bounded capacity and site-runtime diagnostics
+        run: python3 -m unittest deploy/lab/test_capacity_profile.py
       - run: bash -n deploy/integrations/*
       - run: bash scripts/test-site-package-cgroups.sh
       - run: bash scripts/test-node-runtime-resolution.sh

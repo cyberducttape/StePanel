@@ -36,6 +36,7 @@ import subprocess
 import sys
 import threading
 import time
+import platform
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -218,6 +219,71 @@ def rss_mib(match):
 
 
 WHOLE_DISK = re.compile(r"^(vd[a-z]+|sd[a-z]+|xvd[a-z]+|nvme[0-9]+n[0-9]+)$")
+SITE_METRIC = re.compile(
+    r'^(stepanel_site_(?:fpm_[a-z_]+|resource_[a-z_]+))\{([^}]*)\}\s+([0-9.eE+-]+)$'
+)
+SITE_LABEL = re.compile(r'(?:^|,)site="([a-z0-9_-]{1,32})"(?:,|$)')
+
+
+def parse_site_runtime_metrics(body, now=None):
+    """Summarize the current bounded per-site Prometheus snapshot."""
+    if isinstance(body, bytes):
+        body = body.decode(errors="replace")
+    now = time.time() if now is None else now
+    values = {}
+    for line in body.splitlines():
+        match = SITE_METRIC.match(line)
+        if not match:
+            continue
+        metric, labels, raw_value = match.groups()
+        site = SITE_LABEL.search(labels)
+        if not site:
+            continue
+        try:
+            value = float(raw_value)
+        except ValueError:
+            continue
+        values.setdefault(site.group(1), {}).setdefault(metric, []).append(value)
+
+    timestamps = [stamp
+                  for site in values.values()
+                  for stamp in site.get("stepanel_site_fpm_sample_timestamp_seconds", [])]
+    memory_ratios = [100 * current / limit
+                     for site in values.values()
+                     for current, limit in zip(
+                         site.get("stepanel_site_resource_memory_current_bytes", []),
+                         site.get("stepanel_site_resource_memory_max_bytes", []))
+                     if limit > 0]
+    all_values = lambda metric: [value for site in values.values()
+                                 for value in site.get(metric, [])]
+    return {
+        "sites_sampled": len(values),
+        "fpm_available_sites": sum(
+            max(site.get("stepanel_site_fpm_probe_up", [0])) == 1
+            for site in values.values()),
+        "saturated_sites": sum(
+            any(value == 1 for value in site.get("stepanel_site_fpm_saturated", []))
+            for site in values.values()),
+        "max_active_workers": max(all_values("stepanel_site_fpm_active_workers"), default=0),
+        "max_listen_queue": max(all_values("stepanel_site_fpm_listen_queue"), default=0),
+        "max_slow_requests": max(all_values("stepanel_site_fpm_slow_requests"), default=0),
+        "max_site_cpu_quota_utilization_pct": max(
+            all_values("stepanel_site_resource_cpu_quota_utilization_percent"), default=0),
+        "max_site_memory_limit_utilization_pct": round(max(memory_ratios, default=0), 1),
+        "oldest_fpm_sample_age_s": round(max((max(0, now - stamp) for stamp in timestamps), default=0), 1),
+    }
+
+
+def summarize_runtime_metrics(samples):
+    usable = [sample["metrics"] for sample in samples if sample.get("status") == 200 and sample.get("metrics")]
+    numeric = ("sites_sampled", "fpm_available_sites", "saturated_sites", "max_active_workers",
+               "max_listen_queue", "max_slow_requests", "max_site_cpu_quota_utilization_pct",
+               "max_site_memory_limit_utilization_pct", "oldest_fpm_sample_age_s")
+    return {
+        "scrapes": len(samples),
+        "failed_scrapes": sum(sample.get("status") != 200 for sample in samples),
+        "peak": {key: max((entry.get(key, 0) for entry in usable), default=0) for key in numeric},
+    }
 
 
 def disk_sectors():
@@ -297,6 +363,7 @@ def main():
     sampler.start()
     lock = threading.Lock()
     site_results, site_failures, admin_results, admin_failures = [], [], {}, []
+    runtime_metric_samples = []
     measurement_started = time.time()
     heavy_window = [None, None]
 
@@ -314,6 +381,7 @@ def main():
         probe = Panel()
         probe.jar, probe.opener, probe.csrf = panel.jar, panel.opener, panel.csrf
         paths = ["/api/sites", "/api/jobs", "/readyz", "/api/sites/overview"]
+        next_metrics_scrape = 0
         while not stop.is_set():
             for path in paths:
                 begin = time.perf_counter()
@@ -326,6 +394,21 @@ def main():
                     if not 200 <= status < 400 and len(admin_failures) < 50:
                         admin_failures.append({"t": round(time.time() - measurement_started, 1), "path": path,
                                                "status": status, "detail": failure_detail(body)})
+            if time.time() >= next_metrics_scrape:
+                metrics_started = time.perf_counter()
+                try:
+                    status, body = probe.call("GET", "/metrics", timeout=60)
+                except OSError as error:
+                    status, body = 0, str(error)
+                sample = {"t": round(time.time() - measurement_started, 1), "status": status,
+                          "latency_ms": round((time.perf_counter() - metrics_started) * 1000, 1)}
+                if status == 200:
+                    sample["metrics"] = parse_site_runtime_metrics(body)
+                else:
+                    sample["detail"] = failure_detail(body)
+                with lock:
+                    runtime_metric_samples.append(sample)
+                next_metrics_scrape = time.time() + 15
             stop.wait(0.5)
 
     threads = [threading.Thread(target=site_client, daemon=True) for _ in range(CLIENTS)]
@@ -375,6 +458,8 @@ def main():
     report = {
         "profile": PROFILE, "sites": SITES, "duration_s": DURATION, "site_clients": CLIENTS,
         "heavy_mib": HEAVY_MIB, "started_utc": started_at, "setup_s": setup_seconds,
+        "host": {"kernel": platform.release(), "machine": platform.machine(),
+                 "logical_cpus": os.cpu_count()},
         "site_requests": {
             "total": len(site_results),
             "errors": sum(1 for (_, status, _) in site_results if not 200 <= status < 400),
@@ -388,6 +473,10 @@ def main():
             "baseline": summarize(window(results, False)),
             "during_heavy": summarize(window(results, True)),
         } for path, results in admin_results.items()},
+        "site_runtime_diagnostics": {
+            **summarize_runtime_metrics(runtime_metric_samples),
+            "samples": runtime_metric_samples,
+        },
         "heavy_operations": [{
             "site": job["site"], "state": job.get("state"),
             "queue_wait_s": round(job.get("running_at", job["enqueued"]) - job["enqueued"], 2),
@@ -423,6 +512,16 @@ def main():
     for key, values in report["resources"].items():
         print(f"| {key} | {values['mean']} | {values['max']} |")
     print(f"\nMinimum available memory: {report['min_mem_available_mib']} MiB. Control-plane database-lock errors in the panel and worker journals: {lock_error_count}.")
+    runtime = report["site_runtime_diagnostics"]
+    peak = runtime["peak"]
+    print("\n| Site runtime diagnostics | Value |")
+    print("| --- | ---: |")
+    print(f"| /metrics scrapes (failed) | {runtime['scrapes']} ({runtime['failed_scrapes']}) |")
+    print(f"| Peak sampled sites / available FPM pools | {peak['sites_sampled']} / {peak['fpm_available_sites']} |")
+    print(f"| Peak saturated pools / listen queue | {peak['saturated_sites']} / {peak['max_listen_queue']} |")
+    print(f"| Peak active workers / slow requests | {peak['max_active_workers']} / {peak['max_slow_requests']} |")
+    print(f"| Peak site CPU quota / memory limit use | {peak['max_site_cpu_quota_utilization_pct']}% / {peak['max_site_memory_limit_utilization_pct']}% |")
+    print(f"| Oldest FPM sample age | {peak['oldest_fpm_sample_age_s']} s |")
     if site_failures:
         print("\nSite HTTP failures (first 20):")
         for failure in site_failures[:20]:

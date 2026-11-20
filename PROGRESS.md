@@ -1,5 +1,11 @@
 # Production-readiness progress
 
+## Diagnose the 500-site capacity failure with per-site runtime evidence — 2026-11-20
+
+- Reviewed completed Rocky Linux 9 profile [44674647682](https://github.com/cyberducttape/StePanel/actions/runs/44674647682), source `8382e9c4`. The 500-site run failed with 210/9,609 site requests timing out at 15 seconds; management API and job-list p99 stayed below 23 ms, two 512 MiB backups completed, available host memory stayed above 7.8 GiB, and SQLite lock errors were zero. This is evidence against the proposed 500-site envelope; it is not an exact-current-source result and does not isolate the site request bottleneck. Recorded full measurements and limitations in [`the lab report`](docs/lab-results/2026-11-20-capacity-large-8382e9c.md).
+- Extended the capacity probe to scrape authenticated `/metrics` every 15 seconds and retain bounded per-site PHP-FPM saturation/queue/worker/slow-request metrics and cgroup CPU/memory use, along with scrape failures and sample age. Aggregation now preserves separate PHP-version pools instead of overwriting metrics for the same site. Added regression coverage for multiple pools, missing resource limits, failed scrapes, and bounded HTTP diagnostics.
+- Local evidence: `python3 -m unittest deploy/lab/test_capacity_profile.py` passed 5 tests; Python compilation and `git diff --check` passed. CI integration [44683523251](https://github.com/cyberducttape/StePanel/actions/runs/44683523251) and installed-host smoke [44683523314](https://github.com/cyberducttape/StePanel/actions/runs/44683523314) are running on base commit `6173d48a`; they do not yet contain the current capacity-probe edits. Next: commit and push, rerun the 500-site KVM profile on that exact source, inspect per-site diagnostics, then make and measure a targeted correction. M4 remains open; production remains **NO-GO**.
+
 ## Add installed-host package descendant containment probe — 2026-11-20
 
 - Added `deploy/lab/site-package-cgroup-smoke.sh` and wired it into the

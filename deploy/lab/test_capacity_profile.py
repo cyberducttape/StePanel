@@ -76,6 +76,46 @@ class CapacityProbeTest(unittest.TestCase):
         _status, _elapsed, detail = self.probe(response)
         self.assertLessEqual(len(detail), 512)
 
+    def test_site_runtime_metrics_are_aggregated_with_sample_age(self):
+        body = "\n".join([
+            'stepanel_site_fpm_probe_up{site="cap-001"} 1',
+            'stepanel_site_fpm_saturated{site="cap-001",php_version="8.4"} 1',
+            'stepanel_site_fpm_active_workers{site="cap-001",php_version="8.4"} 5',
+            'stepanel_site_fpm_active_workers{site="cap-001",php_version="8.3"} 8',
+            'stepanel_site_fpm_listen_queue{site="cap-001",php_version="8.4"} 3',
+            'stepanel_site_fpm_listen_queue{site="cap-001",php_version="8.3"} 0',
+            'stepanel_site_fpm_slow_requests{site="cap-001",php_version="8.4"} 2',
+            'stepanel_site_fpm_slow_requests{site="cap-001",php_version="8.3"} 11',
+            'stepanel_site_fpm_sample_timestamp_seconds{site="cap-001"} 900',
+            'stepanel_site_resource_cpu_quota_utilization_percent{site="cap-001"} 87.5',
+            'stepanel_site_resource_memory_current_bytes{site="cap-001"} 75',
+            'stepanel_site_resource_memory_max_bytes{site="cap-001"} 100',
+            'stepanel_site_resource_memory_current_bytes{site="cap-002"} 0',
+            'stepanel_site_resource_memory_max_bytes{site="cap-002"} 0',
+            'stepanel_site_fpm_active_workers{site="not a site"} 99',
+            'unrelated_metric{site="cap-001"} 99',
+        ])
+        sample = capacity_profile.parse_site_runtime_metrics(body, now=1000)
+        self.assertEqual(sample["sites_sampled"], 2)
+        self.assertEqual(sample["fpm_available_sites"], 1)
+        self.assertEqual(sample["saturated_sites"], 1)
+        self.assertEqual(sample["max_active_workers"], 8)
+        self.assertEqual(sample["max_listen_queue"], 3)
+        self.assertEqual(sample["max_slow_requests"], 11)
+        self.assertEqual(sample["max_site_cpu_quota_utilization_pct"], 87.5)
+        self.assertEqual(sample["max_site_memory_limit_utilization_pct"], 75.0)
+        self.assertEqual(sample["oldest_fpm_sample_age_s"], 100.0)
+
+    def test_site_runtime_metric_summary_marks_failed_scrapes(self):
+        summary = capacity_profile.summarize_runtime_metrics([
+            {"status": 200, "metrics": {"saturated_sites": 2, "max_listen_queue": 4}},
+            {"status": 503, "detail": "metrics unavailable"},
+        ])
+        self.assertEqual(summary["scrapes"], 2)
+        self.assertEqual(summary["failed_scrapes"], 1)
+        self.assertEqual(summary["peak"]["saturated_sites"], 2)
+        self.assertEqual(summary["peak"]["max_listen_queue"], 4)
+
 
 if __name__ == "__main__":
     unittest.main()

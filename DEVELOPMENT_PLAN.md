@@ -985,13 +985,17 @@ visibility of undelivered/dead-letter events.
 ### M4 — Publish a measured capacity envelope (P0)
 
 **Status:** Open; current figures are targets, not claims. The Rocky Linux 9
-large profile [44663139216](https://github.com/cyberducttape/StePanel/actions/runs/44663139216)
-seeded 500 sites and completed two heavy backups, but failed because 202 of
-9,829 HTTPS site requests were non-success responses and site p99 latency
-reached 8–11 seconds. The artifact did not retain response details. See
-[`the reviewed result`](docs/lab-results/2026-11-20-capacity-large-3f2580b.md).
-The capacity probe is being improved to capture bounded failure evidence;
-rerun and remediation are required before the target can be published.
+large profile [44674647682](https://github.com/cyberducttape/StePanel/actions/runs/44674647682)
+seeded 500 sites and completed two heavy backups, but failed because 210 of
+9,609 HTTPS site requests timed out and site-page p99 latency reached 7.7–10.0
+seconds. API and job-list p99 remained below 23 ms; sampled host memory
+availability stayed above 7.8 GiB, and no SQLite lock errors were recorded.
+The reviewed diagnostic-source result is
+[`here`](docs/lab-results/2026-11-20-capacity-large-8382e9c.md); it is not an
+exact-current-source certification. The capacity probe now collects bounded
+per-site PHP-FPM queue/saturation and site-cgroup CPU/memory samples from
+`/metrics` during load. A current-source rerun is still required to identify
+the cause and demonstrate remediation before publishing the envelope.
 
 Benchmark a named supported host with representative PHP traffic, databases,
 backups, migrations, and control-plane reads/writes. Measure CPU/RAM, disk and
