@@ -21,7 +21,10 @@ documentation [44697055795](https://github.com/cyberducttape/StePanel/actions/ru
 and release evidence [44697340919](https://github.com/cyberducttape/StePanel/actions/runs/44697340919)
 passed on commit `0afc3c6e`. The installed-host file-manager/recovery smoke
 [44697055839](https://github.com/cyberducttape/StePanel/actions/runs/44697055839)
-is still running; its host-specific result remains pending.
+was cancelled before completing. The later six-host smoke
+[44729127788](https://github.com/cyberducttape/StePanel/actions/runs/44729127788)
+passed the installed file-manager checks on all six supported OS/web-server
+combinations on code-equivalent source; see the [reviewed result](docs/lab-results/2026-11-20-six-host-install-smoke-059ba72.md).
 
 **Acceptance criteria**
 
@@ -808,9 +811,13 @@ tests, and documentation link/reference checks pass locally. Exact-source
 AlmaLinux 9/Caddy/MariaDB smoke [44686046786](https://github.com/cyberducttape/StePanel/actions/runs/44686046786)
 passed the probe: a detached child remained in the transient package unit and
 site slice, respected task/runtime/memory limits, and stopped with the unit.
-The installed systemd-container run verifies one OS/web-server combination;
-the other five combinations and real-host behavior remain unverified. The root
-broker independently checks customer file
+The six-host systemd-container run
+[44729127788](https://github.com/cyberducttape/StePanel/actions/runs/44729127788)
+passed the detached-child containment probe on all six supported
+OS/web-server combinations on code-equivalent source; see the [reviewed
+result](docs/lab-results/2026-11-20-six-host-install-smoke-059ba72.md). This
+does not establish behavior on dedicated production hosts or suitability for
+mutually hostile tenants. The root broker independently checks customer file
 requests against the durable site-to-tenant table before resolving the placed
 Unix account or invoking the privileged file helper.
 
@@ -925,11 +932,16 @@ durable job state. Keep the token out of API serialization.
 
 ### M1 — Complete installed-host failure recovery (P0)
 
-**Status:** Open. Current-code AlmaLinux 9/Caddy/MariaDB smoke
+**Status:** Open. Six-host installed smoke
+[44729127788](https://github.com/cyberducttape/StePanel/actions/runs/44729127788)
+passed one recovery iteration per Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9
+Apache/Caddy combination on code-equivalent source, with WordPress HTTP proof
+(4.588–6.866 s measured RTO). See the [reviewed result](docs/lab-results/2026-11-20-six-host-install-smoke-059ba72.md).
+This is one systemd-container iteration per combination, not repeated or
+physical-host certification. Current-code AlmaLinux 9/Caddy/MariaDB smoke
 [44724016501](https://github.com/cyberducttape/StePanel/actions/runs/44724016501)
-passed one installed-host recovery iteration and a database-backed WordPress
-HTTP proof (measured RTO 5.022 s); the uploaded log is reviewed in
-[`PROGRESS.md`](PROGRESS.md). This is one host/iteration only.
+passed one additional installed-host recovery iteration and WordPress HTTP
+proof (measured RTO 5.022 s).
 Current-source KVM abrupt-loss operation drills
 [44731756198](https://github.com/cyberducttape/StePanel/actions/runs/44731756198)
 started on `94b90f5e` for file restore, database restore, Git deployment,
@@ -1044,32 +1056,24 @@ state, service health, and successful post-recovery invariants.
 
 ### M2 — Certify application recovery and supported runtime matrix (P0)
 
-**Status:** Partial. Current-code AlmaLinux 9/Caddy/MariaDB run
-[44724016501](https://github.com/cyberducttape/StePanel/actions/runs/44724016501)
-passed one installed WordPress database-backed HTTP recovery proof with
-measured RTO 5.022 s. This does not verify the other five runtime combinations
-or the repeated cohort. Current-code six-host install smoke
+**Status:** Partial. The code-equivalent six-host run
 [44729127788](https://github.com/cyberducttape/StePanel/actions/runs/44729127788)
-is active on code-equivalent source `059ba72e`; it must complete all six hosts
-and have its recovery-proof logs reviewed. Earlier six-host run `44516615547`
-passed a database-backed
-WordPress HTTP recovery proof on all six Ubuntu 24.04, AlmaLinux 9, and Rocky
-Linux 9 Apache/Caddy combinations (4.756–7.106 s measured RTO); see the
-[2026-11-19 result](docs/lab-results/2026-11-19-six-host-recovery-64281ca.md).
+passed database-backed WordPress HTTP recovery proof on all six Ubuntu 24.04,
+AlmaLinux 9, and Rocky Linux 9 Apache/Caddy combinations, with measured RTOs
+of 4.588–6.866 s. See the [reviewed result](docs/lab-results/2026-11-20-six-host-install-smoke-059ba72.md).
 This is one pass per combination in disposable systemd containers, not
-repeated or physical-host certification. The earlier full six-host run
+repeated or physical-host certification. Current-code AlmaLinux 9/Caddy/MariaDB run
+[44724016501](https://github.com/cyberducttape/StePanel/actions/runs/44724016501)
+passed one installed WordPress recovery proof with measured RTO 5.022 s.
+Earlier six-host runs remain historical evidence. The earlier full six-host run
 [`41189484718`](https://github.com/cyberducttape/StePanel/actions/runs/41189484718)
 is retained as historical evidence. The one-host proof in run
 [44686046786](https://github.com/cyberducttape/StePanel/actions/runs/44686046786)
 is also on older source `e1195ccc` and does not establish current-source
-recovery. Current-code single-host install smoke
-[44724016501](https://github.com/cyberducttape/StePanel/actions/runs/44724016501)
-and six-host cohort [44725816245](https://github.com/cyberducttape/StePanel/actions/runs/44725816245)
-are active; inspect all host logs and artifacts before counting results.
-A scheduled six-host install smoke
-[44729127788](https://github.com/cyberducttape/StePanel/actions/runs/44729127788)
-also started on code-equivalent source `059ba72e`; it is a single iteration,
-not the required repeated cohort.
+recovery. The separate six-host 20-repeat cohort
+[44725816245](https://github.com/cyberducttape/StePanel/actions/runs/44725816245)
+remains active; count a repetition only after all six host artifacts are
+reviewed. The KVM abrupt-loss workflow and capacity profile also remain open.
 
 On a clean disposable destination, restore a real WordPress site including
 files and a populated database, configure PHP-FPM and the virtual host, then

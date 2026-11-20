@@ -32,8 +32,10 @@
   [44729127788](https://github.com/cyberducttape/StePanel/actions/runs/44729127788)
   passed on code-equivalent source `059ba72e`. All six Ubuntu 24.04,
   AlmaLinux 9, and Rocky Linux 9 Apache/Caddy combinations passed installed
-  file-manager smoke, installed WordPress recovery proof, and a one-iteration
-  recovery matrix. Measured WordPress proof RTOs were 4.588–6.866 seconds.
+  file-manager smoke, detached-package-process cgroup containment, installed
+  WordPress recovery proof, and a one-iteration recovery matrix. Measured
+  WordPress proof RTOs were 4.588–6.866 seconds. Details are in
+  `docs/lab-results/2026-11-20-six-host-install-smoke-059ba72.md`.
   This remains one smoke pass, not the 20-repeat recovery cohort or a physical
   host power-loss certification.
 - Re-ran the customer account-owner Playwright journey against a fresh binary
