@@ -42,15 +42,15 @@ combinations on code-equivalent source; see the [reviewed result](docs/lab-resul
 ### M0y — Keep customer site and file workflows bound to their UI context (P1)
 
 **Status:** Verified locally on current `main` (`c2f976ec`) with a fresh
-binary and the seeded account-owner browser journey (1/1 passed). Exact-source CI run
-[44699909154](https://github.com/cyberducttape/StePanel/actions/runs/44699909154)
-passed its seeded browser E2E and accessibility job on the preceding source.
-The current-source flow passed 1/1 and checks WordPress creation controls, no
+binary and the seeded account-owner browser journey (1/1 passed). Hosted
+`ui-e2e` and accessibility checks passed in run
+[44739044630](https://github.com/cyberducttape/StePanel/actions/runs/44739044630)
+on code source `d0ed0fa3`. The journey checks WordPress creation controls, no
 uncaught browser errors, failed-inventory retry, delayed file-read invalidation
 after a site switch, stale rows during folder navigation, and no cross-site
-write. Local frontend unit tests previously passed 17/17. This closes the
-listed customer UI regressions; it does not close the separate host-certification
-gates.
+write. Local frontend unit tests passed 17/17. The full hosted Go job was still
+running its race tests at the latest check. This closes the listed customer UI
+regressions; it does not close separate host-certification gates.
 
 **Acceptance criteria**
 
@@ -63,8 +63,8 @@ gates.
   prior successful data, and offer retry rather than reporting an empty list.
 - Customer navigation has one route/hash authority and does not use the
   operator dashboard's scroll spy.
-- Seeded-browser regressions cover missing template controls, delayed reads
-  across site switching, stale rows during folder navigation, and failed
+- Seeded-browser regressions cover account-owner template initialization,
+  delayed reads across site switching, stale rows during folder navigation, and failed
   inventory with successful retry. These passed in the local disposable
   browser run and hosted `ui-e2e` job.
 - Documentation describes only implemented customer workflows and the actual
@@ -275,7 +275,10 @@ and operations resolve beneath an opened document-root descriptor. A new
 nonblocking limiter admits at most four file reads/listings per tenant and 32
 per panel process; excess requests receive HTTP 429 with `Retry-After: 5`.
 Focused tests cover per-tenant fairness, the host cap, slot release, and the
-retry response. This does not establish hostile multi-tenant isolation.
+retry response. `make check` and focused race tests passed locally; the hosted
+customer `ui-e2e` job passed on code-equivalent source `d0ed0fa3`. The full
+hosted Go CI race job was still running at the latest check. This does not
+establish hostile multi-tenant isolation.
 
 **Acceptance criteria**
 
