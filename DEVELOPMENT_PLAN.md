@@ -14,8 +14,14 @@ successful one-off smoke does not close a host-certification gate.
 
 ### M0z — Prevent stale customer file edits from overwriting newer content (P1)
 
-**Status:** Implemented locally; full local checks pass. The exact-source
-browser run and hosted CI are pending for this commit.
+**Status:** Implemented and verified locally. Exact-source CI
+[44697055872](https://github.com/cyberducttape/StePanel/actions/runs/44697055872),
+CodeQL [44697055748](https://github.com/cyberducttape/StePanel/actions/runs/44697055748),
+documentation [44697055795](https://github.com/cyberducttape/StePanel/actions/runs/44697055795),
+and release evidence [44697340919](https://github.com/cyberducttape/StePanel/actions/runs/44697340919)
+passed on commit `0afc3c6e`. The installed-host file-manager/recovery smoke
+[44697055839](https://github.com/cyberducttape/StePanel/actions/runs/44697055839)
+is still running; its host-specific result remains pending.
 
 **Acceptance criteria**
 
@@ -1045,13 +1051,18 @@ The reviewed diagnostic-source result is
 [`here`](docs/lab-results/2026-11-20-capacity-large-8382e9c.md); it is not an
 exact-current-source certification. The capacity probe now collects bounded
 per-site PHP-FPM queue/saturation and site-cgroup CPU/memory samples from
-`/metrics` during load. Current-source capacity run
+`/metrics` during load. The exact-source profile
 [44686066350](https://github.com/cyberducttape/StePanel/actions/runs/44686066350)
-is in progress; its site-level diagnostics must be reviewed before choosing a
-capacity correction. The first current-source attempt
+completed with 184/9,791 site requests timing out at 15 seconds. FPM metrics
+showed zero saturation and queue depth, but were available for only 473/504
+sampled sites; aggregate CPU peaked at 99.9%, while the admin API and job list
+remained responsive. The [reviewed diagnostic report](docs/lab-results/2026-11-20-capacity-large-e1195ccc.md)
+records the limits and next measurements. This does not identify the root
+cause or establish a certified limit; request-stage timing is required before
+choosing a tuning correction. The first current-source attempt
 [44684499265](https://github.com/cyberducttape/StePanel/actions/runs/44684499265)
 failed in the shared installed-host Composer cgroup probe before the workload
-started; the probe `PATH` issue is fixed and the current-source run is active.
+started; the probe `PATH` issue has since been fixed.
 The capacity failure must be diagnosed and a remediation measured before
 publishing the envelope.
 

@@ -1,5 +1,30 @@
 # Production-readiness progress
 
+## Review exact-source 500-site capacity failure — 2026-11-20
+
+- Confirmed run [44686066350](https://github.com/cyberducttape/StePanel/actions/runs/44686066350)
+  completed as **failure** on exact source `e1195ccc`. It recorded 184 of
+  9,791 site requests timing out at 15 seconds; successful site p99 was
+  8,074.5 ms. Both 512 MiB backups completed, admin APIs remained responsive,
+  and no SQLite lock errors appeared.
+- Reviewed its JSON/Markdown artifacts and added
+  [`the diagnostic report`](docs/lab-results/2026-11-20-capacity-large-e1195ccc.md).
+  FPM telemetry showed no saturation, but was available for only 473/504
+  sampled sites. Host CPU peaked at 99.9%; available memory remained at least
+  7,901 MiB. This does not prove the cause, so no worker or capacity defaults
+  were changed. `DEVELOPMENT_PLAN.md` and the authoritative production-gate
+  table now describe the run as failed rather than in progress.
+- Next capacity evidence needs TCP/TLS/web-server/PHP stage timings, per-site
+  availability for every expected pool, and a repeated exact-release run after
+  the bottleneck is isolated. Capacity remains uncertified; production remains
+  **NO-GO**.
+- Added those missing probe measurements: client/TCP setup, TLS handshake,
+  time-to-first-byte, response transfer, failure phase counts, and bounded site
+  names for unavailable/saturated FPM probes. Regression tests exercise each
+  failure phase and telemetry aggregation; `python3 -m unittest
+  deploy/lab/test_capacity_profile.py` passed 7 tests, and Python compilation
+  passed. The probe has not yet been rerun on a host.
+
 ## Reject stale customer file-editor writes — 2026-11-20
 
 - File reads now return a SHA-256 content revision. The editor binds it to the
@@ -14,15 +39,21 @@
   `npm run test:unit` passed 17/17; ShellCheck, shell/JS syntax, and
   `git diff --check` passed.
 - The focused customer browser E2E passed against a freshly built binary
-  (1/1). Hosted exact-source CI and installed-host validation have not yet run
-  for this change. Release remains **NO-GO** pending the P0 host recovery, application
+  (1/1). Exact-source CI passed the full Go/race and UI suites in
+  [44697055872](https://github.com/cyberducttape/StePanel/actions/runs/44697055872);
+  CodeQL [44697055748](https://github.com/cyberducttape/StePanel/actions/runs/44697055748),
+  documentation [44697055795](https://github.com/cyberducttape/StePanel/actions/runs/44697055795),
+  and release evidence [44697340919](https://github.com/cyberducttape/StePanel/actions/runs/44697340919)
+  passed. Installed-host validation
+  [44697055839](https://github.com/cyberducttape/StePanel/actions/runs/44697055839)
+  is still running. Release remains **NO-GO** pending the P0 host recovery, application
   recovery, alert-delivery, and capacity gates in
   [`docs/V1_PRODUCTION_GATES.md`](docs/V1_PRODUCTION_GATES.md).
 
 ## Stabilize race-suite lease-renewal regression — 2026-11-20
 
-- Exact-source CI [44690329247](https://github.com/cyberducttape/StePanel/actions/runs/44690329247) on `c127e212` passed formatting, release checks, vet, the full non-race Go suite, ENOSPC drills, benchmarks, coverage floors, and UI E2E; CodeQL passed in [44690329262](https://github.com/cyberducttape/StePanel/actions/runs/44690329262). The race suite exposed one failure: `TestLongSiteOperationRenewsLeasePastShortLeasePeriods` used a 90 ms lease while performing SQLite work before starting renewal. Under race instrumentation, the lease expired and correctly cancelled the simulated operation; no race detector report or other failing root-package test was present.
-- Increased this test's lease to 2 seconds and simulated a 5-second restore, preserving the multiple-renewal assertion while allowing loaded CI scheduling. `go test -race -run '^TestLongSiteOperationRenewsLeasePastShortLeasePeriods$' -count=5 .` passed locally. The complete exact-source race suite must be rerun before M0 is green. The 500-site run [44686066350](https://github.com/cyberducttape/StePanel/actions/runs/44686066350), six-host recovery cohort [44686066552](https://github.com/cyberducttape/StePanel/actions/runs/44686066552), and exact-current N-1 matrix [44692262234](https://github.com/cyberducttape/StePanel/actions/runs/44692262234) are still active; no results from them are counted yet.
+- Exact-source CI [44690329247](https://github.com/cyberducttape/StePanel/actions/runs/44690329247) on `c127e212` exposed a race-only test failure: the 90 ms lease expired during SQLite work before renewal began. The test was adjusted to use a 2-second lease and a 5-second simulated restore, preserving the multiple-renewal assertion while allowing loaded CI scheduling.
+- The focused race test passed five consecutive local runs. The full race suite then passed on exact source `0afc3c6e` in CI [44697055872](https://github.com/cyberducttape/StePanel/actions/runs/44697055872); CodeQL, documentation, and release evidence also passed. Installed-host validation [44697055839](https://github.com/cyberducttape/StePanel/actions/runs/44697055839) is still running. The N-1 upgrade matrix [44692262234](https://github.com/cyberducttape/StePanel/actions/runs/44692262234) completed successfully. The 500-site profile [44686066350](https://github.com/cyberducttape/StePanel/actions/runs/44686066350) completed with a site-request failure and is documented above; the six-host recovery cohort [44686066552](https://github.com/cyberducttape/StePanel/actions/runs/44686066552) remains active.
 
 ## Diagnose the 500-site capacity failure with per-site runtime evidence — 2026-11-20
 

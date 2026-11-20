@@ -128,35 +128,75 @@ def failure_detail(body):
 
 
 def site_get(domain):
-    """GET / through the local web server; return status, duration, and bounded response detail."""
+    """GET / and separate connection, TLS, first-byte, and body timings."""
     started = time.perf_counter()
+    phase_started = started
+    phase = "client_setup"
+    timings = {"tcp_connect_s": None, "tls_handshake_s": None,
+               "time_to_first_byte_s": None, "response_transfer_s": None,
+               "client_setup_s": None}
     captured = bytearray()
     try:
         context = ssl.create_default_context()
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
+        phase_started = time.perf_counter()
+        timings["client_setup_s"] = phase_started - started
+        phase = "tcp_connect"
         with socket.create_connection(("127.0.0.1", 443), timeout=15) as raw:
+            connected = time.perf_counter()
+            timings["tcp_connect_s"] = connected - phase_started
+            phase = "tls_handshake"
+            phase_started = time.perf_counter()
             with context.wrap_socket(raw, server_hostname=domain) as tls:
+                request_started = time.perf_counter()
+                timings["tls_handshake_s"] = request_started - phase_started
+                phase = "server_response"
+                phase_started = request_started
                 tls.sendall(f"GET / HTTP/1.1\r\nHost: {domain}\r\nConnection: close\r\n\r\n".encode())
                 while len(captured) < 4096 and b"\r\n" not in captured:
                     chunk = tls.recv(4096 - len(captured))
                     if not chunk:
                         break
+                    if timings["time_to_first_byte_s"] is None:
+                        first_byte = time.perf_counter()
+                        timings["time_to_first_byte_s"] = first_byte - phase_started
+                        phase = "response_transfer"
+                        phase_started = first_byte
                     captured.extend(chunk)
                 while len(captured) < 1024:
                     chunk = tls.recv(min(65536, 1024 - len(captured)))
                     if not chunk:
                         break
+                    if timings["time_to_first_byte_s"] is None:
+                        first_byte = time.perf_counter()
+                        timings["time_to_first_byte_s"] = first_byte - request_started
+                        phase = "response_transfer"
+                        phase_started = first_byte
                     captured.extend(chunk)
                 for _ in iter(lambda: tls.recv(65536), b""):
                     pass
+                if timings["time_to_first_byte_s"] is None:
+                    timings["time_to_first_byte_s"] = time.perf_counter() - request_started
+                timings["response_transfer_s"] = time.perf_counter() - phase_started
         first_line = bytes(captured).split(b"\r\n", 1)[0]
         status = int(first_line.split(b" ", 2)[1])
         detail = bytes(captured).decode(errors="replace")[:512]
     except Exception as error:
         status = 0
+        if phase == "client_setup":
+            timings["client_setup_s"] = time.perf_counter() - phase_started
+        elif phase == "tcp_connect":
+            timings["tcp_connect_s"] = time.perf_counter() - phase_started
+        elif phase == "tls_handshake":
+            timings["tls_handshake_s"] = time.perf_counter() - phase_started
+        elif phase == "server_response":
+            timings["time_to_first_byte_s"] = time.perf_counter() - phase_started
+        elif phase == "response_transfer":
+            timings["response_transfer_s"] = time.perf_counter() - phase_started
         detail = f"{type(error).__name__}: {error}; response={bytes(captured).decode(errors='replace')[:400]}"
-    return status, time.perf_counter() - started, detail
+    timings["total_s"] = time.perf_counter() - started
+    return status, timings["total_s"], detail, {**timings, "failed_phase": phase if status == 0 else ""}
 
 
 def percentile(values, p):
@@ -256,6 +296,12 @@ def parse_site_runtime_metrics(body, now=None):
                      if limit > 0]
     all_values = lambda metric: [value for site in values.values()
                                  for value in site.get(metric, [])]
+    fpm_unavailable_sites = sorted(
+        site for site, metrics in values.items()
+        if max(metrics.get("stepanel_site_fpm_probe_up", [0])) != 1)
+    saturated_site_names = sorted(
+        site for site, metrics in values.items()
+        if any(value == 1 for value in metrics.get("stepanel_site_fpm_saturated", [])))
     return {
         "sites_sampled": len(values),
         "fpm_available_sites": sum(
@@ -271,6 +317,9 @@ def parse_site_runtime_metrics(body, now=None):
             all_values("stepanel_site_resource_cpu_quota_utilization_percent"), default=0),
         "max_site_memory_limit_utilization_pct": round(max(memory_ratios, default=0), 1),
         "oldest_fpm_sample_age_s": round(max((max(0, now - stamp) for stamp in timestamps), default=0), 1),
+        "fpm_unavailable_site_count": len(fpm_unavailable_sites),
+        "fpm_unavailable_sites": fpm_unavailable_sites[:25],
+        "saturated_site_names": saturated_site_names[:25],
     }
 
 
@@ -283,6 +332,14 @@ def summarize_runtime_metrics(samples):
         "scrapes": len(samples),
         "failed_scrapes": sum(sample.get("status") != 200 for sample in samples),
         "peak": {key: max((entry.get(key, 0) for entry in usable), default=0) for key in numeric},
+        "max_sites_without_fpm_sample": max(
+            (entry.get("fpm_unavailable_site_count", 0) for entry in usable), default=0),
+        "fpm_unavailable_site_samples": sorted({
+            site for entry in usable for site in entry.get("fpm_unavailable_sites", [])
+        })[:25],
+        "saturated_site_samples": sorted({
+            site for entry in usable for site in entry.get("saturated_site_names", [])
+        })[:25],
     }
 
 
@@ -370,12 +427,16 @@ def main():
     def site_client():
         while not stop.is_set():
             domain = random.choice(domains)
-            status, seconds, detail = site_get(domain)
+            status, seconds, detail, timings = site_get(domain)
             with lock:
-                site_results.append((time.time(), status, seconds))
+                site_results.append((time.time(), status, seconds, timings))
                 if not 200 <= status < 400 and len(site_failures) < 50:
                     site_failures.append({"t": round(time.time() - measurement_started, 1), "domain": domain,
-                                          "status": status, "latency_ms": round(seconds * 1000, 1), "detail": detail})
+                                          "status": status, "latency_ms": round(seconds * 1000, 1),
+                                          "failed_phase": timings["failed_phase"],
+                                          "phase_ms": {key: round(value * 1000, 1) if value is not None else None
+                                                       for key, value in timings.items() if key.endswith("_s")},
+                                          "detail": detail})
 
     def admin_probe():
         probe = Panel()
@@ -453,7 +514,20 @@ def main():
 
     def window(results, inside):
         begin, end = heavy_window
-        return [s for (t, status, s) in results if 200 <= status < 400 and ((begin <= t <= end) == inside)]
+        return [s for (t, status, s, _timings) in results if 200 <= status < 400 and ((begin <= t <= end) == inside)]
+
+    def phase_window(results, inside):
+        begin, end = heavy_window
+        return [timings for (t, _status, _seconds, timings) in results
+                if ((begin <= t <= end) == inside)]
+
+    def summarize_phases(results):
+        phases = {}
+        for key in ("client_setup_s", "tcp_connect_s", "tls_handshake_s",
+                    "time_to_first_byte_s", "response_transfer_s", "total_s"):
+            measured = [item[key] for item in results if item.get(key) is not None]
+            phases[key.removesuffix("_s")] = summarize(measured)
+        return phases
 
     report = {
         "profile": PROFILE, "sites": SITES, "duration_s": DURATION, "site_clients": CLIENTS,
@@ -462,11 +536,16 @@ def main():
                  "logical_cpus": os.cpu_count()},
         "site_requests": {
             "total": len(site_results),
-            "errors": sum(1 for (_, status, _) in site_results if not 200 <= status < 400),
-            "status_counts": dict(sorted(Counter(status for (_, status, _) in site_results).items())),
+            "errors": sum(1 for (_, status, _, _) in site_results if not 200 <= status < 400),
+            "status_counts": dict(sorted(Counter(status for (_, status, _, _) in site_results).items())),
+            "transport_failure_phase_counts": dict(sorted(Counter(
+                timings["failed_phase"] for (_, status, _, timings) in site_results
+                if status == 0).items())),
             "error_samples": site_failures,
             "baseline": summarize(window(site_results, False)),
             "during_heavy": summarize(window(site_results, True)),
+            "phase_latency_baseline": summarize_phases(phase_window(site_results, False)),
+            "phase_latency_during_heavy": summarize_phases(phase_window(site_results, True)),
         },
         "admin": {path: {
             "errors": sum(1 for (_, status, _) in results if not 200 <= status < 400),
@@ -511,6 +590,12 @@ def main():
     print("| --- | ---: | ---: |")
     for key, values in report["resources"].items():
         print(f"| {key} | {values['mean']} | {values['max']} |")
+    for label in ("baseline", "during_heavy"):
+        print(f"\n| Site-request phase latency, {label.replace('_', ' ')} | p50 ms | p95 ms | p99 ms | max ms | samples |")
+        print("| --- | ---: | ---: | ---: | ---: | ---: |")
+        for phase, stats in report["site_requests"][f"phase_latency_{label}"].items():
+            print(f"| {phase} | {stats['p50_ms']} | {stats['p95_ms']} | {stats['p99_ms']} | {stats['max_ms']} | {stats['count']} |")
+    print(f"\nSite transport failure phases: {report['site_requests']['transport_failure_phase_counts']}")
     print(f"\nMinimum available memory: {report['min_mem_available_mib']} MiB. Control-plane database-lock errors in the panel and worker journals: {lock_error_count}.")
     runtime = report["site_runtime_diagnostics"]
     peak = runtime["peak"]
@@ -522,10 +607,16 @@ def main():
     print(f"| Peak active workers / slow requests | {peak['max_active_workers']} / {peak['max_slow_requests']} |")
     print(f"| Peak site CPU quota / memory limit use | {peak['max_site_cpu_quota_utilization_pct']}% / {peak['max_site_memory_limit_utilization_pct']}% |")
     print(f"| Oldest FPM sample age | {peak['oldest_fpm_sample_age_s']} s |")
+    runtime_diagnostics = report["site_runtime_diagnostics"]
+    print(f"| Maximum sites without an FPM sample | {runtime_diagnostics['max_sites_without_fpm_sample']} |")
+    if runtime_diagnostics["fpm_unavailable_site_samples"]:
+        print(f"| FPM-unavailable site examples (up to 25) | {', '.join(runtime_diagnostics['fpm_unavailable_site_samples'])} |")
+    if runtime_diagnostics["saturated_site_samples"]:
+        print(f"| Saturated site examples (up to 25) | {', '.join(runtime_diagnostics['saturated_site_samples'])} |")
     if site_failures:
         print("\nSite HTTP failures (first 20):")
         for failure in site_failures[:20]:
-            print(f"- t={failure['t']}s {failure['domain']} HTTP {failure['status']} ({failure['latency_ms']} ms): {failure['detail'][:300].replace('|', '/')}")
+            print(f"- t={failure['t']}s {failure['domain']} HTTP {failure['status']} ({failure['latency_ms']} ms; phase={failure['failed_phase']}; timings={failure['phase_ms']}): {failure['detail'][:300].replace('|', '/')}")
     if admin_failures:
         print("\n| Admin failure at s | Path | Status | Detail |")
         print("| ---: | --- | ---: | --- |")
