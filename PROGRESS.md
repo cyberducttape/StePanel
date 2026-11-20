@@ -10,12 +10,18 @@
   mirror response is retried rather than recorded as an installer failure.
 - `bash -n` and CI-equivalent `shellcheck -S warning -x -P SCRIPTDIR` passed for
   both modified scripts; `git diff --check` and full `make check` passed (root
-  package 119.644 seconds). The failed N-1 workflow is still active and its
-  remaining matrix cases have not completed; the retry fix itself still needs
-  execution in a new upgrade workflow.
-- A current-source six-host installation smoke [44722820266](https://github.com/cyberducttape/StePanel/actions/runs/44722820266)
-  remains queued. No host certification result is claimed. Production remains
-  **NO-GO**.
+  package 119.644 seconds). The original N-1 workflow was cancelled after
+  diagnosis; its other matrix cases were incomplete and did not count as a
+  result. The retry fix awaits the current-source N-1 run below.
+- Current-source N-1 upgrade smoke [44724039602](https://github.com/cyberducttape/StePanel/actions/runs/44724039602)
+  and six-host install smoke [44724016501](https://github.com/cyberducttape/StePanel/actions/runs/44724016501)
+  are queued. CI integration [44724016547](https://github.com/cyberducttape/StePanel/actions/runs/44724016547)
+  has started; CodeQL [44724016529](https://github.com/cyberducttape/StePanel/actions/runs/44724016529)
+  and documentation [44724016486](https://github.com/cyberducttape/StePanel/actions/runs/44724016486)
+  remain queued. Obsolete queued checks and long-running host tests on older
+  commits were cancelled to free runner capacity; their incomplete results
+  are not counted. No host certification result is claimed. Production
+  remains **NO-GO**.
 
 ## Revalidate pushed source and start installed-host smoke — 2026-11-20
 
