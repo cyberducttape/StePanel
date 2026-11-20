@@ -65,8 +65,12 @@ export STEPANEL_OFFSITE_TARGET=local:/tmp/stepanel-offsite
 
 if command -v apt-get >/dev/null 2>&1; then
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update
-  apt-get install -y rclone
+  # GitHub-hosted systemd containers can transiently receive mirror/proxy
+  # errors (for example HTTP 520) before the upgrade exercise starts. Let
+  # apt retry individual index and package downloads rather than recording
+  # an infrastructure outage as a product failure.
+  apt-get -o Acquire::Retries=3 update
+  apt-get -o Acquire::Retries=3 install -y rclone
 else
   dnf install -y epel-release
   dnf install -y rclone

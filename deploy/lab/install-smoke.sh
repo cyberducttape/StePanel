@@ -56,8 +56,10 @@ export STEPANEL_OFFSITE_TARGET=local:/tmp/stepanel-offsite
 
 if command -v apt-get >/dev/null 2>&1; then
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update
-  apt-get install -y rclone
+  # Retry transient mirror/proxy errors so a disposable-host prerequisite
+  # outage does not masquerade as an installer regression.
+  apt-get -o Acquire::Retries=3 update
+  apt-get -o Acquire::Retries=3 install -y rclone
 else
   dnf install -y epel-release
   dnf install -y rclone

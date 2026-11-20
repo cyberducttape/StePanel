@@ -1,5 +1,22 @@
 # Production-readiness progress
 
+## Retry transient package-mirror failures in host test setup — 2026-11-20
+
+- The N-1 run [44712444760](https://github.com/cyberducttape/StePanel/actions/runs/44712444760)
+  had a container interruption case fail before StePanel upgrade execution:
+  Ubuntu's package mirror returned HTTP 520 while the lab installed its
+  `rclone` prerequisite. Updated both installed-host lab scripts to use apt's
+  bounded `Acquire::Retries=3` for index and package downloads, so a transient
+  mirror response is retried rather than recorded as an installer failure.
+- `bash -n` and CI-equivalent `shellcheck -S warning -x -P SCRIPTDIR` passed for
+  both modified scripts; `git diff --check` and full `make check` passed (root
+  package 119.644 seconds). The failed N-1 workflow is still active and its
+  remaining matrix cases have not completed; the retry fix itself still needs
+  execution in a new upgrade workflow.
+- A current-source six-host installation smoke [44722820266](https://github.com/cyberducttape/StePanel/actions/runs/44722820266)
+  remains queued. No host certification result is claimed. Production remains
+  **NO-GO**.
+
 ## Revalidate pushed source and start installed-host smoke — 2026-11-20
 
 - On exact source `498f214235bdb5a30013f9d04ae0e9e5716e4854`, `make check`
