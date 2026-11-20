@@ -12,8 +12,10 @@
 - Added a source-labeled evidence report at
   [`2026-11-20-capacity-large-3f2580b.md`](docs/lab-results/2026-11-20-capacity-large-3f2580b.md)
   and improved `capacity-profile.py` to retain bounded response status counts,
-  failure samples, and connection diagnostics. A rerun is required; no 500-site
-  capacity certification is claimed.
+  failure samples, and connection diagnostics. Three fast unit tests cover
+  HTTP errors, connection failures, and the response-detail bound; the KVM
+  capacity workflow runs them before its long host drill. A rerun is required;
+  no 500-site capacity certification is claimed.
 
 ## Extend immutable tenant binding to backup and termination jobs — 2026-11-20
 
