@@ -3,7 +3,8 @@
 ## Reverify customer workspace and file-context regressions — 2026-11-20
 
 - Confirmed the reported customer UI defects are fixed in current `main`
-  (`3acc333c`): WordPress creation fields are supported in the customer form
+  (`f35e4b71`, a documentation-only descendant of UI-tested source
+  `3acc333c`): WordPress creation fields are supported in the customer form
   and guarded when absent; editor sessions bind the site/path/revision;
   navigation invalidates pending reads, clears stale rows, and disables folder
   actions while loading; inventory failures preserve the distinction between

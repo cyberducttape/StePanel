@@ -38,7 +38,8 @@ is still running; its host-specific result remains pending.
 
 ### M0y — Keep customer site and file workflows bound to their UI context (P1)
 
-**Status:** Verified on current `main` (`3acc333c`). Exact-source CI run
+**Status:** Verified on current `main` (`f35e4b71`; documentation-only
+descendant of the UI-tested source `3acc333c`). Exact-source CI run
 [44699909154](https://github.com/cyberducttape/StePanel/actions/runs/44699909154)
 passed its seeded browser E2E and accessibility job. The account-owner journey
 checks WordPress creation controls, no uncaught browser errors, failed-inventory
