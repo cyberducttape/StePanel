@@ -142,6 +142,12 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await expect(page.locator('#panelSitesStatus')).toBeHidden();
   await expect(page.getByRole('link', { name: 'Customers' })).toHaveCount(0);
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Websites' }).click();
+  await expect(page.locator('#siteOverview')).toContainText('e2e-main');
+  await page.locator('#siteOverview').getByRole('button', { name: 'Manage site' }).first().click();
+  await expect(page.locator('#siteDetail')).toBeVisible();
+  await expect(page.locator('#siteDetail')).toContainText('e2e-main workspace');
+  await expect(page.locator('#siteDetail [role="tablist"]')).toBeVisible();
+  await page.locator('#siteDetail').getByRole('button', { name: 'Close' }).click();
   await expect(page.locator('#siteCreateTemplate option[value="wordpress"]')).toHaveCount(1);
   await page.locator('#siteCreateTemplate').selectOption('wordpress');
   await expect(page.locator('#wordpressCreateFields')).toBeVisible();
@@ -157,6 +163,8 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await page.getByRole('button', { name: 'wp-content', exact: true }).click();
   await expect(page.locator('#fileTable')).toBeHidden();
   await expect(page.getByRole('button', { name: 'index.php', exact: true })).toHaveCount(0);
+  await expect(page.locator('#fileToolbar')).toHaveAttribute('aria-busy', 'true');
+  await expect(page.locator('#fileToolbar')).toHaveJSProperty('inert', true);
   releaseShopList.done = true;
   releaseShopList();
   await expect(page.locator('#fileBreadcrumbs [aria-current="location"]')).toHaveText('wp-content');

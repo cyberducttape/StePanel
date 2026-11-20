@@ -11,6 +11,11 @@
 - Exact-source KVM capacity run [44684499265](https://github.com/cyberducttape/StePanel/actions/runs/44684499265) and recovery cohort [44685011516](https://github.com/cyberducttape/StePanel/actions/runs/44685011516) both stopped in the shared install smoke before workload/recovery checks: `stepanel-appctl` could not locate the probe's temporary Composer executable because the smoke inherited a restricted `PATH`.
 - Set an explicit deterministic Composer lookup path for the temporary probe and added a shell-contract check. Local bash syntax, ShellCheck, cgroup contract, shell contract, and diff checks pass. The failed cohort used this same source and is not counted; a new exact-source installed smoke, recovery cohort, and capacity run must follow the fix.
 
+## Exact-source installed cgroup and WordPress recovery proof — 2026-11-20
+
+- Installed-host smoke [44686046786](https://github.com/cyberducttape/StePanel/actions/runs/44686046786) passed on `e1195ccc` for AlmaLinux 9/Caddy/MariaDB. The probe launched a detached Composer child, confirmed it shared the transient unit and site slice, verified task/runtime/memory limits, and confirmed the child exited when the unit stopped. The installed WordPress database-backed HTTP proof passed with measured RTO 5.273 seconds; the recovery matrix passed one iteration.
+- Exact-source CI [44686046784](https://github.com/cyberducttape/StePanel/actions/runs/44686046784), CodeQL [44686046899](https://github.com/cyberducttape/StePanel/actions/runs/44686046899), and documentation [44686046789](https://github.com/cyberducttape/StePanel/actions/runs/44686046789) passed. The 20-repeat six-host cohort [44686066552](https://github.com/cyberducttape/StePanel/actions/runs/44686066552) and instrumented 500-site capacity run [44686066350](https://github.com/cyberducttape/StePanel/actions/runs/44686066350) remain in progress. One host iteration does not close those gates; production remains **NO-GO**.
+
 ## Add installed-host package descendant containment probe — 2026-11-20
 
 - Added `deploy/lab/site-package-cgroup-smoke.sh` and wired it into the

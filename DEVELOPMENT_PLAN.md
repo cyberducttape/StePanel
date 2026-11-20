@@ -749,10 +749,12 @@ job protocol version is advanced to reject older workers. Regression coverage
 includes site reassignment during queued backup restore, termination, cPanel
 import, WPress restore, and site creation, plus crash recovery after
 termination removes ownership. `make check`, focused crash and reassignment
-tests, and documentation link/reference checks pass locally. The first
-installed-host cgroup execution exposed a smoke-harness defect: the temporary
-Composer stub was outside the inherited `PATH`. The probe now sets that path
-explicitly and has a shell-contract regression; rerun is pending. The root
+tests, and documentation link/reference checks pass locally. Exact-source
+AlmaLinux 9/Caddy/MariaDB smoke [44686046786](https://github.com/cyberducttape/StePanel/actions/runs/44686046786)
+passed the probe: a detached child remained in the transient package unit and
+site slice, respected task/runtime/memory limits, and stopped with the unit.
+The installed systemd-container run verifies one OS/web-server combination;
+the other five combinations and real-host behavior remain unverified. The root
 broker independently checks customer file
 requests against the durable site-to-tenant table before resolving the placed
 Unix account or invoking the privileged file helper.
@@ -772,8 +774,11 @@ runs the real Composer entry point with a harmless fake executable that starts
 a detached session, verifies the child shares the transient unit's cgroup and
 site resource slice, checks effective task/runtime/memory limits, stops the
 unit, and verifies the descendant exits. Local syntax, ShellCheck, and shell
-contract checks pass. The exact-source attempt failed at Composer lookup before
-testing containment; the corrected installed-host run is pending.
+contract checks pass. The initial attempt failed at Composer lookup because
+the smoke inherited a restricted `PATH`; after setting it explicitly,
+installed-host smoke [44686046786](https://github.com/cyberducttape/StePanel/actions/runs/44686046786)
+passed on AlmaLinux 9/Caddy/MariaDB. The remaining matrix combinations are
+being exercised by the current-source cohort.
 
 **Acceptance criteria**
 
@@ -861,16 +866,18 @@ durable job state. Keep the token out of API serialization.
 
 ### M1 — Complete installed-host failure recovery (P0)
 
-**Status:** Open. The exact-source AlmaLinux 9/Caddy/MariaDB install and
-single-iteration recovery run [44679148230](https://github.com/cyberducttape/StePanel/actions/runs/44679148230)
-passed on `9f8c75ac` (code-identical to current `main`). It passed the
-installed control-plane database-outage check, file-manager and PHP-FPM
-checks, cPanel and database-client-command restore checks, broker interruption,
-app lifecycle, worker interruption during cPanel import/backup/restore/database
-restore/termination, account suspension, and deployment checks. The installed
-WordPress recovery proof passed with measured RTO 5.084 seconds. This is one
-iteration on one host combination and does not satisfy the repeated cohort or
-the broader host-failure matrix. The six-host 20-repeat cohort
+**Status:** Open. Exact-source AlmaLinux 9/Caddy/MariaDB installed smoke and
+single-iteration recovery run [44686046786](https://github.com/cyberducttape/StePanel/actions/runs/44686046786)
+passed on `e1195ccc`. It passed the installed cgroup descendant-containment
+probe, control-plane database-outage check, file-manager and PHP-FPM checks,
+cPanel and database-client-command restore checks, broker interruption, app
+lifecycle, worker interruption during cPanel import/backup/restore/database
+restore/termination, account suspension, and deployment checks. The
+database-backed WordPress recovery proof passed with measured RTO 5.273
+seconds. This is one iteration on one host combination and does not satisfy
+the repeated cohort or broader host-failure matrix. Older one-host run
+[44679148230](https://github.com/cyberducttape/StePanel/actions/runs/44679148230)
+on `9f8c75ac` predates the cgroup probe. The six-host 20-repeat cohort
 [44662607070](https://github.com/cyberducttape/StePanel/actions/runs/44662607070)
 was cancelled after one six-host repetition because it used older source
 `64281ca`. The replacement cohort
@@ -961,7 +968,10 @@ Linux 9 Apache/Caddy combinations (4.756–7.106 s measured RTO); see the
 This is one pass per combination in disposable systemd containers, not
 repeated or physical-host certification. The earlier full six-host run
 [`41189484718`](https://github.com/cyberducttape/StePanel/actions/runs/41189484718)
-is retained as historical evidence.
+is retained as historical evidence. Current-source AlmaLinux 9/Caddy/MariaDB
+run [44686046786](https://github.com/cyberducttape/StePanel/actions/runs/44686046786)
+also passed the database-backed proof (5.273 s RTO), but does not establish
+the full matrix or repeated recovery.
 
 On a clean disposable destination, restore a real WordPress site including
 files and a populated database, configure PHP-FPM and the virtual host, then
@@ -1007,12 +1017,15 @@ The reviewed diagnostic-source result is
 [`here`](docs/lab-results/2026-11-20-capacity-large-8382e9c.md); it is not an
 exact-current-source certification. The capacity probe now collects bounded
 per-site PHP-FPM queue/saturation and site-cgroup CPU/memory samples from
-`/metrics` during load. The first current-source attempt
+`/metrics` during load. Current-source capacity run
+[44686066350](https://github.com/cyberducttape/StePanel/actions/runs/44686066350)
+is in progress; its site-level diagnostics must be reviewed before choosing a
+capacity correction. The first current-source attempt
 [44684499265](https://github.com/cyberducttape/StePanel/actions/runs/44684499265)
 failed in the shared installed-host Composer cgroup probe before the workload
-started; a deterministic probe `PATH` is fixed locally, and a corrected
-current-source run is required to identify the capacity failure and measure a
-remediation before publishing the envelope.
+started; the probe `PATH` issue is fixed and the current-source run is active.
+The capacity failure must be diagnosed and a remediation measured before
+publishing the envelope.
 
 Benchmark a named supported host with representative PHP traffic, databases,
 backups, migrations, and control-plane reads/writes. Measure CPU/RAM, disk and
