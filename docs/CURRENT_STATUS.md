@@ -3,7 +3,7 @@
 **Released version:** v0.7.0 (Operator Beta)
 **Branch:** `main` carries unreleased work on top of v0.7.0
 **Production decision:** **NO-GO** for v1.0
-**Last reviewed:** 2026-10-30
+**Last reviewed:** 2026-11-20
 
 This page is a short summary. It does not approve releases and does not
 repeat details kept elsewhere.

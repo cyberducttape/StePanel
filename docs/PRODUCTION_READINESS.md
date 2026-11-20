@@ -1,6 +1,6 @@
 # StePanel Production Readiness
 
-**Last Updated:** 2026-10-27
+**Last Updated:** 2026-11-20
 **Status:** Operator Beta; release approval is governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md)
 
 For a one-page status summary and a map of which document owns what, see

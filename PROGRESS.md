@@ -1,5 +1,22 @@
 # Production-readiness progress
 
+## Verify customer workspace and file-manager review findings — 2026-11-20
+
+- Confirmed the account-owner site form includes the WordPress setup fieldset;
+  `sites.js` also tolerates forms that omit optional fields. Customer navigation
+  uses hash-driven views and disables the operator dashboard's scroll spy.
+- The customer-panel browser test verifies no uncaught page errors, WordPress
+  form initialization, invalidation of a delayed file read after switching
+  sites, and clearing/inerting stale directory actions while navigation is
+  pending. The hosted `ui-e2e` job passed on code source
+  [`d0ed0fa3`](https://github.com/cyberducttape/StePanel/commit/d0ed0fa361574e037760ecf90c1dd8e5ab14b11a)
+  in CI run [44739044630](https://github.com/cyberducttape/StePanel/actions/runs/44739044630).
+  Browser coverage includes Chromium and accessibility checks; it is not a
+  cross-browser certification.
+- The remaining Go CI job for that source was still running when this entry
+  was written. Local `make check` passed for the concurrent file-read limiter.
+  Production remains **NO-GO** pending the open release gates.
+
 ## Bound concurrent file reads and directory listings — 2026-11-20
 
 - Added a nonblocking admission limiter around authorized file reads and

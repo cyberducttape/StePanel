@@ -11,7 +11,7 @@ to administrators but not exposed as a tenant entitlement; **Experimental**
 means the interface may change; **Planned** means not implemented. Release-tag
 documentation must be read from the matching release tag, not from `main`.
 
-Documentation version: `main` (reviewed 2026-10-30)
+Documentation version: `main` (reviewed 2026-11-20)
 Release approval: use `V1_PRODUCTION_GATES.md`; this catalog is not a release gate.
 
 ## Available now
