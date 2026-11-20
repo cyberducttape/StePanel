@@ -830,11 +830,13 @@ durable job state. Keep the token out of API serialization.
 
 ### M1 — Complete installed-host failure recovery (P0)
 
-**Status:** Open. Exact-source installation smoke
+**Status:** Open. Exact-source run
 [44516615547](https://github.com/cyberducttape/StePanel/actions/runs/44516615547)
-passed all six Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 Apache/Caddy
-combinations on `64281ca87391c54038547b8b9dc002701b2ae125`; this was not the
-full recovery matrix. A new exact-source 20-repeat six-host cohort
+passed one full recovery-matrix iteration on each of the six Ubuntu 24.04,
+AlmaLinux 9, and Rocky Linux 9 Apache/Caddy combinations, including database-
+backed WordPress HTTP proof (4.756–7.106 s measured RTO). The per-host report
+is [here](docs/lab-results/2026-11-19-six-host-recovery-64281ca.md). A new
+exact-source 20-repeat six-host cohort
 [44662607070](https://github.com/cyberducttape/StePanel/actions/runs/44662607070)
 and KVM abrupt-loss run
 [44662674624](https://github.com/cyberducttape/StePanel/actions/runs/44662674624)
@@ -890,11 +892,14 @@ state, service health, and successful post-recovery invariants.
 
 ### M2 — Certify application recovery and supported runtime matrix (P0)
 
-**Status:** Partial. Exact-code run `41189484718` passed an installed
-WordPress database and HTTP recovery proof on all six Ubuntu/AlmaLinux/Rocky
-and Apache/Caddy combinations (5.269–7.308 s measured RTO); see the
-[six-host result](docs/lab-results/2026-10-31-six-host-install-matrix-1e6db18.md).
-This is a single pass per combination, not repeated certification.
+**Status:** Partial. Exact-source run `44516615547` passed a database-backed
+WordPress HTTP recovery proof on all six Ubuntu 24.04, AlmaLinux 9, and Rocky
+Linux 9 Apache/Caddy combinations (4.756–7.106 s measured RTO); see the
+[2026-11-19 result](docs/lab-results/2026-11-19-six-host-recovery-64281ca.md).
+This is one pass per combination in disposable systemd containers, not
+repeated or physical-host certification. The earlier full six-host run
+[`41189484718`](https://github.com/cyberducttape/StePanel/actions/runs/41189484718)
+is retained as historical evidence.
 
 On a clean disposable destination, restore a real WordPress site including
 files and a populated database, configure PHP-FPM and the virtual host, then

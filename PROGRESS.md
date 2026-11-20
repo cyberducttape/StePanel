@@ -1,5 +1,12 @@
 # Production-readiness progress
 
+## Reviewed six-host recovery iteration — 2026-11-19
+
+- Downloaded and inspected all six host logs from exact-source installation run [44516615547](https://github.com/cyberducttape/StePanel/actions/runs/44516615547). Each reported `recovery matrix passed (1 iteration(s))`, survived worker interruption during import/backup/restore/database restore/termination, passed broker recovery checks, and completed the installed WordPress database-backed HTTP proof.
+- Recorded host-specific measured WordPress proof RTOs (4.756–7.106 seconds) and the systemd-container/test boundary in [`2026-11-19-six-host-recovery-64281ca.md`](docs/lab-results/2026-11-19-six-host-recovery-64281ca.md). Updated the M1/M2 plan and authoritative P0 gate evidence date. This is one pass per host, not the required 20–50 repeated cohort or physical-host certification.
+- CI integration on the same code tree (run [44662602622](https://github.com/cyberducttape/StePanel/actions/runs/44662602622)) had passed UI E2E and was still running the race suite at this update. The 20-repeat cohort [44662607070](https://github.com/cyberducttape/StePanel/actions/runs/44662607070), abrupt-loss KVM drills [44662674624](https://github.com/cyberducttape/StePanel/actions/runs/44662674624), 500-site capacity profile [44663139216](https://github.com/cyberducttape/StePanel/actions/runs/44663139216), and N-1 upgrade matrix [44663143624](https://github.com/cyberducttape/StePanel/actions/runs/44663143624) had not completed; no result is counted yet.
+- Local `make check`, documentation link/reference validation, and the exact-source initial CodeQL/documentation checks passed. Production remains **NO-GO** pending reviewed results and the other open P0 gates.
+
 ## Exact-source main validation and recovery certification — 2026-11-19
 
 - Fast-forwarded the clean main worktree to `64281ca87391c54038547b8b9dc002701b2ae125`; the change includes typed executors for all queued site operations, backup naming/layout and encryption package extraction, and accessibility fixes across every site-workspace tab. The customer workspace and file-manager context fixes from M0y are included in this ancestry.

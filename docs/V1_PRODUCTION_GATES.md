@@ -1,7 +1,7 @@
 # StePanel v1.0.0 Production Readiness Gates
 
 **Status:** CURRENT AUTHORITATIVE RELEASE-GATE DOCUMENT
-**Last Updated:** 2026-10-31
+**Last Updated:** 2026-11-19
 **Target:** Ready to run 100+ production WordPress/PHP customer sites  
 **Approach:** Complete existing architectural contracts, add robustness testing
 
@@ -81,6 +81,20 @@ and host-bound lifecycle operations. Site, domain, and account counts may be
 published only as a certified envelope, never as targets.
 
 ### P0 — required before 1.0
+
+**Evidence update (2026-11-19):** Exact-source run
+[44516615547](https://github.com/cyberducttape/StePanel/actions/runs/44516615547)
+passed one full installed recovery-matrix iteration on each of the six listed
+Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 Apache/Caddy combinations. Each
+also passed the database-backed WordPress HTTP proof. Per-host measured RTOs
+and the test boundary are recorded in the [reviewed result](./lab-results/2026-11-19-six-host-recovery-64281ca.md).
+This supersedes earlier single-run source references for those combinations;
+it does not close the required 20–50 repeat cohort, physical power-loss,
+database-restore ENOSPC, or capacity gates. Exact-source cohort run
+[44662607070](https://github.com/cyberducttape/StePanel/actions/runs/44662607070)
+and abrupt-loss run
+[44662674624](https://github.com/cyberducttape/StePanel/actions/runs/44662674624)
+were still in progress when this update was prepared and are not counted.
 
 | Requirement | Current status | Evidence / remaining work |
 |-------------|----------------|---------------------------|
