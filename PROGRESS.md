@@ -1,5 +1,31 @@
 # Production-readiness progress
 
+## Current-source release validation — 2026-11-20
+
+- Exact-source evidence for `f464f79d6287741eefd14174caaac35cd9f18534` is in
+  [release-evidence run 44727737839](https://github.com/cyberducttape/StePanel/actions/runs/44727737839).
+  The generated artifact confirms PR CI, CI integration (including race tests,
+  ENOSPC, recovery drills, and database integration), CodeQL, and browser E2E
+  passed for identical current code. The report keeps production **NO-GO**
+  with 4/21 P0 gates complete and 17 incomplete.
+- Current-code installed smoke
+  [44724016501](https://github.com/cyberducttape/StePanel/actions/runs/44724016501),
+  N-1 upgrade matrix
+  [44724039602](https://github.com/cyberducttape/StePanel/actions/runs/44724039602),
+  six-host recovery cohort
+  [44725816245](https://github.com/cyberducttape/StePanel/actions/runs/44725816245),
+  and 500-site KVM capacity profile
+  [44725885994](https://github.com/cyberducttape/StePanel/actions/runs/44725885994)
+  are still running. The cohort has started its first six-host iteration; no
+  host result or repeat is counted until all six jobs and their artifacts are
+  reviewed.
+- Exact-source evidence generation initially hit the unauthenticated GitHub
+  API rate limit locally; the authenticated evidence workflow completed and
+  uploaded the artifact. No product failure was observed. An older-source
+  recovery cohort was cancelled to free runners; its partial work does not
+  count. No code change was needed in this continuation; this documentation
+  update records the latest workflow evidence.
+
 ## Retry transient package-mirror failures in host test setup — 2026-11-20
 
 - The N-1 run [44712444760](https://github.com/cyberducttape/StePanel/actions/runs/44712444760)

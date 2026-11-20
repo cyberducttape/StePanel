@@ -943,25 +943,17 @@ also failed during install smoke before the capacity workload began. The Rocky L
 completed on diagnostic source `8382e9c4` but had 210 site-request timeouts;
 the reviewed result is linked under M4.
 
-The live full six-host matrix
-[44701903618](https://github.com/cyberducttape/StePanel/actions/runs/44701903618)
-uses `f35e4b71`; the 20-repeat cohort
-[44702646288](https://github.com/cyberducttape/StePanel/actions/runs/44702646288)
-uses `a7594a45`. Both are still running and are not exact-source evidence.
-An additional older-source cohort
-[44686066552](https://github.com/cyberducttape/StePanel/actions/runs/44686066552)
-on `e1195ccc` completed its first six-host repetition: all six host jobs passed
-and their uploaded smoke logs were reviewed. Its second repetition is not
-complete. This source predates current file-manager changes and does not count
-toward the current-source criterion.
-At the time of the latest exact-source report generated on 2026-11-20, `main`
-was `c18e2a1d`. These recovery runs are useful for diagnosis but their different
-source trees mean the exact-source evidence verifier does not count them. No
-recovery pass is counted until a current-source run completes all six hosts and
-its artifacts are reviewed. The current-source installation
-smoke [44710979561](https://github.com/cyberducttape/StePanel/actions/runs/44710979561)
-was queued on source `ae5b003a`; it does not match later non-Markdown changes
-and is not counted as exact-source evidence.
+The older-source full matrix [44701903618](https://github.com/cyberducttape/StePanel/actions/runs/44701903618),
+cohort [44702646288](https://github.com/cyberducttape/StePanel/actions/runs/44702646288),
+and 20-repeat cohort [44686066552](https://github.com/cyberducttape/StePanel/actions/runs/44686066552)
+were cancelled because their source trees do not match current `main`; one
+completed repetition from 44686066552 is historical only. Current-source
+six-host cohort [44725816245](https://github.com/cyberducttape/StePanel/actions/runs/44725816245)
+was dispatched on `f464f79d6287741eefd14174caaac35cd9f18534` and is running its
+first repetition. The current-code single-host install smoke
+[44724016501](https://github.com/cyberducttape/StePanel/actions/runs/44724016501)
+is also running. No current-source recovery pass is counted until all six host
+jobs and their uploaded artifacts are reviewed.
 
 Earlier exact-source run
 [44516615547](https://github.com/cyberducttape/StePanel/actions/runs/44516615547)
@@ -1044,11 +1036,10 @@ repeated or physical-host certification. The earlier full six-host run
 is retained as historical evidence. The one-host proof in run
 [44686046786](https://github.com/cyberducttape/StePanel/actions/runs/44686046786)
 is also on older source `e1195ccc` and does not establish current-source
-recovery. Six-host runs [44701903618](https://github.com/cyberducttape/StePanel/actions/runs/44701903618)
-and [44702646288](https://github.com/cyberducttape/StePanel/actions/runs/44702646288)
-are in progress on earlier source trees and will not count for current `main`.
-The exact-source install smoke [44710979561](https://github.com/cyberducttape/StePanel/actions/runs/44710979561)
-is queued; it must complete all host jobs and have its artifacts reviewed.
+recovery. Current-code single-host install smoke
+[44724016501](https://github.com/cyberducttape/StePanel/actions/runs/44724016501)
+and six-host cohort [44725816245](https://github.com/cyberducttape/StePanel/actions/runs/44725816245)
+are active; inspect all host logs and artifacts before counting results.
 
 On a clean disposable destination, restore a real WordPress site including
 files and a populated database, configure PHP-FPM and the virtual host, then
@@ -1123,11 +1114,12 @@ that run supplies no usable latency measurements. A regression test now covers
 both sample shapes; rerun the full profile after this harness fix and review
 the resulting phase timings before changing product defaults. This run was
 not exact-source evidence because other non-Markdown files differ from current
-`main`. A corrected 500-site profile
+`main`. The corrected current-code 500-site profile
+[44725885994](https://github.com/cyberducttape/StePanel/actions/runs/44725885994)
+is running; the report-aggregation regression test passed before its KVM
+workload began. Its outcome and artifacts remain pending. The earlier profile
 [44711012147](https://github.com/cyberducttape/StePanel/actions/runs/44711012147)
-is now running on exact source `ae5b003a`; the report-aggregation regression
-test passed before its KVM workload began. Its outcome and artifacts remain
-pending.
+was cancelled before producing a report and contributes no measurement.
 
 Benchmark a named supported host with representative PHP traffic, databases,
 backups, migrations, and control-plane reads/writes. Measure CPU/RAM, disk and
@@ -1157,10 +1149,13 @@ for the current installer, migrations, or rollback code. The injected
 broken-candidate path explicitly reports that installer rollback alone did
 not complete host recovery; the tested success uses the documented operator
 downgrade procedure. This remains historical upgrade evidence, not current
-release-candidate certification. Current-main N-1 matrix
+release-candidate certification. Current-code N-1 matrix
+[44724039602](https://github.com/cyberducttape/StePanel/actions/runs/44724039602)
+was dispatched on `6e80a189`, which is code-equivalent to current `main`.
+Five of six jobs have passed; the final QEMU guest case is still running, so
+there is not yet a complete matrix result. The earlier run
 [44712444760](https://github.com/cyberducttape/StePanel/actions/runs/44712444760)
-was dispatched on `50e73c7d` and is queued; no current-source upgrade result
-is available yet.
+was stopped after an apt-mirror failure before the upgrade scenario.
 
 The API lifecycle policy is now published in
 [`docs/API_COMPATIBILITY.md`](docs/API_COMPATIBILITY.md). Candidate validation
