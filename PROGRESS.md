@@ -1,5 +1,14 @@
 # Production-readiness progress
 
+## Exact-source main validation and recovery certification — 2026-11-19
+
+- Fast-forwarded the clean main worktree to `64281ca87391c54038547b8b9dc002701b2ae125`; the change includes typed executors for all queued site operations, backup naming/layout and encryption package extraction, and accessibility fixes across every site-workspace tab. The customer workspace and file-manager context fixes from M0y are included in this ancestry.
+- Local `make check` passed on `64281ca` (API artifact freshness, shell contracts, `go vet ./...`, and serialized `go test -p 1 -timeout 10m ./...`).
+- Exact-source installation smoke [44516615547](https://github.com/cyberducttape/StePanel/actions/runs/44516615547) passed all six Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 Apache/Caddy combinations (7/7 jobs). This is an install smoke, not the full repeated recovery cohort.
+- Exact-source CodeQL and documentation checks passed; release evidence [44521384715](https://github.com/cyberducttape/StePanel/actions/runs/44521384715) records 4/21 P0 requirements complete and a **NO-GO** decision. The report correctly does not count older host-cohort or quota runs as equivalent source evidence.
+- Started exact-source CI integration [44662602622](https://github.com/cyberducttape/StePanel/actions/runs/44662602622), the 20-repeat six-host installed recovery cohort [44662607070](https://github.com/cyberducttape/StePanel/actions/runs/44662607070), and KVM abrupt-loss drills [44662674624](https://github.com/cyberducttape/StePanel/actions/runs/44662674624). These were still running/queued at this update; no result is counted. Guest termination does not establish physical host power-loss durability.
+- Next: inspect each exact-source run and artifact, fix any reproduced defect before continuing, then update the release-gate table only with reviewed evidence. Physical power loss, ENOSPC during database restore/publication/import, live alert delivery, and measured capacity remain open unless the corresponding evidence proves otherwise.
+
 ## cPanel migration destination plan and recovery evidence — 2026-10-31
 
 - Added a separate `STEPANEL_CPMOVE_MAX_UPLOAD_BYTES` setting (default 40 GiB,

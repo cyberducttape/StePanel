@@ -830,7 +830,17 @@ durable job state. Keep the token out of API serialization.
 
 ### M1 — Complete installed-host failure recovery (P0)
 
-**Status:** Open. Exact-code scheduled six-host run
+**Status:** Open. Exact-source installation smoke
+[44516615547](https://github.com/cyberducttape/StePanel/actions/runs/44516615547)
+passed all six Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 Apache/Caddy
+combinations on `64281ca87391c54038547b8b9dc002701b2ae125`; this was not the
+full recovery matrix. A new exact-source 20-repeat six-host cohort
+[44662607070](https://github.com/cyberducttape/StePanel/actions/runs/44662607070)
+and KVM abrupt-loss run
+[44662674624](https://github.com/cyberducttape/StePanel/actions/runs/44662674624)
+were started on 2026-11-19 and are not counted until every required job and
+artifact is reviewed. KVM guest termination is not physical host power loss.
+The prior exact-code scheduled six-host run
 [41189484718](https://github.com/cyberducttape/StePanel/actions/runs/41189484718)
 passed one installed recovery-matrix iteration on each Ubuntu 24.04,
 AlmaLinux 9, and Rocky Linux 9 host with Apache and Caddy, including an
