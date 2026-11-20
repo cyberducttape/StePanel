@@ -110,34 +110,26 @@
   `mysql` OS account, so both real-server database-client smokes remain
   unverified locally.
 
-## Current-source CI and recovery cohort — 2026-11-20
+## Recovery cohort snapshot — 2026-11-20
 
-- CI integration [44699909154](https://github.com/cyberducttape/StePanel/actions/runs/44699909154)
-  passed on `3acc333c`. Current `main` (`80bad3e8`) has three non-Markdown
-  changes since that run: literal SQL client-command smoke-fixture corrections
-  and an alert retry persistence test. Production Go code is unchanged, but
-  the exact-source evidence checker does not count the older run as equivalent
-  until the current fixtures/tests pass. `bash scripts/check-action-pins.sh`
-  passes on current `main`; CI integration, CodeQL, and documentation runs for
-  `80bad3e8` were queued/pending at the last check.
-- Started one full six-host recovery iteration
-  [44701903618](https://github.com/cyberducttape/StePanel/actions/runs/44701903618)
-  on `f35e4b71` and the dedicated 20-repeat cohort
-  [44702646288](https://github.com/cyberducttape/StePanel/actions/runs/44702646288)
-  on `a7594a45`. Both are still in progress on their first six-host
-  repetition; current `main` has the three non-Markdown changes above, so
-  these remain useful but are not counted as exact-source passes.
-- The older-source cohort
+- The older-source 20-repeat cohort
   [44686066552](https://github.com/cyberducttape/StePanel/actions/runs/44686066552)
-  on `e1195ccc` remains active as well. No repetition from any of the three
-  cohorts is counted until all six host jobs and artifacts are reviewed.
-- The phase-instrumented 500-site profile
-  [44699996203](https://github.com/cyberducttape/StePanel/actions/runs/44699996203)
-  is still running on `3acc333c`. Its capacity-probe code matches current
-  `main`; the result can diagnose the prior site's HTTP timeouts but will not
-  count as exact-source release evidence. A duplicate dispatch on `80bad3e8`
-  was cancelled before it started. Production remains **NO-GO** until the P0
-  host, recovery, alert-delivery, and capacity requirements are met.
+  on `e1195ccc` completed repetition 1 across all six OS/web-server pairs.
+  All six jobs and their uploaded smoke logs passed review. The second
+  repetition has three host jobs running and three queued. Its outputs show
+  cPanel import, backup/restore/termination interruption, and account
+  suspension recovery passing for that source. It predates current
+  file-manager changes, so none of these results count for current `main`.
+- The full six-host matrix
+  [44701903618](https://github.com/cyberducttape/StePanel/actions/runs/44701903618)
+  on `f35e4b71` remains in its first repetition. The 20-repeat cohort
+  [44702646288](https://github.com/cyberducttape/StePanel/actions/runs/44702646288)
+  on `a7594a45` also remains in its first repetition. Both use non-current
+  source trees; no complete repetition is counted for current `main`.
+- Code-equivalent current-source installation smoke
+  [44710979561](https://github.com/cyberducttape/StePanel/actions/runs/44710979561)
+  remains queued. Exact-source CI, recovery, and capacity evidence are tracked
+  in the current progress entry above. Production remains **NO-GO**.
 
 ## Reverify customer workspace and file-context regressions — 2026-11-20
 

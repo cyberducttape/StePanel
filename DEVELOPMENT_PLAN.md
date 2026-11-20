@@ -948,12 +948,16 @@ are not exact-source evidence. The current-source installation smoke
 is queued; its host results must be reviewed before counting a repetition.
 An additional older-source cohort
 [44686066552](https://github.com/cyberducttape/StePanel/actions/runs/44686066552)
-on `e1195ccc` is also still active.
-Current `main` is `ae5b003a`. These recovery runs are useful for diagnosis but
+on `e1195ccc` completed its first six-host repetition: all six host jobs passed
+and their uploaded smoke logs were reviewed. The second repetition has three
+host jobs in progress and three queued. This source predates current
+file-manager changes and does not count toward the current-source criterion.
+Current `main` is `6b5c519c`. These recovery runs are useful for diagnosis but
 their different source trees mean the exact-source evidence verifier does not
 count them. No recovery pass is counted until a current-source run completes
-all six hosts and its artifacts are reviewed. None of the older active cohorts
-has produced a completed repetition yet.
+all six hosts and its artifacts are reviewed. The current-source installation
+smoke [44710979561](https://github.com/cyberducttape/StePanel/actions/runs/44710979561)
+is code-equivalent to current `main` and remains queued.
 
 Earlier exact-source run
 [44516615547](https://github.com/cyberducttape/StePanel/actions/runs/44516615547)
