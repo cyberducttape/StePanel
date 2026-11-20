@@ -50,6 +50,22 @@
   combination, every rollback boundary, or a production release. The release
   decision remains **NO-GO** pending the open P0 gates.
 
+## Verify database-restore command defenses and audit integrity — 2026-11-20
+
+- Current-code-equivalent CI integration
+  [44724016547](https://github.com/cyberducttape/StePanel/actions/runs/44724016547)
+  passed the MySQL 8 client-command smoke and PostgreSQL restore smoke. The
+  PostgreSQL test restored a valid custom archive, proved concurrent loader
+  role grants are serialized across tenants, and rejected plain SQL and the
+  literal `\!`, `\copy`, and `\o` meta-commands without changing the live
+  database. Fixtures assert their exact backslash bytes; earlier doubled-slash
+  fixtures are excluded from evidence.
+- The same run passed the full suite and race tests, and its non-Markdown tree
+  matches current `main`. Current-source CodeQL
+  [44730175604](https://github.com/cyberducttape/StePanel/actions/runs/44730175604)
+  passed. Production remains **NO-GO** because installed-host recovery,
+  capacity, repeated failure drills, and other P0 evidence remain incomplete.
+
 ## Retry transient package-mirror failures in host test setup — 2026-11-20
 
 - The N-1 run [44712444760](https://github.com/cyberducttape/StePanel/actions/runs/44712444760)

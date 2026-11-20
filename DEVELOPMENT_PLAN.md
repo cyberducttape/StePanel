@@ -235,8 +235,11 @@ removed. Malformed queued bodies are now refused at admission (422).
 
 **Status:** Implemented. The latest code change detects a future-dated audit
 verification checkpoint after a wall-clock rollback. Audit tests, the audit
-race test, and full `make check` pass locally. Current-source hosted CI is
-queued; the earlier exact-source integration pass predates this follow-up.
+race test, and full `make check` pass locally. Current-code-equivalent hosted
+CI integration [44724016547](https://github.com/cyberducttape/StePanel/actions/runs/44724016547)
+passed the full suite and race tests; its code tree matches current `main`.
+Current-source CodeQL [44730175604](https://github.com/cyberducttape/StePanel/actions/runs/44730175604)
+also passed.
 
 **Acceptance criteria**
 
@@ -282,19 +285,17 @@ is still running; this does not establish hostile multi-tenant isolation.
 
 ### M0n — Remove psql client-command execution from PostgreSQL restores (P0)
 
-**Status:** Restore implementation uses custom-format PostgreSQL archives,
-`pg_restore` as the restricted loader, rejects plain SQL at the privileged
-helper boundary, and serializes shared-loader grants through a root-owned
-cross-process lock. A review found the prior smoke fixtures had two leading
-backslashes, so earlier passing PostgreSQL runs do not prove rejection of the
-actual `\!`, `\copy`, and `\o` commands. The fixtures now contain exactly one
-leading backslash and assert that property before invoking restore. Shell
-syntax, ShellCheck, and the isolated fixture-prefix check pass locally; the
-MySQL/MariaDB smoke now also asserts that its `\!` and `\.` fixtures contain
-exactly one leading backslash. `make check` passes on `0caad3f4` (root package
-119.6s), along with ShellCheck, Bash syntax, smoke-workflow bounds, and the
-isolated fixture-prefix checks. No local database server or MySQL OS identity
-is available, so the real-server smokes remain pending hosted CI.
+**Status:** Implemented and verified by current-code-equivalent CI integration
+[44724016547](https://github.com/cyberducttape/StePanel/actions/runs/44724016547)
+on source `6e80a189` (identical non-Markdown tree to current `main`). The real
+PostgreSQL smoke restored a valid custom-format archive, confirmed concurrent
+restores serialize shared loader-role grants so tenant B cannot `SET ROLE`
+during tenant A's restore, and rejected plain SQL plus `\!`, `\copy`, and
+`\o` without changing the live database. The MySQL 8 client-command smoke
+passed as part of the same integration run. Earlier malformed fixtures with
+two leading backslashes are not counted; the current smoke asserts literal
+fixture bytes before execution. This validates the tested CI database versions
+and does not replace host-level recovery certification.
 
 **Acceptance criteria**
 
