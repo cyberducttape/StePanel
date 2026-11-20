@@ -124,7 +124,7 @@ func loadOrCreateTerminationJournal(recoveryRoot, jobID, site, actor string) (*t
 		if err := json.Unmarshal(data, &journal); err != nil {
 			return nil, fmt.Errorf("decode termination journal %s: %w", filepath.Base(path), err)
 		}
-		if journal.Version != terminationJournalVersion || journal.JobID != jobID || journal.Site != site {
+		if journal.Version != terminationJournalVersion || journal.JobID != jobID || journal.Site != site || journal.Actor != actor {
 			return nil, fmt.Errorf("termination journal for job %s does not match request", jobID)
 		}
 		if journal.Completed == nil {

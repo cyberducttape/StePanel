@@ -120,7 +120,7 @@ func TestCrossProcessLock_TerminationWaitsForSiteLock(t *testing.T) {
 	panelLocks, workerLocks := twoProcessLocks(t)
 	app := &App{Config: f.cfg, Auth: Auth{Username: "admin"}, Jobs: NewJobs(), Routes: routes, Accounts: accounts, siteManager: manager, dbLocks: panelLocks}
 	job := Job{ID: "terminate", StartedAt: time.Now().UTC()}
-	job.Payload, _ = json.Marshal(durableSiteTerminationRequest{Site: f.site.Site(), Actor: "admin"})
+	job.Payload, _ = json.Marshal(durableSiteTerminationRequest{Site: f.site.Site(), Actor: "admin", TenantID: "customer", TenantBound: true})
 
 	release := holdInOtherProcess(t, workerLocks, f.site.Site())
 	if _, err := app.handleSiteTermination(lockWaitContext(t), job); err == nil {

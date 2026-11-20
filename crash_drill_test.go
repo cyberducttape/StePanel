@@ -58,7 +58,7 @@ func TestCrashDrillChild(t *testing.T) {
 	case "terminate":
 		app := terminationDrillApp(t, f)
 		job := Job{ID: "crash-terminate", StartedAt: time.Unix(1_800_000_000, 0).UTC()}
-		job.Payload, _ = json.Marshal(durableSiteTerminationRequest{Site: f.site.Site(), Actor: "admin"})
+		job.Payload, _ = json.Marshal(durableSiteTerminationRequest{Site: f.site.Site(), Actor: "admin", TenantID: "customer", TenantBound: true})
 		_, _ = app.handleSiteTermination(ctx, job)
 	case "deploy-seal":
 		// The release activates, then the panel dies while the site helper
@@ -252,7 +252,7 @@ func TestCrashDrill_Termination(t *testing.T) {
 			// finish the termination from its journal.
 			app := terminationDrillApp(t, f)
 			job := Job{ID: "crash-terminate", StartedAt: time.Unix(1_800_000_000, 0).UTC()}
-			job.Payload, _ = json.Marshal(durableSiteTerminationRequest{Site: f.site.Site(), Actor: "admin"})
+			job.Payload, _ = json.Marshal(durableSiteTerminationRequest{Site: f.site.Site(), Actor: "admin", TenantID: "customer", TenantBound: true})
 			if _, err := app.handleSiteTermination(context.Background(), job); err != nil {
 				t.Fatalf("resumed termination after crash at %s: %v", point, err)
 			}

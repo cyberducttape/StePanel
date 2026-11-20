@@ -49,7 +49,12 @@ func (a *App) maybeEnqueueScheduledRehearsal(ctx context.Context, site, backup s
 	if latest != nil && time.Since(latest.StartedAt) < interval {
 		return
 	}
-	payload, err := json.Marshal(durableBackupRehearsalRequest{Site: site, Backup: backup, Actor: "scheduler", Scheduled: true})
+	tenantID, tenantBound, err := a.durableTenantBinding(site)
+	if err != nil {
+		log.Printf("read tenant for scheduled rehearsal %s: %v", site, err)
+		return
+	}
+	payload, err := json.Marshal(durableBackupRehearsalRequest{Site: site, Backup: backup, Actor: "scheduler", TenantID: tenantID, TenantBound: tenantBound, Scheduled: true})
 	if err != nil {
 		log.Printf("encode scheduled rehearsal for %s: %v", site, err)
 		return

@@ -31,9 +31,11 @@ type DurableBackupRestoreRequest = backup.DurableBackupRestoreRequest
 type durableBackupRestoreRequest = backup.DurableBackupRestoreRequest
 
 type durableBackupRehearsalRequest struct {
-	Site   string `json:"site"`
-	Backup string `json:"backup"`
-	Actor  string `json:"actor"`
+	Site        string `json:"site"`
+	Backup      string `json:"backup"`
+	Actor       string `json:"actor"`
+	TenantID    string `json:"tenant_id,omitempty"`
+	TenantBound bool   `json:"tenant_bound,omitempty"`
 	// Scheduled rehearsals run as the scheduler after a scheduled backup;
 	// they are authorized like scheduled backups, not as a user.
 	Scheduled bool `json:"scheduled,omitempty"`
@@ -58,6 +60,13 @@ type backupRehearsalResult struct {
 }
 
 func (a *App) enqueueBackupRestoreJob(request durableBackupRestoreRequest, operationKey string) (Job, error) {
+	if !request.TenantBound {
+		tenantID, bound, err := a.durableTenantBinding(request.Site)
+		if err != nil {
+			return Job{}, err
+		}
+		request.TenantID, request.TenantBound = tenantID, bound
+	}
 	payload, err := json.Marshal(request)
 	if err != nil {
 		return Job{}, err
@@ -74,7 +83,7 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 	if safeUser(request.Site) == "" || !backup.ValidName(request.Backup) || request.Actor == "" {
 		return nil, errors.New("invalid durable backup restore payload")
 	}
-	access, err := a.authorizeDurableSiteJob(request.Site, request.Actor, false)
+	access, err := a.authorizeBoundDurableSiteJob(request.Site, request.Actor, request.TenantID, request.TenantBound, false)
 	if err != nil {
 		return nil, err
 	}
@@ -89,6 +98,10 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 		return nil, fmt.Errorf("acquire durable site lock: %w", lockErr)
 	}
 	defer releaseUnlock()
+	access, err = a.authorizeBoundDurableSiteJob(request.Site, request.Actor, request.TenantID, request.TenantBound, false)
+	if err != nil {
+		return nil, err
+	}
 	if err := a.reconcileInterruptedSiteWithLease(operationCtx, request.Site, a.siteManager); err != nil {
 		return nil, fmt.Errorf("reconcile interrupted backup restore: %w", err)
 	}
@@ -294,7 +307,7 @@ func (a *App) handleBackupRehearsalJob(ctx context.Context, item Job) ([]byte, e
 	if safeUser(request.Site) == "" || !backup.ValidName(request.Backup) || strings.TrimSpace(request.Actor) == "" {
 		return nil, errors.New("invalid backup rehearsal payload")
 	}
-	if _, err := a.authorizeDurableSiteJob(request.Site, request.Actor, request.Scheduled); err != nil {
+	if _, err := a.authorizeBoundDurableSiteJob(request.Site, request.Actor, request.TenantID, request.TenantBound, request.Scheduled); err != nil {
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -521,7 +534,8 @@ func (a *App) backupRehearse(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid backup", http.StatusUnprocessableEntity)
 		return
 	}
-	if _, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", http.StatusForbidden); !ok {
+	access, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", http.StatusForbidden)
+	if !ok {
 		return
 	}
 	if !a.requireCustomerScope(w, r, "backup:restore") {
@@ -542,6 +556,8 @@ func (a *App) backupRehearse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.Actor = a.Auth.UsernameForRequest(r)
+	input.TenantID = access.TenantID()
+	input.TenantBound = a.Accounts != nil
 	payload, err := json.Marshal(input)
 	if err != nil {
 		http.Error(w, "could not encode rehearsal job", http.StatusInternalServerError)

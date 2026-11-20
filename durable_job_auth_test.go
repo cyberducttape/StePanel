@@ -1,6 +1,12 @@
 package stepanel
 
-import "testing"
+import (
+	"context"
+	"encoding/json"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 func TestAuthorizeDurableSiteJobRechecksSuspensionAndOwnership(t *testing.T) {
 	app := &App{Auth: Auth{Username: "admin"}, Accounts: &AccountStore{accounts: map[string]HostingAccount{
@@ -51,5 +57,54 @@ func TestAuthorizeDurableSiteJobStaysBoundToQueuedTenant(t *testing.T) {
 	}
 	if _, err := app.authorizeDurableSiteJobForTenant("shop", "member", "tenant-b", true, false); err != nil {
 		t.Fatalf("newly queued tenant-b job rejected: %v", err)
+	}
+}
+
+func TestQueuedAdminRestoreAndTerminationStayBoundToTenant(t *testing.T) {
+	for _, kind := range []string{"backup.restore", "site.terminate"} {
+		t.Run(kind, func(t *testing.T) {
+			db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			accounts := &AccountStore{accounts: map[string]HostingAccount{
+				"tenant-a": {Username: "tenant-a", Plan: "professional", Sites: []string{"shop"}},
+				"tenant-b": {Username: "tenant-b", Plan: "professional"},
+			}}
+			app := &App{Auth: Auth{Username: "admin"}, Accounts: accounts, Jobs: newJobsWithDB(db, 1)}
+			var queued Job
+			switch kind {
+			case "backup.restore":
+				queued, err = app.enqueueBackupRestoreJob(durableBackupRestoreRequest{Mode: "files", Site: "shop", Backup: "backup-1", Actor: "admin"}, "")
+			case "site.terminate":
+				queued, err = app.enqueueSiteTermination("shop", "admin")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			var binding struct {
+				TenantID    string `json:"tenant_id"`
+				TenantBound bool   `json:"tenant_bound"`
+			}
+			if err := json.Unmarshal(queued.Payload, &binding); err != nil || !binding.TenantBound || binding.TenantID != "tenant-a" {
+				t.Fatalf("queued tenant binding = %+v, decode error = %v", binding, err)
+			}
+			accounts.accounts["tenant-a"] = HostingAccount{Username: "tenant-a", Plan: "professional"}
+			accounts.accounts["tenant-b"] = HostingAccount{Username: "tenant-b", Plan: "professional", Sites: []string{"shop"}}
+			item, ok, err := app.Jobs.ClaimNext("test-worker", kind)
+			if err != nil || !ok {
+				t.Fatalf("claim %s: claimed=%v err=%v", kind, ok, err)
+			}
+			var executionErr error
+			if kind == "backup.restore" {
+				_, executionErr = app.handleBackupRestoreJob(context.Background(), item)
+			} else {
+				_, executionErr = app.handleSiteTermination(context.Background(), item)
+			}
+			if executionErr == nil || !strings.Contains(executionErr.Error(), "ownership changed") {
+				t.Fatalf("%s execution error = %v, want reassignment refusal", kind, executionErr)
+			}
+		})
 	}
 }

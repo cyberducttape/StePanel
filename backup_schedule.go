@@ -217,6 +217,10 @@ func (a *App) runDueBackups() {
 // image and records a durable intent for job admission. The dispatcher may
 // safely replay the intent because its operation key is deterministic.
 func (a *App) stageScheduledBackup(binding controlPlaneStateBinding, due BackupSchedule, now time.Time) error {
+	tenantID, tenantBound, err := a.durableTenantBinding(due.Site)
+	if err != nil {
+		return err
+	}
 	tx, err := binding.db.Begin()
 	if err != nil {
 		return err
@@ -249,7 +253,7 @@ func (a *App) stageScheduledBackup(binding controlPlaneStateBinding, due BackupS
 	if err != nil {
 		return err
 	}
-	payload, err := json.Marshal(durableBackupRequest{Site: current.Site, IncludeDatabases: current.IncludeDatabases, Scheduled: true, KeepLast: current.KeepLast, Actor: "scheduler", StartedAt: now})
+	payload, err := json.Marshal(durableBackupRequest{Site: current.Site, IncludeDatabases: current.IncludeDatabases, Scheduled: true, KeepLast: current.KeepLast, Actor: "scheduler", StartedAt: now, TenantID: tenantID, TenantBound: tenantBound})
 	if err != nil {
 		return err
 	}

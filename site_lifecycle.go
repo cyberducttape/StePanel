@@ -16,8 +16,39 @@ import (
 )
 
 type durableSiteTerminationRequest struct {
-	Site  string `json:"site"`
-	Actor string `json:"actor"`
+	Site        string `json:"site"`
+	Actor       string `json:"actor"`
+	TenantID    string `json:"tenant_id,omitempty"`
+	TenantBound bool   `json:"tenant_bound,omitempty"`
+}
+
+// authorizeSiteTermination permits the narrowly defined final-reconciliation
+// case where this same admin job already removed the site's resources and
+// ownership, then stopped before its termination journal was retired.
+func (a *App) authorizeSiteTermination(request durableSiteTerminationRequest, jobID string) (AuthorizedDurableSite, error) {
+	access, err := a.authorizeBoundDurableSiteJob(request.Site, request.Actor, request.TenantID, request.TenantBound, false)
+	if err == nil || request.Actor != a.Auth.Username || !request.TenantBound {
+		return access, err
+	}
+	if a.Accounts == nil {
+		return AuthorizedDurableSite{}, err
+	}
+	path, pathErr := terminationJournalPath(a.Config.RecoveryRoot, jobID)
+	if pathErr != nil {
+		return AuthorizedDurableSite{}, err
+	}
+	if _, statErr := os.Lstat(path); statErr != nil {
+		return AuthorizedDurableSite{}, err
+	}
+	journal, journalErr := loadOrCreateTerminationJournal(a.Config.RecoveryRoot, jobID, request.Site, request.Actor)
+	if journalErr != nil || !journal.isComplete(stepSiteStateRemoved) {
+		return AuthorizedDurableSite{}, err
+	}
+	_, owned, ownerErr := a.Accounts.OwnerOfSiteWithError(request.Site)
+	if ownerErr != nil || owned {
+		return AuthorizedDurableSite{}, err
+	}
+	return AuthorizedDurableSite{site: request.Site, tenantID: request.TenantID}, nil
 }
 
 type terminationPlanCheck struct {
@@ -133,7 +164,11 @@ func (a *App) enqueueSiteTermination(site, actor string, operationKeys ...string
 	if len(operationKeys) > 0 {
 		operationKey = operationKeys[0]
 	}
-	payload, err := json.Marshal(durableSiteTerminationRequest{Site: site, Actor: actor})
+	tenantID, tenantBound, err := a.durableTenantBinding(site)
+	if err != nil {
+		return Job{}, err
+	}
+	payload, err := json.Marshal(durableSiteTerminationRequest{Site: site, Actor: actor, TenantID: tenantID, TenantBound: tenantBound})
 	if err != nil {
 		return Job{}, err
 	}
@@ -211,7 +246,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 	if safeUser(request.Site) == "" || request.Actor == "" {
 		return nil, errors.New("site termination requires site and actor")
 	}
-	access, err := a.authorizeDurableSiteJob(request.Site, request.Actor, false)
+	access, err := a.authorizeSiteTermination(request, item.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -223,6 +258,10 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 		return nil, fmt.Errorf("acquire durable site lock: %w", err)
 	}
 	defer release()
+	access, err = a.authorizeSiteTermination(request, item.ID)
+	if err != nil {
+		return nil, err
+	}
 
 	journal, err := loadOrCreateTerminationJournal(a.Config.RecoveryRoot, item.ID, request.Site, request.Actor)
 	if err != nil {

@@ -1,5 +1,27 @@
 # Production-readiness progress
 
+## Extend immutable tenant binding to backup and termination jobs — 2026-11-20
+
+- Backup create, scheduled backup, backup restore, scheduled/manual recovery
+  rehearsal, and site-termination payloads now snapshot the site's tenant at
+  admission. Workers reject a missing/changed tenant binding and recheck after
+  acquiring site mutation locks where applicable. Durable worker protocol v4
+  prevents v3 workers from silently ignoring the new payload contract.
+- Added regression coverage for reassignment during admin backup restore and
+  termination. Crash drills and cross-process lock tests retain recovery
+  behavior, including the final termination boundary where site ownership has
+  already been removed. That exception requires the same admin job's existing
+  journal to show site-state removal and refuses a site that has been
+  reassigned.
+- Evidence: `make check` passed (`go vet ./...`, all Go packages, API artifact
+  check, shell syntax, and cgroup/runtime contracts); focused termination
+  crash, interruption, reassignment, and cross-process lock tests passed;
+  docs reference check (90 documents) and link check passed. Hosted checks for
+  this commit are pending.
+- M0i remains partial: other site-bound durable job kinds and installed-host
+  cgroup evidence are still open. Overall production release remains NO-GO
+  until the documented host certification gates pass.
+
 ## Bind queued site mutations to their admitting tenant — 2026-11-20
 
 - Site-operation and Node-deployment admission now stores the site tenant ID

@@ -151,7 +151,8 @@ func (a *App) backups(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid site", http.StatusUnprocessableEntity)
 			return
 		}
-		if _, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", http.StatusForbidden); !ok {
+		access, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", http.StatusForbidden)
+		if !ok {
 			return
 		}
 		if !a.Auth.HasRequiredCustomerScope(r, "backup:create") {
@@ -179,7 +180,7 @@ func (a *App) backups(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "insufficient free space for backup", http.StatusInsufficientStorage)
 			return
 		}
-		payload, err := json.Marshal(durableBackupRequest{Site: input.Site, IncludeDatabases: input.IncludeDatabases, Actor: a.Auth.UsernameForRequest(r)})
+		payload, err := json.Marshal(durableBackupRequest{Site: input.Site, IncludeDatabases: input.IncludeDatabases, Actor: a.Auth.UsernameForRequest(r), TenantID: access.TenantID(), TenantBound: a.Accounts != nil})
 		if err != nil {
 			http.Error(w, "could not encode backup job", http.StatusInternalServerError)
 			return

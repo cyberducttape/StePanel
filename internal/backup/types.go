@@ -90,11 +90,13 @@ type BackupRestoreResult struct {
 }
 
 type DurableBackupRestoreRequest struct {
-	Mode     string `json:"mode"`
-	Site     string `json:"site"`
-	Backup   string `json:"backup"`
-	Database string `json:"database,omitempty"`
-	Actor    string `json:"actor"`
+	Mode        string `json:"mode"`
+	Site        string `json:"site"`
+	Backup      string `json:"backup"`
+	Database    string `json:"database,omitempty"`
+	Actor       string `json:"actor"`
+	TenantID    string `json:"tenant_id,omitempty"`
+	TenantBound bool   `json:"tenant_bound,omitempty"`
 }
 
 type RestoreDatabaseInput struct {

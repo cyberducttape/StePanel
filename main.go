@@ -1215,6 +1215,8 @@ type durableBackupRequest struct {
 	BackupPath       string    `json:"backup_path,omitempty"`
 	BackupSHA256     string    `json:"backup_sha256,omitempty"`
 	BackupBytes      int64     `json:"backup_bytes,omitempty"`
+	TenantID         string    `json:"tenant_id,omitempty"`
+	TenantBound      bool      `json:"tenant_bound,omitempty"`
 }
 
 type durableCertificateRequest struct {
@@ -1371,7 +1373,7 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 	if safeUser(request.Site) == "" || request.Actor == "" || (request.Scheduled && request.KeepLast < 1) {
 		return nil, errors.New("invalid durable backup job payload")
 	}
-	access, err := a.authorizeDurableSiteJob(request.Site, request.Actor, request.Scheduled)
+	access, err := a.authorizeBoundDurableSiteJob(request.Site, request.Actor, request.TenantID, request.TenantBound, request.Scheduled)
 	if err != nil {
 		return nil, err
 	}
@@ -1387,6 +1389,10 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 	}
 	defer releaseUnlock()
 	if err := operationCtx.Err(); err != nil {
+		return nil, err
+	}
+	access, err = a.authorizeBoundDurableSiteJob(request.Site, request.Actor, request.TenantID, request.TenantBound, request.Scheduled)
+	if err != nil {
 		return nil, err
 	}
 	var result BackupResult

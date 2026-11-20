@@ -93,12 +93,36 @@ func (a *App) authorizeDurableSiteJobForTenant(site, actor, tenantID string, ten
 	return AuthorizedDurableSite{site: site, tenantID: currentTenant}, nil
 }
 
+// durableTenantBinding snapshots current site ownership for a queued job. The
+// bound flag is true even for an unassigned legacy site so reassignment from
+// the unassigned state is detectable later.
+func (a *App) durableTenantBinding(site string) (string, bool, error) {
+	if a.Accounts == nil {
+		return "", false, nil
+	}
+	owner, owned, err := a.Accounts.OwnerOfSiteWithError(site)
+	if err != nil {
+		return "", false, fmt.Errorf("read site tenant before queueing job: %w", err)
+	}
+	if !owned {
+		return "", true, nil
+	}
+	return owner, true, nil
+}
+
+func (a *App) authorizeBoundDurableSiteJob(site, actor, tenantID string, tenantBound, scheduled bool) (AuthorizedDurableSite, error) {
+	if a.Accounts != nil && !tenantBound {
+		return AuthorizedDurableSite{}, doNotRetry(errors.New("durable job has no immutable tenant binding; submit it again"))
+	}
+	return a.authorizeDurableSiteJobForTenant(site, actor, tenantID, tenantBound, scheduled)
+}
+
 const maxJobStateBytes = 16 << 20
 
 // DurableJobProtocolVersion changes whenever the durable payload or worker
 // execution contract becomes incompatible. It is persisted in heartbeats so
 // deployments can reject mixed worker/control-plane protocols explicitly.
-const durableJobProtocolVersion = 3
+const durableJobProtocolVersion = 4
 
 func nullString(value string) any {
 	if value == "" {

@@ -471,7 +471,9 @@ func TestWorkflowInterruption_RouteUpdateThenTermination(t *testing.T) {
 			}
 			app := &App{Config: f.cfg, Auth: Auth{Username: "admin"}, Jobs: NewJobs(), Routes: routes, Accounts: accounts, siteManager: manager}
 			job := Job{ID: "terminate-" + step, StartedAt: time.Now().UTC()}
-			job.Payload, _ = json.Marshal(durableSiteTerminationRequest{Site: f.site.Site(), Actor: "admin"})
+			job.Payload, _ = json.Marshal(durableSiteTerminationRequest{
+				Site: f.site.Site(), Actor: "admin", TenantID: "customer", TenantBound: true,
+			})
 
 			t.Setenv("STEPANEL_FAIL_AT", "terminate:"+step)
 			if _, err := app.handleSiteTermination(context.Background(), job); err == nil {
