@@ -233,18 +233,23 @@ removed. Malformed queued bodies are now refused at admission (422).
 
 ### M0p — Detect altered audit history before appending (P1)
 
-**Status:** Implemented; audit package tests, the audit race test, and full
-`make check` pass. Exact-source CI integration passed in run
-[44665400225](https://github.com/cyberducttape/StePanel/actions/runs/44665400225).
+**Status:** Implemented. The latest code change detects a future-dated audit
+verification checkpoint after a wall-clock rollback. Audit tests, the audit
+race test, and full `make check` pass locally. Current-source hosted CI is
+queued; the earlier exact-source integration pass predates this follow-up.
 
 **Acceptance criteria**
 
 - Signed append-cache metadata binds log size and modification time; any
   mismatch forces verification of every event HMAC and chain link before the
   append proceeds.
-- Full-chain validation repeats at least every 15 minutes during active writes.
-- A same-size middle-record edit is rejected by the next append, which leaves
-  the altered log unchanged and does not append a new event.
+- Full-chain validation repeats at least every 15 minutes during active writes;
+  a future-dated checkpoint after a wall-clock rollback forces validation
+  rather than postponing the scan.
+- A same-size middle-record edit with changed file metadata is rejected on the
+  next append. If an edit preserves both size and mtime, it is rejected by the
+  next due full-chain scan (at most 15 minutes during active writes); the
+  append leaves the altered log unchanged. Regression tests cover both cases.
 - Existing signed state/cache formats safely fall back to full validation.
 - Audit package tests, full repository checks, and exact-source CI pass. This
   does not replace independently administered off-host audit checkpoints.
@@ -942,22 +947,21 @@ The live full six-host matrix
 [44701903618](https://github.com/cyberducttape/StePanel/actions/runs/44701903618)
 uses `f35e4b71`; the 20-repeat cohort
 [44702646288](https://github.com/cyberducttape/StePanel/actions/runs/44702646288)
-uses `a7594a45`. Both are still running their first six-host repetition and
-are not exact-source evidence. The current-source installation smoke
-[44710979561](https://github.com/cyberducttape/StePanel/actions/runs/44710979561)
-is queued; its host results must be reviewed before counting a repetition.
+uses `a7594a45`. Both are still running and are not exact-source evidence.
 An additional older-source cohort
 [44686066552](https://github.com/cyberducttape/StePanel/actions/runs/44686066552)
 on `e1195ccc` completed its first six-host repetition: all six host jobs passed
-and their uploaded smoke logs were reviewed. The second repetition has three
-host jobs in progress and three queued. This source predates current
-file-manager changes and does not count toward the current-source criterion.
-Current `main` is `6b5c519c`. These recovery runs are useful for diagnosis but
-their different source trees mean the exact-source evidence verifier does not
-count them. No recovery pass is counted until a current-source run completes
-all six hosts and its artifacts are reviewed. The current-source installation
+and their uploaded smoke logs were reviewed. Its second repetition is not
+complete. This source predates current file-manager changes and does not count
+toward the current-source criterion.
+At the time of the exact-source report generated on 2026-11-20, `main` was
+`a3e3f057`. These recovery runs are useful for diagnosis but their different
+source trees mean the exact-source evidence verifier does not count them. No
+recovery pass is counted until a current-source run completes all six hosts and
+its artifacts are reviewed. The current-source installation
 smoke [44710979561](https://github.com/cyberducttape/StePanel/actions/runs/44710979561)
-is code-equivalent to current `main` and remains queued.
+was queued on source `ae5b003a`; it does not match later non-Markdown changes
+and is not counted as exact-source evidence.
 
 Earlier exact-source run
 [44516615547](https://github.com/cyberducttape/StePanel/actions/runs/44516615547)

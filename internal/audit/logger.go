@@ -23,6 +23,14 @@ const AuditKeyPath = "/etc/stepanel-audit.key"
 const emptyAuditLockStaleAfter = time.Second
 const fullAuditVerifyInterval = 15 * time.Minute
 
+func fullAuditVerificationDue(lastVerifiedNS int64, now time.Time) bool {
+	if lastVerifiedNS <= 0 {
+		return true
+	}
+	lastVerified := time.Unix(0, lastVerifiedNS)
+	return lastVerified.After(now) || now.Sub(lastVerified) >= fullAuditVerifyInterval
+}
+
 var mu sync.Mutex
 
 // health describes the audit writer's persistence state. LastError is the
@@ -169,8 +177,7 @@ func (l *defaultLogger) appendEvent(actor, action, target, detail string) error 
 	info, statErr := auditStat(l.path)
 	checkpointMatches := statErr == nil && s.LastValidatedSize == info.Size() && s.LastValidatedSize > 0 &&
 		s.LastValidatedModTimeNS == info.ModTime().UnixNano()
-	fullVerificationDue := s.LastFullVerifyTimeNS <= 0 ||
-		time.Since(time.Unix(0, s.LastFullVerifyTimeNS)) >= fullAuditVerifyInterval
+	fullVerificationDue := fullAuditVerificationDue(s.LastFullVerifyTimeNS, time.Now())
 	if checkpointMatches && !fullVerificationDue {
 	} else {
 		s, err = l.reconcileTail(s)

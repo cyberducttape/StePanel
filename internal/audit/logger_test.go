@@ -225,6 +225,26 @@ func TestAppendPeriodicallyVerifiesSameSizeSameMtimeAuditTampering(t *testing.T)
 	}
 }
 
+func TestFullAuditVerificationRunsAfterClockMovesBackward(t *testing.T) {
+	now := time.Date(2026, time.November, 20, 10, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name             string
+		lastVerified     time.Time
+		wantVerification bool
+	}{
+		{name: "fresh checkpoint", lastVerified: now.Add(-time.Minute), wantVerification: false},
+		{name: "expired checkpoint", lastVerified: now.Add(-fullAuditVerifyInterval), wantVerification: true},
+		{name: "clock moved behind checkpoint", lastVerified: now.Add(time.Minute), wantVerification: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := fullAuditVerificationDue(test.lastVerified.UnixNano(), now)
+			if got != test.wantVerification {
+				t.Fatalf("fullAuditVerificationDue() = %t, want %t", got, test.wantVerification)
+			}
+		})
+	}
+}
+
 func TestReadScopedEventsFiltersTenantTargetsAndActor(t *testing.T) {
 	logger, _ := newTestLogger(t)
 	ctx := context.Background()
