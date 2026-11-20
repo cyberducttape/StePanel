@@ -23,6 +23,17 @@ for contract in \
 done
 python3 scripts/test-recovery-cohort-plan.py
 
+abrupt_loss_workflow=.github/workflows/abrupt-loss-operations.yml
+[[ -f $abrupt_loss_workflow ]] || { echo "missing abrupt-loss workflow: $abrupt_loss_workflow" >&2; exit 1; }
+grep -Fq 'VM_DISK_CACHE: none' "$abrupt_loss_workflow" || {
+  echo "$abrupt_loss_workflow must bypass the runner page cache for abrupt-loss drills" >&2
+  exit 1
+}
+grep -Fq 'writeback|none|directsync|writethrough' deploy/lab/local-kvm-certification.sh || {
+  echo 'local KVM certification must keep the supported disk-cache modes explicit' >&2
+  exit 1
+}
+
 for workflow in "${workflows[@]}"; do
   [[ -f $workflow ]] || { echo "missing host smoke workflow: $workflow" >&2; exit 1; }
   if grep -En '^[[:space:]]*(docker (info|ps|events|logs|inspect|exec|run|rm)([[:space:]]|$)|run:[[:space:]]+docker (info|ps|events|logs|inspect|exec|run|rm)([[:space:]]|$))' "$workflow"; then
