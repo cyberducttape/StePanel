@@ -123,8 +123,9 @@ source `f464f79d` predates current `main`; the [reviewed report](./lab-results/2
 does not certify capacity or identify the request-path cause. On code-equivalent
 source `d0ed0fa3`, browser E2E passed in CI run 44739044630; its full Go test
 job was still running at this update. Documentation checks passed on the
-current documentation source in run 44739502546. CodeQL for source `0ed19104`
-was pending. Production remains **NO-GO**.
+current documentation source in run 44739502546. CodeQL passed on
+code-equivalent source `788de3d3` in run 44739502475. Production remains
+**NO-GO**.
 
 | Requirement | Current status | Evidence / remaining work |
 |-------------|----------------|---------------------------|
