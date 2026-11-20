@@ -1149,7 +1149,10 @@ for the current installer, migrations, or rollback code. The injected
 broken-candidate path explicitly reports that installer rollback alone did
 not complete host recovery; the tested success uses the documented operator
 downgrade procedure. This remains historical upgrade evidence, not current
-release-candidate certification.
+release-candidate certification. Current-main N-1 matrix
+[44712444760](https://github.com/cyberducttape/StePanel/actions/runs/44712444760)
+was dispatched on `50e73c7d` and is queued; no current-source upgrade result
+is available yet.
 
 The API lifecycle policy is now published in
 [`docs/API_COMPATIBILITY.md`](docs/API_COMPATIBILITY.md). Candidate validation

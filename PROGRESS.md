@@ -13,6 +13,11 @@
   passed. CI integration [44710979526](https://github.com/cyberducttape/StePanel/actions/runs/44710979526)
   and install smoke [44710979561](https://github.com/cyberducttape/StePanel/actions/runs/44710979561)
   are queued or running; results are not yet available.
+- The account-owner UI E2E job in CI run `44710979526` passed. The full Go
+  integration job remains queued. A current-main N-1 upgrade matrix
+  [44712444760](https://github.com/cyberducttape/StePanel/actions/runs/44712444760)
+  was dispatched on `50e73c7d` and is queued; prior passing upgrade runs are
+  historical and do not verify the current installer or schema.
 - The corrected 500-site KVM profile
   [44711012147](https://github.com/cyberducttape/StePanel/actions/runs/44711012147)
   is running on the exact code tree at `ae5b003a`; its unit test passed before
