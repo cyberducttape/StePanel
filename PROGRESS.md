@@ -1944,3 +1944,26 @@ does not close a current-source or power-loss gate.
   the `cdbb2519` run is green. The separate install smoke on `e1ccfdec` is
   still running and must be reviewed independently; the `cdbb2519` change
   after it is test-fixture-only.
+
+## Current-source browser verification — 2026-11-20
+
+- Source: `1a62c4201775e19fb305d58911488543ff6e9b3e`.
+- Built a fresh binary from this checkout with `go build -o
+  /tmp/stepanel-current ./cmd/stepanel`, then ran
+  `scripts/e2e-ui-test.sh /tmp/stepanel-current` against its disposable
+  control plane. Playwright and axe passed 24 tests; one credential-isolation
+  test was skipped because its optional customer credentials were not set.
+  The account-owner UI flow passed, including WordPress creation controls,
+  page-error detection, inventory failure/retry, delayed file reads across a
+  site switch, stale-row clearing, and site-bound writes. Every operator site
+  workspace tab passed axe with both unavailable and empty inventory data.
+- An initial local attempt used the repository's pre-existing `./stepanel`
+  binary (mtime 2026-11-01) and failed several checks. That run is excluded:
+  it did not represent current source. Rebuilding from the exact checkout
+  removed those failures.
+- Hosted CI `44703898628` ran the same source; its `ui-e2e` job passed, while
+  the full Go test job was still running at the time of this update. Installed
+  recovery cohort `44702646288` is also still running; no host repetitions
+  from that cohort are counted until its results and artifacts are reviewed.
+- This UI evidence closes no host-level production gates. Production remains
+  **NO-GO**.
