@@ -259,18 +259,25 @@ also passed.
 
 ### M0o — Bound customer file-manager directory enumeration (P1)
 
-**Status:** Exact-source installed-host behavior verified on all six
-Ubuntu/AlmaLinux/Rocky Apache/Caddy combinations in run
-[44516615547](https://github.com/cyberducttape/StePanel/actions/runs/44516615547):
-the file-manager smoke created 10,000 entries and observed the 5,001-record
-bound, then interposed symlink swaps before read, write, mkdir, rename, delete,
-and list; all six reported success. The detailed run record is
-[here](docs/lab-results/2026-11-19-six-host-recovery-64281ca.md).
-`stepanel-filectl` streams entries as the account user; broker output is capped
-at 2 MiB, list calls at 10 seconds, and operations resolve beneath an opened
-document-root descriptor. Focused Go/shell/Python checks and local embedded-
-helper confinement checks pass. Final exact-source CI/ShellCheck validation
-is still running; this does not establish hostile multi-tenant isolation.
+**Status:** Implemented; current-source installed-host race evidence is pending.
+The six-host run
+[44516615547](https://github.com/cyberducttape/StePanel/actions/runs/44516615547)
+on `64281ca` created 10,000 entries, observed the 5,001-record bound, and
+interposed symlink swaps before read, write, mkdir, rename, delete, and list;
+all six hosts passed. The report is
+[here](docs/lab-results/2026-11-19-six-host-recovery-64281ca.md). However,
+`internal/rootbroker/files.go`, `deploy/integrations/stepanel-filectl`, and
+`site_files.go` have changed since that source, so those results are not
+current-code evidence. Current-code CI integration
+[44724016547](https://github.com/cyberducttape/StePanel/actions/runs/44724016547)
+passed `go vet`, ShellCheck, and the full Go suite. The code-equivalent
+six-host install smoke
+[44729127788](https://github.com/cyberducttape/StePanel/actions/runs/44729127788)
+is active; its installed file-manager behavior must be reviewed before
+counting this criterion. `stepanel-filectl` streams entries as the account
+user; broker output is capped at 2 MiB, list calls at 10 seconds, and
+operations resolve beneath an opened document-root descriptor. This does not
+establish hostile multi-tenant isolation.
 
 **Acceptance criteria**
 
