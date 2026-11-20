@@ -213,19 +213,18 @@ removed. Malformed queued bodies are now refused at admission (422).
 
 ### M0o — Bound customer file-manager directory enumeration (P1)
 
-**Status:** Implemented locally. `stepanel-filectl` streams directory entries
-as the account user and stops after 5,001 source entries; the root-owned
-temporary listing file is removed. Broker output has a 2 MiB cap, list calls
-have a 10-second timeout, and read-only requests serialize per tenant. Local
-focused Go, shell, Python syntax, documentation, and 10,000-entry bounded
-enumeration checks pass. All operations now resolve components relative to
-an opened document-root descriptor, and the installed-host smoke interposes
-symlink swaps before reads, writes, mkdir, rename, delete, and listing. Local
-embedded-helper confinement checks pass; exact-source installed-host CI
-evidence is pending. The host smoke caught a setgid inheritance regression;
-the first chmod-based correction still cleared the bit for an account outside
-the web group. Directory creation now relies on kernel inheritance under a
-bounded temporary umask, with another host run pending.
+**Status:** Exact-source installed-host behavior verified on all six
+Ubuntu/AlmaLinux/Rocky Apache/Caddy combinations in run
+[44516615547](https://github.com/cyberducttape/StePanel/actions/runs/44516615547):
+the file-manager smoke created 10,000 entries and observed the 5,001-record
+bound, then interposed symlink swaps before read, write, mkdir, rename, delete,
+and list; all six reported success. The detailed run record is
+[here](docs/lab-results/2026-11-19-six-host-recovery-64281ca.md).
+`stepanel-filectl` streams entries as the account user; broker output is capped
+at 2 MiB, list calls at 10 seconds, and operations resolve beneath an opened
+document-root descriptor. Focused Go/shell/Python checks and local embedded-
+helper confinement checks pass. Final exact-source CI/ShellCheck validation
+is still running; this does not establish hostile multi-tenant isolation.
 
 **Acceptance criteria**
 

@@ -11,7 +11,11 @@ disposable systemd-enabled container on an Ubuntu 24.04 runner, and exercised
 the full configured recovery matrix once on each host combination. The matrix
 included worker interruption during cPanel import, backup, restore, database
 restore, and site termination, along with broker interruption and recovery
-checks. Each host also completed the database-backed WordPress recovery proof.
+checks. Each host also completed the database-backed WordPress recovery proof
+and the installed file-manager smoke. The file-manager test created 10,000
+entries and observed the 5,001-record response bound, then interposed symlink
+swaps before read, write, mkdir, delete, rename, and list operations; all six
+host jobs reported `filectl smoke passed`.
 The uploaded `install-smoke-output.txt` files are the primary detailed records.
 
 | Host OS | Web server | Database | Recovery-matrix result | WordPress proof RTO |
