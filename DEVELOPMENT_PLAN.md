@@ -749,8 +749,11 @@ job protocol version is advanced to reject older workers. Regression coverage
 includes site reassignment during queued backup restore, termination, cPanel
 import, WPress restore, and site creation, plus crash recovery after
 termination removes ownership. `make check`, focused crash and reassignment
-tests, and documentation link/reference checks pass locally. Installed-host
-cgroup behavior remains an open acceptance item. The root broker independently checks customer file
+tests, and documentation link/reference checks pass locally. The first
+installed-host cgroup execution exposed a smoke-harness defect: the temporary
+Composer stub was outside the inherited `PATH`. The probe now sets that path
+explicitly and has a shell-contract regression; rerun is pending. The root
+broker independently checks customer file
 requests against the durable site-to-tenant table before resolving the placed
 Unix account or invoking the privileged file helper.
 
@@ -769,7 +772,8 @@ runs the real Composer entry point with a harmless fake executable that starts
 a detached session, verifies the child shares the transient unit's cgroup and
 site resource slice, checks effective task/runtime/memory limits, stops the
 unit, and verifies the descendant exits. Local syntax, ShellCheck, and shell
-contract checks pass; exact-source host execution is pending.
+contract checks pass. The exact-source attempt failed at Composer lookup before
+testing containment; the corrected installed-host run is pending.
 
 **Acceptance criteria**
 
@@ -868,10 +872,16 @@ WordPress recovery proof passed with measured RTO 5.084 seconds. This is one
 iteration on one host combination and does not satisfy the repeated cohort or
 the broader host-failure matrix. The six-host 20-repeat cohort
 [44662607070](https://github.com/cyberducttape/StePanel/actions/runs/44662607070)
-is still running against older source `64281ca`; its partial results are not
-counted. The Rocky Linux 9 capacity rerun
+was cancelled after one six-host repetition because it used older source
+`64281ca`. The replacement cohort
+[44685011516](https://github.com/cyberducttape/StePanel/actions/runs/44685011516)
+was cancelled after the shared install smoke reproduced the Composer-stub
+`PATH` defect; no partial cohort is counted. The first exact-source capacity
+attempt [44684499265](https://github.com/cyberducttape/StePanel/actions/runs/44684499265)
+also failed during install smoke before the capacity workload began. The Rocky Linux 9 capacity rerun
 [44674647682](https://github.com/cyberducttape/StePanel/actions/runs/44674647682)
-is still running against diagnostic source `8382e9c4`.
+completed on diagnostic source `8382e9c4` but had 210 site-request timeouts;
+the reviewed result is linked under M4.
 
 Earlier exact-source run
 [44516615547](https://github.com/cyberducttape/StePanel/actions/runs/44516615547)
@@ -879,9 +889,12 @@ passed one full recovery-matrix iteration on each of the six Ubuntu 24.04,
 AlmaLinux 9, and Rocky Linux 9 Apache/Caddy combinations, including database-
 backed WordPress HTTP proof (4.756–7.106 s measured RTO). The per-host report
 is [here](docs/lab-results/2026-11-19-six-host-recovery-64281ca.md). A new
-exact-source 20-repeat six-host cohort
+20-repeat six-host cohort
 [44662607070](https://github.com/cyberducttape/StePanel/actions/runs/44662607070)
-is still running. The completed KVM guest-loss drill
+was cancelled because it used stale source. Replacement cohort
+[44685011516](https://github.com/cyberducttape/StePanel/actions/runs/44685011516)
+was cancelled after the shared smoke failed before recovery scenarios; a new
+exact-source cohort is pending the probe fix. The completed KVM guest-loss drill
 [44662674624](https://github.com/cyberducttape/StePanel/actions/runs/44662674624)
 passed one interruption each during file restore, database restore, Git
 deployment, backup retention, and control-plane writes; install also passed 19
@@ -994,8 +1007,12 @@ The reviewed diagnostic-source result is
 [`here`](docs/lab-results/2026-11-20-capacity-large-8382e9c.md); it is not an
 exact-current-source certification. The capacity probe now collects bounded
 per-site PHP-FPM queue/saturation and site-cgroup CPU/memory samples from
-`/metrics` during load. A current-source rerun is still required to identify
-the cause and demonstrate remediation before publishing the envelope.
+`/metrics` during load. The first current-source attempt
+[44684499265](https://github.com/cyberducttape/StePanel/actions/runs/44684499265)
+failed in the shared installed-host Composer cgroup probe before the workload
+started; a deterministic probe `PATH` is fixed locally, and a corrected
+current-source run is required to identify the capacity failure and measure a
+remediation before publishing the envelope.
 
 Benchmark a named supported host with representative PHP traffic, databases,
 backups, migrations, and control-plane reads/writes. Measure CPU/RAM, disk and

@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 
 helper=deploy/integrations/stepanel-appctl
+smoke=deploy/lab/site-package-cgroup-smoke.sh
 require() {
   local expected=$1
   if ! grep -Fq -- "$expected" "$helper"; then
@@ -37,5 +38,9 @@ require 'run_site_package_command "$root" /usr/bin/env -i HOME="$site_private"'
 require '"$venv_stage/bin/pip" install --quiet --require-hashes -r "$lockfile"'
 require 'run_site_package_command "$root" /usr/bin/env -i HOME="$root" NODE_ENV=production'
 require 'run_site_package_command "$root" /usr/bin/env -i HOME="$root" COMPOSER_HOME="$root/.composer"'
+grep -Fq 'PATH="/usr/local/bin:/usr/bin:/bin"' "$smoke" || {
+  echo 'site package cgroup smoke must set a deterministic Composer lookup path' >&2
+  exit 1
+}
 
 echo 'site package command cgroup contract passed'

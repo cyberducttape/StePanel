@@ -1,7 +1,8 @@
 # Rocky Linux 9 large capacity profile — 2026-11-20
 
-Workflow: [capacity profile 44674647682](https://github.com/cyberducttape/StePanel/actions/runs/44674647682)  
-Product and probe source: `8382e9c4e35b03320418fe601ebbcef4c2d7a484`  
+Workflow: [capacity profile 44674647682](https://github.com/cyberducttape/StePanel/actions/runs/44674647682)
+
+Product and probe source: `8382e9c4e35b03320418fe601ebbcef4c2d7a484`
 Result: **failed; no 500-site capacity claim is supported.**
 
 The KVM guest booted on Rocky Linux 9 with ext4 user and project quotas

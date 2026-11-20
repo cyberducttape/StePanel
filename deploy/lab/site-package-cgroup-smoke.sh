@@ -64,7 +64,8 @@ EOF
 chmod 0755 "$composer"
 chown root:root "$composer"
 
-/usr/local/sbin/stepanel-appctl composer-install "$site" "$site_root" 0 0 \
+PATH="/usr/local/bin:/usr/bin:/bin" \
+  /usr/local/sbin/stepanel-appctl composer-install "$site" "$site_root" 0 0 \
   >"$probe_dir/appctl.log" 2>&1 &
 appctl_pid=$!
 
