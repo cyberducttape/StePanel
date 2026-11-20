@@ -28,11 +28,20 @@
   are still running. The cohort has started its first six-host iteration; no
   full repetition is counted until all six jobs and their artifacts are
   reviewed.
-- A scheduled six-host install smoke
+- The scheduled six-host install smoke
   [44729127788](https://github.com/cyberducttape/StePanel/actions/runs/44729127788)
-  is also active on code-equivalent source `059ba72e`; all six OS/web-server
-  jobs are running. It is a single iteration and does not substitute for the
-  20-repeat cohort.
+  passed on code-equivalent source `059ba72e`. All six Ubuntu 24.04,
+  AlmaLinux 9, and Rocky Linux 9 Apache/Caddy combinations passed installed
+  file-manager smoke, installed WordPress recovery proof, and a one-iteration
+  recovery matrix. Measured WordPress proof RTOs were 4.588–6.866 seconds.
+  This remains one smoke pass, not the 20-repeat recovery cohort or a physical
+  host power-loss certification.
+- Re-ran the customer account-owner Playwright journey against a fresh binary
+  built from current `main` (`c2f976ec`): 1/1 passed. The test verifies the
+  WordPress controls initialize with no uncaught browser errors, delayed file
+  reads cannot write across a site switch, and old directory rows are cleared
+  and inert during navigation. This confirms the customer UI findings already
+  fixed in `fdec5c05`/`0afc3c6e`; no additional code change was needed.
 - Exact-source evidence generation initially hit the unauthenticated GitHub
   API rate limit locally; the authenticated evidence workflow completed and
   uploaded the artifact. No product failure was observed. An older-source
