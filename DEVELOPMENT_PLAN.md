@@ -14,11 +14,12 @@ successful one-off smoke does not close a host-certification gate.
 
 ### M0y — Keep customer site and file workflows bound to their UI context (P1)
 
-**Status:** Verified on `cdbb2519`; local full Chromium run passed 22 tests
-with one expected skip, and exact-source GitHub UI E2E, integration CI,
-CodeQL, and documentation checks passed. This closes the customer UI contract
-for the listed regressions; it does not close the separate host-certification
-gates.
+**Status:** Verified on `cdbb2519`; the latest exact-source main E2E on
+`8556e9fe` also passed the customer account-owner journey, including the
+WordPress creation form, failed-inventory retry, delayed file-read invalidation
+after a site switch, and no cross-site write. The full exact-source CI
+integration completed 2/2 jobs. This closes the customer UI contract for the
+listed regressions; it does not close the separate host-certification gates.
 
 **Acceptance criteria**
 
@@ -40,8 +41,9 @@ gates.
 
 ### M0x — Bind cPanel import to a destination plan and report recovery evidence (P1)
 
-**Status:** Implemented locally; focused race tests and full `make check` pass.
-This connects archive inventory,
+**Status:** Implemented and verified by exact-source CI integration
+[44665400225](https://github.com/cyberducttape/StePanel/actions/runs/44665400225),
+including the browser migration preflight/report journey. This connects archive inventory,
 destination admission, import, and per-site recovery evidence; it does not yet
 provide an isolated customer-visible staging hostname or verify the final
 public DNS/TLS route before activation.
@@ -66,10 +68,9 @@ public DNS/TLS route before activation.
 
 ### M0w — Correlate site HTTP 503s with host evidence (P1)
 
-**Status:** Implemented locally; `make check` and JavaScript unit tests pass.
-The authenticated browser journey was discovered but skipped because seeded
-E2E credentials/server are unavailable. Exact-source CI and installed-host
-checks remain pending. This diagnostic correlates bounded snapshots and does
+**Status:** Implemented and verified by exact-source CI integration
+[44665400225](https://github.com/cyberducttape/StePanel/actions/runs/44665400225),
+including seeded browser E2E. Installed-host checks remain open. This diagnostic correlates bounded snapshots and does
 not claim causality across unsynchronized sample times.
 
 **Acceptance criteria**
@@ -91,8 +92,9 @@ not claim causality across unsynchronized sample times.
 
 **Status:** Implemented for PHP runtime, site resource, managed domain route,
 TLS issuance, Caddy `.htaccess` translation, WordPress staging promotion, and
-Git release rollback previews. Local focused checks pass; exact-source CI and
-authenticated browser E2E remain pending. Preview payloads show the exact
+Git release rollback previews. Exact-source CI integration and browser E2E
+passed in [44665400225](https://github.com/cyberducttape/StePanel/actions/runs/44665400225).
+Preview payloads show the exact
 structured before/proposed state and identify manual versus automated checks.
 
 **Acceptance criteria**
@@ -116,9 +118,10 @@ structured before/proposed state and identify manual versus automated checks.
 
 ### M0t — Report evidence-based site recovery confidence (P1)
 
-**Status:** Implemented locally; exact-source CI and authenticated browser E2E
-remain pending. This product status summarizes stored evidence; it does not
-certify installed-host recovery.
+**Status:** Implemented and verified by exact-source CI integration and
+browser E2E in [44665400225](https://github.com/cyberducttape/StePanel/actions/runs/44665400225).
+The product status summarizes stored evidence; it does not certify
+installed-host recovery.
 
 **Acceptance criteria**
 
@@ -138,9 +141,12 @@ certify installed-host recovery.
 
 ### M0r — Isolate recovery-proof execution and reject incompatible workers (P1)
 
-**Status:** Partially implemented locally; exact-source CI pending. Login
-limiter capacity handling is also improved. Typed executors remain unfinished
-for six site-operation routes and are tracked separately below.
+**Status:** Implemented and verified by exact-source CI integration
+[44665400225](https://github.com/cyberducttape/StePanel/actions/runs/44665400225).
+The bounded recovery-proof environment, worker protocol compatibility checks,
+and full-table login-limiter admission are covered by the integrated Go and
+race suites. Typed executors for all site-operation routes are tracked under
+M0s and are also complete.
 
 **Acceptance criteria**
 
@@ -158,7 +164,9 @@ for six site-operation routes and are tracked separately below.
 ### M0s — Remove HTTP-handler replay from durable site operations (P1)
 
 **Status:** Implemented 2026-11-18; exact-source CI integration (including race
-tests and the UI suite) passed on `e5ddeee2` in run 44466623034. All
+tests and the UI suite) passed on `8556e9fe` in run
+[44665400225](https://github.com/cyberducttape/StePanel/actions/runs/44665400225).
+All
 ten site-operation routes have typed validators and executors. The release
 pipeline, Git deploy, staging create/promote, and local/offsite
 restore-to-staging handlers are now thin adapters over shared services that
@@ -182,7 +190,8 @@ removed. Malformed queued bodies are now refused at admission (422).
 ### M0q — Require independent signing key for production audit checkpoints (P1)
 
 **Status:** Implemented; focused configuration and checkpoint tests and full
-`make check` pass. Exact-source CI remains pending.
+`make check` pass. Exact-source CI integration passed in run
+[44665400225](https://github.com/cyberducttape/StePanel/actions/runs/44665400225).
 
 **Acceptance criteria**
 
@@ -197,7 +206,8 @@ removed. Malformed queued bodies are now refused at admission (422).
 ### M0p — Detect altered audit history before appending (P1)
 
 **Status:** Implemented; audit package tests, the audit race test, and full
-`make check` pass. Exact-source hosted CI remains pending.
+`make check` pass. Exact-source CI integration passed in run
+[44665400225](https://github.com/cyberducttape/StePanel/actions/runs/44665400225).
 
 **Acceptance criteria**
 
@@ -239,10 +249,10 @@ is still running; this does not establish hostile multi-tenant isolation.
 
 ### M0n — Remove psql client-command execution from PostgreSQL restores (P0)
 
-**Status:** Implemented; the prior source passed local full Go tests and vet,
-and the updated shell helper/smoke pass syntax, ShellCheck, documentation, and
-diff checks. Exact-source PostgreSQL integration evidence is pending. Native
-PostgreSQL dumps now use custom format, are archived as
+**Status:** Implemented; local full Go tests and vet pass. Exact-source CI
+integration run [44665400225](https://github.com/cyberducttape/StePanel/actions/runs/44665400225)
+passed the PostgreSQL restore privilege smoke and the full integration suite.
+Native PostgreSQL dumps now use custom format, are archived as
 `.dump`, and restore through `pg_restore` as the restricted loader. Plain SQL
 is rejected at the privileged helper boundary. A root-owned cross-process
 lock serializes shared-loader role grants, loads, revocations, and interrupted
@@ -499,12 +509,14 @@ request.
 
 ### M0c — Exportable cPanel migration compatibility evidence (P1)
 
-**Status:** Core preview/import report is implemented. The current change adds
-bounded source-certificate metadata and durable rollback checkpoint reporting;
-focused and full local checks pass. Exact-source CI and authenticated browser
-E2E for these additions remain pending. Destination DNS records are not
-queried by cPanel import, so the report explicitly marks DNS comparison as
-unknown and requires operator review rather than claiming a record diff.
+**Status:** Core preview/import report is implemented. Bounded source-certificate
+metadata and durable rollback checkpoint reporting passed exact-source CI and
+the seeded browser E2E in
+[44665400225](https://github.com/cyberducttape/StePanel/actions/runs/44665400225),
+including the downloadable compatibility report journey. Destination DNS
+records are not queried by cPanel import, so the report explicitly marks DNS
+comparison as unknown and requires operator review rather than claiming a
+record diff.
 
 The cpmove preflight reports bounded domain/document-root mappings, SQL dump
 version evidence, Maildir structure, public source certificate metadata, and
@@ -837,10 +849,16 @@ backed WordPress HTTP proof (4.756–7.106 s measured RTO). The per-host report
 is [here](docs/lab-results/2026-11-19-six-host-recovery-64281ca.md). A new
 exact-source 20-repeat six-host cohort
 [44662607070](https://github.com/cyberducttape/StePanel/actions/runs/44662607070)
-and KVM abrupt-loss run
+is still running. The completed KVM guest-loss drill
 [44662674624](https://github.com/cyberducttape/StePanel/actions/runs/44662674624)
-were started on 2026-11-19 and are not counted until every required job and
-artifact is reviewed. KVM guest termination is not physical host power loss.
+passed one interruption each during file restore, database restore, Git
+deployment, backup retention, and control-plane writes; install also passed 19
+smoke/matrix checks. Its reviewed report is
+[here](docs/lab-results/2026-11-20-kvm-abrupt-loss-operations-64281ca.md).
+The guest used QEMU `writeback` caching, so host page cache can preserve guest
+writes; this is not physical host power-loss evidence. One pass per scenario
+does not satisfy the required 20–50 repetitions, and no database-restore,
+archive-import, or backup-publication ENOSPC case was injected.
 The prior exact-code scheduled six-host run
 [41189484718](https://github.com/cyberducttape/StePanel/actions/runs/41189484718)
 passed one installed recovery-matrix iteration on each Ubuntu 24.04,
@@ -953,8 +971,17 @@ load.
 
 ### M5 — Certify upgrade, rollback, and security lifecycle (P0)
 
-**Status:** Partial; existing N-1 evidence covers selected prior versions and
-environments.
+**Status:** Partial. Exact-code-equivalent N-1 run
+[44663143624](https://github.com/cyberducttape/StePanel/actions/runs/44663143624)
+passed 6/6 v0.6.0/v0.7.0 upgrade jobs on 2026-11-20 (systemd containers and
+Ubuntu 24.04 QEMU guests); reviewed details are in
+[the run report](docs/lab-results/2026-11-20-upgrade-matrix-3f2580b.md).
+The test source differs from `8556e9fe` only in documentation and the
+workflow-dispatch line in `.github/workflows/ci.yml`; product code and upgrade
+scripts match. The injected broken-candidate path explicitly reports that
+installer rollback alone did not complete host recovery; the tested success
+uses the documented operator downgrade procedure. This is useful upgrade
+evidence, not full production certification.
 
 The API lifecycle policy is now published in
 [`docs/API_COMPATIBILITY.md`](docs/API_COMPATIBILITY.md). Candidate validation
