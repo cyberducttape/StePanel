@@ -48,8 +48,7 @@
   API rate limit locally; the authenticated evidence workflow completed and
   uploaded the artifact. No product failure was observed. An older-source
   recovery cohort was cancelled to free runners; its partial work does not
-  count. No code change was needed in this continuation; this documentation
-  update records the latest workflow evidence.
+  count.
 - Current-source QEMU abrupt-loss operation drill
   [44731756198](https://github.com/cyberducttape/StePanel/actions/runs/44731756198)
   is now running on `94b90f5e`, covering file restore, database restore, Git
@@ -57,6 +56,13 @@
   SIGKILL test, not physical host power-loss certification. Results remain
   unreviewed; the 20-repeat six-host cohort and 500-site capacity run are also
   still active.
+- The initial abrupt-loss run uses QEMU `writeback`, so host page cache may
+  preserve acknowledged writes after QEMU is killed. Updated the workflow to
+  use `VM_DISK_CACHE=none` for follow-up testing and dispatched
+  [run 44735170833](https://github.com/cyberducttape/StePanel/actions/runs/44735170833)
+  for the same five scenarios. It is queued behind the current KVM run and is
+  not counted until completion and artifact review. `cache=none` strengthens
+  guest-crash evidence but does not simulate physical host power loss.
 
 ## Current-code N-1 upgrade matrix passed — 2026-11-20
 
