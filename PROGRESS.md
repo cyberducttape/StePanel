@@ -1,5 +1,29 @@
 # Production-readiness progress
 
+## Verify audit tamper detection and customer UI findings — 2026-11-20
+
+- Added `TestAppendPeriodicallyVerifiesSameSizeSameMtimeAuditTampering`. It
+  preserves the audit file size and mtime, expires the signed full-scan
+  checkpoint, alters a middle event, and verifies that the next append fails
+  without changing the tampered ledger. The focused regression and
+  `go test ./internal/audit -count=1` both pass. This covers local periodic
+  detection; independent off-host checkpoints and installed alert delivery
+  remain separate production evidence gaps.
+- Rechecked the reported customer workspace and file-manager issues. They are
+  already fixed in source: the customer create form includes WordPress fields
+  and the initializer handles optional markup; file-editor context is bound to
+  site/path/generation; folder navigation clears old rows and makes actions
+  inert while loading. Existing Playwright coverage exercises account-owner
+  initialization, delayed reads across a site switch, and stale-row clearing.
+  The local browser test skipped because no seeded E2E host was configured;
+  its E2E job passed on code-equivalent UI source in run
+  [44710979526](https://github.com/cyberducttape/StePanel/actions/runs/44710979526).
+- Pushed as `c83727f1` (`test: catch same-metadata audit tampering`) with the
+  requested author identity. Focused CI integration and exact-source release
+  evidence runs are queued:
+  [44714460763](https://github.com/cyberducttape/StePanel/actions/runs/44714460763),
+  [44714473301](https://github.com/cyberducttape/StePanel/actions/runs/44714473301).
+
 ## Verify capacity-report fix and current-source checks — 2026-11-20
 
 - `make check` passed on `ae5b003a00be21150c00292df876fa84e67af0cd`, including
@@ -8,13 +32,15 @@
   in 119.5 seconds. The specifically reported
   `TestGitStageQuotaIsSkippedOnlyInDevelopment` also passed independently in
   6.0 seconds; its earlier long wait is not reproduced on this tree.
-- Current-source CodeQL [44710979906](https://github.com/cyberducttape/StePanel/actions/runs/44710979906)
+- CodeQL [44710979906](https://github.com/cyberducttape/StePanel/actions/runs/44710979906)
   and Documentation [44710979560](https://github.com/cyberducttape/StePanel/actions/runs/44710979560)
-  passed. CI integration [44710979526](https://github.com/cyberducttape/StePanel/actions/runs/44710979526)
-  and install smoke [44710979561](https://github.com/cyberducttape/StePanel/actions/runs/44710979561)
-  are queued or running; results are not yet available.
-- The account-owner UI E2E job in CI run `44710979526` passed. The full Go
-  integration job remains queued. A current-main N-1 upgrade matrix
+  passed on the code-equivalent source. CI integration
+  [44710979526](https://github.com/cyberducttape/StePanel/actions/runs/44710979526)
+  completed its UI E2E job successfully; its Go job was cancelled before
+  completion. Installation smoke
+  [44710979561](https://github.com/cyberducttape/StePanel/actions/runs/44710979561)
+  remains queued.
+- The account-owner UI E2E job passed. A current-main N-1 upgrade matrix
   [44712444760](https://github.com/cyberducttape/StePanel/actions/runs/44712444760)
   was dispatched on `50e73c7d` and is queued; prior passing upgrade runs are
   historical and do not verify the current installer or schema.
