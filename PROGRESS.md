@@ -1,5 +1,34 @@
 # Production-readiness progress
 
+## Run CI-equivalent race suite and inspect upgrade failure — 2026-11-20
+
+- `go test -p 1 -race -timeout 15m ./...` passed all packages on the current
+  code. The root package took 790.988 seconds; the focused audit race test also
+  passes. An initial local run with `GOMAXPROCS=2` and a 10-minute timeout
+  expired at the root-package limit, with the final test just starting; this
+  was a too-short local limit, not a failure in that test. The CI command's
+  15-minute package timeout completed successfully.
+- Inspected N-1 run
+  [44712444760](https://github.com/cyberducttape/StePanel/actions/runs/44712444760)
+  on source `50e73c7d`: v0.6.0 QEMU passed; the v0.7.0 container with
+  verification interruption failed before upgrade execution because Ubuntu
+  package fetch returned HTTP 520. One QEMU case is still running and four
+  matrix cases are queued. This is an external package-mirror failure, not a
+  product result; re-run that case after the matrix terminates. The source is
+  not equivalent to current main, so none of its passes certify current code.
+- Exact-source local report for `6940c2bc` at 10:38 UTC remains **NO-GO**:
+  4/21 P0 gates complete, 17 incomplete, and 0/9 executable checks complete
+  on equivalent hosted source. Current-source install smoke
+  [44716595496](https://github.com/cyberducttape/StePanel/actions/runs/44716595496),
+  CI integration [44716264869](https://github.com/cyberducttape/StePanel/actions/runs/44716264869),
+  CodeQL [44716447796](https://github.com/cyberducttape/StePanel/actions/runs/44716447796),
+  and capacity run [44711012147](https://github.com/cyberducttape/StePanel/actions/runs/44711012147)
+  are queued or still running; the capacity run is on older source.
+- No production gate is closed by the software race suite. Repeated installed
+  recovery, physical/uncushioned host loss, broad ENOSPC, current-source
+  WordPress restore proof, capacity, live alert delivery, and current-source
+  N-1 evidence remain open.
+
 ## Harden audit scan cadence and refresh exact-source status — 2026-11-20
 
 - Changed the audit full-scan due check so a future-dated persisted timestamp
