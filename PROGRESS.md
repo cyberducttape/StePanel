@@ -1,5 +1,21 @@
 # Production-readiness progress
 
+## Revalidate pushed source and start installed-host smoke — 2026-11-20
+
+- On exact source `498f214235bdb5a30013f9d04ae0e9e5716e4854`, `make check`
+  passed generated API artifacts, shell and helper contracts, `go vet ./...`,
+  and all Go packages; the root package completed in 120.039 seconds. The
+  action-pin policy check also passed.
+- Dispatched the standard six-host installation smoke against that exact SHA:
+  [run 44722820266](https://github.com/cyberducttape/StePanel/actions/runs/44722820266).
+  It is queued at host selection; no installation or recovery result is
+  counted yet. This standard smoke is one iteration and does not satisfy the
+  20–50 repetition release gate.
+- Exact-source CI integration, CodeQL, and documentation runs are also queued.
+  The release evidence report on this SHA correctly distinguishes queued
+  checks from running jobs and records 4/21 P0 gates complete, 17 incomplete.
+  Production remains **NO-GO**.
+
 ## Evidence report job-state accuracy — 2026-11-20
 
 - Fixed the release evidence generator so queued, waiting, running, completed,
