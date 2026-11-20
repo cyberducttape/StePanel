@@ -221,7 +221,13 @@ func (a *App) wpressImport(w http.ResponseWriter, r *http.Request) {
 	}
 	reservation.release()
 	tempPath, written := staged.Path, staged.Size
-	payload, err := json.Marshal(durableWPressRequest{TempPath: tempPath, Size: written, SHA256: staged.SHA256, Site: site, DBSuffix: dbSuffix, DBUserSuffix: dbUserSuffix, Password: password, SiteURL: siteURL, TargetPrefix: targetPrefix, Force: force, Actor: a.Auth.UsernameForRequest(r)})
+	tenantID, tenantBound, err := a.durableTenantBinding(site)
+	if err != nil {
+		_ = os.Remove(tempPath)
+		http.Error(w, "site ownership state is temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	payload, err := json.Marshal(durableWPressRequest{TempPath: tempPath, Size: written, SHA256: staged.SHA256, Site: site, DBSuffix: dbSuffix, DBUserSuffix: dbUserSuffix, Password: password, SiteURL: siteURL, TargetPrefix: targetPrefix, Force: force, Actor: a.Auth.UsernameForRequest(r), TenantID: tenantID, TenantBound: tenantBound})
 	if err != nil {
 		_ = os.Remove(tempPath)
 		http.Error(w, "could not encode restore job", http.StatusInternalServerError)

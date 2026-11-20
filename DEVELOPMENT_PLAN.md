@@ -740,16 +740,17 @@ record and must never trigger mutation replay.
 
 **Status:** Partially implemented. File-store capability checks and
 package-command cgroup routing are in place. Site-operation, Node-deployment,
-backup creation and restore, backup rehearsal, and site-termination jobs now
-persist the tenant that owned the site at admission and recheck that binding
-before execution; mutation paths repeat the check after acquiring the site
-lock. Legacy customer job payloads without the binding fail closed. The durable
+backup creation and restore, backup rehearsal, cPanel import, WPress restore,
+and site-termination jobs now persist the tenant that owned the site at
+admission and recheck that binding before execution; mutation paths repeat the
+check after acquiring the site lock. Legacy customer job payloads without the
+binding fail closed. The durable
 job protocol version is advanced to reject older workers. Regression coverage
-includes site reassignment during queued restore and termination, plus crash
-recovery after termination removes ownership. `make check`, focused crash and
-reassignment tests, and documentation link/reference checks pass locally;
-other site-bound durable job kinds and installed-host cgroup behavior remain
-open acceptance items. The root broker independently checks customer file
+includes site reassignment during queued backup restore, termination, cPanel
+import, and WPress restore, plus crash recovery after termination removes
+ownership. `make check`, focused crash and reassignment tests, and documentation
+link/reference checks pass locally; site creation and installed-host cgroup
+behavior remain open acceptance items. The root broker independently checks customer file
 requests against the durable site-to-tenant table before resolving the placed
 Unix account or invoking the privileged file helper.
 

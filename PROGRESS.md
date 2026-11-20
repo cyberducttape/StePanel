@@ -1,5 +1,22 @@
 # Production-readiness progress
 
+## Bind queued archive restores to their admitting tenant — 2026-11-20
+
+- cPanel and WPress durable restore payloads now include the destination site's
+  tenant snapshot captured before queue admission. Workers fail closed for old
+  unbound payloads when account ownership is configured, and compare the
+  snapshot again after acquiring the site lock before validating or applying
+  the import.
+- Added reassignment regressions for both archive workflows. The tenant-bound
+  backup/termination changes from the preceding commit remain covered by the
+  full crash-recovery suite.
+- Evidence: focused import reassignment tests passed; `make check` passed,
+  including `go vet ./...`, all Go packages, shell contracts, and API artifact
+  checks. This is local evidence; hosted exact-source checks will run after
+  commit.
+- M0i remains partial: site creation and installed-host cgroup behavior still
+  require work/evidence. Overall release remains **NO-GO**.
+
 ## Investigate 500-site capacity profile failure — 2026-11-20
 
 - Reviewed the Rocky Linux 9 KVM profile [44663139216](https://github.com/cyberducttape/StePanel/actions/runs/44663139216)

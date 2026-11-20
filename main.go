@@ -1194,12 +1194,14 @@ func (a *App) inspect(w http.ResponseWriter, r *http.Request) {
 }
 
 type durableCPMoveRequest struct {
-	UploadID   string `json:"upload_id"`
-	Filename   string `json:"filename"`
-	Size       int64  `json:"size"`
-	User       string `json:"user"`
-	Actor      string `json:"actor"`
-	RestoreDBs bool   `json:"restore_databases"`
+	UploadID    string `json:"upload_id"`
+	Filename    string `json:"filename"`
+	Size        int64  `json:"size"`
+	User        string `json:"user"`
+	Actor       string `json:"actor"`
+	TenantID    string `json:"tenant_id,omitempty"`
+	TenantBound bool   `json:"tenant_bound,omitempty"`
+	RestoreDBs  bool   `json:"restore_databases"`
 	// PlanDigest binds the job to the destination plan the operator approved
 	// (cpmovePlanDigest).
 	PlanDigest string `json:"plan_digest"`
@@ -1238,6 +1240,8 @@ type durableWPressRequest struct {
 	TargetPrefix string `json:"target_prefix"`
 	Force        bool   `json:"force"`
 	Actor        string `json:"actor"`
+	TenantID     string `json:"tenant_id,omitempty"`
+	TenantBound  bool   `json:"tenant_bound,omitempty"`
 }
 
 func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
@@ -1249,7 +1253,7 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 	if safeUser(request.User) == "" || request.Filename == "" || request.Size < 0 || uploadErr != nil || upload.Owner != request.Actor || request.Filename != upload.Filename || request.Size != upload.Size {
 		return nil, errors.New("invalid durable cpmove job payload")
 	}
-	access, err := a.authorizeDurableSiteJob(request.User, request.Actor, false)
+	access, err := a.authorizeBoundDurableSiteJob(request.User, request.Actor, request.TenantID, request.TenantBound, false)
 	if err != nil {
 		return nil, err
 	}
@@ -1281,6 +1285,10 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 	}
 	defer releaseUnlock()
 	if err := operationCtx.Err(); err != nil {
+		return nil, err
+	}
+	access, err = a.authorizeBoundDurableSiteJob(request.User, request.Actor, request.TenantID, request.TenantBound, false)
+	if err != nil {
 		return nil, err
 	}
 	// Revalidate the approved plan under the site lock, immediately before
@@ -1532,7 +1540,7 @@ func (a *App) handleWPressJob(ctx context.Context, item Job) ([]byte, error) {
 		}
 		return nil, err
 	}
-	access, err := a.authorizeDurableSiteJob(request.Site, request.Actor, false)
+	access, err := a.authorizeBoundDurableSiteJob(request.Site, request.Actor, request.TenantID, request.TenantBound, false)
 	if err != nil {
 		return nil, err
 	}
@@ -1557,6 +1565,10 @@ func (a *App) handleWPressJob(ctx context.Context, item Job) ([]byte, error) {
 	}
 	defer releaseUnlock()
 	if err := operationCtx.Err(); err != nil {
+		return nil, err
+	}
+	access, err = a.authorizeBoundDurableSiteJob(request.Site, request.Actor, request.TenantID, request.TenantBound, false)
+	if err != nil {
 		return nil, err
 	}
 	if err := a.reconcileInterruptedSiteWithLease(operationCtx, request.Site, a.siteManager); err != nil {
@@ -1715,7 +1727,12 @@ func (a *App) importBackup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid Idempotency-Key", http.StatusUnprocessableEntity)
 		return
 	}
-	payload, err := json.Marshal(durableCPMoveRequest{UploadID: uploadID, Filename: upload.Filename, Size: upload.Size, User: user, Actor: actor, RestoreDBs: databaseRestore, PlanDigest: cpmovePlanDigest(plan)})
+	tenantID, tenantBound, err := a.durableTenantBinding(user)
+	if err != nil {
+		http.Error(w, "site ownership state is temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	payload, err := json.Marshal(durableCPMoveRequest{UploadID: uploadID, Filename: upload.Filename, Size: upload.Size, User: user, Actor: actor, TenantID: tenantID, TenantBound: tenantBound, RestoreDBs: databaseRestore, PlanDigest: cpmovePlanDigest(plan)})
 	if err != nil {
 		http.Error(w, "could not encode restore job", http.StatusInternalServerError)
 		return

@@ -3,9 +3,11 @@ package stepanel
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAuthorizeDurableSiteJobRechecksSuspensionAndOwnership(t *testing.T) {
@@ -104,6 +106,59 @@ func TestQueuedAdminRestoreAndTerminationStayBoundToTenant(t *testing.T) {
 			}
 			if executionErr == nil || !strings.Contains(executionErr.Error(), "ownership changed") {
 				t.Fatalf("%s execution error = %v, want reassignment refusal", kind, executionErr)
+			}
+		})
+	}
+}
+
+func TestQueuedCPanelAndWPressRestoresStayBoundToTenant(t *testing.T) {
+	for _, kind := range []string{"cpmove.restore", "wordpress.restore"} {
+		t.Run(kind, func(t *testing.T) {
+			root := t.TempDir()
+			db, err := openControlPlaneDB(filepath.Join(root, "control.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			accounts := &AccountStore{accounts: map[string]HostingAccount{
+				"tenant-a": {Username: "tenant-a", Plan: "professional", Sites: []string{"shop"}},
+				"tenant-b": {Username: "tenant-b", Plan: "professional"},
+			}}
+			app := &App{Auth: Auth{Username: "admin"}, Accounts: accounts, Jobs: newJobsWithDB(db, 1), Config: Config{ImportRoot: filepath.Join(root, "imports")}}
+			if err := os.MkdirAll(app.Config.ImportRoot, 0700); err != nil {
+				t.Fatal(err)
+			}
+			tenantID, tenantBound, err := app.durableTenantBinding("shop")
+			if err != nil || !tenantBound || tenantID != "tenant-a" {
+				t.Fatalf("site binding = (%q, %t), error = %v", tenantID, tenantBound, err)
+			}
+			item := Job{ID: "import-job", User: "admin"}
+			if kind == "cpmove.restore" {
+				upload := cpmoveUpload{ID: "upload-1", Path: cpmoveUploadPath(app.Config.ImportRoot, "upload-1"), Filename: "cpmove.tar.gz", Owner: "admin", SHA256: strings.Repeat("0", 64), ExpiresAt: time.Now().Add(time.Hour)}
+				metadata, err := json.Marshal(upload)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(cpmoveUploadMetadataPath(app.Config.ImportRoot, upload.ID), metadata, 0600); err != nil {
+					t.Fatal(err)
+				}
+				item.Payload, err = json.Marshal(durableCPMoveRequest{UploadID: upload.ID, Filename: upload.Filename, User: "shop", Actor: "admin", TenantID: tenantID, TenantBound: tenantBound})
+			} else {
+				item.Payload, err = json.Marshal(durableWPressRequest{TempPath: filepath.Join(app.Config.ImportRoot, "staged.wpress"), Size: 0, SHA256: strings.Repeat("0", 64), Site: "shop", DBSuffix: "db", DBUserSuffix: "db", Password: "0123456789abcdef", SiteURL: "https://example.com", TargetPrefix: "wp_", Actor: "admin", TenantID: tenantID, TenantBound: tenantBound})
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			accounts.accounts["tenant-a"] = HostingAccount{Username: "tenant-a", Plan: "professional"}
+			accounts.accounts["tenant-b"] = HostingAccount{Username: "tenant-b", Plan: "professional", Sites: []string{"shop"}}
+			var executionErr error
+			if kind == "cpmove.restore" {
+				_, executionErr = app.handleCPMoveJob(context.Background(), item)
+			} else {
+				_, executionErr = app.handleWPressJob(context.Background(), item)
+			}
+			if executionErr == nil || !strings.Contains(executionErr.Error(), "ownership changed") {
+				t.Fatalf("execution error = %v, want reassignment refusal", executionErr)
 			}
 		})
 	}
