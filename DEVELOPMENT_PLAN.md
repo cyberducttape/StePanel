@@ -922,8 +922,13 @@ durable job state. Keep the token out of API serialization.
 [44724016501](https://github.com/cyberducttape/StePanel/actions/runs/44724016501)
 passed one installed-host recovery iteration and a database-backed WordPress
 HTTP proof (measured RTO 5.022 s); the uploaded log is reviewed in
-[`PROGRESS.md`](PROGRESS.md). This is one host/iteration only. Source-specific
-AlmaLinux 9/Caddy/MariaDB installed smoke
+[`PROGRESS.md`](PROGRESS.md). This is one host/iteration only.
+Current-source KVM abrupt-loss operation drills
+[44731756198](https://github.com/cyberducttape/StePanel/actions/runs/44731756198)
+started on `94b90f5e` for file restore, database restore, Git deployment,
+retention, and control-plane writes; results are pending. A QEMU guest kill is
+not physical host power-loss evidence. The earlier AlmaLinux 9/Caddy/MariaDB
+installed smoke
 and single-iteration recovery run
 [44686046786](https://github.com/cyberducttape/StePanel/actions/runs/44686046786)
 passed on `e1195ccc`; current `main` has later non-Markdown changes, so this is

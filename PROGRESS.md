@@ -2,12 +2,13 @@
 
 ## Current-source release validation — 2026-11-20
 
-- Exact-source evidence for `f464f79d6287741eefd14174caaac35cd9f18534` is in
-  [release-evidence run 44727737839](https://github.com/cyberducttape/StePanel/actions/runs/44727737839).
-  The generated artifact confirms PR CI, CI integration (including race tests,
-  ENOSPC, recovery drills, and database integration), CodeQL, and browser E2E
-  passed for identical current code. The report keeps production **NO-GO**
-  with 4/21 P0 gates complete and 17 incomplete.
+- Exact-source evidence for current code `94b90f5e7c24a5345e365076da387e962f4b917a`
+  is in [release-evidence run 44731402244](https://github.com/cyberducttape/StePanel/actions/runs/44731402244).
+  Its artifact confirms documentation, CI integration (including race tests,
+  ENOSPC, recovery drills, database integration, and browser E2E), CodeQL, and
+  the 6/6 N-1 upgrade matrix passed on identical source content. It recorded
+  4/21 P0 gates complete and 17 incomplete; the scheduled six-host smoke and
+  20-repeat recovery cohort were still in progress at report time.
 - Current-code AlmaLinux 9/Caddy/MariaDB installed smoke
   [44724016501](https://github.com/cyberducttape/StePanel/actions/runs/44724016501)
   passed. I reviewed its uploaded host log: the installed WordPress
@@ -38,6 +39,13 @@
   recovery cohort was cancelled to free runners; its partial work does not
   count. No code change was needed in this continuation; this documentation
   update records the latest workflow evidence.
+- Current-source QEMU abrupt-loss operation drill
+  [44731756198](https://github.com/cyberducttape/StePanel/actions/runs/44731756198)
+  is now running on `94b90f5e`, covering file restore, database restore, Git
+  deployment, retention, and control-plane writes. It is an injected guest
+  SIGKILL test, not physical host power-loss certification. Results remain
+  unreviewed; the 20-repeat six-host cohort and 500-site capacity run are also
+  still active.
 
 ## Current-code N-1 upgrade matrix passed — 2026-11-20
 
