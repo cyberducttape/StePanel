@@ -850,7 +850,23 @@ durable job state. Keep the token out of API serialization.
 
 ### M1 — Complete installed-host failure recovery (P0)
 
-**Status:** Open. Exact-source run
+**Status:** Open. The exact-source AlmaLinux 9/Caddy/MariaDB install and
+single-iteration recovery run [44679148230](https://github.com/cyberducttape/StePanel/actions/runs/44679148230)
+passed on `9f8c75ac` (code-identical to current `main`). It passed the
+installed control-plane database-outage check, file-manager and PHP-FPM
+checks, cPanel and database-client-command restore checks, broker interruption,
+app lifecycle, worker interruption during cPanel import/backup/restore/database
+restore/termination, account suspension, and deployment checks. The installed
+WordPress recovery proof passed with measured RTO 5.084 seconds. This is one
+iteration on one host combination and does not satisfy the repeated cohort or
+the broader host-failure matrix. The six-host 20-repeat cohort
+[44662607070](https://github.com/cyberducttape/StePanel/actions/runs/44662607070)
+is still running against older source `64281ca`; its partial results are not
+counted. The Rocky Linux 9 capacity rerun
+[44674647682](https://github.com/cyberducttape/StePanel/actions/runs/44674647682)
+is still running against diagnostic source `8382e9c4`.
+
+Earlier exact-source run
 [44516615547](https://github.com/cyberducttape/StePanel/actions/runs/44516615547)
 passed one full recovery-matrix iteration on each of the six Ubuntu 24.04,
 AlmaLinux 9, and Rocky Linux 9 Apache/Caddy combinations, including database-

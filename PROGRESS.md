@@ -1,5 +1,28 @@
 # Production-readiness progress
 
+## Current-source install recovery evidence — 2026-11-20
+
+- The exact-source AlmaLinux 9/Caddy/MariaDB installation and one-iteration
+  recovery run [44679148230](https://github.com/cyberducttape/StePanel/actions/runs/44679148230)
+  passed on code `9f8c75ac`, which is identical in non-Markdown files to
+  current `main`. Its installed smoke passed control-plane DB outage
+  recovery, file-manager and PHP-FPM checks, cPanel and database client-command
+  restore checks, broker interruption, app lifecycle, worker interruption
+  during import/backup/restore/database restore/termination, account
+  suspension, and deployment checks. Installed WordPress recovery proof
+  passed with measured RTO 5.084 seconds. This is one iteration on one host
+  combination; it does not satisfy Gate 5's repeated six-host cohort or prove
+  physical host power-loss durability.
+- Exact-source release evidence [44682232548](https://github.com/cyberducttape/StePanel/actions/runs/44682232548)
+  reports installation smoke passed and production NO-GO (4/21 P0 gates
+  complete). Its generated report is downloadable from the workflow run.
+- Dispatched ordinary CI against exact current main source
+  [44682398082](https://github.com/cyberducttape/StePanel/actions/runs/44682398082)
+  to replace the prior older-source result in release evidence; it is still
+  running. The six-host 20-repeat cohort [44662607070](https://github.com/cyberducttape/StePanel/actions/runs/44662607070)
+  and Rocky Linux capacity rerun [44674647682](https://github.com/cyberducttape/StePanel/actions/runs/44674647682)
+  are also still running and are not counted as passed.
+
 ## Fix exact-source staticcheck failure — 2026-11-20
 
 - Exact-source CI integration for `4ef3514a` passed the UI E2E/accessibility,
