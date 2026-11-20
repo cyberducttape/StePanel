@@ -43,6 +43,7 @@ on:
       - 'auth.go'
       - 'config.go'
       - 'main.go'
+      - 'site_files.go'
       - 'backup_restore.go'
       - 'recovery.go'
       - 'recovery_proof_wordpress.go'
