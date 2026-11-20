@@ -296,7 +296,7 @@ func TestTerminalCustomerSiteCreationFailureReleasesAssignment(t *testing.T) {
 	f.app.Accounts = accounts
 	f.app.Auth.Accounts = accounts
 	item := Job{ID: "create-fresh-site", Kind: "site.create", MaxAttempts: 1, StartedAt: time.Now().UTC()}
-	item.Payload, _ = json.Marshal(durableSiteCreationRequest{Site: "fresh-site", Template: "php", Actor: "customer", CustomerProvisioning: true})
+	item.Payload, _ = json.Marshal(durableSiteCreationRequest{Site: "fresh-site", Template: "php", Actor: "customer", CustomerProvisioning: true, TenantID: "customer", TenantBound: true})
 	if _, err := f.app.handleSiteCreation(context.Background(), item); err == nil {
 		t.Fatal("terminal site creation unexpectedly succeeded")
 	}
@@ -331,7 +331,7 @@ func TestCustomerSiteCreationEnforcesPlanResourcesBeforeActivation(t *testing.T)
 	}}
 	f.app.siteManager = observer
 	item := Job{ID: "create-limited-site", Kind: "site.create", MaxAttempts: 1, StartedAt: time.Now().UTC()}
-	item.Payload, _ = json.Marshal(durableSiteCreationRequest{Site: "limited-site", Template: "php", Actor: "customer", CustomerProvisioning: true})
+	item.Payload, _ = json.Marshal(durableSiteCreationRequest{Site: "limited-site", Template: "php", Actor: "customer", CustomerProvisioning: true, TenantID: "customer", TenantBound: true})
 	if _, err := f.app.handleSiteCreation(context.Background(), item); err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +371,7 @@ func TestCustomerSiteCreationDoesNotActivateWhenPlanEnforcementFails(t *testing.
 	f.app.siteManager = observer
 	t.Setenv("STEPANEL_TEST_FAIL_RESOURCE", "1")
 	item := Job{ID: "create-limited-site", Kind: "site.create", MaxAttempts: 1, StartedAt: time.Now().UTC()}
-	item.Payload, _ = json.Marshal(durableSiteCreationRequest{Site: "limited-site", Template: "php", Actor: "customer", CustomerProvisioning: true})
+	item.Payload, _ = json.Marshal(durableSiteCreationRequest{Site: "limited-site", Template: "php", Actor: "customer", CustomerProvisioning: true, TenantID: "customer", TenantBound: true})
 	if _, err := f.app.handleSiteCreation(context.Background(), item); err == nil {
 		t.Fatal("creation succeeded despite resource enforcement failure")
 	}
@@ -403,7 +403,7 @@ func TestDuplicateCustomerSiteCreationKeepsAssignmentOfExistingSite(t *testing.T
 		t.Fatal(err)
 	}
 	item := Job{ID: "create-live-site-again", Kind: "site.create", MaxAttempts: 1, StartedAt: time.Now().UTC()}
-	item.Payload, _ = json.Marshal(durableSiteCreationRequest{Site: "live-site", Template: "php", Actor: "customer", CustomerProvisioning: true})
+	item.Payload, _ = json.Marshal(durableSiteCreationRequest{Site: "live-site", Template: "php", Actor: "customer", CustomerProvisioning: true, TenantID: "customer", TenantBound: true})
 	if _, err := f.app.handleSiteCreation(context.Background(), item); err == nil {
 		t.Fatal("duplicate site creation unexpectedly succeeded")
 	}

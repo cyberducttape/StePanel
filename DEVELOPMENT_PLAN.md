@@ -747,10 +747,10 @@ check after acquiring the site lock. Legacy customer job payloads without the
 binding fail closed. The durable
 job protocol version is advanced to reject older workers. Regression coverage
 includes site reassignment during queued backup restore, termination, cPanel
-import, and WPress restore, plus crash recovery after termination removes
-ownership. `make check`, focused crash and reassignment tests, and documentation
-link/reference checks pass locally; site creation and installed-host cgroup
-behavior remain open acceptance items. The root broker independently checks customer file
+import, WPress restore, and site creation, plus crash recovery after
+termination removes ownership. `make check`, focused crash and reassignment
+tests, and documentation link/reference checks pass locally. Installed-host
+cgroup behavior remains an open acceptance item. The root broker independently checks customer file
 requests against the durable site-to-tenant table before resolving the placed
 Unix account or invoking the privileged file helper.
 

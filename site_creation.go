@@ -209,6 +209,8 @@ type durableSiteCreationRequest struct {
 	Site                 string `json:"site"`
 	Template             string `json:"template"`
 	Actor                string `json:"actor"`
+	TenantID             string `json:"tenant_id,omitempty"`
+	TenantBound          bool   `json:"tenant_bound,omitempty"`
 	CustomerProvisioning bool   `json:"customer_provisioning,omitempty"`
 	// Account, Kind and Directory place the site inside a hosting account's
 	// home (ADR-0007). Empty means the legacy per-site layout, which only
@@ -471,7 +473,15 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	request := durableSiteCreationRequest{Site: input.Site, Template: input.Template, Actor: a.Auth.AuditActor(r), CustomerProvisioning: !admin, WordPress: wordpress, RequestDigest: requestDigest}
+	tenantID, tenantBound, err := a.durableTenantBinding(input.Site)
+	if err != nil {
+		if assigned {
+			a.releaseSiteReservation(actor, input.Site)
+		}
+		http.Error(w, "site ownership state is temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	request := durableSiteCreationRequest{Site: input.Site, Template: input.Template, Actor: a.Auth.AuditActor(r), TenantID: tenantID, TenantBound: tenantBound, CustomerProvisioning: !admin, WordPress: wordpress, RequestDigest: requestDigest}
 	if placed {
 		request.Account, request.Kind, request.Directory = placement.Account, string(placement.Kind), placement.Directory
 	}
@@ -577,7 +587,7 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 	if a.Config.WebRoot == "" {
 		return nil, errors.New("site creation requires a configured web root")
 	}
-	access, err := a.authorizeDurableSiteJob(req.Site, req.Actor, false)
+	access, err := a.authorizeBoundDurableSiteJob(req.Site, req.Actor, req.TenantID, req.TenantBound, false)
 	if err != nil {
 		return nil, fmt.Errorf("site creation authorization: %w", err)
 	}
@@ -600,6 +610,10 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 		return nil, fmt.Errorf("acquire site mutation lock: %w", err)
 	}
 	defer release()
+	access, err = a.authorizeBoundDurableSiteJob(req.Site, req.Actor, req.TenantID, req.TenantBound, false)
+	if err != nil {
+		return nil, fmt.Errorf("site creation authorization: %w", err)
+	}
 	if req.CustomerProvisioning {
 		var found bool
 		if a.Accounts == nil {

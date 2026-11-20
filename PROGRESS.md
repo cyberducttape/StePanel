@@ -1,5 +1,22 @@
 # Production-readiness progress
 
+## Bind customer site creation to its reserved tenant — 2026-11-20
+
+- Site-creation admission now records the site tenant after customer assignment
+  is reserved. The worker validates that immutable tenant before work and again
+  after acquiring its site lock. Old unbound jobs fail closed when tenancy is
+  configured.
+- Added a regression that moves a reserved site to a different tenant before
+  worker execution; the queued creation is refused before host changes. Updated
+  existing customer provisioning fixtures to use the durable tenant contract.
+- Evidence: `make check` passed after the change (vet, all Go packages, API
+  artifacts, and shell contracts); focused site-creation and tenant-binding
+  tests passed. Hosted exact-source CI is pending.
+- The tenant-binding code now covers site operations, Node deployment, backup
+  create/restore/rehearsal, termination, cPanel/WPress restore, and site
+  creation. M0i still requires review of remaining direct job kinds and
+  installed-host cgroup containment evidence; production remains **NO-GO**.
+
 ## Bind queued archive restores to their admitting tenant — 2026-11-20
 
 - cPanel and WPress durable restore payloads now include the destination site's

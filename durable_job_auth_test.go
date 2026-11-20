@@ -163,3 +163,25 @@ func TestQueuedCPanelAndWPressRestoresStayBoundToTenant(t *testing.T) {
 		})
 	}
 }
+
+func TestQueuedSiteCreationCannotFollowSiteToAnotherTenant(t *testing.T) {
+	accounts := &AccountStore{accounts: map[string]HostingAccount{
+		"tenant-a": {Username: "tenant-a", Plan: "professional", Sites: []string{"shop"}},
+		"tenant-b": {Username: "tenant-b", Plan: "professional"},
+	}}
+	app := &App{Auth: Auth{Username: "admin"}, Accounts: accounts, Config: Config{WebRoot: t.TempDir()}}
+	tenantID, tenantBound, err := app.durableTenantBinding("shop")
+	if err != nil || !tenantBound || tenantID != "tenant-a" {
+		t.Fatalf("site binding = (%q, %t), error = %v", tenantID, tenantBound, err)
+	}
+	request := durableSiteCreationRequest{Site: "shop", Template: "php", Actor: "tenant-a", CustomerProvisioning: true, TenantID: tenantID, TenantBound: tenantBound}
+	accounts.accounts["tenant-a"] = HostingAccount{Username: "tenant-a", Plan: "professional"}
+	accounts.accounts["tenant-b"] = HostingAccount{Username: "tenant-b", Plan: "professional", Sites: []string{"shop"}}
+	payload, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.handleSiteCreation(context.Background(), Job{ID: "create-shop", Payload: payload}); err == nil || !strings.Contains(err.Error(), "ownership changed") {
+		t.Fatalf("site creation error = %v, want reassignment refusal", err)
+	}
+}
