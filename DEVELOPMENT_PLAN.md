@@ -1042,6 +1042,13 @@ for restore steps, HTTP result, measured recovery time, and excluded state.
 
 **Status:** Implemented; live delivery/outage evidence remains open.
 
+The alert outbox now has a regression that records an endpoint failure, closes
+and reopens the control-plane SQLite database, checks that failure/attempt
+state remains visible, and verifies the same event becomes retryable and can be
+marked delivered. Normal and race-enabled focused runs and full `make check`
+pass. This proves store-level restart persistence only; delivery through the
+installed service against configured SMTP/webhook endpoints remains open.
+
 Exercise configured webhook and SMTP endpoints on an installed host, including
 endpoint outage, retry, restart, backlog recovery, redaction, and operator
 visibility of undelivered/dead-letter events.

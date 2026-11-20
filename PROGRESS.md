@@ -1,5 +1,18 @@
 # Production-readiness progress
 
+## Alert retry persistence across restart — 2026-11-20
+
+- Added a regression that records a webhook outage in the durable alert
+  outbox, closes/reopens the control-plane database, verifies pending/failure
+  status and retry attempts survive, advances the retry deadline, and confirms
+  the event can be marked delivered. This covers database restart recovery,
+  not delivery through a real installed SMTP/webhook endpoint.
+- Focused normal and race-enabled tests passed. Full `make check` passed on
+  the change (root package 119.695s), including generated API validation,
+  shell contracts, `go vet ./...`, and all packages.
+- M3 remains open until installed-host delivery, endpoint outage/recovery, and
+  operator-visible status are exercised against configured endpoints.
+
 ## Correct PostgreSQL restore attack fixtures — 2026-11-20
 
 - Review of `deploy/lab/dbctl-restore-pg-smoke.sh` found its purported

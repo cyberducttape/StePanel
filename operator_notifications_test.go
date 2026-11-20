@@ -568,6 +568,71 @@ func TestOperatorNotificationDeliveryFailuresAreDurableAndRedacted(t *testing.T)
 	}
 }
 
+func TestOperatorNotificationRetryStateSurvivesDatabaseRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "alert-restart.db")
+	cfg := Config{AlertWebhookURL: "https://alerts.example.test/hook"}
+	db, err := openControlPlaneDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := newOperatorNotificationStore(db, cfg)
+	if err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO operator_notification_events(id, job_id, job_kind, owner, state, created_at, webhook_next_attempt_at, email_next_attempt_at, webhook_required, email_required)
+		VALUES ('restart-event','job-restart','site.restore','shop','failed',unixepoch(),unixepoch(),unixepoch(),1,0)`); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if err := store.recordFailure(t.Context(), "restart-event", "webhook", 0, errors.New("connection refused")); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reopen the authoritative control-plane database as a new process would.
+	db, err = openControlPlaneDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store, err = newOperatorNotificationStore(db, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := store.status(t.Context(), cfg)
+	if err != nil || status.Pending != 1 || status.FailedDeliveries != 1 || status.LastFailureAt == nil {
+		t.Fatalf("restart did not preserve pending failure status: %+v, err=%v", status, err)
+	}
+	var attempts int
+	if err := db.QueryRow(`SELECT webhook_attempts FROM operator_notification_events WHERE id='restart-event'`).Scan(&attempts); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 1 {
+		t.Fatalf("persisted webhook attempt count = %d, want 1", attempts)
+	}
+
+	// Model the retry deadline passing, then verify the same durable event is
+	// eligible for delivery rather than being lost with the old process.
+	if _, err := db.Exec(`UPDATE operator_notification_events SET webhook_next_attempt_at=unixepoch() WHERE id='restart-event'`); err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.pending(t.Context(), cfg, operatorNotificationBatch)
+	if err != nil || len(items) != 1 || items[0].ID != "restart-event" || !items[0].WebhookDue || items[0].WebhookAttempts != 1 {
+		t.Fatalf("restart retry candidate = %+v, err=%v", items, err)
+	}
+	if err := store.markDelivered(t.Context(), "restart-event", "webhook"); err != nil {
+		t.Fatal(err)
+	}
+	status, err = store.status(t.Context(), cfg)
+	if err != nil || status.Pending != 0 || status.FailedDeliveries != 0 {
+		t.Fatalf("recovered delivery status = %+v, err=%v", status, err)
+	}
+}
+
 func TestOperatorNotificationChannelsUseIndependentRetryDeadlines(t *testing.T) {
 	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "alert-retries.db"))
 	if err != nil {
