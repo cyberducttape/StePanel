@@ -262,25 +262,20 @@ also passed.
 
 ### M0o — Bound customer file-manager directory enumeration (P1)
 
-**Status:** Implemented; current-source installed-host race evidence is pending.
-The six-host run
-[44516615547](https://github.com/cyberducttape/StePanel/actions/runs/44516615547)
-on `64281ca` created 10,000 entries, observed the 5,001-record bound, and
-interposed symlink swaps before read, write, mkdir, rename, delete, and list;
-all six hosts passed. The report is
-[here](docs/lab-results/2026-11-19-six-host-recovery-64281ca.md). However,
-`internal/rootbroker/files.go`, `deploy/integrations/stepanel-filectl`, and
-`site_files.go` have changed since that source, so those results are not
-current-code evidence. Current-code CI integration
-[44724016547](https://github.com/cyberducttape/StePanel/actions/runs/44724016547)
-passed `go vet`, ShellCheck, and the full Go suite. The code-equivalent
-six-host install smoke
+**Status:** Implemented; installed-host behavior passed on code-equivalent
+source. Six-host run
 [44729127788](https://github.com/cyberducttape/StePanel/actions/runs/44729127788)
-is active; its installed file-manager behavior must be reviewed before
-counting this criterion. `stepanel-filectl` streams entries as the account
-user; broker output is capped at 2 MiB, list calls at 10 seconds, and
-operations resolve beneath an opened document-root descriptor. This does not
-establish hostile multi-tenant isolation.
+created 10,000 entries, enforced the 5,001-record/2 MiB/10-second bounds, and
+interposed symlink swaps before read, write, mkdir, rename, delete, and list on
+Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with Apache and Caddy. All six
+hosts passed; see the [reviewed report](docs/lab-results/2026-11-20-six-host-install-smoke-059ba72.md).
+The non-Markdown source tree matched current `main` before the current
+limiter-only change. `stepanel-filectl` streams entries as the account user,
+and operations resolve beneath an opened document-root descriptor. A new
+nonblocking limiter admits at most four file reads/listings per tenant and 32
+per panel process; excess requests receive HTTP 429 with `Retry-After: 5`.
+Focused tests cover per-tenant fairness, the host cap, slot release, and the
+retry response. This does not establish hostile multi-tenant isolation.
 
 **Acceptance criteria**
 
@@ -289,7 +284,9 @@ establish hostile multi-tenant isolation.
 - No full directory listing is materialized in a root-owned temporary file.
 - Reads and mutations remain rooted at opened directory descriptors even
   when a tenant swaps a checked path component for a symlink.
-- Per-tenant concurrent file reads/listings serialize across distinct sites.
+- Concurrent reads/listings across sites belonging to one tenant share the
+  same four-operation budget; other tenants retain independent admission, and
+  aggregate panel work remains capped at 32 operations.
 - Focused Go tests, ShellCheck, Bash syntax, adversarial installed-host smoke,
   and exact-source CI pass.
 

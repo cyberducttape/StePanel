@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/cyberducttape/StePanel/internal/sitefiles"
@@ -147,6 +149,98 @@ func TestSiteFilesRejectsStaleEditorRevision(t *testing.T) {
 	}
 	if contents, err := os.ReadFile(file); err != nil || string(contents) != "version two from another editor" {
 		t.Fatalf("stale edit changed current contents to %q: %v", contents, err)
+	}
+}
+
+func TestSiteFileReadLimiterBoundsPerTenantAndHost(t *testing.T) {
+	limiter := newSiteFileReadLimiter(2, 3)
+	first, ok := limiter.acquire("tenant-a")
+	if !ok {
+		t.Fatal("first tenant-a read was rejected")
+	}
+	second, ok := limiter.acquire("tenant-a")
+	if !ok {
+		t.Fatal("second tenant-a read was rejected")
+	}
+	if release, ok := limiter.acquire("tenant-a"); ok {
+		release()
+		t.Fatal("tenant-a exceeded its per-tenant read limit")
+	}
+	third, ok := limiter.acquire("tenant-b")
+	if !ok {
+		t.Fatal("tenant-b was blocked by tenant-a's per-tenant limit")
+	}
+	if release, ok := limiter.acquire("tenant-c"); ok {
+		release()
+		t.Fatal("host-wide read limit was exceeded")
+	}
+	first()
+	first() // Release closures are idempotent.
+	fourth, ok := limiter.acquire("tenant-c")
+	if !ok {
+		t.Fatal("released host capacity was not reusable")
+	}
+	second()
+	third()
+	fourth()
+	if limiter.total != 0 || len(limiter.active) != 0 {
+		t.Fatalf("released reads left limiter state: total=%d tenants=%d", limiter.total, len(limiter.active))
+	}
+	if _, ok := limiter.acquire(""); ok {
+		t.Fatal("empty tenant identity was admitted")
+	}
+}
+
+func TestSiteFileReadLimiterConcurrentAdmissionsNeverExceedTenantLimit(t *testing.T) {
+	const requests = 40
+	limiter := newSiteFileReadLimiter(4, 32)
+	start := make(chan struct{})
+	releases := make(chan func(), requests)
+	var attempts sync.WaitGroup
+	var admitted atomic.Int32
+	for i := 0; i < requests; i++ {
+		attempts.Add(1)
+		go func() {
+			defer attempts.Done()
+			<-start
+			if release, ok := limiter.acquire("same-tenant"); ok {
+				admitted.Add(1)
+				releases <- release
+			}
+		}()
+	}
+	close(start)
+	attempts.Wait()
+	if got := admitted.Load(); got != 4 {
+		t.Fatalf("simultaneous admissions = %d, want exactly four", got)
+	}
+	close(releases)
+	for release := range releases {
+		release()
+	}
+	if limiter.total != 0 || len(limiter.active) != 0 {
+		t.Fatalf("concurrent releases left limiter state: total=%d tenants=%d", limiter.total, len(limiter.active))
+	}
+}
+
+func TestSiteFilesReadLimitReturnsRetryableStatus(t *testing.T) {
+	a, _ := newSiteFilesApp(t)
+	releases := make([]func(), 0, maxConcurrentSiteFileReadsPerTenant)
+	for i := 0; i < maxConcurrentSiteFileReadsPerTenant; i++ {
+		release, ok := siteFileReads.acquire("alice")
+		if !ok {
+			t.Fatal("could not reserve test file-read slots")
+		}
+		releases = append(releases, release)
+	}
+	defer func() {
+		for _, release := range releases {
+			release()
+		}
+	}()
+	w := siteFilesRequest(a, "alice", http.MethodGet, "/api/sites/files/shop", nil)
+	if w.Code != http.StatusTooManyRequests || w.Header().Get("Retry-After") != "5" {
+		t.Fatalf("file listing under tenant saturation = %d %v %s", w.Code, w.Header(), w.Body)
 	}
 }
 

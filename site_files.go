@@ -11,6 +11,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
@@ -34,6 +35,63 @@ const siteFilesPrefix = "/api/sites/files/"
 // siteFileWrites bounds concurrent file uploads so slow clients and helper
 // processes cannot exhaust host resources.
 var siteFileWrites = make(chan struct{}, 8)
+
+const (
+	maxConcurrentSiteFileReadsPerTenant = 4
+	maxConcurrentSiteFileReadsHost      = 32
+)
+
+// siteFileReadLimiter bounds potentially expensive directory enumeration and
+// file reads both per tenant and across the panel process. Counts exist only
+// while requests are active, so old or revoked tenants do not accumulate keys.
+type siteFileReadLimiter struct {
+	mu        sync.Mutex
+	perTenant int
+	global    int
+	active    map[string]int
+	total     int
+}
+
+func newSiteFileReadLimiter(perTenant, global int) *siteFileReadLimiter {
+	return &siteFileReadLimiter{
+		perTenant: perTenant,
+		global:    global,
+		active:    make(map[string]int),
+	}
+}
+
+func (l *siteFileReadLimiter) acquire(tenantID string) (func(), bool) {
+	if strings.TrimSpace(tenantID) == "" || l.perTenant < 1 || l.global < 1 {
+		return nil, false
+	}
+	l.mu.Lock()
+	if l.active[tenantID] >= l.perTenant || l.total >= l.global {
+		l.mu.Unlock()
+		return nil, false
+	}
+	l.active[tenantID]++
+	l.total++
+	l.mu.Unlock()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			l.mu.Lock()
+			defer l.mu.Unlock()
+			if l.active[tenantID] <= 1 {
+				delete(l.active, tenantID)
+			} else {
+				l.active[tenantID]--
+			}
+			l.total--
+		})
+	}, true
+}
+
+var siteFileReads = newSiteFileReadLimiter(
+	maxConcurrentSiteFileReadsPerTenant,
+	maxConcurrentSiteFileReadsHost,
+)
 
 // errSiteNotPlaced reports a legacy site, whose tree the file manager does
 // not manage.
@@ -237,6 +295,13 @@ func (a *App) siteFilesList(w http.ResponseWriter, r *http.Request, store sitefi
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
+	release, admitted := siteFileReads.acquire(site.TenantID())
+	if !admitted {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w, "too many file reads or directory listings are in progress; try again shortly", http.StatusTooManyRequests)
+		return
+	}
+	defer release()
 	listing, err := store.List(r.Context(), site, rel)
 	if err != nil {
 		writeSiteFilesError(w, err)
@@ -254,6 +319,13 @@ func (a *App) siteFilesRead(w http.ResponseWriter, r *http.Request, store sitefi
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
+	release, admitted := siteFileReads.acquire(site.TenantID())
+	if !admitted {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w, "too many file reads or directory listings are in progress; try again shortly", http.StatusTooManyRequests)
+		return
+	}
+	defer release()
 	data, err := store.Read(r.Context(), site, rel)
 	if err != nil {
 		writeSiteFilesError(w, err)

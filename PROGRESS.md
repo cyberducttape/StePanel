@@ -1,5 +1,22 @@
 # Production-readiness progress
 
+## Bound concurrent file reads and directory listings — 2026-11-20
+
+- Added a nonblocking admission limiter around authorized file reads and
+  directory listings: four concurrent operations per tenant and 32 per panel
+  process. Tenant identity comes from the resolved site-access capability,
+  so requests across the tenant's different sites share the same budget.
+  Saturation returns HTTP 429 and `Retry-After: 5`; active-only map entries
+  are removed when requests complete.
+- Regression tests cover per-tenant fairness, the host cap, reusable slots,
+  idempotent release, empty-identity rejection, and the HTTP retry response.
+  `go test ./ -run 'TestSite(FileReadLimiter|FilesReadLimit)' -count=1`, the
+  focused race run, and `make check` passed. `make check` includes `go vet
+  ./...`, the serial full Go suite, and the repository's local validation
+  scripts. `DEVELOPMENT_PLAN.md` M0o records the six-host file-manager race
+  result and the added concurrency bound. Exact-source hosted CI and installed
+  validation remain pending. Production remains **NO-GO**.
+
 ## Reconcile installed-host evidence status — 2026-11-20
 
 - Rechecked the tracked workflow handles. Installation smoke
