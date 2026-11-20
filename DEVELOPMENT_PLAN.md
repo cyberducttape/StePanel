@@ -927,6 +927,15 @@ also failed during install smoke before the capacity workload began. The Rocky L
 completed on diagnostic source `8382e9c4` but had 210 site-request timeouts;
 the reviewed result is linked under M4.
 
+Current `main` source `a7594a45` is code-identical to `3acc333c` and differs
+only in documentation. The one-iteration full six-host matrix
+[44701903618](https://github.com/cyberducttape/StePanel/actions/runs/44701903618)
+is running. The dedicated current-source 20-repeat cohort
+[44702646288](https://github.com/cyberducttape/StePanel/actions/runs/44702646288)
+has started its first six-host repetition. Neither contributes a completed
+recovery pass until every required host job succeeds and its evidence is
+reviewed.
+
 Earlier exact-source run
 [44516615547](https://github.com/cyberducttape/StePanel/actions/runs/44516615547)
 passed one full recovery-matrix iteration on each of the six Ubuntu 24.04,

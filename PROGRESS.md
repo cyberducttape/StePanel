@@ -1,5 +1,27 @@
 # Production-readiness progress
 
+## Current-source CI and recovery cohort — 2026-11-20
+
+- Exact-code CI integration [44699909154](https://github.com/cyberducttape/StePanel/actions/runs/44699909154)
+  passed on `3acc333c`; current `main` (`a7594a45`) differs only in Markdown
+  documentation. Go tests, race tests, recovery drills, tmpfs ENOSPC, database
+  restore checks, browser E2E/accessibility, and the integration checks all
+  passed. CodeQL and documentation checks also passed on the current docs
+  source.
+- Started one full six-host recovery iteration
+  [44701903618](https://github.com/cyberducttape/StePanel/actions/runs/44701903618)
+  and the dedicated 20-repeat cohort
+  [44702646288](https://github.com/cyberducttape/StePanel/actions/runs/44702646288)
+  on current `main`. Both are in progress; no host recovery result is counted
+  yet. The cohort's first complete six-host repetition is underway.
+- The current-source 500-site profile
+  [44699996203](https://github.com/cyberducttape/StePanel/actions/runs/44699996203)
+  and installed-host smoke
+  [44699909128](https://github.com/cyberducttape/StePanel/actions/runs/44699909128)
+  remain active. A fresh exact-source release-evidence report is also running
+  for `a7594a45`. Production remains **NO-GO** until the P0 host, recovery,
+  alert-delivery, and capacity requirements are met.
+
 ## Reverify customer workspace and file-context regressions — 2026-11-20
 
 - Confirmed the reported customer UI defects are fixed in current `main`
