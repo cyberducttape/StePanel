@@ -38,12 +38,14 @@ is still running; its host-specific result remains pending.
 
 ### M0y — Keep customer site and file workflows bound to their UI context (P1)
 
-**Status:** Verified on `cdbb2519`; the latest exact-source main E2E on
-`8556e9fe` also passed the customer account-owner journey, including the
-WordPress creation form, failed-inventory retry, delayed file-read invalidation
-after a site switch, and no cross-site write. The full exact-source CI
-integration completed 2/2 jobs. This closes the customer UI contract for the
-listed regressions; it does not close the separate host-certification gates.
+**Status:** Verified on current `main` (`3acc333c`). Exact-source CI run
+[44699909154](https://github.com/cyberducttape/StePanel/actions/runs/44699909154)
+passed its seeded browser E2E and accessibility job. The account-owner journey
+checks WordPress creation controls, no uncaught browser errors, failed-inventory
+retry, delayed file-read invalidation after a site switch, stale rows during
+folder navigation, and no cross-site write. Local frontend unit tests passed
+17/17. This closes the listed customer UI regressions; it does not close the
+separate host-certification gates.
 
 **Acceptance criteria**
 

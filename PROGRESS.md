@@ -1,5 +1,23 @@
 # Production-readiness progress
 
+## Reverify customer workspace and file-context regressions — 2026-11-20
+
+- Confirmed the reported customer UI defects are fixed in current `main`
+  (`3acc333c`): WordPress creation fields are supported in the customer form
+  and guarded when absent; editor sessions bind the site/path/revision;
+  navigation invalidates pending reads, clears stale rows, and disables folder
+  actions while loading; inventory failures preserve the distinction between
+  unavailable and empty.
+- Exact-source browser E2E and accessibility job passed in
+  [CI run 44699909154](https://github.com/cyberducttape/StePanel/actions/runs/44699909154).
+  It includes the account-owner workspace, page-error assertions, delayed
+  cross-site read, stale folder navigation, and verification that no write is
+  sent to the newly selected site. Local `npm run test:unit` passed 17/17.
+- The installed-host smoke and current 500-site KVM profile for this commit
+  were still running at review time; no host-readiness or capacity conclusion
+  is drawn from the UI result. Production remains **NO-GO** pending the open
+  release gates in [`docs/V1_PRODUCTION_GATES.md`](docs/V1_PRODUCTION_GATES.md).
+
 ## Review exact-source 500-site capacity failure — 2026-11-20
 
 - Confirmed run [44686066350](https://github.com/cyberducttape/StePanel/actions/runs/44686066350)
