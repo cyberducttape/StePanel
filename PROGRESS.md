@@ -1,5 +1,20 @@
 # Production-readiness progress
 
+## Investigate 500-site capacity profile failure — 2026-11-20
+
+- Reviewed the Rocky Linux 9 KVM profile [44663139216](https://github.com/cyberducttape/StePanel/actions/runs/44663139216)
+  and its report, capacity log, installation log, and guest console. Boot and
+  installation passed; the 500-site capacity phase failed with 202 non-success
+  HTTPS responses out of 9,829 and long p99 tails. Both 512 MiB backups
+  completed within 40 seconds; measured admin APIs and SQLite lock-error count
+  were healthy. The artifact does not retain response details, so the 202
+  responses have not been attributed to a product or workload cause.
+- Added a source-labeled evidence report at
+  [`2026-11-20-capacity-large-3f2580b.md`](docs/lab-results/2026-11-20-capacity-large-3f2580b.md)
+  and improved `capacity-profile.py` to retain bounded response status counts,
+  failure samples, and connection diagnostics. A rerun is required; no 500-site
+  capacity certification is claimed.
+
 ## Extend immutable tenant binding to backup and termination jobs — 2026-11-20
 
 - Backup create, scheduled backup, backup restore, scheduled/manual recovery

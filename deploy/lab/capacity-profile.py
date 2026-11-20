@@ -39,6 +39,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import Counter
 
 PANEL = os.environ.get("PANEL", "http://127.0.0.1:8090")
 USER = os.environ.get("STEPANEL_ADMIN_USERNAME", "admin")
@@ -126,8 +127,9 @@ def failure_detail(body):
 
 
 def site_get(domain):
-    """GET / from the site through the local web server; returns (status, seconds)."""
+    """GET / through the local web server; return status, duration, and bounded response detail."""
     started = time.perf_counter()
+    captured = bytearray()
     try:
         context = ssl.create_default_context()
         context.check_hostname = False
@@ -135,13 +137,25 @@ def site_get(domain):
         with socket.create_connection(("127.0.0.1", 443), timeout=15) as raw:
             with context.wrap_socket(raw, server_hostname=domain) as tls:
                 tls.sendall(f"GET / HTTP/1.1\r\nHost: {domain}\r\nConnection: close\r\n\r\n".encode())
-                head = tls.recv(64)
-                while tls.recv(65536):
+                while len(captured) < 4096 and b"\r\n" not in captured:
+                    chunk = tls.recv(4096 - len(captured))
+                    if not chunk:
+                        break
+                    captured.extend(chunk)
+                while len(captured) < 1024:
+                    chunk = tls.recv(min(65536, 1024 - len(captured)))
+                    if not chunk:
+                        break
+                    captured.extend(chunk)
+                for _ in iter(lambda: tls.recv(65536), b""):
                     pass
-        status = int(head.split(b" ", 2)[1])
-    except Exception:
+        first_line = bytes(captured).split(b"\r\n", 1)[0]
+        status = int(first_line.split(b" ", 2)[1])
+        detail = bytes(captured).decode(errors="replace")[:512]
+    except Exception as error:
         status = 0
-    return status, time.perf_counter() - started
+        detail = f"{type(error).__name__}: {error}; response={bytes(captured).decode(errors='replace')[:400]}"
+    return status, time.perf_counter() - started, detail
 
 
 def percentile(values, p):
@@ -282,15 +296,19 @@ def main():
     sampler = Sampler(stop)
     sampler.start()
     lock = threading.Lock()
-    site_results, admin_results, admin_failures = [], {}, []
+    site_results, site_failures, admin_results, admin_failures = [], [], {}, []
     measurement_started = time.time()
     heavy_window = [None, None]
 
     def site_client():
         while not stop.is_set():
-            status, seconds = site_get(random.choice(domains))
+            domain = random.choice(domains)
+            status, seconds, detail = site_get(domain)
             with lock:
                 site_results.append((time.time(), status, seconds))
+                if not 200 <= status < 400 and len(site_failures) < 50:
+                    site_failures.append({"t": round(time.time() - measurement_started, 1), "domain": domain,
+                                          "status": status, "latency_ms": round(seconds * 1000, 1), "detail": detail})
 
     def admin_probe():
         probe = Panel()
@@ -360,6 +378,8 @@ def main():
         "site_requests": {
             "total": len(site_results),
             "errors": sum(1 for (_, status, _) in site_results if not 200 <= status < 400),
+            "status_counts": dict(sorted(Counter(status for (_, status, _) in site_results).items())),
+            "error_samples": site_failures,
             "baseline": summarize(window(site_results, False)),
             "during_heavy": summarize(window(site_results, True)),
         },
@@ -403,6 +423,10 @@ def main():
     for key, values in report["resources"].items():
         print(f"| {key} | {values['mean']} | {values['max']} |")
     print(f"\nMinimum available memory: {report['min_mem_available_mib']} MiB. Control-plane database-lock errors in the panel and worker journals: {lock_error_count}.")
+    if site_failures:
+        print("\nSite HTTP failures (first 20):")
+        for failure in site_failures[:20]:
+            print(f"- t={failure['t']}s {failure['domain']} HTTP {failure['status']} ({failure['latency_ms']} ms): {failure['detail'][:300].replace('|', '/')}")
     if admin_failures:
         print("\n| Admin failure at s | Path | Status | Detail |")
         print("| ---: | --- | ---: | --- |")

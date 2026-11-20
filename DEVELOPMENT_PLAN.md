@@ -960,7 +960,14 @@ visibility of undelivered/dead-letter events.
 
 ### M4 — Publish a measured capacity envelope (P0)
 
-**Status:** Open; current figures are targets, not claims.
+**Status:** Open; current figures are targets, not claims. The Rocky Linux 9
+large profile [44663139216](https://github.com/cyberducttape/StePanel/actions/runs/44663139216)
+seeded 500 sites and completed two heavy backups, but failed because 202 of
+9,829 HTTPS site requests were non-success responses and site p99 latency
+reached 8–11 seconds. The artifact did not retain response details. See
+[`the reviewed result`](docs/lab-results/2026-11-20-capacity-large-3f2580b.md).
+The capacity probe is being improved to capture bounded failure evidence;
+rerun and remediation are required before the target can be published.
 
 Benchmark a named supported host with representative PHP traffic, databases,
 backups, migrations, and control-plane reads/writes. Measure CPU/RAM, disk and
