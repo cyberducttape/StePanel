@@ -52,15 +52,15 @@ func (s AuthorizedSite) sealedSiteCapability() {}
 // authorized for a site at execution time (not just at enqueue). Obtained
 // only from authorizeDurableSiteJob on success.
 type AuthorizedDurableSite struct {
-	site string
+	site     string
+	tenantID string
 }
 
 // Site returns the authorized site name.
 func (s AuthorizedDurableSite) Site() string { return s.site }
 
-// TenantID reports no HTTP tenant claim; durable jobs currently authorize
-// their actor separately at execution time.
-func (s AuthorizedDurableSite) TenantID() string { return "" }
+// TenantID reports the tenant whose ownership was verified for this job.
+func (s AuthorizedDurableSite) TenantID() string { return s.tenantID }
 
 // sealedSiteCapability marks this as a SiteCapability and prevents external
 // implementations.

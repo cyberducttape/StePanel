@@ -44,6 +44,40 @@ func TestQueuedNodeDeploymentStopsWhenQueuingTokenIsRevoked(t *testing.T) {
 	}
 }
 
+func TestQueuedNodeDeploymentCannotFollowSiteToAnotherTenant(t *testing.T) {
+	app, _ := newSiteOperationFixture(t, http.StatusOK, `{}`)
+	accounts := &AccountStore{accounts: map[string]HostingAccount{
+		"tenant-a": {Username: "tenant-a", Plan: "professional", Sites: []string{"shop"}},
+		"tenant-b": {Username: "tenant-b", Plan: "professional"},
+		"customer": {Username: "customer", TenantID: "tenant-a", Role: "owner", Plan: "professional"},
+	}}
+	app.Accounts = accounts
+	app.Auth.Accounts = accounts
+	allowed := map[string]bool{"site:deploy": true}
+	token, _, err := app.APITokens.createScoped("customer", "deployment", nil, []string{"site:deploy"}, allowed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := tokenRequest(http.MethodPost, "/api/node/deploy", `{"site":"shop","domain":"shop.example.com","node_version":"20.1.0","port":3000,"backend":"http://127.0.0.1:3001"}`, "customer", "site:deploy")
+	request = request.WithContext(context.WithValue(request.Context(), apiTokenIDKey{}, token.ID))
+	response := httptest.NewRecorder()
+	app.startNodeDeployment(response, request)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("queue status = %d, body %s", response.Code, response.Body.String())
+	}
+
+	accounts.accounts["tenant-a"] = HostingAccount{Username: "tenant-a", Plan: "professional"}
+	accounts.accounts["tenant-b"] = HostingAccount{Username: "tenant-b", Plan: "professional", Sites: []string{"shop"}}
+	accounts.accounts["customer"] = HostingAccount{Username: "customer", TenantID: "tenant-b", Role: "owner", Plan: "professional"}
+	item, claimed, err := app.Jobs.ClaimNext("node-worker", "node.deployment")
+	if err != nil || !claimed {
+		t.Fatalf("claim Node deployment: claimed=%v err=%v", claimed, err)
+	}
+	if _, err := app.handleNodeDeploymentJob(context.Background(), item); err == nil || !strings.Contains(err.Error(), "ownership changed") {
+		t.Fatalf("worker error = %v, want tenant ownership change refusal", err)
+	}
+}
+
 func TestNodeDeploymentRecoveryRestoresSnapshotAtEveryStepCheckpoint(t *testing.T) {
 	stages := []string{
 		"prepared",

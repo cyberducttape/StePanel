@@ -100,9 +100,11 @@ type siteOperationCommand struct {
 // siteOperationPrincipal is the durable authorization context for a command.
 // It carries identity and current token policy, never an HTTP request object.
 type siteOperationPrincipal struct {
-	Actor  string
-	Token  bool
-	Scopes []string
+	Actor       string
+	Token       bool
+	Scopes      []string
+	TenantID    string
+	TenantBound bool
 	// Webhook is the signed-site authorization of a webhook delivery,
 	// rebuilt from the current webhook configuration when the job starts.
 	Webhook *authenticatedWebhook
@@ -139,16 +141,18 @@ func siteFromPath(prefix string) func(string, []byte) string {
 }
 
 type siteOperationPayload struct {
-	Operation string   `json:"operation"`
-	Path      string   `json:"path"`
-	Query     string   `json:"query,omitempty"`
-	Body      []byte   `json:"body,omitempty"`
-	Site      string   `json:"site"`
-	Actor     string   `json:"actor,omitempty"`
-	Token     bool     `json:"token,omitempty"`
-	TokenID   string   `json:"token_id,omitempty"`
-	Scopes    []string `json:"scopes,omitempty"`
-	Webhook   bool     `json:"webhook,omitempty"`
+	Operation   string   `json:"operation"`
+	Path        string   `json:"path"`
+	Query       string   `json:"query,omitempty"`
+	Body        []byte   `json:"body,omitempty"`
+	Site        string   `json:"site"`
+	Actor       string   `json:"actor,omitempty"`
+	TenantID    string   `json:"tenant_id,omitempty"`
+	TenantBound bool     `json:"tenant_bound,omitempty"`
+	Token       bool     `json:"token,omitempty"`
+	TokenID     string   `json:"token_id,omitempty"`
+	Scopes      []string `json:"scopes,omitempty"`
+	Webhook     bool     `json:"webhook,omitempty"`
 	// WebhookGeneration is the webhook secret generation that authenticated
 	// a queued delivery (never the secret itself).
 	WebhookGeneration int64 `json:"webhook_generation,omitempty"`
@@ -256,7 +260,8 @@ func (a *App) siteOperation(name string) http.HandlerFunc {
 				return
 			}
 		}
-		if _, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", http.StatusForbidden); !ok {
+		access, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", http.StatusForbidden)
+		if !ok {
 			return
 		}
 		if route.scope != "" && !a.requireCustomerScope(w, r, route.scope) {
@@ -276,6 +281,8 @@ func (a *App) siteOperation(name string) http.HandlerFunc {
 			Body:          body,
 			Site:          site,
 			Actor:         actor,
+			TenantID:      access.TenantID(),
+			TenantBound:   a.Accounts != nil,
 			Token:         a.Auth.IsAPITokenRequest(r),
 			TokenID:       a.Auth.APITokenID(r),
 			Scopes:        scopes,
@@ -332,7 +339,7 @@ func (a *App) handleSiteOperationJob(ctx context.Context, item Job) ([]byte, err
 	}
 	operationCtx, cancel := context.WithTimeout(ctx, deadline)
 	defer cancel()
-	principal := siteOperationPrincipal{Actor: payload.Actor, Token: payload.Token, Scopes: append([]string(nil), payload.Scopes...)}
+	principal := siteOperationPrincipal{Actor: payload.Actor, Token: payload.Token, Scopes: append([]string(nil), payload.Scopes...), TenantID: payload.TenantID, TenantBound: payload.TenantBound}
 	switch {
 	case payload.Webhook:
 		// Re-read the webhook policy: a secret or allowlist revoked while the
@@ -369,6 +376,21 @@ func (a *App) handleSiteOperationJob(ctx context.Context, item Job) ([]byte, err
 		principal.Scopes = append([]string(nil), token.Scopes...)
 	case payload.Actor != "":
 		if err := a.revalidateQueuedSession(payload.Actor, payload.queuedSession); err != nil {
+			return nil, err
+		}
+	}
+	if payload.Webhook && a.Accounts != nil && !payload.TenantBound {
+		return nil, doNotRetry(errors.New("legacy webhook job has no immutable tenant binding; ask the sender to redeliver"))
+	}
+	if !payload.Webhook && !payload.TenantBound && payload.Actor != a.Auth.Username {
+		return nil, doNotRetry(errors.New("legacy customer job has no immutable tenant binding; submit the operation again"))
+	}
+	if payload.TenantBound {
+		if payload.Webhook {
+			if _, err := a.authorizeDurableSiteJobForTenant(payload.Site, a.Auth.Username, payload.TenantID, true, true); err != nil {
+				return nil, fmt.Errorf("webhook site ownership changed before execution: %w", err)
+			}
+		} else if _, err := a.authorizeDurableSiteJobForTenant(payload.Site, principal.Actor, payload.TenantID, true, false); err != nil {
 			return nil, err
 		}
 	}

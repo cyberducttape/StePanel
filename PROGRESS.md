@@ -1,5 +1,29 @@
 # Production-readiness progress
 
+## Bind queued site mutations to their admitting tenant — 2026-11-20
+
+- Site-operation and Node-deployment admission now stores the site tenant ID
+  in the encrypted job payload. Workers compare it with durable current site
+  ownership and the actor's current tenant before invoking a typed executor;
+  Node deployment repeats the check after acquiring its site mutation lock.
+  Signed webhook deployments also retain and verify the tenant snapshot when
+  account ownership is configured.
+- Jobs from a prior payload contract that lack tenant binding cannot be
+  executed as customer mutations; interrupted operations may still enter their
+  recovery path. The durable worker protocol version advanced from 2 to 3 so
+  an older worker cannot accept the new job contract.
+- Regression tests transfer both a member and site between tenants after
+  enqueue, and verify that site-operation and Node-deployment workers refuse
+  the old job while the authorization helper accepts a newly queued job for
+  the new tenant.
+- Verification on this worktree: focused authorization/site-operation/Node
+  tests passed; focused race tests passed; `go vet ./...` passed; full `make
+  check` passed, including API artifact checks, shell contracts, vet, and all
+  Go packages. This is local evidence only; hosted exact-source CI is pending.
+- Remaining M0i work includes binding the other durable job kinds and
+  installed-host tests proving detached package/build descendants remain
+  contained by their transient systemd cgroups.
+
 ## Exact-source CI, KVM crash recovery, and N-1 upgrade results — 2026-11-20
 
 - Exact-source CI integration [44665400225](https://github.com/cyberducttape/StePanel/actions/runs/44665400225) passed 2/2 jobs on `8556e9fe`: full Go tests and coverage floors, race tests, repository recovery and tmpfs ENOSPC drills, MySQL restore/ENOSPC/server-kill checks, PostgreSQL restore privilege checks, security/static scans, container/Helm/Terraform validation, and browser E2E. Browser E2E passed 24 tests with one skipped test; the seeded customer journey exercised WordPress form startup, inventory retry, delayed cross-site editor response, and refusal to write to the newly selected site. CodeQL passed on the same source.

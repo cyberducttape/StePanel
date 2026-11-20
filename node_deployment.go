@@ -20,14 +20,16 @@ import (
 )
 
 type nodeDeploymentRequest struct {
-	Site    string `json:"site"`
-	Domain  string `json:"domain"`
-	Version string `json:"node_version"`
-	Port    int    `json:"port"`
-	Backend string `json:"backend"`
-	Actor   string `json:"actor"`
-	Token   bool   `json:"token,omitempty"`
-	TokenID string `json:"token_id,omitempty"`
+	Site        string `json:"site"`
+	Domain      string `json:"domain"`
+	Version     string `json:"node_version"`
+	Port        int    `json:"port"`
+	Backend     string `json:"backend"`
+	Actor       string `json:"actor"`
+	TenantID    string `json:"tenant_id,omitempty"`
+	TenantBound bool   `json:"tenant_bound,omitempty"`
+	Token       bool   `json:"token,omitempty"`
+	TokenID     string `json:"token_id,omitempty"`
 	queuedSession
 	Stage    string                  `json:"stage,omitempty"`
 	Snapshot *nodeDeploymentSnapshot `json:"recovery_snapshot,omitempty"`
@@ -83,9 +85,12 @@ func (a *App) startNodeDeployment(w http.ResponseWriter, r *http.Request) {
 		writePublicError(w, r, http.StatusUnprocessableEntity, publicError("invalid_backend", "the deployment backend is invalid", err))
 		return
 	}
-	if _, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", http.StatusForbidden); !ok {
+	access, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", http.StatusForbidden)
+	if !ok {
 		return
 	}
+	input.TenantID = access.TenantID()
+	input.TenantBound = a.Accounts != nil
 	if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
 		http.Error(w, "insufficient token scope for deployment", http.StatusForbidden)
 		return
@@ -126,7 +131,7 @@ func (a *App) handleNodeDeploymentJob(ctx context.Context, item Job) ([]byte, er
 	if err := json.Unmarshal(item.Payload, &input); err != nil {
 		return nil, fmt.Errorf("decode node deployment: %w", err)
 	}
-	if _, err := a.authorizeDurableSiteJob(input.Site, input.Actor, false); err != nil {
+	if _, err := a.authorizeDurableSiteJobForTenant(input.Site, input.Actor, input.TenantID, input.TenantBound, false); err != nil {
 		return nil, err
 	}
 	principal, err := a.nodeDeploymentPrincipal(input)
@@ -150,6 +155,18 @@ func (a *App) handleNodeDeploymentJob(ctx context.Context, item Job) ([]byte, er
 		}
 		// A revoked token may still need its already-started partial deployment
 		// compensated, but must not authorize starting it again.
+		principal, err = a.nodeDeploymentPrincipal(input)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if input.Stage != "completed" {
+		if !input.TenantBound && input.Actor != a.Auth.Username {
+			return nil, doNotRetry(errors.New("legacy customer deployment has no immutable tenant binding; submit the deployment again"))
+		}
+		if _, err := a.authorizeDurableSiteJobForTenant(input.Site, input.Actor, input.TenantID, input.TenantBound, false); err != nil {
+			return nil, err
+		}
 		principal, err = a.nodeDeploymentPrincipal(input)
 		if err != nil {
 			return nil, err

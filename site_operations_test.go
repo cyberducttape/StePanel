@@ -136,6 +136,34 @@ func TestDifferentSiteOperationsWithoutIdempotencyKeyAreBothQueued(t *testing.T)
 	}
 }
 
+func TestQueuedSiteOperationCannotFollowSiteToAnotherTenant(t *testing.T) {
+	app, observed := newSiteOperationFixture(t, http.StatusOK, `executed`)
+	app.Accounts = &AccountStore{accounts: map[string]HostingAccount{
+		"tenant-a": {Username: "tenant-a", Plan: "professional", Sites: []string{"shop"}},
+		"tenant-b": {Username: "tenant-b", Plan: "professional"},
+	}}
+	payload, err := json.Marshal(siteOperationPayload{
+		Operation: "test.echo", Path: "/api/test/echo", Site: "shop", Actor: "admin",
+		TenantID: "tenant-a", TenantBound: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.Jobs.Enqueue(siteOperationKind, "shop", "", payload, 1); err != nil {
+		t.Fatal(err)
+	}
+	// The site changes tenants while the job waits in the durable queue.
+	app.Accounts.accounts["tenant-a"] = HostingAccount{Username: "tenant-a", Plan: "professional"}
+	app.Accounts.accounts["tenant-b"] = HostingAccount{Username: "tenant-b", Plan: "professional", Sites: []string{"shop"}}
+	item := claimSiteOperation(t, app)
+	if _, err := app.handleSiteOperationJob(context.Background(), item); err == nil || !strings.Contains(err.Error(), "ownership changed") {
+		t.Fatalf("queued operation error = %v, want tenant ownership change refusal", err)
+	}
+	if observed.username != "" {
+		t.Fatal("typed operation executed after its site was reassigned")
+	}
+}
+
 // A long operation is queued instead of run in the request, then replayed by
 // the worker as the original requester with the original body.
 func TestSiteOperationQueuesAndExecutesAsTheRequester(t *testing.T) {

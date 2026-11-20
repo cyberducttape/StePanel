@@ -1094,7 +1094,18 @@ func (a *App) gitWebhook(w http.ResponseWriter, r *http.Request) {
 	//
 	// Record the secret generation this delivery was authenticated under; the
 	// worker refuses it if the secret was rotated while it was queued.
-	payload, err := json.Marshal(siteOperationPayload{Operation: "git.deploy", Path: "/api/sites/git-deploy", Body: body, Site: site, Actor: "webhook", Webhook: true, WebhookGeneration: config.SecretGeneration})
+	tenantID := ""
+	if a.Accounts != nil {
+		owner, owned, ownerErr := a.Accounts.OwnerOfSiteWithError(site)
+		if ownerErr != nil {
+			http.Error(w, "site ownership state is temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if owned {
+			tenantID = owner
+		}
+	}
+	payload, err := json.Marshal(siteOperationPayload{Operation: "git.deploy", Path: "/api/sites/git-deploy", Body: body, Site: site, Actor: "webhook", TenantID: tenantID, TenantBound: a.Accounts != nil, Webhook: true, WebhookGeneration: config.SecretGeneration})
 	if err != nil {
 		http.Error(w, "could not encode operation", http.StatusInternalServerError)
 		return

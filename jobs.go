@@ -52,20 +52,45 @@ const (
 // an AuthorizedDurableSite capability that can be passed to data-access
 // functions expecting SiteCapability.
 func (a *App) authorizeDurableSiteJob(site, actor string, scheduled bool) (AuthorizedDurableSite, error) {
+	return a.authorizeDurableSiteJobForTenant(site, actor, "", false, scheduled)
+}
+
+// authorizeDurableSiteJobForTenant binds queued work to the tenant that owned
+// the site when it was admitted. Ownership is checked again immediately before
+// execution so transferring both an account and site cannot re-authorize an
+// old job under a different tenant.
+func (a *App) authorizeDurableSiteJobForTenant(site, actor, tenantID string, tenantBound, scheduled bool) (AuthorizedDurableSite, error) {
 	if safeUser(site) == "" || strings.TrimSpace(actor) == "" {
 		return AuthorizedDurableSite{}, errors.New("durable site job has invalid ownership data")
 	}
-	if scheduled || actor == a.Auth.Username {
-		return AuthorizedDurableSite{site: site}, nil
-	}
 	if a.Accounts == nil {
+		if scheduled || actor == a.Auth.Username {
+			if tenantBound {
+				return AuthorizedDurableSite{}, errors.New("durable job tenant ownership is unavailable")
+			}
+			return AuthorizedDurableSite{site: site}, nil
+		}
 		return AuthorizedDurableSite{}, errors.New("tenant ownership state is unavailable")
 	}
-	_, ok := a.Accounts.Get(actor)
-	if !ok || a.Accounts.TenantSuspended(actor) || !a.Accounts.OwnsSite(actor, site) {
+	owner, owned, err := a.Accounts.OwnerOfSiteWithError(site)
+	if err != nil {
+		return AuthorizedDurableSite{}, fmt.Errorf("read durable site ownership: %w", err)
+	}
+	currentTenant := ""
+	if owned {
+		currentTenant = owner
+	}
+	if tenantBound && currentTenant != tenantID {
+		return AuthorizedDurableSite{}, errors.New("site tenant ownership changed after the durable job was queued")
+	}
+	if scheduled || actor == a.Auth.Username {
+		return AuthorizedDurableSite{site: site, tenantID: currentTenant}, nil
+	}
+	account, ok := a.Accounts.Get(actor)
+	if !ok || a.Accounts.TenantSuspended(actor) || accountTenantID(account) != currentTenant || !a.Accounts.OwnsSite(actor, site) {
 		return AuthorizedDurableSite{}, errors.New("durable job actor no longer owns the site")
 	}
-	return AuthorizedDurableSite{site: site}, nil
+	return AuthorizedDurableSite{site: site, tenantID: currentTenant}, nil
 }
 
 const maxJobStateBytes = 16 << 20
@@ -73,7 +98,7 @@ const maxJobStateBytes = 16 << 20
 // DurableJobProtocolVersion changes whenever the durable payload or worker
 // execution contract becomes incompatible. It is persisted in heartbeats so
 // deployments can reject mixed worker/control-plane protocols explicitly.
-const durableJobProtocolVersion = 2
+const durableJobProtocolVersion = 3
 
 func nullString(value string) any {
 	if value == "" {

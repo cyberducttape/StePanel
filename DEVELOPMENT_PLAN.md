@@ -739,11 +739,15 @@ record and must never trigger mutation replay.
 ### M0i — Require tenant capabilities at file access and contain package code (P1)
 
 **Status:** Partially implemented locally. File-store capability checks and
-package-command cgroup routing are in place. Durable job tenant snapshots and
-installed-host cgroup behavior remain open acceptance items. The root broker
-now independently checks customer file requests against the durable
-site-to-tenant table before resolving the placed Unix account or invoking the
-privileged file helper.
+package-command cgroup routing are in place. Site-operation and Node-deployment
+jobs now persist the tenant that owned the site at admission, recheck the same
+tenant before execution, and reject legacy customer jobs without that binding;
+the durable-job protocol version was advanced to reject older workers. Focused
+reassignment regressions, `go vet ./...`, and `make check` pass locally. Other
+durable job kinds and installed-host cgroup behavior remain open acceptance
+items. The root broker independently checks customer file requests against the
+durable site-to-tenant table before resolving the placed Unix account or
+invoking the privileged file helper.
 
 The site file-store API now accepts a `SiteAccess` capability rather than a
 site-name string. The customer route passes the capability returned by the

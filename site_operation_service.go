@@ -82,7 +82,7 @@ func (d durableSiteRequester) administrator() bool {
 }
 
 func (d durableSiteRequester) siteAccess(site string) (SiteCapability, bool) {
-	access, err := d.a.authorizeDurableSiteJob(site, d.principal.Actor, false)
+	access, err := d.a.authorizeDurableSiteJobForTenant(site, d.principal.Actor, d.principal.TenantID, d.principal.TenantBound, false)
 	if err != nil {
 		TelemetryAudit(d.a.Config.AuditLog, d.principal.Actor, "tenant.access_denied", site, "site operation "+d.operation)
 		return nil, false
@@ -91,7 +91,7 @@ func (d durableSiteRequester) siteAccess(site string) (SiteCapability, bool) {
 }
 
 func (d durableSiteRequester) canAccess(site string) bool {
-	_, err := d.a.authorizeDurableSiteJob(site, d.principal.Actor, false)
+	_, err := d.a.authorizeDurableSiteJobForTenant(site, d.principal.Actor, d.principal.TenantID, d.principal.TenantBound, false)
 	return err == nil
 }
 
