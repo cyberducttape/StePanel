@@ -110,11 +110,16 @@ HTTP proof (RTO 5.022 s). The six-host smoke 44729127788 completed
 successfully on all six hosts on code-equivalent source `059ba72e`; see the
 [reviewed result](./lab-results/2026-11-20-six-host-install-smoke-059ba72.md).
 The run included one recovery matrix, package cgroup containment,
-file-manager smoke, and WordPress HTTP proof (RTO 4.588–6.866 s). The six-host 20-repeat cohort
-44725816245, current-source KVM abrupt-loss drill 44731756198, and 500-site
-profile 44725885994 remain active; none closes its gate before full result and
-artifact review. Exact-source CI, browser E2E, and CodeQL passed in evidence
-run 44727737839. Production remains **NO-GO**.
+file-manager smoke, and WordPress HTTP proof (RTO 4.588–6.866 s). The six-host
+20-repeat cohort 44725816245 and current-source KVM abrupt-loss drill
+44731756198 remain active; neither closes its gate before the complete cohort
+and artifact review. The 500-site profile 44725885994 completed and failed:
+196/9,658 customer HTTPS requests timed out before the first response byte,
+while the panel API stayed responsive and both heavy backups completed. Its
+source `f464f79d` predates current `main`; the [reviewed report](./lab-results/2026-11-20-capacity-large-f464f79.md)
+does not certify capacity or identify the request-path cause. Exact-source CI,
+browser E2E, and CodeQL passed in evidence run 44727737839. Production remains
+**NO-GO**.
 
 | Requirement | Current status | Evidence / remaining work |
 |-------------|----------------|---------------------------|

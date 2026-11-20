@@ -180,6 +180,51 @@ class CapacityProbeTest(unittest.TestCase):
             [0.03],
         )
 
+    def test_window_status_counts_include_failures_for_each_window(self):
+        results = [
+            (10, 200, 0.1, {}),
+            (15, 0, 15.0, {}),
+            (20, 503, 0.2, {}),
+            (30, 200, 0.3, {}),
+        ]
+        baseline = capacity_profile.window_status_counts(results, False, 20, 25)
+        heavy = capacity_profile.window_status_counts(results, True, 20, 25)
+        self.assertEqual(baseline["requests"], 3)
+        self.assertEqual(baseline["errors"], 1)
+        self.assertEqual(baseline["status_counts"], {0: 1, 200: 2})
+        self.assertEqual(heavy["requests"], 1)
+        self.assertEqual(heavy["errors"], 1)
+        self.assertEqual(heavy["status_counts"], {503: 1})
+
+    def test_failed_site_runtime_diagnostic_is_site_scoped_and_reports_missing_data(self):
+        body = "\n".join([
+            'stepanel_site_fpm_probe_up{site="cap-001"} 1',
+            'stepanel_site_fpm_saturated{site="cap-001",php_version="8.4"} 1',
+            'stepanel_site_fpm_active_workers{site="cap-001",php_version="8.4"} 3',
+            'stepanel_site_fpm_active_workers{site="cap-001",php_version="8.3"} 2',
+            'stepanel_site_fpm_listen_queue{site="cap-001",php_version="8.4"} 4',
+            'stepanel_site_fpm_slow_requests{site="cap-001",php_version="8.4"} 7',
+            'stepanel_site_fpm_sample_timestamp_seconds{site="cap-001"} 900',
+            'stepanel_site_resource_cpu_quota_utilization_percent{site="cap-001"} 80',
+            'stepanel_site_resource_memory_current_bytes{site="cap-001"} 75',
+            'stepanel_site_resource_memory_max_bytes{site="cap-001"} 100',
+            'stepanel_site_fpm_probe_up{site="cap-002"} 0',
+        ])
+        details = capacity_profile.parse_site_runtime_diagnostic(
+            body, "cap-001", now=1000)
+        self.assertEqual(details["fpm_probe_up"], 1)
+        self.assertTrue(details["fpm_saturated"])
+        self.assertEqual(details["fpm_active_workers"], 5)
+        self.assertEqual(details["fpm_listen_queue"], 4)
+        self.assertEqual(details["fpm_slow_requests"], 7)
+        self.assertEqual(details["cpu_quota_utilization_pct"], 80)
+        self.assertEqual(details["memory_limit_utilization_pct"], 75)
+        self.assertEqual(details["fpm_sample_age_s"], 100)
+        self.assertEqual(
+            capacity_profile.parse_site_runtime_diagnostic(body, "cap-003"),
+            {"site": "cap-003", "sampled": False},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -226,6 +226,58 @@ def window_latencies(results, inside, begin, end):
             if 200 <= row[1] < 400 and ((begin <= row[0] <= end) == inside)]
 
 
+def window_status_counts(results, inside, begin, end):
+    """Count successful and failed requests in one measurement window."""
+    selected = [row for row in results
+                if ((begin <= row[0] <= end) == inside)]
+    return {
+        "requests": len(selected),
+        "errors": sum(not 200 <= row[1] < 400 for row in selected),
+        "status_counts": dict(sorted(Counter(row[1] for row in selected).items())),
+    }
+
+
+def parse_site_runtime_diagnostic(body, site_name, now=None):
+    """Return bounded FPM and resource evidence for one site from /metrics."""
+    if isinstance(body, bytes):
+        body = body.decode(errors="replace")
+    now = time.time() if now is None else now
+    values = {}
+    for line in body.splitlines():
+        match = SITE_METRIC.match(line)
+        if not match:
+            continue
+        metric, labels, raw_value = match.groups()
+        site = SITE_LABEL.search(labels)
+        if not site or site.group(1) != site_name:
+            continue
+        try:
+            value = float(raw_value)
+        except ValueError:
+            continue
+        values.setdefault(metric, []).append(value)
+    if not values:
+        return {"site": site_name, "sampled": False}
+
+    timestamps = values.get("stepanel_site_fpm_sample_timestamp_seconds", [])
+    memory = list(zip(values.get("stepanel_site_resource_memory_current_bytes", []),
+                      values.get("stepanel_site_resource_memory_max_bytes", [])))
+    memory_pct = [100 * current / limit for current, limit in memory if limit > 0]
+    return {
+        "site": site_name,
+        "sampled": True,
+        "fpm_probe_up": max(values.get("stepanel_site_fpm_probe_up", []), default=None),
+        "fpm_saturated": any(v != 0 for v in values.get("stepanel_site_fpm_saturated", [])),
+        "fpm_active_workers": sum(values.get("stepanel_site_fpm_active_workers", [])),
+        "fpm_listen_queue": sum(values.get("stepanel_site_fpm_listen_queue", [])),
+        "fpm_slow_requests": sum(values.get("stepanel_site_fpm_slow_requests", [])),
+        "cpu_quota_utilization_pct": max(
+            values.get("stepanel_site_resource_cpu_quota_utilization_percent", []), default=None),
+        "memory_limit_utilization_pct": round(max(memory_pct), 1) if memory_pct else None,
+        "fpm_sample_age_s": round(max(0, now - max(timestamps)), 1) if timestamps else None,
+    }
+
+
 def create_site(panel, name, domain):
     status, created = panel.call("POST", "/api/sites", {"site": name, "template": "php"})
     if status != 202:
@@ -431,6 +483,7 @@ def main():
     lock = threading.Lock()
     site_results, site_failures, admin_results, admin_failures = [], [], {}, []
     runtime_metric_samples = []
+    latest_runtime_metrics = {"sampled_at": None, "body": None}
     measurement_started = time.time()
     heavy_window = [None, None]
 
@@ -438,6 +491,16 @@ def main():
         while not stop.is_set():
             domain = random.choice(domains)
             status, seconds, detail, timings = site_get(domain)
+            runtime_evidence = None
+            if not 200 <= status < 400:
+                with lock:
+                    metrics_body = latest_runtime_metrics["body"]
+                    metrics_sampled_at = latest_runtime_metrics["sampled_at"]
+                if metrics_body is not None:
+                    runtime_evidence = parse_site_runtime_diagnostic(
+                        metrics_body, domain.split(".", 1)[0], now=time.time())
+                    runtime_evidence["scrape_age_s"] = round(
+                        time.time() - metrics_sampled_at, 1)
             with lock:
                 site_results.append((time.time(), status, seconds, timings))
                 if not 200 <= status < 400 and len(site_failures) < 50:
@@ -446,6 +509,7 @@ def main():
                                           "failed_phase": timings["failed_phase"],
                                           "phase_ms": {key: round(value * 1000, 1) if value is not None else None
                                                        for key, value in timings.items() if key.endswith("_s")},
+                                          "runtime_evidence": runtime_evidence,
                                           "detail": detail})
 
     def admin_probe():
@@ -475,6 +539,9 @@ def main():
                           "latency_ms": round((time.perf_counter() - metrics_started) * 1000, 1)}
                 if status == 200:
                     sample["metrics"] = parse_site_runtime_metrics(body)
+                    with lock:
+                        latest_runtime_metrics["sampled_at"] = time.time()
+                        latest_runtime_metrics["body"] = body
                 else:
                     sample["detail"] = failure_detail(body)
                 with lock:
@@ -554,6 +621,10 @@ def main():
             "error_samples": site_failures,
             "baseline": summarize(window(site_results, False)),
             "during_heavy": summarize(window(site_results, True)),
+            "baseline_outcomes": window_status_counts(
+                site_results, False, *heavy_window),
+            "during_heavy_outcomes": window_status_counts(
+                site_results, True, *heavy_window),
             "phase_latency_baseline": summarize_phases(phase_window(site_results, False)),
             "phase_latency_during_heavy": summarize_phases(phase_window(site_results, True)),
         },
@@ -591,7 +662,10 @@ def main():
     for name, data in rows:
         for label in ("baseline", "during_heavy"):
             stats = data[label]
-            print(f"| {name} | {label.replace('_', ' ')} | {stats['count']} | {stats['p50_ms']} | {stats['p95_ms']} | {stats['p99_ms']} | {stats['max_ms']} | {data['errors'] if label == 'baseline' else ''} |")
+            outcomes = window_status_counts(
+                site_results if name == "site pages" else admin_results[name],
+                label == "during_heavy", *heavy_window)
+            print(f"| {name} | {label.replace('_', ' ')} | {stats['count']} | {stats['p50_ms']} | {stats['p95_ms']} | {stats['p99_ms']} | {stats['max_ms']} | {outcomes['errors']} |")
     print("\n| Heavy operation | State | Queue wait s | Duration s |")
     print("| --- | --- | ---: | ---: |")
     for job in report["heavy_operations"]:

@@ -1,5 +1,34 @@
 # Production-readiness progress
 
+## Investigate 500-site KVM capacity failure — 2026-11-20
+
+- Reviewed the completed Rocky Linux 9 profile
+  [44725885994](https://github.com/cyberducttape/StePanel/actions/runs/44725885994)
+  and its uploaded report, JSON, capacity log, installation log, and guest
+  console. Boot and installation passed; the 500-site, eight-client HTTPS
+  phase failed with 196 first-byte timeouts among 9,658 site requests (2.03%).
+  Both 512 MiB backup jobs completed in 22.1/40.7 seconds. `/api/sites` and
+  `/api/jobs` remained responsive, with zero SQLite lock errors.
+- At sampled peaks, FPM reported no saturated pools and a zero listen queue,
+  but up to 96 of 504 sites lacked FPM samples and the 15-second scraper was
+  not correlated with individual timeouts. CPU peaked at 99.3%; the available
+  evidence does not establish the cause. No 500-site capacity claim is
+  supported. Details and limits are in
+  [`the reviewed report`](docs/lab-results/2026-11-20-capacity-large-f464f79.md).
+- Improved the next-run capacity report to break request counts, errors, and
+  HTTP statuses out by baseline and backup windows. Retained failed requests
+  now include the most recent bounded per-site FPM/cgroup resource snapshot
+  and its age. Added regression tests for window accounting, site-scoped FPM
+  details, and missing sample reporting.
+- Local verification: `python3 -m unittest deploy/lab/test_capacity_profile.py`
+  passed 10 tests; Python compilation, `git diff --check`, and full `make
+  check` passed (`go vet ./...` and all Go packages; root package
+  119.779 seconds). A new
+  exact-current-source 500-site KVM run is still required to collect the
+  additional diagnostics and determine whether this is a code defect or a
+  host/workload capacity boundary. M4 and production readiness remain open;
+  production remains **NO-GO**.
+
 ## Current-source release validation — 2026-11-20
 
 - Exact-source evidence for current code `94b90f5e7c24a5345e365076da387e962f4b917a`

@@ -1155,10 +1155,20 @@ that run supplies no usable latency measurements. A regression test now covers
 both sample shapes; rerun the full profile after this harness fix and review
 the resulting phase timings before changing product defaults. This run was
 not exact-source evidence because other non-Markdown files differ from current
-`main`. The corrected current-code 500-site profile
+`main`. The corrected 500-site profile
 [44725885994](https://github.com/cyberducttape/StePanel/actions/runs/44725885994)
-is running; the report-aggregation regression test passed before its KVM
-workload began. Its outcome and artifacts remain pending. The earlier profile
+completed and failed on product source `f464f79d`. It recorded 196 first-byte
+timeouts among 9,658 customer HTTPS requests (2.03%); both 512 MiB backups
+completed, and the management API remained responsive. Periodic FPM samples
+showed no saturation, but lacked data for up to 96 sites and were not
+correlated with failures. The [reviewed report](docs/lab-results/2026-11-20-capacity-large-f464f79.md)
+records the measured latency and resource envelope. It is a real failure at
+the tested workload, not a certified limit or an identified root cause. The
+probe now attaches the newest bounded per-site FPM/cgroup sample to retained
+failures and reports errors independently for baseline and backup windows;
+unit tests cover both contracts. Run a new exact-current-source KVM profile
+and use its failure-correlated evidence to isolate the request-path bottleneck
+before tuning defaults. The earlier profile
 [44711012147](https://github.com/cyberducttape/StePanel/actions/runs/44711012147)
 was cancelled before producing a report and contributes no measurement.
 
