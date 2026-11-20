@@ -1,5 +1,25 @@
 # Production-readiness progress
 
+## Verify capacity-report fix and current-source checks — 2026-11-20
+
+- `make check` passed on `ae5b003a00be21150c00292df876fa84e67af0cd`, including
+  API artifact validation, shell/helper contracts, `go vet ./...`, and
+  `GOMAXPROCS=2 go test -p 1 -timeout 10m ./...`. The root package completed
+  in 119.5 seconds. The specifically reported
+  `TestGitStageQuotaIsSkippedOnlyInDevelopment` also passed independently in
+  6.0 seconds; its earlier long wait is not reproduced on this tree.
+- Current-source CodeQL [44710979906](https://github.com/cyberducttape/StePanel/actions/runs/44710979906)
+  and Documentation [44710979560](https://github.com/cyberducttape/StePanel/actions/runs/44710979560)
+  passed. CI integration [44710979526](https://github.com/cyberducttape/StePanel/actions/runs/44710979526)
+  and install smoke [44710979561](https://github.com/cyberducttape/StePanel/actions/runs/44710979561)
+  are queued or running; results are not yet available.
+- The corrected 500-site KVM profile
+  [44711012147](https://github.com/cyberducttape/StePanel/actions/runs/44711012147)
+  is running on the exact code tree at `ae5b003a`; its unit test passed before
+  provisioning. The earlier run `44699996203` failed only while aggregating
+  differently shaped samples and emitted no measurements. No capacity limit
+  is certified; host recovery and N-1 release gates remain open.
+
 ## Reconcile installed evidence with current source — 2026-11-20
 
 - The phase-instrumented 500-site run

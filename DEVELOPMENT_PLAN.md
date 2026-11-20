@@ -942,20 +942,18 @@ The live full six-host matrix
 [44701903618](https://github.com/cyberducttape/StePanel/actions/runs/44701903618)
 uses `f35e4b71`; the 20-repeat cohort
 [44702646288](https://github.com/cyberducttape/StePanel/actions/runs/44702646288)
-uses `a7594a45`. Both are still running their first six-host repetition.
+uses `a7594a45`. Both are still running their first six-host repetition and
+are not exact-source evidence. The current-source installation smoke
+[44710979561](https://github.com/cyberducttape/StePanel/actions/runs/44710979561)
+is queued; its host results must be reviewed before counting a repetition.
 An additional older-source cohort
 [44686066552](https://github.com/cyberducttape/StePanel/actions/runs/44686066552)
 on `e1195ccc` is also still active.
-Current `main` (`4ff67a09`; same non-Markdown tree as `80bad3e8`) has three
-non-Markdown changes since those sources: the corrected literal MySQL/PostgreSQL
-client-command smoke fixtures and a notification retry persistence test. No
-production Go code changed, but the exact-source evidence verifier does not
-count those runs for current `main`. Runs `44701903618` and `44702646288` are runtime-code-equivalent and
-remain useful for diagnosis; the older `e1195ccc` run is historical evidence.
-The updated smokes and tests must also pass on the current tree before those
-gates can close. No recovery pass is counted until all six hosts and their
-artifacts are reviewed. None of the three active recovery runs has produced a
-completed repetition yet.
+Current `main` is `ae5b003a`. These recovery runs are useful for diagnosis but
+their different source trees mean the exact-source evidence verifier does not
+count them. No recovery pass is counted until a current-source run completes
+all six hosts and its artifacts are reviewed. None of the older active cohorts
+has produced a completed repetition yet.
 
 Earlier exact-source run
 [44516615547](https://github.com/cyberducttape/StePanel/actions/runs/44516615547)
@@ -1040,8 +1038,9 @@ is retained as historical evidence. The one-host proof in run
 is also on older source `e1195ccc` and does not establish current-source
 recovery. Six-host runs [44701903618](https://github.com/cyberducttape/StePanel/actions/runs/44701903618)
 and [44702646288](https://github.com/cyberducttape/StePanel/actions/runs/44702646288)
-remain in progress; neither is counted until every host job and artifact is
-reviewed.
+are in progress on earlier source trees and will not count for current `main`.
+The exact-source install smoke [44710979561](https://github.com/cyberducttape/StePanel/actions/runs/44710979561)
+is queued; it must complete all host jobs and have its artifacts reviewed.
 
 On a clean disposable destination, restore a real WordPress site including
 files and a populated database, configure PHP-FPM and the virtual host, then
@@ -1116,7 +1115,11 @@ that run supplies no usable latency measurements. A regression test now covers
 both sample shapes; rerun the full profile after this harness fix and review
 the resulting phase timings before changing product defaults. This run was
 not exact-source evidence because other non-Markdown files differ from current
-`main`.
+`main`. A corrected 500-site profile
+[44711012147](https://github.com/cyberducttape/StePanel/actions/runs/44711012147)
+is now running on exact source `ae5b003a`; the report-aggregation regression
+test passed before its KVM workload began. Its outcome and artifacts remain
+pending.
 
 Benchmark a named supported host with representative PHP traffic, databases,
 backups, migrations, and control-plane reads/writes. Measure CPU/RAM, disk and
