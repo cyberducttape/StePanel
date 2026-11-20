@@ -917,7 +917,12 @@ durable job state. Keep the token out of API serialization.
 
 ### M1 — Complete installed-host failure recovery (P0)
 
-**Status:** Open. Source-specific AlmaLinux 9/Caddy/MariaDB installed smoke
+**Status:** Open. Current-code AlmaLinux 9/Caddy/MariaDB smoke
+[44724016501](https://github.com/cyberducttape/StePanel/actions/runs/44724016501)
+passed one installed-host recovery iteration and a database-backed WordPress
+HTTP proof (measured RTO 5.022 s); the uploaded log is reviewed in
+[`PROGRESS.md`](PROGRESS.md). This is one host/iteration only. Source-specific
+AlmaLinux 9/Caddy/MariaDB installed smoke
 and single-iteration recovery run
 [44686046786](https://github.com/cyberducttape/StePanel/actions/runs/44686046786)
 passed on `e1195ccc`; current `main` has later non-Markdown changes, so this is
@@ -1026,7 +1031,11 @@ state, service health, and successful post-recovery invariants.
 
 ### M2 — Certify application recovery and supported runtime matrix (P0)
 
-**Status:** Partial. Earlier six-host run `44516615547` passed a database-backed
+**Status:** Partial. Current-code AlmaLinux 9/Caddy/MariaDB run
+[44724016501](https://github.com/cyberducttape/StePanel/actions/runs/44724016501)
+passed one installed WordPress database-backed HTTP recovery proof with
+measured RTO 5.022 s. This does not verify the other five runtime combinations
+or the repeated cohort. Earlier six-host run `44516615547` passed a database-backed
 WordPress HTTP recovery proof on all six Ubuntu 24.04, AlmaLinux 9, and Rocky
 Linux 9 Apache/Caddy combinations (4.756–7.106 s measured RTO); see the
 [2026-11-19 result](docs/lab-results/2026-11-19-six-host-recovery-64281ca.md).

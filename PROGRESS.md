@@ -8,16 +8,21 @@
   ENOSPC, recovery drills, and database integration), CodeQL, and browser E2E
   passed for identical current code. The report keeps production **NO-GO**
   with 4/21 P0 gates complete and 17 incomplete.
-- Current-code installed smoke
-  [44724016501](https://github.com/cyberducttape/StePanel/actions/runs/44724016501),
-  N-1 upgrade matrix
+- Current-code AlmaLinux 9/Caddy/MariaDB installed smoke
+  [44724016501](https://github.com/cyberducttape/StePanel/actions/runs/44724016501)
+  passed. I reviewed its uploaded host log: the installed WordPress
+  database-backed HTTP recovery proof passed with measured RTO 5.022 s; the
+  one-iteration recovery matrix, database outage/recovery, broker restart,
+  worker interruption across import/backup/restore/termination, and account
+  suspension recovery also passed. This is one host and one repetition only.
+- N-1 upgrade matrix
   [44724039602](https://github.com/cyberducttape/StePanel/actions/runs/44724039602),
   six-host recovery cohort
   [44725816245](https://github.com/cyberducttape/StePanel/actions/runs/44725816245),
   and 500-site KVM capacity profile
   [44725885994](https://github.com/cyberducttape/StePanel/actions/runs/44725885994)
   are still running. The cohort has started its first six-host iteration; no
-  host result or repeat is counted until all six jobs and their artifacts are
+  full repetition is counted until all six jobs and their artifacts are
   reviewed.
 - Exact-source evidence generation initially hit the unauthenticated GitHub
   API rate limit locally; the authenticated evidence workflow completed and
