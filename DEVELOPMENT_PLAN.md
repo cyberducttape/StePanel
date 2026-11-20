@@ -954,8 +954,8 @@ on `e1195ccc` completed its first six-host repetition: all six host jobs passed
 and their uploaded smoke logs were reviewed. Its second repetition is not
 complete. This source predates current file-manager changes and does not count
 toward the current-source criterion.
-At the time of the exact-source report generated on 2026-11-20, `main` was
-`a3e3f057`. These recovery runs are useful for diagnosis but their different
+At the time of the latest exact-source report generated on 2026-11-20, `main`
+was `c18e2a1d`. These recovery runs are useful for diagnosis but their different
 source trees mean the exact-source evidence verifier does not count them. No
 recovery pass is counted until a current-source run completes all six hosts and
 its artifacts are reviewed. The current-source installation

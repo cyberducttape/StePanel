@@ -1,5 +1,27 @@
 # Production-readiness progress
 
+## Harden audit scan cadence and refresh exact-source status — 2026-11-20
+
+- Changed the audit full-scan due check so a future-dated persisted timestamp
+  (for example, after a host clock rollback) forces a full-chain verification
+  instead of delaying scans until wall time catches up. Added deterministic
+  fresh/expired/future timestamp tests. Audit tests and `go test -race
+  ./internal/audit -count=1` pass; full `make check` passes on the change
+  (root package 118.6 seconds).
+- Exact-source release evidence for
+  [`c18e2a1d`](https://github.com/cyberducttape/StePanel/commit/c18e2a1d51d1f40809227259e9b1014913e8912c)
+  generated at 10:06 UTC reports **NO-GO**, 4/21 P0 items complete, 17
+  incomplete, 0/9 executable checks complete, and 6 checks without equivalent
+  source evidence. CI integration, CodeQL, and documentation are queued for
+  this code change. Installation/recovery and capacity runs still available
+  are on older code trees and do not count.
+- Local installed-host certification cannot run under this account:
+  `/dev/kvm` is not writable by the user and `sudo -n` requires interactive
+  authentication. The certification scripts only mutate disposable guests,
+  but hosted KVM evidence is still needed; no host gate is claimed from local
+  unit tests.
+- Pushed audit and plan changes as `c18e2a1d`, authored by Stephan Loesevitz.
+
 ## Verify audit tamper detection and customer UI findings — 2026-11-20
 
 - Added `TestAppendPeriodicallyVerifiesSameSizeSameMtimeAuditTampering`. It
