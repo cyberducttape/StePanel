@@ -122,7 +122,7 @@ const maxJobStateBytes = 16 << 20
 // DurableJobProtocolVersion changes whenever the durable payload or worker
 // execution contract becomes incompatible. It is persisted in heartbeats so
 // deployments can reject mixed worker/control-plane protocols explicitly.
-const durableJobProtocolVersion = 4
+const durableJobProtocolVersion = 5
 
 func nullString(value string) any {
 	if value == "" {

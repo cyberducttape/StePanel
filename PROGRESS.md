@@ -56,8 +56,9 @@
 - Backup create, scheduled backup, backup restore, scheduled/manual recovery
   rehearsal, and site-termination payloads now snapshot the site's tenant at
   admission. Workers reject a missing/changed tenant binding and recheck after
-  acquiring site mutation locks where applicable. Durable worker protocol v4
-  prevents v3 workers from silently ignoring the new payload contract.
+  acquiring site mutation locks where applicable. Durable worker protocol v5
+  prevents v4 and older workers from silently ignoring the expanded payload
+  contract.
 - Added regression coverage for reassignment during admin backup restore and
   termination. Crash drills and cross-process lock tests retain recovery
   behavior, including the final termination boundary where site ownership has
