@@ -23,13 +23,14 @@ import (
 // control-plane placement and stepanel-filectl runs the operation as that
 // user, so a request can only do what the account's own SFTP login can.
 type FilesRequest struct {
-	Action        string    `json:"action"` // list, read, write, mkdir, rename, delete
-	Site          string    `json:"site"`
-	TenantID      string    `json:"tenant_id"`
-	Path          string    `json:"path,omitempty"`
-	Destination   string    `json:"destination,omitempty"`
-	StreamContent bool      `json:"stream_content,omitempty"`
-	ContentReader io.Reader `json:"-"`
+	Action           string    `json:"action"` // list, read, write, mkdir, rename, delete
+	Site             string    `json:"site"`
+	TenantID         string    `json:"tenant_id"`
+	Path             string    `json:"path,omitempty"`
+	Destination      string    `json:"destination,omitempty"`
+	ExpectedRevision string    `json:"expected_revision,omitempty"`
+	StreamContent    bool      `json:"stream_content,omitempty"`
+	ContentReader    io.Reader `json:"-"`
 }
 
 // FilesResponse carries a listing or a file's bytes.
@@ -80,8 +81,13 @@ func (v *Validator) validateFilesRequest(req *FilesRequest) error {
 		if !req.StreamContent || req.ContentReader == nil {
 			return errors.New("file writes require a streamed content body")
 		}
+		if req.ExpectedRevision != "" && !sitefiles.ValidRevision(req.ExpectedRevision) {
+			return errors.New("file write revision is invalid")
+		}
 	} else if req.StreamContent || req.ContentReader != nil {
 		return fmt.Errorf("files %s does not take content", req.Action)
+	} else if req.ExpectedRevision != "" {
+		return fmt.Errorf("files %s does not take a file revision", req.Action)
 	}
 	return nil
 }
@@ -105,6 +111,9 @@ func (b *Broker) handleFilesRequest(ctx context.Context, req *FilesRequest) (*Re
 		return &Response{OK: false, Error: fmt.Sprintf("site %q is not placed in a hosting account", req.Site)}, nil
 	}
 	args := []string{req.Action, req.Site, user, req.Path}
+	if req.Action == "write" {
+		args = append(args, req.ExpectedRevision)
+	}
 	if req.Action == "rename" {
 		args = append(args, req.Destination)
 	}
@@ -194,6 +203,9 @@ func (c *Client) Files(ctx context.Context, req FilesRequest) (FilesResponse, er
 			if message == "path does not exist" {
 				return FilesResponse{}, sitefiles.ErrNotFound
 			}
+			if message == sitefiles.ErrRevisionConflict.Error() {
+				return FilesResponse{}, sitefiles.ErrRevisionConflict
+			}
 			return FilesResponse{}, sitefiles.Refused("%s", message)
 		}
 		return FilesResponse{}, fmt.Errorf("root broker rejected files %s: %s", req.Action, resp.Error)
@@ -209,12 +221,12 @@ func (c *Client) Files(ctx context.Context, req FilesRequest) (FilesResponse, er
 
 // FilesWrite streams file bytes separately from the JSON request metadata.
 // This avoids base64 expansion and whole-file copies in the panel and broker.
-func (c *Client) FilesWrite(ctx context.Context, site, tenantID, rel string, content io.Reader) error {
+func (c *Client) FilesWrite(ctx context.Context, site, tenantID, rel string, content io.Reader, expectedRevision string) error {
 	if content == nil {
 		return errors.New("file content is required")
 	}
 	req := &Request{RequestType: "files", Files: &FilesRequest{
-		Action: "write", Site: site, TenantID: tenantID, Path: rel, StreamContent: true,
+		Action: "write", Site: site, TenantID: tenantID, Path: rel, StreamContent: true, ExpectedRevision: expectedRevision,
 	}}
 	if tokens := operations.FencingTokens(ctx); len(tokens) > 0 {
 		req.Fencing = tokens
@@ -232,6 +244,9 @@ func (c *Client) FilesWrite(ctx context.Context, site, tenantID, rel string, con
 	}
 	if !resp.OK {
 		if _, message, found := strings.Cut(resp.Error, "files write failed: "); found {
+			if message == sitefiles.ErrRevisionConflict.Error() {
+				return sitefiles.ErrRevisionConflict
+			}
 			if strings.Contains(message, "parent directory durability is uncertain") {
 				return sitefiles.ErrDurabilityUncertain
 			}

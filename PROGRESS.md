@@ -1,5 +1,24 @@
 # Production-readiness progress
 
+## Reject stale customer file-editor writes — 2026-11-20
+
+- File reads now return a SHA-256 content revision. The editor binds it to the
+  selected site/path, sends it as `If-Match`, and receives HTTP 409 if content
+  changed before save. The customer can intentionally reload the latest
+  version. Both the development store and the descriptor-relative production
+  file helper enforce the revision; unconditional upload behavior remains
+  available when no revision is supplied.
+- Added local-store/API/helper regressions, a production-helper contract test,
+  and browser coverage for conflict and reload. `make check` passed, including
+  `go vet ./...`, all Go packages, generated API checks, and shell contracts.
+  `npm run test:unit` passed 17/17; ShellCheck, shell/JS syntax, and
+  `git diff --check` passed.
+- The focused customer browser E2E passed against a freshly built binary
+  (1/1). Hosted exact-source CI and installed-host validation have not yet run
+  for this change. Release remains **NO-GO** pending the P0 host recovery, application
+  recovery, alert-delivery, and capacity gates in
+  [`docs/V1_PRODUCTION_GATES.md`](docs/V1_PRODUCTION_GATES.md).
+
 ## Stabilize race-suite lease-renewal regression — 2026-11-20
 
 - Exact-source CI [44690329247](https://github.com/cyberducttape/StePanel/actions/runs/44690329247) on `c127e212` passed formatting, release checks, vet, the full non-race Go suite, ENOSPC drills, benchmarks, coverage floors, and UI E2E; CodeQL passed in [44690329262](https://github.com/cyberducttape/StePanel/actions/runs/44690329262). The race suite exposed one failure: `TestLongSiteOperationRenewsLeasePastShortLeasePeriods` used a 90 ms lease while performing SQLite work before starting renewal. Under race instrumentation, the lease expired and correctly cancelled the simulated operation; no race detector report or other failing root-package test was present.

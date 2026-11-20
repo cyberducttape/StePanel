@@ -89,6 +89,10 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
     ] }) });
   });
   const writes = [];
+  const writeRevisions = [];
+  const revisionA = `"sha256-${'a'.repeat(64)}"`;
+  const revisionB = `"sha256-${'b'.repeat(64)}"`;
+  let conflictOnMainWrite = true;
   let releaseMainRead;
   const mainReadPending = new Promise((resolve) => { releaseMainRead = resolve; });
   let releaseShopList;
@@ -98,11 +102,16 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
     const url = new URL(request.url());
     if (request.method() !== 'GET') {
       writes.push(`${request.method()} ${url.pathname}${url.search}`);
+      writeRevisions.push(request.headers()['if-match'] || '');
+      if (request.method() === 'PUT' && conflictOnMainWrite) {
+        conflictOnMainWrite = false;
+        return route.fulfill({ status: 409, contentType: 'text/plain', body: 'file changed since it was opened' });
+      }
       return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
     }
     if (url.pathname.endsWith('/content')) {
       if (url.searchParams.get('path') === 'index.php' && !releaseMainRead.done) await mainReadPending;
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ path: url.searchParams.get('path'), size: 21, text: true, content: '<?php echo "hello";\n' }) });
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ path: url.searchParams.get('path'), size: 21, text: true, revision: revisionA, content: '<?php echo "hello";\n' }) });
     }
     if (url.searchParams.get('path') === 'wp-content' && !releaseShopList.done) await shopListPending;
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ path: url.searchParams.get('path') || '', truncated: false, entries: [
@@ -115,10 +124,11 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
     const url = new URL(request.url());
     if (request.method() !== 'GET') {
       writes.push(`${request.method()} ${url.pathname}${url.search}`);
+      writeRevisions.push(request.headers()['if-match'] || '');
       return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
     }
     if (url.pathname.endsWith('/content')) {
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ path: url.searchParams.get('path'), size: 20, text: true, content: '<?php echo "shop";\n' }) });
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ path: url.searchParams.get('path'), size: 20, text: true, revision: revisionB, content: '<?php echo "shop";\n' }) });
     }
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ path: url.searchParams.get('path') || '', truncated: false, entries: [
       { name: 'shop.php', type: 'file', size: 20, mode: '640', mod_time: '2026-10-01T12:00:00Z' },
@@ -183,14 +193,22 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.locator('#fileEditorStatus')).toContainText('Saved shop.php');
   expect(writes).toContain('PUT /api/sites/files/e2e-shop/content?path=shop.php');
+  expect(writeRevisions).toContain(revisionB);
   await page.locator('#fileSite').selectOption('e2e-main');
   await expect(page.getByRole('button', { name: 'index.php', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'index.php', exact: true }).click();
   await expect(page.locator('#fileEditorText')).toHaveValue('<?php echo "hello";\n');
   await page.locator('#fileEditorText').fill('<?php echo "edited";\n');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.locator('#fileEditorStatus')).toContainText('file changed since it was opened');
+  await expect(page.getByRole('button', { name: 'Reload latest' })).toBeVisible();
+  await page.getByRole('button', { name: 'Reload latest' }).click();
+  await expect(page.locator('#fileEditorText')).toHaveValue('<?php echo "hello";\n');
+  await page.locator('#fileEditorText').fill('<?php echo "edited";\n');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.locator('#fileEditorStatus')).toContainText('Saved index.php');
   expect(writes).toContain('PUT /api/sites/files/e2e-main/content?path=index.php');
+  expect(writeRevisions).toContain(revisionA);
   await page.getByRole('button', { name: 'wp-content', exact: true }).click();
   await expect(page.locator('#fileBreadcrumbs [aria-current="location"]')).toHaveText('wp-content');
 

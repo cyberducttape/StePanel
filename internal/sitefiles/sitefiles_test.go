@@ -80,7 +80,7 @@ func TestLocalStoreLifecycle(t *testing.T) {
 	if err := store.Mkdir(ctx, alice, "assets"); err == nil {
 		t.Fatal("an existing directory was created again")
 	}
-	if err := store.Write(ctx, alice, "assets/site.css", bytes.NewReader([]byte("body{}"))); err != nil {
+	if err := store.Write(ctx, alice, "assets/site.css", bytes.NewReader([]byte("body{}")), ""); err != nil {
 		t.Fatal(err)
 	}
 	if info, err := os.Stat(filepath.Join(dir, "assets", "site.css")); err != nil || info.Mode().Perm() != 0o640 {
@@ -90,7 +90,7 @@ func TestLocalStoreLifecycle(t *testing.T) {
 	if err := os.Chmod(filepath.Join(dir, "assets", "site.css"), 0o604); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Write(ctx, alice, "assets/site.css", bytes.NewReader([]byte("main{}"))); err != nil {
+	if err := store.Write(ctx, alice, "assets/site.css", bytes.NewReader([]byte("main{}")), ""); err != nil {
 		t.Fatal(err)
 	}
 	if info, err := os.Stat(filepath.Join(dir, "assets", "site.css")); err != nil || info.Mode().Perm() != 0o604 {
@@ -110,7 +110,7 @@ func TestLocalStoreLifecycle(t *testing.T) {
 	if err := store.Rename(ctx, alice, "assets/site.css", "style.css"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Write(ctx, alice, "assets/other.css", bytes.NewReader(nil)); err != nil {
+	if err := store.Write(ctx, alice, "assets/other.css", bytes.NewReader(nil), ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Rename(ctx, alice, "style.css", "assets/other.css"); err == nil {
@@ -124,6 +124,28 @@ func TestLocalStoreLifecycle(t *testing.T) {
 	}
 	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 1 || entries[0].Name() != "style.css" {
 		t.Fatalf("document root = %v, %v (temporary files must not remain)", entries, err)
+	}
+}
+
+func TestLocalStoreConditionalWriteRejectsStaleRevision(t *testing.T) {
+	ctx := context.Background()
+	store, dir := newLocal(t)
+	alice := testSiteAccess("alice")
+	current := []byte("newer saved version")
+	if err := os.WriteFile(filepath.Join(dir, "page.php"), current, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	staleRevision := Revision([]byte("version from when editor opened"))
+	err := store.Write(ctx, alice, "page.php", bytes.NewReader([]byte("stale overwrite")), staleRevision)
+	if !errors.Is(err, ErrRevisionConflict) {
+		t.Fatalf("stale conditional write error = %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "page.php"))
+	if err != nil || !bytes.Equal(got, current) {
+		t.Fatalf("stale write changed the current file to %q: %v", got, err)
+	}
+	if err := store.Write(ctx, alice, "page.php", bytes.NewReader([]byte("accepted update")), Revision(current)); err != nil {
+		t.Fatalf("write against current revision: %v", err)
 	}
 }
 
@@ -141,7 +163,7 @@ func TestLocalStoreRefusesLinksAndLimits(t *testing.T) {
 	if _, err := store.Read(ctx, alice, "escape/secret"); err == nil {
 		t.Fatal("a read followed a link out of the document root")
 	}
-	if err := store.Write(ctx, alice, "escape/new", bytes.NewReader([]byte("x"))); err == nil {
+	if err := store.Write(ctx, alice, "escape/new", bytes.NewReader([]byte("x")), ""); err == nil {
 		t.Fatal("a write followed a link out of the document root")
 	}
 	if _, err := store.List(ctx, alice, "escape"); err == nil {
@@ -154,10 +176,10 @@ func TestLocalStoreRefusesLinksAndLimits(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(outside, "secret")); err != nil {
 		t.Fatalf("deleting a link removed its target: %v", err)
 	}
-	if err := store.Write(ctx, alice, "big", bytes.NewReader(make([]byte, MaxWriteBytes+1))); !errors.Is(err, ErrTooLarge) {
+	if err := store.Write(ctx, alice, "big", bytes.NewReader(make([]byte, MaxWriteBytes+1)), ""); !errors.Is(err, ErrTooLarge) {
 		t.Fatal("an oversized write was accepted")
 	}
-	if err := store.Write(ctx, alice, "missing/file", bytes.NewReader([]byte("x"))); err == nil {
+	if err := store.Write(ctx, alice, "missing/file", bytes.NewReader([]byte("x")), ""); err == nil {
 		t.Fatal("a write into a missing directory was accepted")
 	}
 	if _, err := store.List(ctx, testSiteAccess("bob"), ""); err == nil {

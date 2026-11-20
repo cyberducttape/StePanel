@@ -88,6 +88,9 @@ mutation lock, and is recorded in the account's audit trail
   and per-tenant concurrency limit.
 - Saving replaces the file atomically and keeps its permissions; new files
   are created with mode 0640 and new folders with 0750.
+- Editor reads include a content revision. Saves send that revision with
+  `If-Match`; if another edit changed the file, StePanel returns a conflict
+  and offers **Reload latest** instead of overwriting the newer version.
 - Renames never replace an existing file. Deleting a folder deletes
   everything in it.
 - Paths outside the document root, `..`, and symbolic-link traversal are

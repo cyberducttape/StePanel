@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/cyberducttape/StePanel/internal/sitefiles"
 )
 
 // newSiteFilesApp returns an app whose customer alice owns the placed sites
@@ -116,6 +118,35 @@ func TestSiteFilesLifecycleInAPlacedSite(t *testing.T) {
 		if !strings.Contains(string(audit), action) {
 			t.Errorf("audit log has no %s record", action)
 		}
+	}
+}
+
+func TestSiteFilesRejectsStaleEditorRevision(t *testing.T) {
+	a, docRoot := newSiteFilesApp(t)
+	file := filepath.Join(docRoot, "index.php")
+	if err := os.WriteFile(file, []byte("version one"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	read := siteFilesRequest(a, "alice", http.MethodGet, "/api/sites/files/alice/content?path=index.php", nil)
+	var response struct {
+		Revision string `json:"revision"`
+	}
+	if read.Code != http.StatusOK || json.Unmarshal(read.Body.Bytes(), &response) != nil || !sitefiles.ValidRevision(response.Revision) {
+		t.Fatalf("read revision = %d %s", read.Code, read.Body)
+	}
+	if err := os.WriteFile(file, []byte("version two from another editor"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPut, "/api/sites/files/alice/content?path=index.php", strings.NewReader("stale editor content"))
+	request.Header.Set("If-Match", response.Revision)
+	ctx := context.WithValue(request.Context(), apiTokenUsernameKey{}, "alice")
+	writer := httptest.NewRecorder()
+	a.siteFiles(writer, request.WithContext(ctx))
+	if writer.Code != http.StatusConflict {
+		t.Fatalf("stale edit status = %d %s, want 409", writer.Code, writer.Body)
+	}
+	if contents, err := os.ReadFile(file); err != nil || string(contents) != "version two from another editor" {
+		t.Fatalf("stale edit changed current contents to %q: %v", contents, err)
 	}
 }
 

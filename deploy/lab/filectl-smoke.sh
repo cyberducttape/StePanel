@@ -53,6 +53,13 @@ large_listing_lines=$(printf '%s\n' "$large_listing" | wc -l)
 chmod 0604 "$docroot/assets/site.css"
 printf 'main{}' | "$filectl" write "$site" "$account" assets/site.css
 [[ $(stat -c %a "$docroot/assets/site.css") == 604 ]] || fail 'replacing a file reset its permissions'
+opened_revision="\"sha256-$(printf 'main{}' | sha256sum | cut -d' ' -f1)\""
+printf 'newer from SFTP{}' >"$docroot/assets/site.css"
+printf 'stale editor{}' | refused write "$site" "$account" assets/site.css "$opened_revision"
+[[ $(cat "$docroot/assets/site.css") == 'newer from SFTP{}' ]] || fail 'stale conditional write replaced a newer file'
+current_revision="\"sha256-$(printf 'newer from SFTP{}' | sha256sum | cut -d' ' -f1)\""
+printf 'accepted editor{}' | "$filectl" write "$site" "$account" assets/site.css "$current_revision"
+[[ $(cat "$docroot/assets/site.css") == 'accepted editor{}' ]] || fail 'current conditional write was refused'
 compgen -G "$docroot/assets/.stepanel-upload-*" >/dev/null && fail 'a temporary upload file was left behind'
 
 "$filectl" rename "$site" "$account" assets/site.css style.css

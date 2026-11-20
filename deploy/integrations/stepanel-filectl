@@ -29,12 +29,13 @@ max_read_bytes=$(( 2 * 1024 * 1024 ))
 max_write_bytes=$(( 4 * 1024 * 1024 ))
 max_entries=5000
 
-usage() { echo 'usage: stepanel-filectl list|read|write|mkdir|rename|delete SITE USER PATH [NEWPATH]' >&2; exit 64; }
+usage() { echo 'usage: stepanel-filectl list|read|write|mkdir|rename|delete SITE USER PATH [REVISION|NEWPATH]' >&2; exit 64; }
 
 action=${1:-}
 case $action in
   rename) (( $# == 5 )) || usage ;;
-  list|read|write|mkdir|delete) (( $# == 4 )) || usage ;;
+  write) (( $# == 4 || $# == 5 )) || usage ;;
+  list|read|mkdir|delete) (( $# == 4 )) || usage ;;
   *) usage ;;
 esac
 site=$2
@@ -60,6 +61,11 @@ valid_relative() {
 }
 
 relative=$4
+expected_revision=${5:-}
+if [[ $action == write && -n $expected_revision ]] && ! [[ $expected_revision =~ ^\"sha256-[0-9a-f]{64}\"$ ]]; then
+  echo 'invalid file revision' >&2
+  exit 1
+fi
 valid_relative "$relative" || { echo 'invalid path' >&2; exit 1; }
 [[ -z $relative ]] && relative=.
 
@@ -82,6 +88,7 @@ fi
 filectl_python=$(cat <<'PY'
 import ctypes
 import errno
+import hashlib
 import os
 import secrets
 import stat
@@ -217,7 +224,7 @@ def read_file(rootfd, parts, max_bytes):
     finally:
         os.close(parent)
 
-def write_file(rootfd, parts, max_bytes):
+def write_file(rootfd, parts, max_bytes, max_read, expected_revision):
     parent, leaf = parent_and_leaf(rootfd, parts)
     temp = ".stepanel-upload-" + secrets.token_hex(12)
     created = False
@@ -248,6 +255,30 @@ def write_file(rootfd, parts, max_bytes):
             os.fsync(fd)
         finally:
             os.close(fd)
+        if expected_revision:
+            current_fd = None
+            try:
+                current_fd = os.open(leaf, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=parent)
+                current_info = os.fstat(current_fd)
+                if not stat.S_ISREG(current_info.st_mode) or current_info.st_size > max_read:
+                    raise Refused("file changed since it was opened")
+                digest = hashlib.sha256()
+                hashed = 0
+                while True:
+                    chunk = os.read(current_fd, min(65536, max_read + 1 - hashed))
+                    if not chunk:
+                        break
+                    hashed += len(chunk)
+                    if hashed > max_read:
+                        raise Refused("file changed since it was opened")
+                    digest.update(chunk)
+                if expected_revision != '"sha256-' + digest.hexdigest() + '"':
+                    raise Refused("file changed since it was opened")
+            except OSError:
+                raise Refused("file changed since it was opened") from None
+            finally:
+                if current_fd is not None:
+                    os.close(current_fd)
         os.replace(temp, leaf, src_dir_fd=parent, dst_dir_fd=parent)
         published = True
         try:
@@ -338,6 +369,7 @@ def rename(rootfd, source, destination):
 def main():
     action, root_path, relative, destination = sys.argv[1:5]
     max_read, max_write, max_entries = map(int, sys.argv[5:8])
+    expected_revision = sys.argv[8]
     parts = components(relative)
     dest_parts = components(destination) if action == "rename" else []
     rootfd = os.open(root_path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
@@ -347,7 +379,7 @@ def main():
         elif action == "read":
             read_file(rootfd, parts, max_read)
         elif action == "write":
-            write_file(rootfd, parts, max_write)
+            write_file(rootfd, parts, max_write, max_read, expected_revision)
         elif action == "mkdir":
             mkdir(rootfd, parts)
         elif action == "rename":
@@ -376,4 +408,4 @@ except OSError as exc:
     sys.exit(1)
 PY
 )
-as_user python3 -c "$filectl_python" "$action" "$public_root" "$relative" "$destination_relative" "$max_read_bytes" "$max_write_bytes" "$max_entries"
+as_user python3 -c "$filectl_python" "$action" "$public_root" "$relative" "$destination_relative" "$max_read_bytes" "$max_write_bytes" "$max_entries" "$expected_revision"

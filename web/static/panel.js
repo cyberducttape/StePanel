@@ -226,6 +226,7 @@
     const editorText = $('#fileEditorText');
     const editorStatus = $('#fileEditorStatus');
     const editorSave = $('#fileEditorSave');
+    const editorReload = $('#fileEditorReload');
     const MAX_WRITE = 4 * 1024 * 1024;
     const writable = can('files:write');
 
@@ -342,6 +343,7 @@
       editorText.value = '';
       editorText.disabled = true;
       editorSave.disabled = true;
+      editorReload.hidden = true;
       ui.setStatus(editorStatus, 'Opening file…', 'pending');
       try {
         const file = await api.get(`${base(context.site)}/content?path=${encodeURIComponent(target)}`, { errorMessage: 'Could not open this file' });
@@ -350,7 +352,7 @@
           ui.setStatus(editorStatus, 'This is a binary file; download it to view it.', 'error');
           return;
         }
-        editing = { site: context.site, path: target, directory: context.path, generation: context.generation };
+        editing = { site: context.site, path: target, directory: context.path, generation: context.generation, revision: file.revision || '' };
         editorText.value = file.content;
         editorText.disabled = false;
         editorSave.disabled = !writable;
@@ -367,6 +369,7 @@
       editing = null;
       editor.hidden = true;
       editorText.value = '';
+      editorReload.hidden = true;
     };
 
     const save = async () => {
@@ -385,15 +388,25 @@
       editorSave.disabled = true;
       ui.setStatus(editorStatus, 'Saving…', 'pending');
       try {
-        await api.request(`${base(session.site)}/content?path=${encodeURIComponent(session.path)}`, { method: 'PUT', body, errorMessage: 'Could not save the file' });
+        await api.request(`${base(session.site)}/content?path=${encodeURIComponent(session.path)}`, {
+          method: 'PUT', body, headers: session.revision ? { 'If-Match': session.revision } : {},
+          errorMessage: 'Could not save the file',
+        });
         ui.setStatus(editorStatus, `Saved ${session.path}.`, 'success');
         if (isCurrentEditor(session)) open(session.directory, session.site);
       } catch (error) {
         ui.setStatus(editorStatus, error.message, 'error');
+        editorReload.hidden = error.kind !== 'conflict' || !isCurrentEditor(session);
       } finally {
         editorSave.disabled = false;
       }
     };
+
+    editorReload.addEventListener('click', () => {
+      const session = editing;
+      if (!isCurrentEditor(session)) return;
+      edit(session.path, { site: session.site, path: session.directory, token, generation: session.generation });
+    });
 
     // The name form serves "new folder", "new file" and "rename".
     const askName = (mode, entry = null, context = { site, path, token, generation: contextGeneration }) => {

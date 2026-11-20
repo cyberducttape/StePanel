@@ -29,6 +29,7 @@ func TestValidatorFilesRequestsAcceptOnlyCanonicalPaths(t *testing.T) {
 		{Action: "list", Site: "alice", TenantID: "alice", Path: "wp-content/themes"},
 		{Action: "read", Site: "alice", TenantID: "alice", Path: "index.php"},
 		{Action: "write", Site: "alice", TenantID: "alice", Path: "index.php", StreamContent: true, ContentReader: strings.NewReader("<?php")},
+		{Action: "write", Site: "alice", TenantID: "alice", Path: "index.php", ExpectedRevision: sitefiles.Revision([]byte("old")), StreamContent: true, ContentReader: strings.NewReader("<?php")},
 		{Action: "mkdir", Site: "alice", TenantID: "alice", Path: "assets"},
 		{Action: "rename", Site: "alice", TenantID: "alice", Path: "a.txt", Destination: "assets/a.txt"},
 		{Action: "delete", Site: "alice", TenantID: "alice", Path: "assets"},
@@ -51,6 +52,8 @@ func TestValidatorFilesRequestsAcceptOnlyCanonicalPaths(t *testing.T) {
 		{Action: "mkdir", Site: "alice", Path: "a", Destination: "b"},
 		{Action: "read", Site: "alice", Path: "a", StreamContent: true, ContentReader: strings.NewReader("x")},
 		{Action: "write", Site: "alice", Path: "missing-stream"},
+		{Action: "write", Site: "alice", Path: "index.php", ExpectedRevision: "not-a-revision", StreamContent: true, ContentReader: strings.NewReader("x")},
+		{Action: "read", Site: "alice", Path: "index.php", ExpectedRevision: sitefiles.Revision([]byte("old"))},
 		{Action: "chmod", Site: "alice", Path: "a"},
 	}
 	for _, req := range invalid {
@@ -172,7 +175,7 @@ func TestBrokerFilesRunAsTheRecordedAccountUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "list alice alice \nread alice alice index.php\nwrite alice alice index.php\nrename alice alice a b\ndelete alice alice gone\n"
+	want := "list alice alice \nread alice alice index.php\nwrite alice alice index.php \nrename alice alice a b\ndelete alice alice gone\n"
 	if string(data) != want {
 		t.Fatalf("helper calls =\n%s\nwant\n%s", data, want)
 	}

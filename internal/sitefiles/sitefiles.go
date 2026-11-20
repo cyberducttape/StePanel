@@ -9,6 +9,8 @@ package sitefiles
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -32,6 +34,22 @@ const (
 var ErrNotFound = errors.New("path does not exist")
 var ErrTooLarge = errors.New("file exceeds the configured size limit")
 var ErrDurabilityUncertain = errors.New("file replacement durability is uncertain")
+var ErrRevisionConflict = errors.New("file changed since it was opened")
+
+// Revision returns a stable strong validator for file bytes.
+func Revision(data []byte) string {
+	digest := sha256.Sum256(data)
+	return `"sha256-` + hex.EncodeToString(digest[:]) + `"`
+}
+
+// ValidRevision reports whether value has the canonical Revision format.
+func ValidRevision(value string) bool {
+	if len(value) != len(`"sha256-`)+64+1 || !strings.HasPrefix(value, `"sha256-`) || !strings.HasSuffix(value, `"`) {
+		return false
+	}
+	_, err := hex.DecodeString(strings.TrimSuffix(strings.TrimPrefix(value, `"sha256-`), `"`))
+	return err == nil
+}
 
 // RefusedError is an operation refused because of the customer's own files
 // or request ("path already exists"). Its message is safe to show to the
@@ -76,7 +94,7 @@ type SiteAccess interface {
 type Store interface {
 	List(ctx context.Context, site SiteAccess, path string) (Listing, error)
 	Read(ctx context.Context, site SiteAccess, path string) ([]byte, error)
-	Write(ctx context.Context, site SiteAccess, path string, content io.Reader) error
+	Write(ctx context.Context, site SiteAccess, path string, content io.Reader, expectedRevision string) error
 	Mkdir(ctx context.Context, site SiteAccess, path string) error
 	Rename(ctx context.Context, site SiteAccess, path, destination string) error
 	Delete(ctx context.Context, site SiteAccess, path string) error

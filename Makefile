@@ -56,6 +56,7 @@ api-check:
 shell-contract-check:
 	bash -n deploy/integrations/stepanel-appctl
 	bash -n deploy/lab/install-smoke.sh deploy/lab/site-package-cgroup-smoke.sh
+	python3 scripts/test-filectl-revisions.py
 	bash scripts/test-site-package-cgroups.sh
 	bash scripts/test-node-runtime-resolution.sh
 

@@ -174,7 +174,7 @@ func readBounded(r io.Reader, limit int64) ([]byte, error) {
 // rename. It syncs the file before publication and the parent directory after
 // rename for crash durability on filesystems that support directory fsync.
 // An existing file keeps its permissions; a new one is 0640.
-func (l Local) Write(_ context.Context, site SiteAccess, rel string, content io.Reader) (err error) {
+func (l Local) Write(_ context.Context, site SiteAccess, rel string, content io.Reader, expectedRevision string) (err error) {
 	if content == nil {
 		return errors.New("file content is required")
 	}
@@ -238,6 +238,12 @@ func (l Local) Write(_ context.Context, site SiteAccess, rel string, content io.
 	if err := root.Chmod(temp, mode); err != nil {
 		return fmt.Errorf("set file permissions: %w", err)
 	}
+	if expectedRevision != "" {
+		current, readErr := readRevision(root, rel)
+		if readErr != nil || Revision(current) != expectedRevision {
+			return ErrRevisionConflict
+		}
+	}
 	parent := path.Dir(rel)
 	if err := root.Rename(temp, rel); err != nil {
 		return fmt.Errorf("replace file: %w", err)
@@ -252,6 +258,23 @@ func (l Local) Write(_ context.Context, site SiteAccess, rel string, content io.
 		return fmt.Errorf("%w: replacement is visible but parent directory sync failed: %v", ErrDurabilityUncertain, err)
 	}
 	return nil
+}
+
+func readRevision(root *os.Root, rel string) ([]byte, error) {
+	file, err := root.Open(rel)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > MaxReadBytes {
+		return nil, ErrRevisionConflict
+	}
+	data, err := readBounded(file, MaxReadBytes)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 func (l Local) Mkdir(_ context.Context, site SiteAccess, rel string) error {

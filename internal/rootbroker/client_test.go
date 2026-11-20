@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/sitefiles"
 )
 
 func TestLabDirectBrokerRequiresSmokeMarker(t *testing.T) {
@@ -242,7 +244,7 @@ func TestClientFilesWriteStreamsRawBoundedContent(t *testing.T) {
 			serverErr <- err
 			return
 		}
-		if req.Files == nil || req.Files.Action != "write" || !req.Files.StreamContent || req.Files.Site != "alice" || req.Files.Path != "public/data.bin" {
+		if req.Files == nil || req.Files.Action != "write" || !req.Files.StreamContent || req.Files.Site != "alice" || req.Files.Path != "public/data.bin" || req.Files.ExpectedRevision != sitefiles.Revision([]byte("previous bytes")) {
 			serverErr <- fmt.Errorf("unexpected streamed files request: %+v", req.Files)
 			return
 		}
@@ -264,7 +266,8 @@ func TestClientFilesWriteStreamsRawBoundedContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := client.FilesWrite(context.Background(), "alice", "alice", "public/data.bin", strings.NewReader(want)); err != nil {
+	revision := sitefiles.Revision([]byte("previous bytes"))
+	if err := client.FilesWrite(context.Background(), "alice", "alice", "public/data.bin", strings.NewReader(want), revision); err != nil {
 		select {
 		case serverErr := <-serverErr:
 			t.Fatalf("FilesWrite: %v (server: %v)", err, serverErr)

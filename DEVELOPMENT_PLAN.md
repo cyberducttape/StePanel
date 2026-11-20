@@ -12,6 +12,24 @@ successful one-off smoke does not close a host-certification gate.
 
 ## Milestones
 
+### M0z — Prevent stale customer file edits from overwriting newer content (P1)
+
+**Status:** Implemented locally; full local checks pass. The exact-source
+browser run and hosted CI are pending for this commit.
+
+**Acceptance criteria**
+
+- File content reads return a strong revision derived from the exact bytes.
+- The editor binds the revision to its immutable site/path context and sends
+  it with saves; stale writes return HTTP 409 without changing file contents.
+- The privileged file helper enforces the same comparison for production
+  hosting-account files, while unconditional uploads remain explicit and
+  supported.
+- The customer editor offers a deliberate reload after a conflict.
+- Go tests cover local and API stale writes, helper contract tests cover the
+  production helper, and browser E2E covers conflict/reload behavior. Full
+  `make check`, JavaScript unit tests, ShellCheck, and exact-source CI pass.
+
 ### M0y — Keep customer site and file workflows bound to their UI context (P1)
 
 **Status:** Verified on `cdbb2519`; the latest exact-source main E2E on

@@ -88,7 +88,7 @@ func (s brokerFileStore) Read(ctx context.Context, site sitefiles.SiteAccess, re
 	return resp.Content, err
 }
 
-func (s brokerFileStore) Write(ctx context.Context, site sitefiles.SiteAccess, rel string, content io.Reader) error {
+func (s brokerFileStore) Write(ctx context.Context, site sitefiles.SiteAccess, rel string, content io.Reader, expectedRevision string) error {
 	target, err := resolveAuthorizedFileTarget(site)
 	if err != nil {
 		return err
@@ -97,7 +97,7 @@ func (s brokerFileStore) Write(ctx context.Context, site sitefiles.SiteAccess, r
 	if err != nil {
 		return err
 	}
-	return client.FilesWrite(ctx, target.site, target.tenantID, rel, content)
+	return client.FilesWrite(ctx, target.site, target.tenantID, rel, content, expectedRevision)
 }
 
 func (s brokerFileStore) Mkdir(ctx context.Context, site sitefiles.SiteAccess, rel string) error {
@@ -177,6 +177,11 @@ func (a *App) siteFiles(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
+		expectedRevision := r.Header.Get("If-Match")
+		if expectedRevision != "" && !sitefiles.ValidRevision(expectedRevision) {
+			http.Error(w, "If-Match must contain a StePanel file revision", http.StatusBadRequest)
+			return
+		}
 		select {
 		case siteFileWrites <- struct{}{}:
 			defer func() { <-siteFileWrites }()
@@ -187,7 +192,7 @@ func (a *App) siteFiles(w http.ResponseWriter, r *http.Request) {
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, sitefiles.MaxWriteBytes)
 		a.siteFilesMutate(w, r, access, "site.files.write", rel+" (streamed upload)", func(ctx context.Context) error {
-			return store.Write(ctx, access, rel, r.Body)
+			return store.Write(ctx, access, rel, r.Body, expectedRevision)
 		})
 	case r.Method == http.MethodPost && (operation == "mkdir" || operation == "rename" || operation == "delete"):
 		var input struct {
@@ -271,7 +276,7 @@ func (a *App) siteFilesRead(w http.ResponseWriter, r *http.Request, store sitefi
 		return
 	}
 	text := utf8.Valid(data) && !strings.ContainsRune(string(data), 0)
-	result := map[string]any{"path": rel, "size": len(data), "text": text}
+	result := map[string]any{"path": rel, "size": len(data), "text": text, "revision": sitefiles.Revision(data)}
 	if text {
 		result["content"] = string(data)
 	}
@@ -319,6 +324,8 @@ func (a *App) siteFilesMutate(w http.ResponseWriter, r *http.Request, site sitef
 func writeSiteFilesError(w http.ResponseWriter, err error) {
 	var refused *sitefiles.RefusedError
 	switch {
+	case errors.Is(err, sitefiles.ErrRevisionConflict):
+		http.Error(w, sitefiles.ErrRevisionConflict.Error(), http.StatusConflict)
 	case errors.Is(err, sitefiles.ErrNotFound):
 		http.Error(w, "the file or directory does not exist", http.StatusNotFound)
 	case errors.Is(err, errSiteNotPlaced):
