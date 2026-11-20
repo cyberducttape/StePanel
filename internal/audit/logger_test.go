@@ -168,6 +168,63 @@ func TestAppendRefusesSameSizeTamperedMiddleAuditEvent(t *testing.T) {
 	}
 }
 
+func TestAppendPeriodicallyVerifiesSameSizeSameMtimeAuditTampering(t *testing.T) {
+	logger, _ := newTestLogger(t)
+	ctx := context.Background()
+	for _, action := range []string{"site.create", "site.update", "site.delete"} {
+		if err := logger.LogAs(ctx, "admin", action, "site-a", "record"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	statePath := logger.path + ".state"
+	s, err := logger.loadState(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.LastFullVerifyTimeNS = time.Now().Add(-fullAuditVerifyInterval - time.Second).UnixNano()
+	if err := logger.writeState(statePath, s); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Stat(logger.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(logger.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutated := bytes.Replace(before, []byte(`"action":"site.update"`), []byte(`"action":"site.updatf"`), 1)
+	if len(mutated) != len(before) || bytes.Equal(mutated, before) {
+		t.Fatal("test mutation did not change exactly one byte while preserving file size")
+	}
+	if err := os.WriteFile(logger.path, mutated, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(logger.path, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	unchanged, err := os.Stat(logger.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.Size() != info.Size() || !unchanged.ModTime().Equal(info.ModTime()) {
+		t.Fatalf("test did not preserve checkpoint metadata: before=(%d, %s) after=(%d, %s)", info.Size(), info.ModTime(), unchanged.Size(), unchanged.ModTime())
+	}
+
+	if err := logger.LogAs(ctx, "admin", "site.restore", "site-a", "must be refused"); err == nil {
+		t.Fatal("periodic full verification did not reject same-size, same-mtime tampering")
+	}
+	after, err := os.ReadFile(logger.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, mutated) {
+		t.Fatal("tampered audit history was modified by a subsequent append")
+	}
+}
+
 func TestReadScopedEventsFiltersTenantTargetsAndActor(t *testing.T) {
 	logger, _ := newTestLogger(t)
 	ctx := context.Background()
