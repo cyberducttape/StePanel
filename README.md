@@ -17,7 +17,7 @@ archive before it touches your host.
 > progress. Everything we claim is backed by a CI run you can open; see
 > [what is proven](docs/PROOF.md) and the [release gates](docs/V1_PRODUCTION_GATES.md).
 
-![StePanel operator overview in the dark appearance](docs/assets/screenshots/operator-overview.png)
+![A tour of StePanel: operator overview, sites, a site workspace, backups and recovery, durable jobs, and the customer panel](docs/assets/screenshots/tour.gif)
 
 <table>
 <tr>

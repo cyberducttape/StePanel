@@ -71,6 +71,7 @@ workspace supports.
 npm ci
 npx playwright install chromium   # or set PLAYWRIGHT_CHANNEL=chrome
 scripts/capture-screenshots.sh    # writes docs/assets/screenshots
+scripts/make-tour-gif.sh          # builds the README tour from them (needs ffmpeg)
 ```
 
 The script builds StePanel, starts a disposable control plane with throwaway
