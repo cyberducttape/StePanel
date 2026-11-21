@@ -16,8 +16,8 @@
   reference check passed. CI run [44935589869](https://github.com/cyberducttape/StePanel/actions/runs/44935589869)
   passed on `b7863b39`. The domain-check change's browser job passed in
   [44937587330](https://github.com/cyberducttape/StePanel/actions/runs/44937587330);
-  its full Go job was still running when the subsequent checklist-test commit
-  was pushed. Exact-source CI for `0cc1eb56` is queued as
+  its full Go job was canceled when the subsequent checklist-test commit was
+  pushed, not reported as a test failure. Exact-source CI for `0cc1eb56` is queued as
   [44937938000](https://github.com/cyberducttape/StePanel/actions/runs/44937938000).
 - `docs/INSTALLATION.md` now separates the current-source guided path from
   v0.7.0's environment-variable installer. Current-source CI remains the
