@@ -8,6 +8,7 @@ clients for 600 s, two 512 MiB backups started at 150 s.
 | [44880222946](https://github.com/cyberducttape/StePanel/actions/runs/44880222946) | `0ff03909`, static probe added | 11,487 | 269 | 105.7 ms | stall located in PHP |
 | [44886286422](https://github.com/cyberducttape/StePanel/actions/runs/44886286422) | `5ad16f3f`, descriptor diagnostics, no fix | 11,436 | 272 | 111.4 ms | cause confirmed |
 | [44886417491](https://github.com/cyberducttape/StePanel/actions/runs/44886417491) | `06f6e94d`, limit raised | **81,362** | **0** | 97.1 ms baseline, 115.0 ms during backups | pages pass; see readiness note |
+| [44897996332](https://github.com/cyberducttape/StePanel/actions/runs/44897996332) | `3def0129`, waits for readiness | **70,715** | **0** | 126.9 ms baseline, 132.9 ms during backups | **passed** |
 
 ## Locating the stall
 
@@ -52,11 +53,20 @@ That is a real, transient readiness state, not a page failure. The probe now
 waits (up to 180 s) for the host to report ready before measuring; any
 readiness failure after that point still fails the run.
 
+## Confirming run
+
+Run 44897996332 on `3def0129` passed the whole profile: 70,715 page
+requests with none failing, 0 PHP-FPM master warnings, a peak of 1,578
+descriptors with 535 live workers, and 0 of 563 static probes failed. Its
+slowest successful requests took 10.6 s (baseline) and 13.3 s (during
+backups) against a p99 near 130 ms; a few rare slow requests remain and are
+consistent with the documented php-fpm ondemand idle-worker race.
+
 ## What this does not show
 
 - Memory: with every worker now able to start, summed PHP-FPM RSS averaged
   9.1 GiB (shared pages are counted once per process, so this overstates
   real use); minimum available memory was 6.8 GiB of 10 GiB. A memory
   ceiling per site count has not been measured.
-- One run on one runner VM. No site count is certified; the capacity gate
+- Two passing runs on one runner VM type. No site count is certified; the capacity gate
   stays open until repeated passing runs.

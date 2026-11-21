@@ -15,6 +15,8 @@
   waits for readiness before measuring. Install smoke 44886416024 passed
   with the new limit check. Report:
   [`2026-11-21-capacity-large-06f6e94-fpm-descriptor-fix.md`](docs/lab-results/2026-11-21-capacity-large-06f6e94-fpm-descriptor-fix.md).
+- Confirming capacity run 44897996332 on `3def0129` passed: 70,715 page
+  requests, 0 failures, p99 126.9 / 132.9 ms, slowest success 13.3 s.
 - KVM run 44880219867 passed install, the five abrupt-loss scenarios, the
   WordPress-shaped database ENOSPC smoke and the SMTP alert smoke; the new
   backup-interrupted scenario failed only because its site name exceeded 32

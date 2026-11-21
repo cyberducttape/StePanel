@@ -28,11 +28,12 @@ Last reviewed: 2026-11-21.
 
 These are open, and the project says so rather than implying otherwise:
 
-- **A capacity limit.** A 500-site test on a 4-CPU virtual machine now
-  completes with no failed page requests and a p99 of 97–115 ms, after a
-  PHP-FPM file-descriptor limit that caused periodic stalls was found and
-  fixed ([report](./lab-results/2026-11-21-capacity-large-06f6e94-fpm-descriptor-fix.md)).
-  That is one run; no site count is certified until runs repeat.
+- **A capacity limit.** A 500-site test on a 4-CPU virtual machine has now
+  passed twice with no failed page requests (p99 97–133 ms), after a PHP-FPM
+  file-descriptor limit that caused periodic stalls was found and fixed
+  ([report](./lab-results/2026-11-21-capacity-large-06f6e94-fpm-descriptor-fix.md)).
+  Memory headroom per site count is not yet measured, so no site count is
+  certified.
 - **Repeated recovery.** Each result above is a single pass. The 20-repeat
   recovery cohort has not completed.
 - **Physical power loss.** All crash tests kill a virtual machine.
