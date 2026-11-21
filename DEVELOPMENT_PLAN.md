@@ -953,8 +953,9 @@ the host page cache can preserve acknowledged guest writes. The abrupt-loss
 workflow now defaults future runs to `cache=none` to remove that cushion; this
 still does not simulate loss of the physical host or storage controller. The
 follow-up run [44735170833](https://github.com/cyberducttape/StePanel/actions/runs/44735170833)
-is queued on `c3e37ebc` with `cache=none` for the same five operation scenarios;
-it is not evidence until it completes and its artifact is reviewed. The
+on `c3e37ebc` with `cache=none` passed the same five operation scenarios once;
+see the [reviewed report](docs/lab-results/2026-11-20-kvm-abrupt-loss-operations-cache-none-c3e37eb.md). It is one pass, not repeated or
+physical power-loss evidence. The
 earlier AlmaLinux 9/Caddy/MariaDB
 installed smoke
 and single-iteration recovery run

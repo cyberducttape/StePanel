@@ -1,5 +1,21 @@
 # Production-readiness progress
 
+## Review cache-bypassing abrupt-loss drill — 2026-11-20
+
+- Reviewed the artifacts of KVM drill
+  [44735170833](https://github.com/cyberducttape/StePanel/actions/runs/44735170833)
+  on `c3e37ebc` (Rocky Linux 9.9, `VM_DISK_CACHE: none`). Boot, install (20
+  smoke/matrix checks), and all five abrupt-loss scenarios passed: file
+  restore, database restore (safety backup reused, 8/8 tables matched), Git
+  deployment (dead-letter, original release served), retention, and
+  control-plane writes (write 679 kept after 679 acknowledged / 680
+  attempted). Report:
+  [`2026-11-20-kvm-abrupt-loss-operations-cache-none-c3e37eb.md`](docs/lab-results/2026-11-20-kvm-abrupt-loss-operations-cache-none-c3e37eb.md).
+- The guest boot log shows `Failed to start Enable File System Quotas`, while
+  quota enforcement still worked during install smoke; recorded for follow-up.
+- One pass on non-current source; not physical power-loss evidence. The gate
+  stays open.
+
 ## Verify customer workspace and file-manager review findings — 2026-11-20
 
 - Confirmed the account-owner site form includes the WordPress setup fieldset;
@@ -178,8 +194,8 @@
   preserve acknowledged writes after QEMU is killed. Updated the workflow to
   use `VM_DISK_CACHE=none` for follow-up testing and dispatched
   [run 44735170833](https://github.com/cyberducttape/StePanel/actions/runs/44735170833)
-  for the same five scenarios. It is now running and is not counted until
-  completion and artifact review. `cache=none` strengthens guest-crash
+  for the same five scenarios. It later passed all five; see the entry
+  "Review cache-bypassing abrupt-loss drill" above. `cache=none` strengthens guest-crash
   evidence but does not simulate physical host power loss.
 
 ## Current-code N-1 upgrade matrix passed — 2026-11-20
