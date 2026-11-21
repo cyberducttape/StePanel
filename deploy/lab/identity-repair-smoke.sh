@@ -333,6 +333,14 @@ for index in 0 1; do
   fi
 done
 
+# Reassignment must not leave the retired account a named ACL entry: it
+# would keep access that ownership checks alone do not show.
+for site in "${sites[@]}"; do
+  if getfacl -R -P -p "$root/$site" 2>/dev/null | grep -Eq "^(default:)?user:$legacy_user:"; then
+    echo "retired identity $legacy_user keeps an ACL entry under $site" >&2
+    exit 1
+  fi
+done
 if getent passwd "$legacy_user" >/dev/null && [[ -n $(find -P "$root" -xdev -user "$legacy_user" -print -quit) ]]; then
   echo "legacy identity still owns data under the managed sites root: $legacy_user" >&2
   exit 1
