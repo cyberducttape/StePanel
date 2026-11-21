@@ -1,5 +1,12 @@
 # Production-readiness progress
 
+## Current evidence and install-drill correction — 2026-11-21
+
+- Reviewed cache-disabled abrupt-loss run [44735170833](https://github.com/cyberducttape/StePanel/actions/runs/44735170833): all five scenarios passed once on source `c3e37ebc`; the report is in [`2026-11-20-kvm-abrupt-loss-operations-cache-none-c3e37eb.md`](docs/lab-results/2026-11-20-kvm-abrupt-loss-operations-cache-none-c3e37eb.md). This bypasses the guest host page cache, but remains a QEMU guest-loss test, not physical-host power-loss evidence.
+- Reviewed diagnostic capacity run [44737124383](https://github.com/cyberducttape/StePanel/actions/runs/44737124383) on `634e99ce`: 191/9,830 page requests timed out before first response byte; sampled FPM pools showed no queue/saturation but coverage was incomplete. Later evidence isolated the PHP-FPM master descriptor ceiling and fixed its systemd limit. The confirming same-profile run [44897996332](https://github.com/cyberducttape/StePanel/actions/runs/44897996332) passed with 70,715 page requests, zero failures, and 126.9/132.9 ms p99. The earlier post-fix run [44886417491](https://github.com/cyberducttape/StePanel/actions/runs/44886417491) also had zero page failures; its only failure was a readiness probe racing an offsite check before measurement. Two passes on one KVM runner type do not certify a capacity envelope. Details: [`2026-11-21-capacity-large-06f6e94-fpm-descriptor-fix.md`](docs/lab-results/2026-11-21-capacity-large-06f6e94-fpm-descriptor-fix.md).
+- Install smoke [44897989372](https://github.com/cyberducttape/StePanel/actions/runs/44897989372) passed its ordinary recovery matrix, then failed in the optional identity-repair database-checkpoint drill. Artifact review found that the smoke killed a shell wrapper while its `stepanel-root` child could continue after SQLite lock release. The drill now launches the helper directly and waits for the pre-commit SQLite snapshot before killing it. Exact-source installed-host rerun is required to verify this correction.
+- The six-host 20-repeat cohort [44725816245](https://github.com/cyberducttape/StePanel/actions/runs/44725816245) remains active on stale source `f464f79d`; eight six-host iterations had passed and the ninth was running at review. These are useful diagnostic results but count as zero current-source repeats.
+
 ## PHP-FPM descriptor exhaustion fixed; backup-interrupted drill passes — 2026-11-21
 
 - Capacity run 44880222946: the new static-file probe never failed (0/572)
@@ -135,17 +142,14 @@
   CodeQL [44741756870](https://github.com/cyberducttape/StePanel/actions/runs/44741756870),
   and documentation [44742113006](https://github.com/cyberducttape/StePanel/actions/runs/44742113006)
   also passed.
-- The newly triggered exact-source installed-host smoke
+- The exact-source installed-host smoke
   [44741756889](https://github.com/cyberducttape/StePanel/actions/runs/44741756889)
   passed on AlmaLinux 9/Caddy/MariaDB. It passed one recovery-matrix iteration,
   including filectl, database/import/backup/restore recovery and broker
   interruption checks, and proved a restored WordPress application over HTTPS
-  with an 8.929-second measured RTO. The artifact is summarized in
-  [`the reviewed report`](docs/lab-results/2026-11-20-almalinux9-install-44741756889.md).
-- This is one host and one iteration. The six-host 20-repeat cohort, the
-  cache-disabled abrupt-loss run, and the 500-site capacity profile remain in
-  progress; none of their results is counted yet. Production remains
-  **NO-GO**.
+  with an 8.929-second measured RTO. This is one host and one iteration; it
+  does not close repeated recovery or physical-host failure gates. Production
+  remains **NO-GO**.
 
 ## Bound concurrent file reads and directory listings — 2026-11-20
 

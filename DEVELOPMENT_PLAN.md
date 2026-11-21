@@ -944,6 +944,20 @@ physical-host certification. Current-code AlmaLinux 9/Caddy/MariaDB smoke
 [44724016501](https://github.com/cyberducttape/StePanel/actions/runs/44724016501)
 passed one additional installed-host recovery iteration and WordPress HTTP
 proof (measured RTO 5.022 s).
+**Current evidence update (2026-11-21):** The cache-disabled KVM abrupt-loss
+run [44735170833](https://github.com/cyberducttape/StePanel/actions/runs/44735170833)
+passed all five operation scenarios once on source `c3e37ebc`; this is guest
+loss with QEMU cache bypass, not physical-host power loss. The six-host repeat
+cohort [44725816245](https://github.com/cyberducttape/StePanel/actions/runs/44725816245)
+is active on stale source `f464f79d`; eight full six-host iterations had passed
+and the ninth was active at review, so it contributes no current-source
+repeats. Install smoke [44897989372](https://github.com/cyberducttape/StePanel/actions/runs/44897989372)
+passed its normal recovery matrix but failed the optional identity-repair
+checkpoint drill. Artifact review traced this to the drill killing a wrapper
+shell while the helper child could continue; the harness now targets the
+helper PID and waits for the pre-commit snapshot. A fresh installed-host
+smoke must pass before the corrected drill is accepted. Physical power loss,
+operation-specific ENOSPC, and the repeated current-source matrix remain open.
 Current-source KVM abrupt-loss operation drills
 [44731756198](https://github.com/cyberducttape/StePanel/actions/runs/44731756198)
 started on `94b90f5e` for file restore, database restore, Git deployment,
@@ -1196,6 +1210,19 @@ site at once; see the [reviewed report](docs/lab-results/2026-11-21-capacity-lar
 That host-wide stall is a separate, still-unidentified cause. The probe now
 records a per-5-second request timeline and a static-file (no PHP) probe to
 locate it.
+
+**Current capacity evidence (2026-11-21):** the static probe and descriptor
+diagnostics isolated the PHP-FPM master `LimitNOFILE=1024` ceiling; the
+installer now raises it to 65,536 and applies the drop-in to existing hosts.
+The profile [44886417491](https://github.com/cyberducttape/StePanel/actions/runs/44886417491)
+recorded 81,362 page requests with zero page failures but failed its initial
+readiness check while offsite probing was still in progress. The harness now
+waits for readiness before measuring. Confirming profile
+[44897996332](https://github.com/cyberducttape/StePanel/actions/runs/44897996332)
+passed with 70,715 requests, zero errors, and p99 126.9 ms baseline / 132.9 ms
+during backups. Both used the same KVM runner type. This supports repeatable
+behavior on that profile but does not establish a site-count limit or memory
+ceiling; repeated runs across host/storage profiles are still required.
 
 Benchmark a named supported host with representative PHP traffic, databases,
 backups, migrations, and control-plane reads/writes. Measure CPU/RAM, disk and

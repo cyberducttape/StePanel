@@ -230,16 +230,40 @@ lock_pid=$!
 for _ in $(seq 1 500); do [[ -e $lock_ready ]] && break; sleep 0.02; done
 [[ -e $lock_ready ]] || { echo 'could not hold the control-plane write lock' >&2; exit 1; }
 repair_log=$(mktemp)
-apply_repair > "$repair_log" 2>&1 &
+# Launch the helper directly. Backgrounding the apply_repair shell function
+# would make $! identify its wrapper shell; killing that shell can orphan the
+# stepanel-root child, which would continue after the test releases SQLite's
+# lock and invalidate the checkpoint assertion.
+"$repair_tool" identity-repair apply --webroot /var/www --control-plane-db "$database" \
+  --recovery-root "$recovery_root" --state-dir "$state_dir" > "$repair_log" 2>&1 &
 repair_pid=$!
 killed=0
 lock_started=$SECONDS
-# The plan journal is durable before the snapshot and the mapping commit,
-# which then waits on the held lock for the 1 s busy timeout: kill as soon as
-# the journal appears.
+# The plan journal and pre-commit snapshot are durable before the mapping
+# transaction, which then waits on the held lock for the 1 s busy timeout.
+# Wait for the snapshot marker so the kill targets the database checkpoint,
+# rather than interrupting journal or snapshot creation.
 fail_lock=0
+snapshot=
 for _ in $(seq 1 120000); do
-  if [[ -s $journal ]]; then
+  if [[ -s $journal && -z $snapshot ]]; then
+    snapshot=$(python3 - "$journal" "$recovery_root" <<'PY'
+import json
+import os
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    journal = json.load(source)
+print(os.path.join(sys.argv[2], "site-identities-before-" + journal["id"] + ".sqlite"))
+PY
+    )
+  fi
+  if [[ -n $snapshot && -s $snapshot && $(grep -F -c 'pre-repair SQLite snapshot:' "$repair_log" || true) -gt 0 ]]; then
+    # The snapshot log is emitted immediately before applyRepairMappings.
+    # Allow the helper to enter the transaction, then kill the actual process
+    # while SQLite's separate connection still holds the write reservation.
+    sleep 0.1
+    kill -0 "$repair_pid" 2>/dev/null || break
     kill -KILL "$repair_pid" 2>/dev/null && killed=1
     kill -0 "$lock_pid" 2>/dev/null || fail_lock=1
     break
@@ -255,7 +279,11 @@ rm -f "$lock_ready"
 (( repair_status != 0 )) || { echo 'repair completed while the mapping commit was blocked' >&2; exit 1; }
 echo "database checkpoint interruption: killed=$killed exit=$repair_status after $((SECONDS - lock_started)) s"
 (( ! fail_lock )) || { echo 'the write lock holder had exited before the plan journal appeared' >&2; exit 1; }
-(( killed )) || { echo 'the repair exited before it could be killed at the database checkpoint:' >&2; cat "$repair_log" >&2; }
+(( killed )) || {
+  echo 'the repair exited before it could be killed at the database checkpoint:' >&2
+  cat "$repair_log" >&2
+  exit 1
+}
 rm -f "$repair_log"
 check_state 'before mapping commit' planned 0
 
