@@ -3,9 +3,7 @@
   const form = document.querySelector('#databaseForm');
   const inventory = document.querySelector('#databaseInventory');
   const status = document.querySelector('#databaseStatus');
-  if (!form || !inventory || !status || form.querySelector('button').disabled) return;
   const api = window.StepanelAPI;
-
   const formatBytes = (value) => {
     const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
     let size = Number(value) || 0;
@@ -16,6 +14,80 @@
     }
     return `${size.toFixed(index ? 1 : 0)} ${units[index]}`;
   };
+
+  const diagnostics = document.querySelector('#databaseDiagnostics');
+  if (diagnostics && api) {
+    const diagnosticsStatus = document.querySelector('#databaseDiagnosticsStatus');
+    const diagnosticsValues = document.querySelector('#databaseDiagnosticsValues');
+    const diagnosticsWarnings = document.querySelector('#databaseDiagnosticsWarnings');
+    const diagnosticsRefresh = document.querySelector('#databaseDiagnosticsRefresh');
+    const labels = {
+      connections: ['Connections', 'count'],
+      active_connections: ['Active connections', 'count'],
+      blocked_sessions: ['Blocked sessions', 'count'],
+      long_transactions: ['Transactions over five minutes', 'count'],
+      deadlocks: ['Deadlocks', 'count'],
+      database_bytes: ['Database storage', 'bytes'],
+    };
+    let diagnosticsLoaded = false;
+    let diagnosticsLoading = false;
+    const renderDiagnostics = async () => {
+      if (diagnosticsLoading) return;
+      diagnosticsLoading = true;
+      diagnosticsRefresh.disabled = true;
+      diagnosticsStatus.textContent = 'Checking database health…';
+      diagnosticsValues.replaceChildren();
+      diagnosticsWarnings.replaceChildren();
+      try {
+        const data = await api.get('/api/database/diagnostics', {
+          expectedStatus: [200, 503], cache: 'no-store', timeoutMs: 15000,
+        });
+        diagnosticsLoaded = true;
+        if (!data.available) {
+          diagnosticsStatus.textContent = data.detail || 'Database diagnostics are unavailable. Check the database service and its restricted helper.';
+          diagnosticsStatus.dataset.state = 'unknown';
+          return;
+        }
+        const values = data.values || {};
+        for (const [key, [label, format]] of Object.entries(labels)) {
+          if (!Number.isFinite(Number(values[key]))) continue;
+          const term = document.createElement('dt');
+          term.textContent = label;
+          const value = document.createElement('dd');
+          value.textContent = format === 'bytes'
+            ? formatBytes(values[key])
+            : Number(values[key]).toLocaleString();
+          diagnosticsValues.append(term, value);
+        }
+        for (const warning of data.warnings || []) {
+          const item = document.createElement('li');
+          if (warning.includes('blocked database sessions') && Number(values.blocked_sessions) > 0) {
+            item.textContent = `${Number(values.blocked_sessions).toLocaleString()} blocked database session(s) need investigation.`;
+          } else if (warning.includes('transactions older') && Number(values.long_transactions) > 0) {
+            item.textContent = `${Number(values.long_transactions).toLocaleString()} transaction(s) are older than five minutes.`;
+          } else {
+            item.textContent = warning;
+          }
+          diagnosticsWarnings.append(item);
+        }
+        const collected = data.collected_at ? new Date(data.collected_at) : null;
+        diagnosticsStatus.textContent = `Read-only ${data.engine || 'database'} snapshot${collected && !Number.isNaN(collected.valueOf()) ? ` · checked ${collected.toLocaleString()}` : ''}. This is host-wide evidence, not attribution to a particular site.`;
+        diagnosticsStatus.dataset.state = data.warnings?.length ? 'attention' : 'ready';
+      } catch (error) {
+        diagnosticsStatus.textContent = `Database health check could not be completed: ${error.message}. Retry after checking database service health.`;
+        diagnosticsStatus.dataset.state = 'unknown';
+      } finally {
+        diagnosticsLoading = false;
+        diagnosticsRefresh.disabled = false;
+      }
+    };
+    diagnostics.addEventListener('toggle', () => {
+      if (diagnostics.open && !diagnosticsLoaded) renderDiagnostics();
+    });
+    diagnosticsRefresh.addEventListener('click', renderDiagnostics);
+  }
+
+  if (!form || !inventory || !status || form.querySelector('button').disabled) return;
 
   const field = (type, name, placeholder) => {
     const input = document.createElement('input');

@@ -1,5 +1,18 @@
 # Production-readiness progress
 
+## Readable database health snapshot — 2026-11-21
+
+- Replaced the database diagnostics JSON shortcut with a collapsed, on-demand
+  read-only panel. It formats connection and contention counts, deadlocks, and
+  storage; identifies the data as host-wide; and displays safe helper
+  remediation when the probe is unavailable. A retry can recover the display
+  without reloading the dashboard. Corrected the `stepanel setup` runbook link
+  to point to the current guided installer section.
+- Added browser checks for successful measurements and unavailable diagnostics
+  recovering after a retry. `make build`, 19 frontend unit tests, docs checks,
+  and the full UI suite passed locally (28 passed, one optional
+  customer-credential test skipped). Exact-source CI is pending.
+
 ## Dashboard operation links — 2026-11-21
 
 - Removed raw JSON shortcuts from the operator dashboard and changed server-
@@ -9,9 +22,10 @@
   relying on JavaScript initialization.
 - Added browser assertions that the drawer opens and job history contains no
   links to raw job JSON. Local verification passed: `make build`,
-  `npm run test:unit` (19 tests), and the focused operator/customer Playwright
-  checks (2 passed). JavaScript syntax, docs link/reference checks, and
-  `git diff --check` also passed. Exact-source hosted CI is pending.
+  `npm run test:unit` (19 tests), and the full UI suite (27 passed, one
+  optional customer-credential test skipped). JavaScript syntax, docs
+  link/reference checks, and `git diff --check` passed. Exact-source UI E2E,
+  documentation CI, and CodeQL passed; the Go CI job remains in progress.
 
 ## Site-creation recovery guidance — 2026-11-21
 

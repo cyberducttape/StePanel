@@ -1344,7 +1344,7 @@ Scope and ordering are defined in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 ## Current sequencing
 
 1. Make first-run and customer operation dependable through clear errors,
-   context-safe workflows, and resilient status updates (M0aa/M0ab/M0ac).
+   context-safe workflows, and resilient status updates (M0aa/M0ab/M0ac/M0ad).
 2. Typed service extraction for durable site operations is complete (M0s);
    move the backup/restore and deployment services into `internal/` packages
    in focused changes.
@@ -1403,9 +1403,10 @@ readable and keyboard accessible.
 
 ### M0ac — Keep the dashboard focused on operator actions (P2)
 
-**Status:** Implemented locally; `make build`, 19 frontend unit tests, focused
-operator/customer browser checks (2 passed), documentation checks, and
-`git diff --check` passed. Exact-source CI pending.
+**Status:** Implemented on `b65f6a7d`. Build, unit tests, and local browser
+suite passed (27 passed, one optional customer-credential test skipped).
+Exact-source UI E2E, documentation CI, and CodeQL passed; exact-source Go CI
+is still running.
 
 Remove raw API JSON links from the normal dashboard and ensure server-rendered
 activity rows do not point at job JSON. Keep the API available through its
@@ -1421,6 +1422,29 @@ readable Operations drawer.
   remains readable and accessible.
 - Build, unit tests, focused operator/customer browser checks, and
   exact-source CI pass.
+
+### M0ad — Explain database health in the dashboard (P2)
+
+**Status:** Implemented locally; build, frontend unit tests, docs checks, and
+browser checks for readable measurements and unavailable-to-retry recovery
+passed. Exact-source CI pending.
+
+Replace the database diagnostics JSON link with a collapsed, on-demand,
+read-only health snapshot. Show connection counts, blocked sessions, long
+transactions, deadlocks, database size, safe helper failure explanations, and
+the snapshot time. State clearly that these counts are host-wide. Keep missing
+measurements unknown, and let the operator retry after an unavailable result.
+
+**Acceptance criteria**
+
+- Opening the disclosure runs the query; the dashboard does not poll it on
+  every page load.
+- Measurements, contention warnings, scope, and collection time are readable
+  without exposing a raw API response.
+- A failed probe is shown as unknown with safe remediation detail, and a
+  manual retry can update the result.
+- Browser accessibility and regression checks, build, unit tests, docs checks,
+  and exact-source CI pass.
 
 ### Guided site lifecycle experience (product work; not a release-gate closure)
 

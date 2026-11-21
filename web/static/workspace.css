@@ -1444,6 +1444,14 @@ textarea[aria-invalid="true"] {
 .token-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--line, #d8dee8); border-radius: 9px; font-size: .84rem; }
 .token-row span { overflow-wrap: anywhere; }
 .activity-cancel { margin-left: auto; white-space: nowrap; }
+.database-diagnostics { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line, #d8dee8); }
+.database-diagnostics summary { width: fit-content; cursor: pointer; color: var(--panel-accent); font-weight: 650; }
+.database-diagnostics-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; margin: 14px 0; }
+.database-diagnostics-values dt { color: var(--panel-muted); }
+.database-diagnostics-values dd { margin: 0; font-weight: 650; }
+.database-diagnostics-warnings { color: var(--panel-warning, #8a4b08); }
+.database-diagnostics #databaseDiagnosticsStatus[data-state="unknown"] { color: var(--panel-warning, #8a4b08); }
+.database-diagnostics #databaseDiagnosticsStatus[data-state="ready"] { color: var(--panel-muted); }
 .activity-link { display: flex; align-items: center; gap: 13px; flex: 1; min-width: 0; color: inherit; text-decoration: none; }
 button.activity-link { padding: 0; border: 0; background: transparent; text-align: left; font: inherit; cursor: pointer; }
 .activity-static { cursor: default; }

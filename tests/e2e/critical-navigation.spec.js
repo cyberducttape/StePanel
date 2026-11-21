@@ -64,6 +64,69 @@ test('first-run primary action follows the next unresolved setup step', async ({
   await expect(page.locator('#onboardingChecklist')).toContainText('Create or migrate your first site');
 });
 
+test('database health expands into a readable, host-wide snapshot', async ({ page }) => {
+  let requests = 0;
+  await page.route('**/api/database/diagnostics', async (route) => {
+    requests += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        available: true,
+        engine: 'mariadb',
+        collected_at: '2026-11-21T18:00:00Z',
+        values: { connections: 31, active_connections: 4, blocked_sessions: 2, long_transactions: 1, database_bytes: 4096 },
+        warnings: ['blocked database sessions require investigation'],
+      }),
+    });
+  });
+
+  const disclosure = page.locator('#databaseDiagnostics');
+  await expect(disclosure).toBeVisible();
+  await expect(disclosure).toContainText('Open this section to run a short, read-only health check.');
+  await disclosure.locator('summary').click();
+  await expect(disclosure).toContainText('31');
+  await expect(disclosure).toContainText('4');
+  await expect(disclosure).toContainText('2 blocked database session(s)');
+  await expect(disclosure).toContainText('host-wide evidence');
+  await expect(disclosure.locator('a[href^="/api/"]')).toHaveCount(0);
+  expect(requests).toBe(1);
+  await disclosure.getByRole('button', { name: 'Refresh health check' }).click();
+  await expect.poll(() => requests).toBe(2);
+});
+
+test('database health distinguishes unavailable evidence and can retry', async ({ page }) => {
+  let requests = 0;
+  await page.route('**/api/database/diagnostics', async (route) => {
+    requests += 1;
+    const unavailable = requests === 1;
+    await route.fulfill({
+      status: unavailable ? 503 : 200,
+      contentType: 'application/json',
+      body: JSON.stringify(unavailable ? {
+        available: false,
+        engine: 'mariadb',
+        failure_code: 'socket_unavailable',
+        detail: 'The database socket could not be opened. Verify the service and configured socket path.',
+      } : {
+        available: true,
+        engine: 'mariadb',
+        values: { connections: 12 },
+        warnings: [],
+      }),
+    });
+  });
+
+  const disclosure = page.locator('#databaseDiagnostics');
+  await disclosure.locator('summary').click();
+  await expect(disclosure).toContainText('The database socket could not be opened. Verify the service and configured socket path.');
+  await expect(disclosure.locator('#databaseDiagnosticsStatus')).toHaveAttribute('data-state', 'unknown');
+  await disclosure.getByRole('button', { name: 'Refresh health check' }).click();
+  await expect(disclosure).toContainText('12');
+  await expect(disclosure.locator('#databaseDiagnosticsStatus')).toHaveAttribute('data-state', 'ready');
+  expect(requests).toBe(2);
+});
+
 test('capture seeded administrator overview screenshots', async ({ page }, testInfo) => {
   const directory = process.env.STEPANEL_E2E_SCREENSHOT_DIR;
   test.skip(!directory, 'Screenshot capture is enabled only by the release/evidence runner');

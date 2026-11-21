@@ -23,7 +23,7 @@ panel when started without arguments. Its subcommands:
 
 | Command | Purpose |
 |---------|---------|
-| `stepanel setup [--output FILE] [--force]` | Guided first-time setup; writes installer settings (see [INSTALLATION.md](INSTALLATION.md#guided-install-recommended)). `init` is an alias |
+| `stepanel setup [--output FILE] [--force]` | Guided first-time setup; writes installer settings (see [INSTALLATION.md](INSTALLATION.md#guided-install-from-current-source)). `init` is an alias |
 | `stepanel worker` | Run the durable job worker as a separate process (`STEPANEL_WORKER_MODE=external`, the `stepanel-worker` service) |
 | `stepanel version` | Print version, commit, and build date |
 | `stepanel hash-password` | Read a password on stdin and print its stored hash |
