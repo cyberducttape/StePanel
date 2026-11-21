@@ -1125,10 +1125,16 @@ fi
 install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-sitectl" /usr/local/sbin/stepanel-sitectl
 install -m 0755 -o root -g root "$ROOT_DIR/deploy/integrations/stepanel-ensure-php-socket-root" /usr/local/sbin/stepanel-ensure-php-socket-root
 "/usr/local/sbin/stepanel-ensure-php-socket-root" "$PHP_SOCKET_ROOT"
+# One PHP-FPM master serves every site's pool. It holds a listening socket
+# per pool and log pipes per child, so the default soft limit of 1024 open
+# files lets a few hundred sites exhaust it; forks then fail and ondemand
+# requests hang. The limit takes effect only when the master restarts.
+FPM_DROPIN_CHANGED=0
 for fpm_unit in "${FPM_UNITS[@]}"; do
   dropin="/etc/systemd/system/$fpm_unit.d/stepanel-socket-root.conf"
   install -d -o root -g root -m 0755 "$(dirname "$dropin")"
-  printf '[Service]\nExecStartPre=/usr/local/sbin/stepanel-ensure-php-socket-root %s\n' "$PHP_SOCKET_ROOT" > "$INSTALL_TXN/fpm-socket-root.conf"
+  printf '[Service]\nExecStartPre=/usr/local/sbin/stepanel-ensure-php-socket-root %s\nLimitNOFILE=65536\n' "$PHP_SOCKET_ROOT" > "$INSTALL_TXN/fpm-socket-root.conf"
+  if ! { [[ -f $dropin ]] && [[ "$(cat "$dropin")" == "$(cat "$INSTALL_TXN/fpm-socket-root.conf")" ]]; }; then FPM_DROPIN_CHANGED=1; fi
   dropin_tmp=$(mktemp "${dropin}.XXXXXX")
   TXN_TEMPS+=("$dropin_tmp")
   install -m 0644 -o root -g root "$INSTALL_TXN/fpm-socket-root.conf" "$dropin_tmp"
@@ -1467,6 +1473,10 @@ if [[ "$WEB_SERVER" == "apache" ]]; then
   if command -v apachectl >/dev/null 2>&1; then apachectl -t; else httpd -t; fi
 fi
 systemctl enable --now "$APACHE_SERVICE" "$DB_SERVICE" "${FPM_UNITS[@]}"
+if (( FPM_DROPIN_CHANGED )); then
+  systemctl daemon-reload
+  systemctl restart "${FPM_UNITS[@]}"
+fi
 if [[ "$WEB_SERVER" == "apache" ]]; then
   systemctl reload "$APACHE_SERVICE"
 elif [[ "$WEB_SERVER" == "openlitespeed" ]]; then

@@ -508,6 +508,16 @@ for fpm_unit in $(systemctl list-unit-files --type=service --no-legend 'php*-fpm
     echo "PHP-FPM unit $fpm_unit has no socket-root startup guard" >&2
     exit 1
   }
+  # Checked before this smoke restarts the unit, so it proves the installer
+  # restarted the master under the raised limit.
+  fpm_pid=$(systemctl show "$fpm_unit" --property=MainPID --value)
+  if [[ $fpm_pid =~ ^[1-9][0-9]*$ ]]; then
+    fpm_nofile=$(awk '/^Max open files/ {print $4}' "/proc/$fpm_pid/limits")
+    [[ $fpm_nofile =~ ^[0-9]+$ ]] && (( fpm_nofile >= 65536 )) || {
+      echo "PHP-FPM master of $fpm_unit runs with an open-file limit of ${fpm_nofile:-unknown}, below 65536" >&2
+      exit 1
+    }
+  fi
   systemctl restart "$fpm_unit"
 done
 [[ $(stat -c '%u:%g:%a' "$socket_root") == 0:0:755 ]] || { echo "PHP socket root is not root:root 0755 after FPM restart: $socket_root" >&2; exit 1; }

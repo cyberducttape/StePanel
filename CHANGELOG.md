@@ -50,6 +50,12 @@ Status: Operator Beta. Production gates for 1.0 remain open; see
   after a broker restart on a Caddy host with placed sites, account quota
   changes, and therefore customer site creation, failed with "Mountpoint
   /home not found". Git staging quotas already used the device.
+- The installer raises the shared PHP-FPM master's open-file limit to
+  65536 and restarts PHP-FPM when that setting changes. The master keeps a
+  listening socket for every site's pool and log pipes for every worker,
+  so with the default limit of 1024, a few hundred sites could exhaust it.
+  New workers then failed to start, and requests to idle sites hung until
+  the client timed out.
 
 ### Added
 
