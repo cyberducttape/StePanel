@@ -626,7 +626,7 @@ func (v *Validator) validateSiteRequest(req *SiteRequest) error {
 		if req.DiskMB < 1 || req.DiskMB > 1048576 || req.Inodes < 1 || req.Inodes > 1000000000 {
 			return fmt.Errorf("quota is out of range")
 		}
-	case "quota-clear":
+	case "quota-clear", "php-suspend", "php-resume":
 		// No additional fields are accepted.
 	case "fpm-status":
 		// The broker derives pool and socket paths from root-owned config.
@@ -737,6 +737,19 @@ func (v *Validator) validateDBRequest(req *DBRequest) error {
 		if err := v.ValidateDatabaseName(req.Database); err != nil {
 			return err
 		}
+	case "suspend-logins", "resume-logins":
+		// The helper derives the account from the database's ownership
+		// record and requires it to name this site.
+		if err := v.ValidateDatabaseName(req.Database); err != nil {
+			return err
+		}
+		if err := v.ValidateSiteName(req.Site); err != nil {
+			return err
+		}
+		if req.Username != "" || req.DumpPath != "" {
+			return errors.New("database login suspension accepts only a database and site")
+		}
+		return nil
 	default:
 		if err := v.ValidateDatabaseName(req.Database); err != nil {
 			return err

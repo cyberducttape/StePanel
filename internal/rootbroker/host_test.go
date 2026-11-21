@@ -354,6 +354,8 @@ func TestSiteHelperConfigActionsShareAccountMutationLock(t *testing.T) {
 		"resources":   {Action: "resources", PHPWorkers: 4},
 		"quota":       {Action: "quota", DiskMB: 1024, Inodes: 100000},
 		"quota-clear": {Action: "quota-clear"},
+		"php-suspend": {Action: "php-suspend"},
+		"php-resume":  {Action: "php-resume"},
 		"runtime": {Action: "runtime", PHPVersion: "8.3", MemoryLimit: "256M", ExecTimeout: 30,
 			UploadMaxFilesize: "64M", PostMaxSize: "64M", MaxInputVars: 1000, ErrorReporting: "E_ALL"},
 	}
@@ -419,5 +421,28 @@ func TestSiteSealHardensAPlacedSitesDocumentRoot(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(webRoot, "sites", "alice")); !os.IsNotExist(err) {
 		t.Fatalf("sealing a placed site touched the legacy tree: %v", err)
+	}
+}
+
+func TestSitePHPSuspensionDelegatesWithPersistedIdentity(t *testing.T) {
+	webRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(webRoot, "sites", "demo", "public"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	const site = "demo"
+	want := siteidentity.UnixUser(site)
+	for _, action := range []string{"php-suspend", "php-resume"} {
+		host := &fakeHost{}
+		broker, err := newBroker(webRoot, t.TempDir(), log.New(io.Discard, "", 0), host)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := broker.Execute(context.Background(), &Request{RequestType: "site", Site: &SiteRequest{Action: action, Site: site}})
+		if err != nil || !resp.OK {
+			t.Fatalf("%s response = %#v, err = %v", action, resp, err)
+		}
+		if len(host.helper) != 1 || strings.Join(host.helper[0], " ") != action+" "+site+" "+want {
+			t.Fatalf("%s helper calls = %v, want delegation with the persisted identity", action, host.helper)
+		}
 	}
 }

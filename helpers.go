@@ -326,6 +326,11 @@ func runVhostMutation(ctx context.Context, cfg Config, action string, args ...st
 				return errors.New("invalid vhost auth arguments")
 			}
 			request.Site, request.Domain, request.BasicAuthUser, request.BasicAuthHash = args[0], args[1], args[2], args[3]
+		case "suspend", "resume":
+			if len(args) != 2 {
+				return errors.New("invalid vhost suspension arguments")
+			}
+			request.Site, request.Domain = args[0], args[1]
 		case "import-htaccess":
 			return errors.New("use runTypedVhostOperationInput for htaccess imports")
 		case "delete":

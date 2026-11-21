@@ -663,6 +663,8 @@ func (b *Broker) handleSiteRequest(ctx context.Context, req *SiteRequest) (*Resp
 		return b.siteQuotaClear(ctx, req)
 	case "runtime":
 		return b.siteRuntime(ctx, req)
+	case "php-suspend", "php-resume":
+		return b.sitePHPSuspension(ctx, req)
 	case "fpm-status":
 		return b.siteFPMStatus(ctx, req)
 	case "certificate-status":
@@ -1106,6 +1108,21 @@ func (b *Broker) siteResources(ctx context.Context, req *SiteRequest) (*Response
 	return siteHelperResponse("site resources", output, err)
 }
 
+// sitePHPSuspension disables (php-suspend) or re-enables (php-resume) a
+// site's PHP-FPM pool for site suspension (ADR-0008). The helper keeps a
+// root-only marker so that later pool writes cannot re-enable a suspended
+// pool; both actions are idempotent.
+func (b *Broker) sitePHPSuspension(ctx context.Context, req *SiteRequest) (*Response, error) {
+	b.accountMutationMu.Lock()
+	defer b.accountMutationMu.Unlock()
+	siteUser, err := b.resolveSiteUser(req, false)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	output, err := b.host.RunSiteHelper(ctx, req.Action, req.Site, siteUser)
+	return siteHelperResponse("site "+req.Action, output, err)
+}
+
 func (b *Broker) siteQuota(ctx context.Context, req *SiteRequest) (*Response, error) {
 	b.accountMutationMu.Lock()
 	defer b.accountMutationMu.Unlock()
@@ -1356,6 +1373,8 @@ func (b *Broker) handleDBRequest(ctx context.Context, req *DBRequest) (*Response
 		return b.dbDropManaged(ctx, req)
 	case "rotate":
 		return b.dbRotate(ctx, req)
+	case "suspend-logins", "resume-logins":
+		return b.runDBHelper(ctx, []string{req.Action, req.Database, req.Site}, nil, DBResponse{Database: req.Database})
 	default:
 		return &Response{OK: false, Error: fmt.Sprintf("unknown db action: %s", req.Action)}, nil
 	}
@@ -1634,6 +1653,10 @@ func (b *Broker) handleVhostRequest(ctx context.Context, req *VhostRequest) (*Re
 		return b.vhostImportHtaccess(ctx, req)
 	case "delete":
 		return b.vhostDelete(ctx, req)
+	case "suspend", "resume":
+		// Site suspension (ADR-0008): the helper for the configured web
+		// server serves a static 503 for the site's route, or restores it.
+		return b.runVhostCommand(ctx, []string{req.Action, req.Site, strings.ToLower(req.Domain)}, VhostResponse{Applied: true, Domain: req.Domain})
 	default:
 		return &Response{OK: false, Error: fmt.Sprintf("unknown vhost action: %s", req.Action)}, nil
 	}

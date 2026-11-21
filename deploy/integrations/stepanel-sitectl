@@ -5,14 +5,34 @@ if [[ $EUID -ne 0 ]]; then echo 'must run as root' >&2; exit 1; fi
 action=$1
 site=$2
 [[ $site =~ ^[a-z0-9_-]{1,32}$ ]] || { echo 'invalid site' >&2; exit 1; }
-[[ $action == prepare || $action == prepare-root || $action == seal || $action == delete || $action == runtime || $action == resources || $action == quota || $action == quota-clear || $action == access || $action == ftp ]] || { echo 'invalid action' >&2; exit 64; }
+[[ $action == prepare || $action == prepare-root || $action == seal || $action == delete || $action == runtime || $action == resources || $action == quota || $action == quota-clear || $action == access || $action == ftp || $action == php-suspend || $action == php-resume ]] || { echo 'invalid action' >&2; exit 64; }
+
+# A suspended site (ADR-0008) has a marker in a root-only directory, outside
+# any tree its account can write. While it exists every pool write removes
+# the site's pool instead of enabling it.
+suspension_root=/etc/stepanel/suspended
+suspension_marker=$suspension_root/$site
+site_php_suspended() { [[ -f $suspension_marker && ! -L $suspension_marker ]]; }
+remove_site_pools() {
+  local pool removed=0 unit
+  for pool in /etc/php/*/fpm/pool.d/stepanel-"$site".conf /etc/php-fpm.d/stepanel-"$site".conf; do
+    [[ -e $pool && ! -L $pool ]] || continue
+    rm -f -- "$pool"
+    removed=1
+  done
+  (( removed )) || return 0
+  [[ ${STEPANEL_IDENTITY_REPAIR_OFFLINE:-0} != 1 ]] || return 0
+  for unit in $(systemctl list-unit-files --type=service --no-legend 'php*-fpm.service' 'php-fpm.service' 2>/dev/null | awk '{print $1}'); do
+    systemctl reload-or-restart "$unit" || { echo "could not reload $unit after disabling the pool of $site" >&2; return 1; }
+  done
+}
 
 # Production always supplies the persisted identity as argv[3]. The old
 # direct-helper shape is retained only for explicitly unsafe lab smoke
 # scripts; it is never accepted by the installed production broker path.
 legacy_shape=0
 case "$action:$#" in
-  prepare:2|prepare-root:2|seal:2|delete:2|access:4|ftp:3|runtime:11|resources:3|quota:4|quota-clear:2) legacy_shape=1 ;;
+  prepare:2|prepare-root:2|seal:2|delete:2|access:4|ftp:3|runtime:11|resources:3|quota:4|quota-clear:2|php-suspend:2|php-resume:2) legacy_shape=1 ;;
 esac
 if (( legacy_shape )); then
   [[ ${STEPANEL_UNSAFE_LAB:-0} == 1 ]] || { echo 'persisted site Unix account is required' >&2; exit 1; }
@@ -21,7 +41,7 @@ if (( legacy_shape )); then
   site_user="sp-${prefix}-${hash:0:8}"
   set -- "$1" "$2" "$site_user" "${@:3}"
 fi
-(( $# == 3 || $# == 4 || $# == 5 || $# == 12 )) || { echo 'usage: stepanel-sitectl prepare|prepare-root|seal SITE SITE_USER | resources SITE SITE_USER PHP_WORKERS | ftp SITE SITE_USER ENABLE | quota SITE SITE_USER DISK_MB INODES | quota-clear SITE SITE_USER | runtime SITE SITE_USER VERSION MEMORY EXEC UPLOAD POST INPUT OPCACHE DISPLAY ERROR' >&2; exit 64; }
+(( $# == 3 || $# == 4 || $# == 5 || $# == 12 )) || { echo 'usage: stepanel-sitectl prepare|prepare-root|seal|php-suspend|php-resume SITE SITE_USER | resources SITE SITE_USER PHP_WORKERS | ftp SITE SITE_USER ENABLE | quota SITE SITE_USER DISK_MB INODES | quota-clear SITE SITE_USER | runtime SITE SITE_USER VERSION MEMORY EXEC UPLOAD POST INPUT OPCACHE DISPLAY ERROR' >&2; exit 64; }
 
 web_group_config=/etc/ste-panel.env
 [[ -f $web_group_config && ! -L $web_group_config ]] || { echo 'authoritative web group configuration is unavailable' >&2; exit 1; }
@@ -47,6 +67,28 @@ else
 fi
 site_root=$site_home
 
+# php-suspend records the marker, then disables the pool. It never creates
+# or changes the account or the tree, so it is safe on a partly provisioned
+# site and safe to repeat.
+if [[ $action == php-suspend ]]; then
+  [[ $# == 3 ]] || { echo 'usage: stepanel-sitectl php-suspend SITE SITE_USER' >&2; exit 64; }
+  [[ ! -L $suspension_root ]] || { echo 'suspension directory must not be a symlink' >&2; exit 1; }
+  install -d -m 0700 -o root -g root -- "$suspension_root"
+  [[ ! -L $suspension_marker ]] || { echo 'suspension marker must not be a symlink' >&2; exit 1; }
+  staged=$(mktemp "$suspension_root/.$site.XXXXXX")
+  printf 'suspended\n' > "$staged" && chmod 0600 "$staged" && mv -fT -- "$staged" "$suspension_marker" || { rm -f -- "$staged"; echo 'could not record the PHP suspension marker' >&2; exit 1; }
+  remove_site_pools || exit 1
+  printf 'php_suspended\t%s\n' "$site"
+  exit 0
+fi
+# php-resume clears the marker and then rewrites the pool from the current
+# runtime and resource profile, like the resources action.
+if [[ $action == php-resume ]]; then
+  [[ $# == 3 ]] || { echo 'usage: stepanel-sitectl php-resume SITE SITE_USER' >&2; exit 64; }
+  [[ ! -L $suspension_marker ]] || { echo 'suspension marker must not be a symlink' >&2; exit 1; }
+  rm -f -- "$suspension_marker"
+fi
+
 if [[ $action == delete ]] && (( site_placed )); then
   [[ $# == 3 ]] || { echo 'usage: stepanel-sitectl delete SITE SITE_USER' >&2; exit 64; }
   # A placed site shares its account's user, home, SSH and FTPS access with
@@ -66,7 +108,7 @@ if [[ $action == delete ]] && (( site_placed )); then
     [[ -d $tree && ! -L $tree ]] || { echo "refusing to delete $tree: not a real directory" >&2; exit 1; }
     ( stepanel_cd_dir "$site_home" "$(dirname -- "$tree")" && rm -rf --one-file-system -- "$(basename -- "$tree")" ) || { echo "could not delete $tree" >&2; exit 1; }
   done
-  rm -f -- "$stepanel_site_registry/$site/location"
+  rm -f -- "$stepanel_site_registry/$site/location" "$suspension_marker"
   rmdir -- "$stepanel_site_registry/$site" 2>/dev/null || true
   exit 0
 fi
@@ -102,6 +144,7 @@ if [[ $action == delete ]]; then
   if [[ ${userdel_needed:-0} == 1 ]]; then
     userdel "$site_user" 2>/dev/null || true
   fi
+  rm -f -- "$suspension_marker"
   systemctl reload sshd 2>/dev/null || systemctl reload ssh 2>/dev/null || true
   exit 0
 fi
@@ -594,6 +637,13 @@ fi
 if [[ $action == seal ]] && command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
   command -v restorecon >/dev/null 2>&1 || { echo 'restorecon is required to label the site document root on SELinux hosts' >&2; exit 1; }
   restorecon -RF "$public_root"
+fi
+
+if site_php_suspended; then
+  # Profiles written above still take effect on resume; the pool stays off.
+  remove_site_pools || exit 1
+  printf '%s\n' "$site_user"
+  exit 0
 fi
 
 pool_targets=()

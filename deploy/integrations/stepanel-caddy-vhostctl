@@ -311,8 +311,12 @@ stepanel_site_location "$site" || exit 1
 # and deployments must use regular files and directories only. node_modules
 # is exempt because package managers link its contents, and the route below
 # never serves it.
-symlink=$(find -P "$public_root" -xdev -path "$public_root/node_modules" -prune -o -type l -print -quit)
-[[ -z $symlink ]] || { echo "site document root contains a symlink: $symlink" >&2; exit 1; }
+# A suspended site's route (ADR-0008) serves only a static 503 page and no
+# file or PHP from the tree, so the symlink and PHP-FPM checks do not apply.
+if [[ $action != suspend ]]; then
+  symlink=$(find -P "$public_root" -xdev -path "$public_root/node_modules" -prune -o -type l -print -quit)
+  [[ -z $symlink ]] || { echo "site document root contains a symlink: $symlink" >&2; exit 1; }
+fi
 socket=
 selected_version=
 profile="$php_state/runtime.env"
@@ -328,7 +332,7 @@ for candidate in "${candidates[@]}"; do
   socket=$candidate
   break
 done
-[[ -n $socket ]] || { echo 'an active isolated PHP-FPM socket was not found for this site' >&2; exit 1; }
+[[ -n $socket || $action == suspend ]] || { echo 'an active isolated PHP-FPM socket was not found for this site' >&2; exit 1; }
 
 # The file name does not identify its site (site-alice-shop-example_org is
 # alice's shop-example.org and alice-shop's example.org route); never
@@ -359,7 +363,8 @@ restore() {
 trap cleanup EXIT
 
 case "$action" in
-  apply|apply-auth|import-htaccess)
+  apply|apply-auth|import-htaccess|resume)
+    # resume ends a site suspension (ADR-0008) by writing the normal route.
     [[ ( $action == "apply-auth" && $# -eq 5 ) || ( $action != "apply-auth" && $# -eq 3 ) ]] || { echo "invalid vhost arguments" >&2; exit 64; }
     auth_user=${4:-}; auth_hash=${5:-}
     bcrypt_pattern='^\$2[aby]\$[0-9]{2}\$[./A-Za-z0-9]{53}$'
@@ -419,5 +424,30 @@ EOF
       exit 1
     fi
     ;;
-  *) echo 'usage: stepanel-caddy-vhostctl apply|import-htaccess SITE DOMAIN | delete NAME [DOMAIN]' >&2; exit 64 ;;
+  suspend)
+    (( $# == 3 )) || { echo 'usage: stepanel-caddy-vhostctl suspend SITE DOMAIN' >&2; exit 64; }
+    # Keep the isolated view as the root so delete validates this route like
+    # any other, but answer every request with a generic static 503.
+    {
+      printf '# Managed by StePanel. Manual changes will be replaced.\n# StePanel site suspended\n%s {\n\troot * %s\n' "$domain" "$document_root"
+      cat <<'EOF'
+	header {
+		Content-Type "text/html; charset=utf-8"
+		Cache-Control "no-store"
+		Retry-After "3600"
+		X-Robots-Tag "noindex"
+	}
+	respond `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Site unavailable</title></head><body><h1>This site is temporarily unavailable</h1><p>Please try again later.</p></body></html>` 503
+}
+EOF
+    } > "$staged"
+    chmod 0644 "$staged"
+    chown root:root "$staged"
+    mv -f "$staged" "$path"
+    if ! caddy validate --config /etc/caddy/Caddyfile >/dev/null || ! activate_caddy; then
+      restore
+      exit 1
+    fi
+    ;;
+  *) echo 'usage: stepanel-caddy-vhostctl apply|import-htaccess|suspend|resume SITE DOMAIN | delete NAME [DOMAIN]' >&2; exit 64 ;;
 esac

@@ -852,6 +852,46 @@ case "$action" in
     lock_resources "database-$database" "user-$db_user"
     [[ -f $record ]] || exit 0; value=$(<"$record"); [[ $value == "wordpress:$db_user" || $value == wordpress:*:"$db_user" ]] || exit 1; drop_objects "$database" "$db_user"; remove_record "$record"
     ;;
+  suspend-logins|resume-logins)
+    # Site suspension (ADR-0008): lock or unlock the site's managed database
+    # account and end its sessions. Data is untouched and the lock persists
+    # across server restarts. A restore fence records only accounts that
+    # were unlocked when it started, so finishing a fence never unlocks a
+    # suspended account.
+    (( $# == 3 )) || { echo "usage: stepanel-dbctl $action DATABASE SITE" >&2; exit 64; }
+    site=$3; valid_site "$site" || { echo 'invalid site' >&2; exit 1; }
+    lock_resources "database-$database" "site-$site"
+    [[ -f $record ]] || { echo 'database is not registered as managed' >&2; exit 1; }
+    value=$(<"$record")
+    [[ $value == panel:"$site":* || $value == wordpress:"$site":* ]] || { echo 'database is not registered to this site with a managed account' >&2; exit 1; }
+    db_user=${value##*:}; valid_user "$db_user" || { echo 'invalid database user in the ownership record' >&2; exit 1; }
+    if [[ $engine == postgresql ]]; then
+      if [[ $action == suspend-logins ]]; then
+        sql "ALTER ROLE \"$db_user\" NOLOGIN"
+        sql "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = '$db_user' AND pid <> pg_backend_pid()" >/dev/null
+      else
+        sql "ALTER ROLE \"$db_user\" LOGIN"
+      fi
+    else
+      user_exists "$db_user" || { echo 'managed database user does not exist' >&2; exit 1; }
+      if [[ $action == suspend-logins ]]; then
+        sql "ALTER USER '$db_user'@'localhost' ACCOUNT LOCK"
+        for _ in $(seq 60); do
+          ids=$(sql "SELECT ID FROM information_schema.PROCESSLIST WHERE USER = '$db_user' AND ID <> CONNECTION_ID()")
+          [[ -n $ids ]] || break
+          for id in $ids; do
+            [[ $id =~ ^[0-9]+$ ]] || { echo 'invalid session ID' >&2; exit 1; }
+            sql "KILL CONNECTION $id" 2>/dev/null || true
+          done
+          sleep 0.5
+        done
+        [[ -z $(sql "SELECT ID FROM information_schema.PROCESSLIST WHERE USER = '$db_user' AND ID <> CONNECTION_ID()") ]] || { echo 'sessions of the suspended database account did not end' >&2; exit 1; }
+      else
+        sql "ALTER USER '$db_user'@'localhost' ACCOUNT UNLOCK"
+      fi
+    fi
+    printf '%s\t%s\t%s\n' "$action" "$database" "$db_user"
+    ;;
   drop)
     (( $# == 2 )) || exit 64
     lock_resources "database-$database"
@@ -872,5 +912,5 @@ case "$action" in
       gtid=(); [[ $("$dump_client" --help 2>/dev/null) != *--set-gtid-purged* ]] || gtid=(--set-gtid-purged=OFF)
       "$dump_client" --no-defaults --protocol=socket --single-transaction --quick --routines --events --triggers --hex-blob "${gtid[@]}" "$database"; fi
     ;;
-  *) echo 'usage: stepanel-dbctl reconcile|list|inventory|diagnostics|sessions|settings|terminate|provision|rotate|drop-managed|restore|restore-wordpress|cleanup-wordpress|drop|dump ...' >&2; exit 64 ;;
+  *) echo 'usage: stepanel-dbctl reconcile|list|inventory|diagnostics|sessions|settings|terminate|provision|rotate|drop-managed|restore|restore-wordpress|cleanup-wordpress|suspend-logins|resume-logins|drop|dump ...' >&2; exit 64 ;;
 esac

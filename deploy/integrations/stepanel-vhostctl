@@ -138,6 +138,7 @@ case "$action" in
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
 $(if [[ -f "$site_private/.stepanel-staging-noindex" && ! -L "$site_private/.stepanel-staging-noindex" ]]; then printf '    Header always set X-Robots-Tag "noindex, nofollow"\n'; fi)
 $(if [[ $action == apply-auth ]]; then printf '    <Location />\n        AuthType Basic\n        AuthName "StePanel staging"\n        AuthBasicProvider file\n        AuthUserFile %s\n        Require valid-user\n    </Location>\n' "$auth_file"; fi)
+    IncludeOptional $config_root/.stepanel-suspended-$site.conf
     ErrorLog $log_root/stepanel-$site-error.log
     CustomLog $log_root/stepanel-$site-access.log combined
 </VirtualHost>
@@ -185,5 +186,55 @@ EOF
     if ! apache_test; then mv -f "$backup" "$path"; exit 1; fi
     if ! apache_reload; then mv -f "$backup" "$path"; if apache_test; then apache_reload || true; fi; exit 1; fi
     ;;
-  *) echo 'usage: stepanel-vhostctl apply SITE DOMAIN | delete NAME [DOMAIN]' >&2; exit 64 ;;
+  suspend|resume)
+    # Site suspension (ADR-0008). Every managed vhost includes a per-site
+    # suspension file, and certbot copies that include into the TLS vhost it
+    # creates, so one file answers HTTP and HTTPS. suspend refuses unless
+    # every enabled vhost serving the site's document root has the include.
+    (( $# == 3 )) || { echo "usage: stepanel-vhostctl $action SITE DOMAIN" >&2; exit 64; }
+    site=$2; domain=${3,,}
+    [[ $site =~ ^[a-z0-9_-]{1,32}$ ]] || { echo 'invalid site' >&2; exit 1; }
+    [[ $domain =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || { echo 'invalid domain' >&2; exit 1; }
+    stepanel_site_location "$site" || exit 1
+    suspended_file="$config_root/.stepanel-suspended-$site.conf"
+    [[ ! -L $suspended_file ]] || { echo 'site suspension file is unsafe' >&2; exit 1; }
+    backup=$(mktemp)
+    existed=0
+    [[ ! -f $suspended_file ]] || { cp -p "$suspended_file" "$backup"; existed=1; }
+    trap 'rm -f "$backup" "${staged:-}"' EXIT
+    rollback() {
+      if (( existed )); then mv -f "$backup" "$suspended_file"; else rm -f "$suspended_file"; fi
+      if apache_test; then apache_reload || true; fi
+    }
+    if [[ $action == suspend ]]; then
+      for candidate in "$config_root"/*.conf /etc/apache2/sites-enabled/*.conf /etc/httpd/conf.d/*.conf; do
+        [[ -f $candidate ]] || continue
+        awk -v root="$public_root" 'tolower($1) == "documentroot" && $2 == root { found=1 } END { exit !found }' "$candidate" || continue
+        grep -Fq "IncludeOptional $suspended_file" "$candidate" || {
+          echo "vhost $candidate serves $site without the suspension include; reapply its route or reissue its certificate before suspending" >&2
+          exit 1
+        }
+      done
+      staged=$(mktemp "$config_root/.stepanel-suspended.XXXXXX")
+      cat > "$staged" <<'EOF'
+# Managed by StePanel: this site is suspended.
+RewriteEngine On
+RewriteCond %{REQUEST_URI} !^/\.well-known/acme-challenge/
+RewriteRule ^ - [R=503,L]
+ErrorDocument 503 "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Site unavailable</title></head><body><h1>This site is temporarily unavailable</h1><p>Please try again later.</p></body></html>"
+Header always set Retry-After "3600"
+Header always set Cache-Control "no-store"
+EOF
+      chmod 0644 "$staged"
+      chown root:root "$staged"
+      mv -f "$staged" "$suspended_file"
+    else
+      rm -f "$suspended_file"
+    fi
+    if ! apache_test || ! apache_reload; then
+      rollback
+      exit 1
+    fi
+    ;;
+  *) echo 'usage: stepanel-vhostctl apply|suspend|resume SITE DOMAIN | delete NAME [DOMAIN]' >&2; exit 64 ;;
 esac

@@ -588,3 +588,21 @@ func TestGitCloneAcceptsOnlyStrictPublicHTTPSOnAllowedHosts(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateDBLoginSuspensionRequiresOnlyDatabaseAndSite(t *testing.T) {
+	v := NewValidator(t.TempDir())
+	for _, action := range []string{"suspend-logins", "resume-logins"} {
+		if err := v.validateDBRequest(&DBRequest{Action: action, Database: "shop_db", Site: "shop"}); err != nil {
+			t.Fatalf("%s: valid request rejected: %v", action, err)
+		}
+		for name, req := range map[string]*DBRequest{
+			"missing site":   {Action: action, Database: "shop_db"},
+			"bad database":   {Action: action, Database: "shop-db;", Site: "shop"},
+			"caller account": {Action: action, Database: "shop_db", Site: "shop", Username: "intruder"},
+		} {
+			if err := v.validateDBRequest(req); err == nil {
+				t.Fatalf("%s: %s accepted", action, name)
+			}
+		}
+	}
+}

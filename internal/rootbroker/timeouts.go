@@ -34,7 +34,7 @@ var typedTimeouts = map[string]map[string]time.Duration{
 		// prepare and seal apply ownership and ACLs recursively over the
 		// whole site tree; delete removes it.
 		"create": timeoutBulk, "prepare": timeoutBulk, "snapshot": timeoutBulk, "snapshot-restore": timeoutBulk, "seal": timeoutBulk, "delete": timeoutBulk,
-		"access": timeoutConfig, "ftp": timeoutConfig, "resources": timeoutConfig, "quota": timeoutConfig, "quota-clear": timeoutConfig, "runtime": timeoutConfig, "fpm-status": timeoutConfig, "certificate-status": timeoutConfig,
+		"access": timeoutConfig, "ftp": timeoutConfig, "resources": timeoutConfig, "quota": timeoutConfig, "quota-clear": timeoutConfig, "php-suspend": timeoutConfig, "php-resume": timeoutConfig, "runtime": timeoutConfig, "fpm-status": timeoutConfig, "certificate-status": timeoutConfig,
 	},
 	"app": {
 		"apply": timeoutLifecycle, "delete": timeoutLifecycle, "start": timeoutLifecycle, "stop": timeoutLifecycle,
@@ -65,6 +65,7 @@ var typedTimeouts = map[string]map[string]time.Duration{
 		"sessions": timeoutConfig, "settings": timeoutConfig, "terminate": timeoutConfig,
 		"dump": timeoutBulk, "restore": timeoutBulk, "restore-dump": timeoutBulk, "restore-wordpress": timeoutBulk,
 		"provision": timeoutDatabase, "rotate": timeoutDatabase, "drop": timeoutDatabase, "drop-managed": timeoutDatabase, "cleanup-wordpress": timeoutDatabase,
+		"suspend-logins": timeoutDatabase, "resume-logins": timeoutDatabase,
 	},
 	"account": {
 		"ensure": timeoutLifecycle, "delete": timeoutLifecycle, "quota": timeoutConfig,
@@ -83,7 +84,7 @@ var typedTimeouts = map[string]map[string]time.Duration{
 	// isolated view) when a mounted view changes, which can take longer than
 	// a config write. A deadline that fires mid-restart SIGKILLs the helper
 	// before its rollback runs.
-	"vhost":       {"apply": timeoutLifecycle, "apply-auth": timeoutLifecycle, "delete": timeoutLifecycle, "import-htaccess": timeoutLifecycle},
+	"vhost":       {"apply": timeoutLifecycle, "apply-auth": timeoutLifecycle, "delete": timeoutLifecycle, "import-htaccess": timeoutLifecycle, "suspend": timeoutLifecycle, "resume": timeoutLifecycle},
 	"proxy":       {"apply": timeoutLifecycle, "reload": timeoutLifecycle, "delete": timeoutLifecycle},
 	"certificate": {"issue": 15 * time.Minute},
 }
