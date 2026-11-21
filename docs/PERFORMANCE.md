@@ -118,6 +118,23 @@ export STEPANEL_STAGE_RETENTION_HOURS=24  # 1 day
 
 ---
 
+### PHP-FPM idle workers (known limitation)
+
+Each site's pool uses `pm = ondemand` with `pm.process_idle_timeout = 10s`:
+a site with no traffic keeps no PHP process. php-fpm has a race in this
+mode. When it stops an idle worker, it still counts that worker as available
+until the worker has exited, and spawns no replacement. A request that
+arrives in that window can wait until the client times out. In an off-host
+reproduction with 500 sites at about 16 requests per second, this happened
+to about 0.02% of requests (1 in 5,186). It happens in php-fpm itself (PHP
+8.3 and current master have the same logic), not in StePanel.
+
+StePanel keeps the `ondemand` default because it keeps idle sites free of
+resident memory. The panel's own telemetry no longer wakes idle pools
+(`stepanel_site_fpm_idle`), which was what made this frequent. The idle
+timeout is set by `stepanel-sitectl` and is not configurable per site; manual
+edits to managed pool files are overwritten.
+
 ## Disk Optimization
 
 ### Filesystem Selection

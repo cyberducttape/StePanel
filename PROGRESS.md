@@ -20,7 +20,8 @@
 - Still open: the underlying php-fpm race remains at about 0.02% of requests
   for sites whose traffic gaps match the idle timeout. Mitigations (a longer
   `pm.process_idle_timeout`, or `pm = dynamic` at a per-site memory cost) are
-  a default change still to be decided. Capacity run 44848048837 on pre-fix
+  a default change. Decision (2026-11-21): keep `ondemand` with a 10 s idle
+  timeout, documented as a known php-fpm limitation in `docs/PERFORMANCE.md`. Capacity run 44848048837 on pre-fix
   source supplies a before-fix baseline. A post-fix run is required before
   any capacity claim.
 

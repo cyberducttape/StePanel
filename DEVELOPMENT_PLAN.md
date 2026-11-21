@@ -1184,8 +1184,9 @@ was cancelled before producing a report and contributes no measurement.
 to the panel's per-minute FPM status sweep. It woke every idle `ondemand`
 pool, and the mass idle expiry that followed strands connections in php-fpm.
 The probe now reports idle pools without waking them; see `PROGRESS.md`.
-A residual php-fpm idle-expiry race (about 0.02% in reproduction) and a
-post-fix 500-site KVM run remain before this milestone can close.
+The residual php-fpm idle-expiry race (about 0.02% in reproduction) is kept
+as a documented limitation (`docs/PERFORMANCE.md`). A post-fix 500-site KVM
+run remains before this milestone can close.
 
 Benchmark a named supported host with representative PHP traffic, databases,
 backups, migrations, and control-plane reads/writes. Measure CPU/RAM, disk and
