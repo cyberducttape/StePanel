@@ -2693,3 +2693,31 @@ does not close a current-source or power-loss gate.
   from that cohort are counted until its results and artifacts are reviewed.
 - This UI evidence closes no host-level production gates. Production remains
   **NO-GO**.
+
+## Tenant-bound domain claims — 2026-11-21
+
+- Bound customer domain authorization to the tenant ID in the current sealed
+  site capability. Route activation, staging, domain verification, and the
+  durable WordPress creation worker now reject verified claims owned by a
+  different tenant, even when the site name is the same.
+- Replaced site-wide reservation mutation with generation-scoped updates.
+  Creation jobs carry an opaque SHA-256 claim-generation reference (not the DNS
+  TXT token); confirmation and failure re-arming require the original site,
+  tenant, domain, and generation to match. Expired or replaced claims belonging
+  to another tenant are left untouched.
+- Added a regression that expires tenant A's verified claim, lets tenant B
+  reserve and create the reused site name, confirms only B's claim, and proves
+  A cannot reverify afterward. Added bounded-prune persistence/reopen coverage,
+  per-tenant reservation-limit coverage, and state-size rollback coverage.
+- Expired reservations are pruned at startup and in bounded batches during
+  periodic maintenance. Claim creation, verification, and prune counts are
+  recorded through the audit telemetry path. Confirmed claims are not pruned.
+  State writes are capped at 4 MiB and tenants can hold at most 100 live
+  pending/reserved claims.
+- Local evidence: focused domain-claim/site-creation regressions pass;
+  exact-source `make check` passes, including generated API/helper contracts,
+  `go vet ./...`, and the full Go suite (root package 117.374s); the focused
+  regressions pass again after the final owner-check change; and
+  `git diff --check` passes. Hosted CI for this source is pending.
+- No production recovery or capacity gate is closed by this change. Production
+  remains **NO-GO**.

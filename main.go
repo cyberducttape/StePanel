@@ -716,6 +716,12 @@ func Main() {
 	var startupAuditErr error
 	runStartup := func(ctx context.Context) {
 		var failures []error
+		if pruned, err := domains.pruneExpired(time.Now().UTC(), domainClaimPruneBatch); err != nil {
+			app.observeStateError(state.NewCleanupError("domain_claim_retention", err, "expired domain reservation cleanup during startup"))
+		} else if pruned > 0 {
+			log.Printf("pruned %d expired domain reservation(s) during startup", pruned)
+			TelemetryAudit(cfg.AuditLog, "system", "domain.claim.expired_pruned", "domain-claims", fmt.Sprintf("count=%d", pruned))
+		}
 		if startupAuditErr != nil {
 			failures = append(failures, fmt.Errorf("initialize audit chain: %w", startupAuditErr))
 		}
@@ -838,6 +844,12 @@ func Main() {
 					log.Printf("schedule audit checkpoint publication: %v", err)
 				}
 			case <-cleanupTicker.C:
+				if pruned, err := app.Domains.pruneExpired(time.Now().UTC(), domainClaimPruneBatch); err != nil {
+					app.observeStateError(state.NewCleanupError("domain_claim_retention", err, "expired domain reservation cleanup"))
+				} else if pruned > 0 {
+					log.Printf("pruned %d expired domain reservation(s)", pruned)
+					TelemetryAudit(app.Config.AuditLog, "system", "domain.claim.expired_pruned", "domain-claims", fmt.Sprintf("count=%d", pruned))
+				}
 				if err := app.Jobs.VerifyIntegrity(runCtx); err != nil {
 					log.Printf("control-plane integrity verification failed: %v", err)
 				}

@@ -2,6 +2,7 @@ package stepanel
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,7 +51,24 @@ type DomainClaimStore struct {
 	values map[string]DomainClaim
 }
 
-const maxDomainClaimStateBytes = 4 << 20
+const (
+	maxDomainClaimStateBytes        = 4 << 20
+	maxDomainClaims                 = 100_000
+	maxPendingDomainClaimsPerTenant = 100
+	domainClaimPruneBatch           = 500
+)
+
+// domainClaimGeneration is a non-secret reference to one immutable claim
+// instance. The DNS token itself never needs to be copied into a job payload.
+type domainClaimGeneration struct {
+	Domain     string `json:"domain"`
+	Generation string `json:"generation"`
+}
+
+func claimGeneration(token string) string {
+	digest := sha256.Sum256([]byte(token))
+	return fmt.Sprintf("%x", digest[:])
+}
 
 var lookupDomainTXT = func(ctx context.Context, name string) ([]string, error) {
 	return net.DefaultResolver.LookupTXT(ctx, name)
@@ -80,9 +98,15 @@ func OpenDomainClaimStore(path string) (*DomainClaimStore, error) {
 }
 
 func (s *DomainClaimStore) persistLocked() error {
+	if len(s.values) > maxDomainClaims {
+		return errors.New("domain claim count exceeds configured limit")
+	}
 	b, err := json.MarshalIndent(s.values, "", "  ")
 	if err != nil {
 		return err
+	}
+	if len(b)+1 > maxDomainClaimStateBytes {
+		return errors.New("domain claim state exceeds 4 MiB limit")
 	}
 	if bound, err := persistBoundControlPlaneState(s, b); bound {
 		return err
@@ -152,6 +176,36 @@ func (s *DomainClaimStore) verifiedFor(site, domain string) bool {
 	return ok && claim.Site == site && claim.State == "verified" && !claim.VerifiedAt.IsZero() && !claim.expired(time.Now())
 }
 
+// verifiedForTenant binds a verified domain to the tenant that currently
+// owns the site. Site names can be reused; historical proof alone is not
+// sufficient authorization for a new owner.
+func (s *DomainClaimStore) verifiedForTenant(site, domain, tenant string) bool {
+	if tenant == "" {
+		return false
+	}
+	claim, ok := s.get(domain)
+	return ok && claim.Site == site && claim.Tenant == tenant && claim.State == "verified" && !claim.VerifiedAt.IsZero() && !claim.expired(time.Now())
+}
+
+// reservationGenerations snapshots the live reservation instances that a
+// site creation request is allowed to confirm or later re-arm.
+func (s *DomainClaimStore) reservationGenerations(site, tenant string) []domainClaimGeneration {
+	if tenant == "" {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	now := time.Now()
+	refs := make([]domainClaimGeneration, 0)
+	for domain, claim := range s.values {
+		if claim.Site == site && claim.Tenant == tenant && claim.Token != "" && !claim.ExpiresAt.IsZero() && !claim.expired(now) {
+			refs = append(refs, domainClaimGeneration{Domain: domain, Generation: claimGeneration(claim.Token)})
+		}
+	}
+	sort.Slice(refs, func(i, j int) bool { return refs[i].Domain < refs[j].Domain })
+	return refs
+}
+
 // tenantOf returns the tenant of the domain's live claim for site.
 func (s *DomainClaimStore) tenantOf(site, domain string) (string, bool) {
 	claim, ok := s.get(domain)
@@ -174,10 +228,13 @@ func (s *DomainClaimStore) reservedBy(site string) (string, bool) {
 	return "", false
 }
 
-// setReservation clears (confirm) or re-arms the reservation expiry of every
-// tenant claim for site: creating the site confirms it; a failed creation
-// re-arms it so an abandoned name is released on schedule.
-func (s *DomainClaimStore) setReservation(site string, active bool) error {
+// setReservation updates only the exact tenant-owned claim generations
+// captured when this creation was admitted. It cannot revive another
+// tenant's expired proof or affect a replacement claim.
+func (s *DomainClaimStore) setReservation(site, tenant string, refs []domainClaimGeneration, active bool) error {
+	if tenant == "" || len(refs) == 0 {
+		return nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	expires := time.Time{}
@@ -186,20 +243,31 @@ func (s *DomainClaimStore) setReservation(site string, active bool) error {
 	}
 	previous := make(map[string]DomainClaim, len(s.values))
 	changed := false
-	for domain, claim := range s.values {
-		previous[domain] = claim
-		if claim.Site != site || claim.Tenant == "" || claim.ExpiresAt.Equal(expires) {
+	for _, ref := range refs {
+		claim, exists := s.values[ref.Domain]
+		if !exists || claim.Site != site || claim.Tenant != tenant || claim.Token == "" || claimGeneration(claim.Token) != ref.Generation {
 			continue
 		}
+		// Confirmation applies only to the exact generation captured while
+		// live; failure recovery may re-arm that generation after confirmation.
+		if !active && claim.ExpiresAt.IsZero() {
+			continue
+		}
+		if claim.ExpiresAt.Equal(expires) {
+			continue
+		}
+		previous[ref.Domain] = claim
 		claim.ExpiresAt = expires
-		s.values[domain] = claim
+		s.values[ref.Domain] = claim
 		changed = true
 	}
 	if !changed {
 		return nil
 	}
 	if err := s.persistLocked(); err != nil {
-		s.values = previous
+		for domain, claim := range previous {
+			s.values[domain] = claim
+		}
 		return err
 	}
 	return nil
@@ -234,6 +302,17 @@ func (s *DomainClaimStore) claimFor(site, domain, tenant string, reserve bool) (
 			return existing, nil
 		}
 	}
+	if tenant != "" {
+		pending := 0
+		for _, existing := range s.values {
+			if existing.Tenant == tenant && !existing.expired(now) && (existing.State == "pending" || !existing.ExpiresAt.IsZero()) {
+				pending++
+			}
+		}
+		if pending >= maxPendingDomainClaimsPerTenant {
+			return DomainClaim{}, errors.New("tenant has reached the pending domain claim limit")
+		}
+	}
 	token, err := randomSecret()
 	if err != nil {
 		return DomainClaim{}, err
@@ -246,6 +325,43 @@ func (s *DomainClaimStore) claimFor(site, domain, tenant string, reserve bool) (
 		return DomainClaim{}, err
 	}
 	return claim, nil
+}
+
+// pruneExpired removes at most limit abandoned reservations in one durable
+// update. Confirmed claims (zero ExpiresAt) and audit history are untouched.
+func (s *DomainClaimStore) pruneExpired(now time.Time, limit int) (int, error) {
+	if limit <= 0 {
+		return 0, errors.New("domain claim prune limit must be positive")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	removed := 0
+	removedClaims := make(map[string]DomainClaim)
+	for domain, claim := range s.values {
+		if removed >= limit {
+			break
+		}
+		if !claim.ExpiresAt.IsZero() && claim.expired(now) {
+			removedClaims[domain] = claim
+			delete(s.values, domain)
+			removed++
+		}
+	}
+	if removed == 0 {
+		return 0, nil
+	}
+	if err := s.persistLocked(); err != nil {
+		// Restore only the removed expired rows. A persistence conflict may
+		// have refreshed the whole store from a newer control-plane snapshot.
+		if !errors.Is(err, errControlPlaneStateRefreshed) {
+			// The removed values were saved below before deletion.
+			for domain, claim := range removedClaims {
+				s.values[domain] = claim
+			}
+		}
+		return 0, err
+	}
+	return removed, nil
 }
 
 // verify checks the claim's DNS TXT token. The lookup runs without the store
@@ -301,20 +417,25 @@ func (a *App) customerRouteStillAuthorized(r *http.Request, site, domain string)
 	if a.Auth.IsAdministrator(r) {
 		return true
 	}
-	if _, ok := a.authorizeSite(r, site); !ok {
+	access, ok := a.authorizeSite(r, site)
+	if !ok {
 		return false
 	}
-	return a.Domains != nil && a.Domains.verifiedFor(site, domain)
+	return a.Domains != nil && a.Domains.verifiedForTenant(site, domain, access.TenantID())
 }
 
-func (a *App) verifyCustomerDomain(ctx context.Context, site, domain string) error {
+func (a *App) verifyCustomerDomain(ctx context.Context, site, domain, tenant string) error {
 	if a.Domains == nil {
 		return errors.New("domain claim service is unavailable")
+	}
+	claimTenant, claimed := a.Domains.tenantOf(site, domain)
+	if !claimed || tenant == "" || claimTenant != tenant {
+		return errors.New("domain claim does not belong to the current site owner")
 	}
 	if _, err := a.Domains.verify(ctx, site, domain); err != nil {
 		return err
 	}
-	if !a.Domains.verifiedFor(site, domain) {
+	if !a.Domains.verifiedForTenant(site, domain, tenant) {
 		return errors.New("domain ownership is not verified")
 	}
 	return nil
@@ -412,10 +533,15 @@ func (a *App) domainClaim(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "domain is already claimed by another site", http.StatusConflict)
 		return
 	}
+	if err != nil && strings.Contains(err.Error(), "pending domain claim limit") {
+		http.Error(w, err.Error(), http.StatusTooManyRequests)
+		return
+	}
 	if err != nil {
 		http.Error(w, "could not persist domain claim", http.StatusServiceUnavailable)
 		return
 	}
+	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "domain.claim.created", input.Site, fmt.Sprintf("domain=%s tenant=%s expires_at=%s", claim.Domain, claim.Tenant, claim.ExpiresAt.UTC().Format(time.RFC3339)))
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "domain claim cancelled because the mutation lock was lost", http.StatusConflict)
 		return
@@ -457,10 +583,30 @@ func (a *App) domainVerify(w http.ResponseWriter, r *http.Request) {
 	}
 	// A site the requester can access, or the requester's own live
 	// reservation of a site name not created yet.
-	if _, allowed := a.authorizeSite(r, input.Site); !allowed {
+	access, allowed := a.authorizeSite(r, input.Site)
+	if allowed && !a.Auth.IsAdministrator(r) {
+		claimTenant, claimed := a.Domains.tenantOf(input.Site, input.Domain)
+		if !claimed || claimTenant != access.TenantID() {
+			release()
+			TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "tenant.access_denied", input.Site, r.Method+" "+r.URL.Path)
+			http.Error(w, "invalid or inaccessible site", http.StatusForbidden)
+			return
+		}
+	} else if !allowed {
 		tenant, known := a.requesterTenant(r)
 		claimTenant, claimed := a.Domains.tenantOf(input.Site, input.Domain)
-		if !known || tenant == "" || !claimed || claimTenant != tenant {
+		// The claim may authorize a not-yet-created name only. Once any
+		// tenant has durably acquired or created the site, stale claims cannot
+		// be used to verify against that site's reused name.
+		exists, siteErr := a.siteExists(input.Site)
+		var assigned bool
+		var ownerErr error
+		if a.Accounts == nil {
+			ownerErr = errors.New("tenant ownership state is unavailable")
+		} else {
+			_, assigned, ownerErr = a.Accounts.OwnerOfSiteWithError(input.Site)
+		}
+		if !known || tenant == "" || !claimed || claimTenant != tenant || siteErr != nil || exists || ownerErr != nil || assigned {
 			release()
 			TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "tenant.access_denied", input.Site, r.Method+" "+r.URL.Path)
 			http.Error(w, "invalid or inaccessible site", http.StatusForbidden)
@@ -483,5 +629,6 @@ func (a *App) domainVerify(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "domain verification cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
+	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "domain.claim.verified", input.Site, fmt.Sprintf("domain=%s tenant=%s", claim.Domain, claim.Tenant))
 	writeJSON(w, http.StatusOK, map[string]any{"domain": claim.Domain, "site": claim.Site, "state": claim.State, "verified_at": claim.VerifiedAt})
 }

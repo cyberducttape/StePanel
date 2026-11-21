@@ -647,7 +647,8 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid site or domain", http.StatusUnprocessableEntity)
 		return
 	}
-	if _, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", http.StatusForbidden); !ok {
+	access, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", http.StatusForbidden)
+	if !ok {
 		return
 	}
 	if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
@@ -660,7 +661,7 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		verifyCtx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-		verifyErr := a.verifyCustomerDomain(verifyCtx, input.Site, input.Domain)
+		verifyErr := a.verifyCustomerDomain(verifyCtx, input.Site, input.Domain, access.TenantID())
 		cancel()
 		if verifyErr != nil {
 			http.Error(w, "domain ownership must be verified before route activation", http.StatusConflict)

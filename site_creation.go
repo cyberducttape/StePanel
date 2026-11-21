@@ -219,6 +219,9 @@ type durableSiteCreationRequest struct {
 	Kind      string                     `json:"kind,omitempty"`
 	Directory string                     `json:"directory,omitempty"`
 	WordPress *wordpressProvisionRequest `json:"wordpress,omitempty"`
+	// ReservationGenerations bind confirmation and retry cleanup to the exact
+	// tenant-owned claim instances admitted with this creation request.
+	ReservationGenerations []domainClaimGeneration `json:"reservation_generations,omitempty"`
 	// RequestDigest identifies the normalized request that queued the job,
 	// so a retry with the same Idempotency-Key replays the original job
 	// even after the site exists, and a different request is refused.
@@ -394,8 +397,9 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !admin {
+			tenant, _ := a.requesterTenant(r)
 			verifyCtx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-			verifyErr := a.verifyCustomerDomain(verifyCtx, input.Site, input.Domain)
+			verifyErr := a.verifyCustomerDomain(verifyCtx, input.Site, input.Domain, tenant)
 			cancel()
 			if verifyErr != nil {
 				http.Error(w, "verify the site's domain ownership before WordPress provisioning", http.StatusConflict)
@@ -404,7 +408,6 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 			// A new site's domain is claimed and verified before the site
 			// exists (a reservation, domainClaimAccess); that claim must be
 			// this customer's tenant's own.
-			tenant, _ := a.requesterTenant(r)
 			claimTenant, claimed := a.Domains.tenantOf(input.Site, input.Domain)
 			if !claimed || claimTenant != tenant && !a.Accounts.OwnsSite(actor, input.Site) {
 				http.Error(w, "the domain claim belongs to another account", http.StatusConflict)
@@ -453,6 +456,14 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	reservationTenant := ""
+	if !admin {
+		reservationTenant, _ = a.requesterTenant(r)
+	}
+	var reservationGenerations []domainClaimGeneration
+	if a.Domains != nil && reservationTenant != "" {
+		reservationGenerations = a.Domains.reservationGenerations(input.Site, reservationTenant)
+	}
 	assigned := false
 	if !admin {
 		if _, newlyAssigned, err := a.Accounts.EnsureSiteAssigned(actor, input.Site); err != nil {
@@ -464,9 +475,9 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 		// The site is now assigned to the customer: its domain reservation
 		// becomes an ordinary claim. A failed creation re-arms it.
 		if a.Domains != nil {
-			if err := a.Domains.setReservation(input.Site, false); err != nil {
+			if err := a.Domains.setReservation(input.Site, reservationTenant, reservationGenerations, false); err != nil {
 				if assigned {
-					a.releaseSiteReservation(actor, input.Site)
+					a.releaseSiteReservation(actor, input.Site, reservationTenant, reservationGenerations)
 				}
 				http.Error(w, "could not confirm the domain reservation", http.StatusServiceUnavailable)
 				return
@@ -476,19 +487,19 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 	tenantID, tenantBound, err := a.durableTenantBinding(input.Site)
 	if err != nil {
 		if assigned {
-			a.releaseSiteReservation(actor, input.Site)
+			a.releaseSiteReservation(actor, input.Site, reservationTenant, reservationGenerations)
 		}
 		http.Error(w, "site ownership state is temporarily unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	request := durableSiteCreationRequest{Site: input.Site, Template: input.Template, Actor: a.Auth.AuditActor(r), TenantID: tenantID, TenantBound: tenantBound, CustomerProvisioning: !admin, WordPress: wordpress, RequestDigest: requestDigest}
+	request := durableSiteCreationRequest{Site: input.Site, Template: input.Template, Actor: a.Auth.AuditActor(r), TenantID: tenantID, TenantBound: tenantBound, CustomerProvisioning: !admin, WordPress: wordpress, RequestDigest: requestDigest, ReservationGenerations: reservationGenerations}
 	if placed {
 		request.Account, request.Kind, request.Directory = placement.Account, string(placement.Kind), placement.Directory
 	}
 	payload, err := json.Marshal(request)
 	if err != nil {
 		if assigned {
-			a.releaseSiteReservation(actor, input.Site)
+			a.releaseSiteReservation(actor, input.Site, reservationTenant, reservationGenerations)
 		}
 		http.Error(w, "could not encode site creation job", http.StatusInternalServerError)
 		return
@@ -496,7 +507,7 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 	job, _, err := a.Jobs.EnqueueIdempotent("site.create", input.Site, operationKey, payload, 3)
 	if err != nil {
 		if assigned {
-			a.releaseSiteReservation(actor, input.Site)
+			a.releaseSiteReservation(actor, input.Site, reservationTenant, reservationGenerations)
 		}
 		http.Error(w, "could not persist site creation job", http.StatusInternalServerError)
 		return
@@ -511,20 +522,32 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 // releaseSiteReservation undoes a tenant reservation made for a request that
 // could not queue its creation job. The client already receives an error; a
 // failed release leaves the plan slot held, so it is logged for the operator.
-func (a *App) releaseSiteReservation(actor, site string) {
+func (a *App) releaseSiteReservation(actor, site, tenant string, refs []domainClaimGeneration) {
 	if err := a.Accounts.UnassignSite(actor, site); err != nil {
 		log.Printf("release site creation reservation for %s/%s: %v", actor, site, err)
 	}
-	a.rearmDomainReservation(site)
+	a.rearmDomainReservation(site, tenant, refs)
 }
 
 // rearmDomainReservation gives a site name whose creation failed its
 // reservation expiry back, so an abandoned name is released on schedule.
-func (a *App) rearmDomainReservation(site string) {
-	if a.Domains == nil {
+func (a *App) rearmDomainReservation(site, tenant string, refs []domainClaimGeneration) {
+	if a.Domains == nil || a.Accounts == nil || tenant == "" || len(refs) == 0 {
 		return
 	}
-	if err := a.Domains.setReservation(site, true); err != nil {
+	if _, assigned, err := a.Accounts.OwnerOfSiteWithError(site); err != nil || assigned {
+		if err != nil {
+			log.Printf("keep domain reservation for %s: inspect current owner: %v", site, err)
+		}
+		return
+	}
+	if exists, err := a.siteExists(site); err != nil || exists {
+		if err != nil {
+			log.Printf("keep domain reservation for %s: inspect site: %v", site, err)
+		}
+		return
+	}
+	if err := a.Domains.setReservation(site, tenant, refs, true); err != nil {
 		log.Printf("re-arm domain reservation for %s: %v", site, err)
 	}
 }
@@ -575,7 +598,7 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 		if err := a.Accounts.UnassignSite(req.Actor, req.Site); err != nil {
 			log.Printf("release site creation reservation for %s/%s: %v", req.Actor, req.Site, err)
 		}
-		a.rearmDomainReservation(req.Site)
+		a.rearmDomainReservation(req.Site, req.TenantID, req.ReservationGenerations)
 	}()
 	if !validSiteName(req.Site) || safeUser(req.Site) != req.Site {
 		return nil, errors.New("invalid site name in site creation payload")
@@ -624,7 +647,7 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 		}
 		// The domain was verified when the request was accepted, outside
 		// this lock; it must still be this site's verified claim now.
-		if req.WordPress != nil && (a.Domains == nil || !a.Domains.verifiedFor(req.Site, req.WordPress.Domain)) {
+		if req.WordPress != nil && (a.Domains == nil || !a.Domains.verifiedForTenant(req.Site, req.WordPress.Domain, access.TenantID())) {
 			return nil, doNotRetry(errors.New("the site's domain ownership is no longer verified"))
 		}
 	}

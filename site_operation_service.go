@@ -103,10 +103,11 @@ func (d durableSiteRequester) routeStillAuthorized(site, domain string) bool {
 	if d.administrator() {
 		return true
 	}
-	if _, ok := d.siteAccess(site); !ok {
+	access, ok := d.siteAccess(site)
+	if !ok {
 		return false
 	}
-	return d.a.Domains != nil && d.a.Domains.verifiedFor(site, domain)
+	return d.a.Domains != nil && d.a.Domains.verifiedForTenant(site, domain, access.TenantID())
 }
 
 // siteOperationError is a service failure with the HTTP status the handler

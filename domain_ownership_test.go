@@ -229,6 +229,43 @@ func TestUnusedSiteNameReservationExpires(t *testing.T) {
 	}
 }
 
+func TestExpiredTenantClaimStaysExpiredWhenAnotherTenantCreatesSite(t *testing.T) {
+	j := newCustomerJourney(t)
+	a := j.f.app
+	code, first := j.call(t, "customer", a.domainClaim, "/api/domains/claim", `{"site":"blog","domain":"a.example.org"}`)
+	if code != http.StatusCreated || first["txt_value"] == nil {
+		t.Fatalf("tenant A claim = %v", first)
+	}
+	j.txt["_stepanel.a.example.org"] = first["txt_value"].(string)
+	if code, _ := j.call(t, "customer", a.domainVerify, "/api/domains/verify", `{"site":"blog","domain":"a.example.org"}`); code != http.StatusOK {
+		t.Fatalf("tenant A verification = %d", code)
+	}
+	old, _ := a.Domains.get("a.example.org")
+	old.ExpiresAt = time.Now().Add(-time.Minute).UTC()
+	if err := a.Domains.save(old); err != nil {
+		t.Fatal(err)
+	}
+	code, second := j.call(t, "rival", a.domainClaim, "/api/domains/claim", `{"site":"blog","domain":"b.example.org"}`)
+	if code != http.StatusCreated || second["txt_value"] == nil {
+		t.Fatalf("tenant B claim = %v", second)
+	}
+	j.txt["_stepanel.b.example.org"] = second["txt_value"].(string)
+	if code, _ := j.call(t, "rival", a.domainVerify, "/api/domains/verify", `{"site":"blog","domain":"b.example.org"}`); code != http.StatusOK {
+		t.Fatalf("tenant B verification = %d", code)
+	}
+	if code, _ := j.call(t, "rival", a.siteCreate, "/api/sites", `{"site":"blog","template":"php"}`); code != http.StatusAccepted {
+		t.Fatalf("tenant B site creation = %d", code)
+	}
+	oldAfter, _ := a.Domains.get("a.example.org")
+	current, _ := a.Domains.get("b.example.org")
+	if !oldAfter.expired(time.Now()) || oldAfter.Token != old.Token || !current.ExpiresAt.IsZero() || current.Tenant != "rival" {
+		t.Fatalf("site creation changed wrong claims: old=%+v current=%+v", oldAfter, current)
+	}
+	if code, _ := j.call(t, "customer", a.domainVerify, "/api/domains/verify", `{"site":"blog","domain":"a.example.org"}`); code != http.StatusForbidden {
+		t.Fatalf("previous tenant re-verification after reassignment = %d", code)
+	}
+}
+
 // Finding C: a retry with the same Idempotency-Key after the site was
 // created returns the original job; another request with that key is
 // refused.

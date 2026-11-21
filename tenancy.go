@@ -19,6 +19,7 @@ func (a *App) customerTenantLockKey(r *http.Request) string {
 // authorizeDurableSiteJob (durable job/worker).
 type SiteCapability interface {
 	Site() string
+	TenantID() string
 	sealedSiteCapability()
 }
 

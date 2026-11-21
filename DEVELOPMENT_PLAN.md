@@ -1533,6 +1533,31 @@ settings rather than silently changing values.
   and final lines without newlines; valid generated values still round-trip.
 - Targeted tests, shell syntax, documentation checks, and exact-source CI pass.
 
+### M0ai — Bind domain claims to current tenant ownership (P1)
+
+**Status:** Implemented locally; focused regressions and exact-source
+`make check` pass. Exact-source hosted CI remains pending.
+
+Domain verification must follow the durable tenant that owns a site, not a
+reusable site-name string. Reservation confirmation and failure recovery must
+be scoped to the exact claim generation admitted with the creation job. Bound
+abandoned reservation growth without deleting confirmed claims or audit
+history.
+
+**Acceptance criteria**
+
+- An expired tenant A claim cannot be unexpired or verified when tenant B
+  reserves and creates the same site name.
+- Customer route, staging, verification, and durable creation paths compare
+  the verified claim tenant with the currently authorized durable site owner.
+- Creation confirmation and retry cleanup affect only captured domain/token
+  generations for the owning tenant.
+- Expired reservations are pruned in bounded durable batches; confirmed claims
+  are preserved and cleanup is observable/audited.
+- Per-tenant pending reservations and serialized claim-state size have explicit
+  limits, with failed persistence leaving in-memory state unchanged.
+- Focused regressions, full Go checks, and exact-source hosted CI pass.
+
 ### Guided site lifecycle experience (product work; not a release-gate closure)
 
 **Status:** Implemented in the site workspace, with browser regression coverage.

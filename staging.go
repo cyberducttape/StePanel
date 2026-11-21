@@ -182,7 +182,7 @@ func (a *App) createStaging(ctx context.Context, req siteRequester, input Stagin
 			return nil, operationFailure(http.StatusConflict, "domain ownership must be verified before staging activation")
 		}
 		verifyCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		verifyErr := a.verifyCustomerDomain(verifyCtx, input.Site, input.Domain)
+		verifyErr := a.verifyCustomerDomain(verifyCtx, input.Site, input.Domain, targetAccess.TenantID())
 		cancel()
 		if verifyErr != nil {
 			return nil, operationFailure(http.StatusConflict, "domain ownership must be verified before staging activation")
