@@ -91,6 +91,32 @@ func TestInstallerRejectsUnsafeSettingsFiles(t *testing.T) {
 	}
 }
 
+func TestInstallerRejectsMalformedQuotedSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "answers.env")
+	tests := []struct {
+		name string
+		data string
+		want string
+	}{
+		{name: "truncated without newline", data: `STEPANEL_A="example.org`, want: "unterminated quoted value"},
+		{name: "truncated escaped quote", data: `STEPANEL_A="example\\\"`, want: "unterminated quoted value"},
+		{name: "trailing text", data: "STEPANEL_A=\"example.org\"unexpected\n", want: "trailing characters"},
+		{name: "unsupported escape", data: "STEPANEL_A=\"bad\\q\"\n", want: "unsupported escape"},
+		{name: "dangling escape", data: "STEPANEL_A=\"bad\\", want: "invalid escape"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := os.WriteFile(path, []byte(tt.data), 0600); err != nil {
+				t.Fatal(err)
+			}
+			output, err := loadEnvFileHarness(t, path, "0", "600", "private", nil)
+			if err == nil || !strings.Contains(output, tt.want) {
+				t.Fatalf("malformed setting accepted or unclear error: err=%v output=%q; want %q", err, output, tt.want)
+			}
+		})
+	}
+}
+
 func TestInstallerPreservesOperatorRuntimeSettingsAcrossUpgrade(t *testing.T) {
 	script, err := os.ReadFile("install.sh")
 	if err != nil {

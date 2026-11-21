@@ -1,5 +1,17 @@
 # Production-readiness progress
 
+## Make manual first install work from setup output — 2026-11-21
+
+- `stepanel setup` now prints a root-owned, mode-0600 copy command before the
+  installer commands, and safely quotes user-selected output paths. The
+  installation guide follows the same copy, preview, install sequence.
+- Hardened settings parsing to reject unterminated or malformed quoted values,
+  trailing characters, invalid escapes, and truncated final lines. Added
+  regression coverage for each case and for valid setup output round-tripping.
+  Full Go suite passed (108.9s), as did `go vet ./...`, targeted setup
+  contract tests, build, shell syntax, documentation links/references, and
+  `git diff --check`. Exact-source hosted CI pending.
+
 ## Suggest WordPress titles from the domain — 2026-11-21
 
 - WordPress site creation now suggests a readable title from the domain and

@@ -52,7 +52,7 @@ if [[ ! -f "$ROOT_DIR/stepanel" || ! -x "$ROOT_DIR/stepanel" ]]; then echo "Buil
 # the environment win, so explicit overrides keep working. With "private",
 # the file must also not be group/world-readable, as it holds secrets.
 load_env_file() {
-  local file=$1 visibility=${2:-} owner mode key encoded value character
+  local file=$1 visibility=${2:-} owner mode key encoded value character closed
   [[ -f $file && ! -L $file ]] || { echo "$file must be a regular file." >&2; exit 1; }
   owner=$(stat -c %u "$file")
   mode=$(stat -c %a "$file")
@@ -60,15 +60,20 @@ load_env_file() {
   if [[ $visibility == private ]] && (( 8#$mode & 077 )); then
     echo "$file holds secrets and must not be readable by other users (chmod 600 $file)." >&2; exit 1
   fi
-  while IFS='=' read -r key encoded; do
+  while IFS='=' read -r key encoded || [[ -n ${key:-}${encoded:-} ]]; do
     [[ -n $key && $key != \#* ]] || continue
     [[ ( $key =~ ^STEPANEL_[A-Z0-9_]+$ || $key == RCLONE_CONFIG ) && $encoded == \"* ]] || { echo "$file contains an unsupported entry." >&2; exit 1; }
-    [[ -v $key ]] && continue
-    encoded=${encoded:1:${#encoded}-2}
+    encoded=${encoded:1}
     value=
+    closed=0
     while [[ -n $encoded ]]; do
       character=${encoded:0:1}
       encoded=${encoded:1}
+      if [[ $character == '"' ]]; then
+        [[ -z $encoded ]] || { echo "$file contains trailing characters after a quoted value." >&2; exit 1; }
+        closed=1
+        break
+      fi
       if [[ $character == '\' ]]; then
         [[ -n $encoded ]] || { echo "$file contains an invalid escape." >&2; exit 1; }
         character=${encoded:0:1}
@@ -77,6 +82,8 @@ load_env_file() {
       fi
       value+=$character
     done
+    (( closed == 1 )) || { echo "$file contains an unterminated quoted value." >&2; exit 1; }
+    [[ -v $key ]] && continue
     printf -v "$key" '%s' "$value"
     export "${key?}"
   done < "$file"

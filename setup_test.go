@@ -46,7 +46,8 @@ var defaultSetupAnswers = []string{
 
 func TestSetupWritesPrivateInstallerSettings(t *testing.T) {
 	dir := t.TempDir()
-	output := filepath.Join(dir, "answers.env")
+	output := filepath.Join(dir, "answers user's.env")
+	quotedOutput := shellQuoteCommandArg(output)
 	var out bytes.Buffer
 	err := runSetup([]string{"--output", output}, scriptedInput(t, defaultSetupAnswers...), &out, scriptedSetupHost{}, filepath.Join(dir, "missing.env"))
 	if err != nil {
@@ -68,8 +69,23 @@ func TestSetupWritesPrivateInstallerSettings(t *testing.T) {
 			t.Errorf("settings missing %s", want)
 		}
 	}
-	if !strings.Contains(out.String(), "--dry-run") || strings.Contains(out.String(), "correct horse") {
+	for _, command := range []string{
+		"sudo install -o root -g root -m 0600 -- " + quotedOutput + " " + manualInstallConfig,
+		"sudo ./install.sh --config " + manualInstallConfig + " --dry-run",
+		"sudo ./install.sh --config " + manualInstallConfig,
+	} {
+		if !strings.Contains(out.String(), command) {
+			t.Errorf("setup instructions do not include %q:\n%s", command, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "correct horse") {
 		t.Fatalf("transcript:\n%s", out.String())
+	}
+}
+
+func TestShellQuoteProtectsSetupPaths(t *testing.T) {
+	if got, want := shellQuoteCommandArg("/tmp/setup user's.env"), `'/tmp/setup user'\''s.env'`; got != want {
+		t.Fatalf("shellQuoteCommandArg = %q, want %q", got, want)
 	}
 }
 

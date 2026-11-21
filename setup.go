@@ -21,6 +21,7 @@ import (
 
 // existingInstallEnv is the configuration an installed StePanel runs with.
 const existingInstallEnv = "/etc/ste-panel.env"
+const manualInstallConfig = "/etc/ste-panel-install.env"
 
 // runSetupCommand implements `stepanel setup`: the guided first-time setup
 // that writes the installer settings file. `stepanel init` is an alias.
@@ -72,10 +73,18 @@ func runSetup(args []string, in *os.File, out io.Writer, host setupguide.Host, e
 	fmt.Fprintln(out, "  key, and without it encrypted backups cannot be restored.")
 	if !*fromInstaller {
 		fmt.Fprintln(out, "\nNext:")
-		fmt.Fprintf(out, "  1. Preview the changes:  sudo ./install.sh --config %s --dry-run\n", path)
-		fmt.Fprintf(out, "  2. Install:              sudo ./install.sh --config %s\n", path)
+		quotedPath := shellQuoteCommandArg(path)
+		fmt.Fprintf(out, "  1. Copy settings to a root-only file: sudo install -o root -g root -m 0600 -- %s %s\n", quotedPath, manualInstallConfig)
+		fmt.Fprintf(out, "  2. Preview the changes:              sudo ./install.sh --config %s --dry-run\n", manualInstallConfig)
+		fmt.Fprintf(out, "  3. Install:                          sudo ./install.sh --config %s\n", manualInstallConfig)
 	}
 	return nil
+}
+
+// shellQuote returns one POSIX-shell argument. Setup paths are user-selected,
+// so quote them before printing copyable privileged commands.
+func shellQuoteCommandArg(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 // setupTerminal reads lines from stdin and secrets without echo when stdin

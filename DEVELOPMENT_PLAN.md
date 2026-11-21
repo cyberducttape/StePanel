@@ -1512,6 +1512,27 @@ the domain changes, and stop changing after the user customizes them.
 - Operator and customer journeys cover both behaviors and remain accessible.
 - Build, frontend unit tests, focused browser tests, and exact-source CI pass.
 
+### M0ah — Make generated installer settings directly usable (P1)
+
+**Status:** Manual setup now prints a root-owned private-copy command and the
+guide matches it. Settings parser regression tests, build, shell syntax, and
+documentation checks pass locally. Exact-source CI is pending.
+
+The documented `stepanel setup` flow must continue successfully into the
+installer. Treat its generated settings as the supported contract: promote a
+user-owned setup file into a root-only destination without changing it in
+place, then preview and install from that copy. Reject malformed or truncated
+settings rather than silently changing values.
+
+**Acceptance criteria**
+
+- CLI output includes copyable root-only copy, dry-run, and install commands.
+- Paths with whitespace or shell metacharacters are quoted correctly.
+- The docs show the same working manual command sequence.
+- The installer rejects unterminated quotes, trailing data, invalid escapes,
+  and final lines without newlines; valid generated values still round-trip.
+- Targeted tests, shell syntax, documentation checks, and exact-source CI pass.
+
 ### Guided site lifecycle experience (product work; not a release-gate closure)
 
 **Status:** Implemented in the site workspace, with browser regression coverage.
