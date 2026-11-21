@@ -1,5 +1,16 @@
 # Production-readiness progress
 
+## First-run backup coverage is checked per site — 2026-11-21
+
+- Operator and customer checklists now compare verified archives against every
+  active site. An uncovered site stays a pending step and its Backups tab is
+  the primary action. If the newest 100 backups omit a site, the status is
+  unknown and directs the operator to inspect full history. Completion still
+  says archive integrity does not prove application recovery.
+- Expanded operator and customer browser regressions for multi-site gaps and
+  direct navigation. Build, frontend unit tests (19 passed), and the customer
+  panel Playwright/axe journey passed locally. Exact-source CI pending.
+
 ## Customer domain checklist requires DNS and HTTPS review — 2026-11-21
 
 - A configured route no longer marks domain setup complete. The customer

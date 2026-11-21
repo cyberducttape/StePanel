@@ -1344,7 +1344,7 @@ Scope and ordering are defined in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 ## Current sequencing
 
 1. Make first-run and customer operation dependable through clear errors,
-   context-safe workflows, and resilient status updates (M0aa/M0ab/M0ac/M0ad/M0ae).
+   context-safe workflows, and resilient status updates (M0aa/M0ab/M0ac/M0ad/M0ae/M0af).
 2. Typed service extraction for durable site operations is complete (M0s);
    move the backup/restore and deployment services into `internal/` packages
    in focused changes.
@@ -1465,6 +1465,31 @@ missing or unavailable route data remains unknown.
 - Missing route data is shown as unknown rather than as an absent route.
 - The customer browser regression covers all three states and passes axe;
   exact-source CI passes.
+
+### M0af — Require backup evidence for each active site (P1)
+
+**Status:** Implemented locally; build, frontend unit tests, and the focused
+operator/customer browser regressions passed. Exact-source CI pending.
+
+The first-run checklist must not imply account-wide recovery coverage when
+only one of several sites has a verified backup. Compare the latest bounded
+backup listing against every active assigned site. Link directly to an
+uncovered site's Backups tab; if the listing may be truncated, report unknown
+and ask the operator to inspect that site's complete history. Application
+restore proof remains a distinct, stronger claim.
+
+**Acceptance criteria**
+
+- A missing backup for any active site keeps the recovery checklist step open
+  and identifies that site.
+- The primary action opens the first uncovered site's Backups tab.
+- A full 100-result listing with no backup for a site reports unknown rather
+  than claiming no backup exists.
+- Only when every active site has a recorded integrity-verified archive may
+  the checklist count this step complete; its text still distinguishes archive
+  integrity from application recovery.
+- Operator and customer browser regressions cover single-site coverage,
+  multi-site gaps, truncation, and exact navigation.
 
 ### Guided site lifecycle experience (product work; not a release-gate closure)
 

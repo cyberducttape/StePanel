@@ -35,11 +35,13 @@ test('login and overview accessibility', async ({ page }) => {
 
 test('first-run primary action follows the next unresolved setup step', async ({ page }) => {
   let hostNeedsAttention = true;
+  let currentSites = [];
+  let currentBackups = [];
   await page.route('**/api/sites/overview', (route) => route.fulfill({
-    status: 200, contentType: 'application/json', body: JSON.stringify({ sites: [] }),
+    status: 200, contentType: 'application/json', body: JSON.stringify({ sites: currentSites }),
   }));
   await page.route('**/api/backups?limit=100', (route) => route.fulfill({
-    status: 200, contentType: 'application/json', body: JSON.stringify({ backups: [] }),
+    status: 200, contentType: 'application/json', body: JSON.stringify({ backups: currentBackups }),
   }));
   await page.route('**/api/health/operational', (route) => route.fulfill({
     status: hostNeedsAttention ? 503 : 200,
@@ -62,6 +64,23 @@ test('first-run primary action follows the next unresolved setup step', async ({
   await expect(primary).toHaveAttribute('href', '#sites');
   await expect(primary).toHaveText('Set up a site');
   await expect(page.locator('#onboardingChecklist')).toContainText('Create or migrate your first site');
+
+  currentSites = [{ site: 'setup-a' }, { site: 'setup-b' }];
+  currentBackups = [{ site: 'setup-a', verified_at: '2026-11-20T12:00:00Z' }];
+  await page.locator('#refreshOnboarding').click();
+  await expect(page.locator('#onboardingChecklist')).toContainText('No integrity-verified backup is recorded for setup-b');
+  await expect(page.locator('#onboardingChecklist').getByRole('link', { name: 'Review setup-b backups' })).toHaveAttribute('href', '#site=setup-b&tab=backups');
+  await expect(primary).toHaveAttribute('href', '#site=setup-b&tab=backups');
+
+  currentBackups = [
+    { site: 'setup-a', verified_at: '2026-11-20T12:00:00Z' },
+    ...Array.from({ length: 99 }, (_, index) => ({ site: `historical-${index}`, verified_at: '2026-11-19T12:00:00Z' })),
+  ];
+  await page.locator('#refreshOnboarding').click();
+  const recoveryStep = page.locator('#onboardingChecklist .setup-step').filter({ hasText: 'Create a verified recovery point' });
+  await expect(recoveryStep).toHaveClass(/setup-step-unknown/);
+  await expect(recoveryStep).toContainText('latest 100 results');
+  await expect(primary).toHaveAttribute('href', '#site=setup-b&tab=backups');
 });
 
 test('database health expands into a readable, host-wide snapshot', async ({ page }) => {

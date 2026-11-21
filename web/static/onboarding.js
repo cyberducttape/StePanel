@@ -107,24 +107,31 @@
       });
     } else {
       const siteNames = sites === null ? null : new Set(sites.map((site) => site.site));
-      const latest = siteNames
-        ? backups.filter((backup) => siteNames.has(backup.site) && backup.verified_at)
-          .sort((a, b) => new Date(b.verified_at) - new Date(a.verified_at))[0]
-        : null;
+      const verified = siteNames
+        ? backups.filter((backup) => siteNames.has(backup.site) && backup.verified_at && Number.isFinite(Date.parse(backup.verified_at)))
+        : [];
+      const latest = verified.sort((a, b) => Date.parse(b.verified_at) - Date.parse(a.verified_at))[0];
+      const verifiedSites = new Set(verified.map((backup) => backup.site));
+      const missingSites = sites ? sites.filter((site) => !verifiedSites.has(site.site)) : [];
       const backupHistoryMayBeTruncated = backups.length >= 100;
-      const backupState = latest ? 'done' : sites === null || (sites.length > 0 && backupHistoryMayBeTruncated) ? 'unknown' : 'next';
+      const backupState = sites === null || (missingSites.length > 0 && backupHistoryMayBeTruncated)
+        ? 'unknown'
+        : missingSites.length > 0 || sites.length === 0 ? 'next' : 'done';
+      const firstMissing = missingSites[0];
       steps.push({
         title: 'Create a verified recovery point',
-        detail: latest
-          ? `Latest integrity-verified backup: ${new Date(latest.verified_at).toLocaleString()}. An archive check does not prove application recovery.`
-          : sites === null
+        detail: sites === null
             ? 'Site inventory is unavailable, so backup status cannot be matched to an active site.'
-          : sites && sites.length
+          : firstMissing
             ? backupHistoryMayBeTruncated
-              ? 'No verified backup for an active site appears in the latest 100 results. Check the site workspace for its exact backup history.'
-              : 'No verified backup is recorded for an active site yet. Create one before making high-risk changes.'
-            : 'After creating a site, make an encrypted backup and confirm its integrity here.',
-        href: '#sites', label: latest ? 'Review backups' : 'Review site backups', state: backupState,
+              ? `No integrity-verified backup for ${firstMissing.site} appears in the latest 100 results. Check that site's full backup history before treating it as missing.`
+              : `No integrity-verified backup is recorded for ${firstMissing.site}. Create one before making high-risk changes.`
+            : latest
+              ? `Every active site has an integrity-verified backup. The newest was verified ${new Date(latest.verified_at).toLocaleString()}. Archive integrity does not prove application recovery.`
+              : 'After creating a site, make an encrypted backup and confirm its integrity here.',
+        href: firstMissing ? `#site=${encodeURIComponent(firstMissing.site)}&tab=backups` : '#sites',
+        label: firstMissing ? `Review ${firstMissing.site} backups` : latest ? 'Review backups' : 'Review site backups',
+        state: backupState,
       });
     }
 

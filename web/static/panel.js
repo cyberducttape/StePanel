@@ -196,18 +196,23 @@
       });
     } else {
       const siteNames = new Set(hosting.sites.map((site) => site.site));
-      const latest = backups
-        .filter((backup) => siteNames.has(backup.site) && backup.verified_at)
-        .sort((a, b) => new Date(b.verified_at) - new Date(a.verified_at))[0];
+      const verified = backups
+        .filter((backup) => siteNames.has(backup.site) && backup.verified_at && Number.isFinite(Date.parse(backup.verified_at)));
+      const latest = verified.sort((a, b) => Date.parse(b.verified_at) - Date.parse(a.verified_at))[0];
+      const verifiedSites = new Set(verified.map((backup) => backup.site));
+      const missingSites = hosting.sites.filter((site) => !verifiedSites.has(site.site));
       const truncated = backups.length >= 100;
+      const firstMissing = missingSites[0];
       steps.push({
         title: 'Create a verified backup',
-        detail: latest
-          ? `Latest integrity-verified backup: ${new Date(latest.verified_at).toLocaleString()}. This proves archive integrity, not a complete application restore.`
-          : truncated
-            ? 'No verified backup for your websites appears in the latest 100 results. Check the selected website’s backup history.'
-            : 'No verified backup is recorded for your websites yet. Create one before making high-risk changes.',
-        href: '#data', label: latest ? 'Review backups' : 'Open backup list', state: latest ? 'done' : truncated ? 'unknown' : 'next',
+        detail: firstMissing
+          ? truncated
+            ? `No integrity-verified backup for ${firstMissing.site} appears in the latest 100 results. Check that website's full backup history before treating it as missing.`
+            : `No integrity-verified backup is recorded for ${firstMissing.site}. Create one before making high-risk changes.`
+          : `Every assigned website has an integrity-verified backup. The newest was verified ${new Date(latest.verified_at).toLocaleString()}. This proves archive integrity, not a complete application restore.`,
+        href: firstMissing ? `#site=${encodeURIComponent(firstMissing.site)}&tab=backups` : '#data',
+        label: firstMissing ? `Review ${firstMissing.site} backups` : 'Review backups',
+        state: firstMissing ? truncated ? 'unknown' : 'next' : 'done',
       });
     }
 
