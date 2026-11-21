@@ -62,7 +62,7 @@ jobs:
           echo "ROCKY_IMAGE_PATH=$image_dir/$ROCKY_IMAGE" >> "$GITHUB_ENV"
       - name: Run boot, install, and abrupt-loss operation drills
         env:
-          PHASES: boot install abrupt-loss-operations
+          PHASES: boot install abrupt-loss-operations db-enospc
           ABRUPT_LOSS_SCENARIOS: ${{ inputs.scenarios }}
           # Avoid retaining acknowledged guest writes in the runner's page
           # cache when the QEMU process is SIGKILLed. This strengthens guest

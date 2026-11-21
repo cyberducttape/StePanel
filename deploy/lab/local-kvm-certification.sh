@@ -16,7 +16,7 @@ set -Eeuo pipefail
 # Environment: VM_MEMORY_MB (4096), VM_HOST_RESERVE_MB (2048), VM_CPUS (4), SSH_PORT (2232),
 # RECOVERY_MATRIX_REPEATS (1; use 20–50 for the release soak),
 # PHASES (space-separated subset of: boot install runner abrupt-loss
-# abrupt-loss-under-load abrupt-loss-operations enospc capacity), KEEP_VM=1 to leave the guest running,
+# abrupt-loss-under-load abrupt-loss-operations enospc db-enospc capacity), KEEP_VM=1 to leave the guest running,
 # CERT_INSTALL_RECOVERY_MATRIX (1; 0 installs and runs the smokes without the
 # hours-long lease-recovery matrix, for phases that need only an installed host),
 # CAPACITY_PROFILE (small, node, or large), CAPACITY_DURATION (600 seconds), and
@@ -37,7 +37,7 @@ memory=${VM_MEMORY_MB:-4096}
 cpus=${VM_CPUS:-4}
 port=${SSH_PORT:-2232}
 host_reserve=${VM_HOST_RESERVE_MB:-2048}
-phases=${PHASES:-boot install runner abrupt-loss abrupt-loss-under-load abrupt-loss-operations enospc}
+phases=${PHASES:-boot install runner abrupt-loss abrupt-loss-under-load abrupt-loss-operations enospc db-enospc}
 disk_cache=${VM_DISK_CACHE:-writeback}
 case $disk_cache in writeback|none|directsync|writethrough) ;; *) echo 'VM_DISK_CACHE must be writeback, none, directsync, or writethrough' >&2; exit 1 ;; esac
 matrix_repeats=${RECOVERY_MATRIX_REPEATS:-1}
@@ -429,6 +429,19 @@ if has_phase enospc; then
     record enospc PASS $((SECONDS - start)) 'backup and file restore recovered from real ENOSPC'
   else
     record enospc FAIL $((SECONDS - start)) "$(tail -1 "$run_dir/enospc.log")"
+  fi
+fi
+
+# --- Real database-filesystem exhaustion during a managed restore -----------
+# Runs the CI MySQL smoke against the installed MariaDB and stepanel-dbctl:
+# admission refusal, the free-space watchdog during the shadow load, an
+# unchanged live database, no leftover shadow or record, and a later restore.
+if has_phase db-enospc; then
+  start=$SECONDS
+  if guest_job db-enospc 30 'command -v rsync >/dev/null || dnf -y -q install rsync; bash /work/deploy/lab/dbctl-restore-enospc-smoke.sh'; then
+    record db-enospc PASS $((SECONDS - start)) "$(tail -1 "$run_dir/db-enospc.log")"
+  else
+    record db-enospc FAIL $((SECONDS - start)) "$(tail -1 "$run_dir/db-enospc.log")"
   fi
 fi
 
