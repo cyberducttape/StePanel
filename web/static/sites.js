@@ -2284,7 +2284,33 @@
     const templateSelect = createForm.elements.template;
     const wordpressFields = createForm.querySelector('#wordpressCreateFields');
     const domainInput = createForm.elements.domain;
+    const siteNameInput = createForm.elements.site;
     const wordpressInputs = ['title', 'admin_user', 'admin_email', 'admin_password'].map((name) => createForm.elements[name]).filter(Boolean);
+    const suggestSiteName = () => {
+      if (!siteNameInput || siteNameInput.dataset.manuallyEdited === 'true') return;
+      const labels = domainInput.value.trim().toLowerCase().replace(/\.$/, '').split('.');
+      if (labels[0] === 'www') labels.shift();
+      const suggestion = labels[0] || '';
+      if (suggestion && /^[a-z0-9_-]{1,32}$/.test(suggestion)) {
+        siteNameInput.value = suggestion;
+        siteNameInput.dataset.autoSuggested = 'true';
+      } else if (siteNameInput.dataset.autoSuggested === 'true') {
+        siteNameInput.value = '';
+        delete siteNameInput.dataset.autoSuggested;
+      }
+    };
+    if (siteNameInput && domainInput) {
+      siteNameInput.addEventListener('input', () => {
+        siteNameInput.dataset.manuallyEdited = 'true';
+        delete siteNameInput.dataset.autoSuggested;
+      });
+      domainInput.addEventListener('input', suggestSiteName);
+      createForm.addEventListener('reset', () => {
+        delete siteNameInput.dataset.manuallyEdited;
+        delete siteNameInput.dataset.autoSuggested;
+        window.setTimeout(suggestSiteName, 0);
+      });
+    }
     const adminPassword = createForm.elements.admin_password;
     const generatePasswordButton = createForm.querySelector('#generateWordPressPassword');
     const togglePasswordButton = createForm.querySelector('#toggleWordPressPassword');

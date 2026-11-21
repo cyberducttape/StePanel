@@ -1,5 +1,16 @@
 # Production-readiness progress
 
+## Reduce site-creation data entry — 2026-11-21
+
+- Site creation now suggests a valid site name from the entered domain,
+  removing a redundant field decision for both operators and customers. A
+  leading `www` is ignored, suggestions update as the domain changes, and a
+  manually edited name is preserved.
+- Added operator and customer browser regressions for domain suggestions and
+  preserving custom names. `make build`, both focused Playwright journeys,
+  frontend unit tests (19 passed), JavaScript syntax checks, and
+  `git diff --check` passed locally. Exact-source hosted CI is pending.
+
 ## Easier WordPress administrator credential setup — 2026-11-21
 
 - Both operator and customer WordPress creation forms can generate a random

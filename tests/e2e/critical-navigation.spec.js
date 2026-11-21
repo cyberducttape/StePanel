@@ -75,6 +75,13 @@ test('first-run primary action follows the next unresolved setup step', async ({
   await expect(primary).toHaveAttribute('href', '#sites');
   await expect(primary).toHaveText('Set up a site');
   await expect(page.locator('#onboardingChecklist')).toContainText('Create or migrate your first site');
+  await page.locator('#siteCreateDomain').fill('www.blog.example.test');
+  await expect(page.locator('#siteCreateName')).toHaveValue('blog');
+  await page.locator('#siteCreateDomain').fill('store.example.test');
+  await expect(page.locator('#siteCreateName')).toHaveValue('store');
+  await page.locator('#siteCreateName').fill('custom-store');
+  await page.locator('#siteCreateDomain').fill('changed.example.test');
+  await expect(page.locator('#siteCreateName')).toHaveValue('custom-store');
 
   currentSites = [{ site: 'setup-a' }, { site: 'setup-b' }];
   currentBackups = [{ site: 'setup-a', verified_at: '2026-11-20T12:00:00Z' }];
