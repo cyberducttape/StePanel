@@ -32,19 +32,18 @@ import (
 
 const siteFilesPrefix = "/api/sites/files/"
 
-// siteFileWrites bounds concurrent file uploads so slow clients and helper
-// processes cannot exhaust host resources.
-var siteFileWrites = make(chan struct{}, 8)
-
 const (
-	maxConcurrentSiteFileReadsPerTenant = 4
-	maxConcurrentSiteFileReadsHost      = 32
+	maxConcurrentSiteFileReadsPerTenant  = 4
+	maxConcurrentSiteFileReadsHost       = 32
+	maxConcurrentSiteFileWritesPerTenant = 2
+	maxConcurrentSiteFileWritesHost      = 8
 )
 
-// siteFileReadLimiter bounds potentially expensive directory enumeration and
-// file reads both per tenant and across the panel process. Counts exist only
-// while requests are active, so old or revoked tenants do not accumulate keys.
-type siteFileReadLimiter struct {
+// siteFileAdmissionLimiter bounds file operations per tenant and across the
+// panel process. Counts exist only while requests are active, so old or
+// revoked tenants do not accumulate keys. Admission is nonblocking: a tenant
+// at its limit cannot occupy slots reserved for other active tenants.
+type siteFileAdmissionLimiter struct {
 	mu        sync.Mutex
 	perTenant int
 	global    int
@@ -52,15 +51,15 @@ type siteFileReadLimiter struct {
 	total     int
 }
 
-func newSiteFileReadLimiter(perTenant, global int) *siteFileReadLimiter {
-	return &siteFileReadLimiter{
+func newSiteFileAdmissionLimiter(perTenant, global int) *siteFileAdmissionLimiter {
+	return &siteFileAdmissionLimiter{
 		perTenant: perTenant,
 		global:    global,
 		active:    make(map[string]int),
 	}
 }
 
-func (l *siteFileReadLimiter) acquire(tenantID string) (func(), bool) {
+func (l *siteFileAdmissionLimiter) acquire(tenantID string) (func(), bool) {
 	if strings.TrimSpace(tenantID) == "" || l.perTenant < 1 || l.global < 1 {
 		return nil, false
 	}
@@ -88,9 +87,14 @@ func (l *siteFileReadLimiter) acquire(tenantID string) (func(), bool) {
 	}, true
 }
 
-var siteFileReads = newSiteFileReadLimiter(
+var siteFileReads = newSiteFileAdmissionLimiter(
 	maxConcurrentSiteFileReadsPerTenant,
 	maxConcurrentSiteFileReadsHost,
+)
+
+var siteFileWrites = newSiteFileAdmissionLimiter(
+	maxConcurrentSiteFileWritesPerTenant,
+	maxConcurrentSiteFileWritesHost,
 )
 
 // errSiteNotPlaced reports a legacy site, whose tree the file manager does
@@ -240,14 +244,13 @@ func (a *App) siteFiles(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "If-Match must contain a StePanel file revision", http.StatusBadRequest)
 			return
 		}
-		select {
-		case siteFileWrites <- struct{}{}:
-			defer func() { <-siteFileWrites }()
-		default:
+		releaseWrite, admitted := siteFileWrites.acquire(access.TenantID())
+		if !admitted {
 			w.Header().Set("Retry-After", "5")
-			http.Error(w, "too many file uploads are in progress; try again shortly", http.StatusTooManyRequests)
+			http.Error(w, "too many file uploads are in progress for this tenant or host; try again shortly", http.StatusTooManyRequests)
 			return
 		}
+		defer releaseWrite()
 		r.Body = http.MaxBytesReader(w, r.Body, sitefiles.MaxWriteBytes)
 		a.siteFilesMutate(w, r, access, "site.files.write", rel+" (streamed upload)", func(ctx context.Context) error {
 			return store.Write(ctx, access, rel, r.Body, expectedRevision)

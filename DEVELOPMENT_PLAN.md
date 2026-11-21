@@ -1558,6 +1558,26 @@ history.
   limits, with failed persistence leaving in-memory state unchanged.
 - Focused regressions, full Go checks, and exact-source hosted CI pass.
 
+### M0aj — Keep file operations race-safe and tenant-fair (P2)
+
+**Status:** Implemented locally; focused tests, exact-source `make check`, and
+targeted race tests pass. Hosted CI for this source remains pending.
+
+The local file manager must keep the production no-overwrite rename contract,
+and concurrent uploads must not let one tenant monopolize every host slot.
+
+**Acceptance criteria**
+
+- Rename uses an atomic no-replace publication primitive relative to opened,
+  document-root-confined parent directories; unsupported platforms fail closed.
+- A destination created after the initial existence check is preserved, the
+  source remains intact, and the request reports a destination conflict.
+- Upload admission has explicit per-tenant and host-wide limits, returns a
+  retryable response on saturation, and releases slots after success or error.
+- A saturated tenant cannot occupy all host upload slots, and another tenant
+  can still be admitted.
+- Focused regressions, full Go checks, and exact-source hosted CI pass.
+
 ### Guided site lifecycle experience (product work; not a release-gate closure)
 
 **Status:** Implemented in the site workspace, with browser regression coverage.

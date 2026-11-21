@@ -21,7 +21,8 @@ import (
 // Production hosts use the broker-backed store instead, which runs as the
 // account user.
 type Local struct {
-	DocRoot func(site string) (string, error)
+	DocRoot      func(site string) (string, error)
+	beforeRename func() // deterministic publication-race hook for package tests
 }
 
 func (l Local) open(site SiteAccess) (*os.Root, error) {
@@ -318,7 +319,13 @@ func (l Local) Rename(_ context.Context, site SiteAccess, rel, destination strin
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	if err := root.Rename(rel, destination); err != nil {
+	if l.beforeRename != nil {
+		l.beforeRename()
+	}
+	if err := renameNoReplace(root, rel, destination); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return Refused("destination already exists")
+		}
 		return fmt.Errorf("rename: %w", err)
 	}
 	return nil

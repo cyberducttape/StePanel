@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -153,7 +154,7 @@ func TestSiteFilesRejectsStaleEditorRevision(t *testing.T) {
 }
 
 func TestSiteFileReadLimiterBoundsPerTenantAndHost(t *testing.T) {
-	limiter := newSiteFileReadLimiter(2, 3)
+	limiter := newSiteFileAdmissionLimiter(2, 3)
 	first, ok := limiter.acquire("tenant-a")
 	if !ok {
 		t.Fatal("first tenant-a read was rejected")
@@ -191,9 +192,36 @@ func TestSiteFileReadLimiterBoundsPerTenantAndHost(t *testing.T) {
 	}
 }
 
+func TestSiteFileWriteLimiterPreventsSingleTenantMonopoly(t *testing.T) {
+	limiter := newSiteFileAdmissionLimiter(maxConcurrentSiteFileWritesPerTenant, maxConcurrentSiteFileWritesHost)
+	releases := make([]func(), 0, maxConcurrentSiteFileWritesHost)
+	for i := 0; i < maxConcurrentSiteFileWritesPerTenant; i++ {
+		release, ok := limiter.acquire("tenant-a")
+		if !ok {
+			t.Fatal("tenant A was rejected before reaching its write limit")
+		}
+		releases = append(releases, release)
+	}
+	if release, ok := limiter.acquire("tenant-a"); ok {
+		release()
+		t.Fatal("tenant A exceeded its per-tenant write limit")
+	}
+	if release, ok := limiter.acquire("tenant-b"); !ok {
+		t.Fatal("tenant A's uploads monopolized all host write capacity")
+	} else {
+		releases = append(releases, release)
+	}
+	for _, release := range releases {
+		release()
+	}
+	if limiter.total != 0 || len(limiter.active) != 0 {
+		t.Fatalf("write slots leaked: total=%d tenants=%d", limiter.total, len(limiter.active))
+	}
+}
+
 func TestSiteFileReadLimiterConcurrentAdmissionsNeverExceedTenantLimit(t *testing.T) {
 	const requests = 40
-	limiter := newSiteFileReadLimiter(4, 32)
+	limiter := newSiteFileAdmissionLimiter(4, 32)
 	start := make(chan struct{})
 	releases := make(chan func(), requests)
 	var attempts sync.WaitGroup
@@ -266,12 +294,17 @@ func TestSiteFilesRefusesUnsafeRequests(t *testing.T) {
 		}
 	}
 	// Concurrent uploads are bounded before they consume host resources.
-	for i := 0; i < cap(siteFileWrites); i++ {
-		siteFileWrites <- struct{}{}
+	writeReleases := make([]func(), 0, maxConcurrentSiteFileWritesHost)
+	for i := 0; i < maxConcurrentSiteFileWritesHost; i++ {
+		release, ok := siteFileWrites.acquire(fmt.Sprintf("write-filler-%d", i))
+		if !ok {
+			t.Fatal("could not reserve test upload slots")
+		}
+		writeReleases = append(writeReleases, release)
 	}
 	w := siteFilesRequest(a, "alice", http.MethodPut, "/api/sites/files/alice/content?path=x", []byte("x"))
-	for i := 0; i < cap(siteFileWrites); i++ {
-		<-siteFileWrites
+	for _, release := range writeReleases {
+		release()
 	}
 	if w.Code != http.StatusTooManyRequests {
 		t.Fatalf("write with every upload slot busy = %d", w.Code)

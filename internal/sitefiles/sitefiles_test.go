@@ -127,6 +127,32 @@ func TestLocalStoreLifecycle(t *testing.T) {
 	}
 }
 
+func TestLocalRenameDoesNotOverwriteDestinationCreatedAtPublication(t *testing.T) {
+	store, dir := newLocal(t)
+	alice := testSiteAccess("alice")
+	source := filepath.Join(dir, "source.txt")
+	destination := filepath.Join(dir, "destination.txt")
+	if err := os.WriteFile(source, []byte("source"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	store.beforeRename = func() {
+		if err := os.WriteFile(destination, []byte("concurrent writer"), 0o640); err != nil {
+			t.Errorf("create racing destination: %v", err)
+		}
+	}
+	err := store.Rename(context.Background(), alice, "source.txt", "destination.txt")
+	var refused *RefusedError
+	if !errors.As(err, &refused) {
+		t.Fatalf("racing destination rename error = %v; want a destination conflict", err)
+	}
+	if got, err := os.ReadFile(destination); err != nil || string(got) != "concurrent writer" {
+		t.Fatalf("racing destination = %q, %v", got, err)
+	}
+	if got, err := os.ReadFile(source); err != nil || string(got) != "source" {
+		t.Fatalf("source after rejected rename = %q, %v", got, err)
+	}
+}
+
 func TestLocalStoreConditionalWriteRejectsStaleRevision(t *testing.T) {
 	ctx := context.Background()
 	store, dir := newLocal(t)

@@ -2721,3 +2721,22 @@ does not close a current-source or power-loss gate.
   `git diff --check` passes. Hosted CI for this source is pending.
 - No production recovery or capacity gate is closed by this change. Production
   remains **NO-GO**.
+
+## File-manager rename and upload fairness — 2026-11-21
+
+- The development Local file manager now performs Linux `renameat2` with
+  `RENAME_NOREPLACE`, using file descriptors opened from `os.Root`-confined
+  parent roots. If the kernel/filesystem lacks the atomic primitive, rename
+  fails closed. A racing `EEXIST` is returned as a destination conflict.
+- Added a deterministic test hook and regression that creates a destination
+  after the initial check but immediately before publication; the new file
+  and original source are both preserved.
+- Replaced the shared upload semaphore with bounded per-tenant (2) and host
+  (8) admission. Saturated upload requests get HTTP 429 plus `Retry-After`,
+  while unused host slots remain available to other tenants.
+- Focused rename and upload-admission tests pass, as do `go test -race
+  ./internal/sitefiles`, focused root-package race tests, and exact-source
+  `make check` (root package 115.864s). Hosted CI for this source remains
+  pending. Production helper behavior was
+  already using no-replace semantics; this change aligns the development
+  implementation and API admission policy.
