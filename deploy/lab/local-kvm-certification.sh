@@ -377,7 +377,7 @@ if has_phase abrupt-loss-operations; then
   for scenario in ${ABRUPT_LOSS_SCENARIOS:-file-restore database-restore git-deploy retention control-plane backup-interrupted}; do
     # The name reaches a root command in the guest; accept only known ones.
     case $scenario in
-      file-restore|database-restore|git-deploy|retention|control-plane) ;;
+      file-restore|database-restore|git-deploy|retention|control-plane|backup-interrupted) ;;
       *) echo "unknown abrupt-loss scenario: $scenario" >&2; exit 64 ;;
     esac
     start=$SECONDS
