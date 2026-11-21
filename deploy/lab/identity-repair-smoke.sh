@@ -228,16 +228,20 @@ PY
 lock_pid=$!
 for _ in $(seq 1 500); do [[ -e $lock_ready ]] && break; sleep 0.02; done
 [[ -e $lock_ready ]] || { echo 'could not hold the control-plane write lock' >&2; exit 1; }
-apply_repair > /dev/null 2>&1 &
+repair_log=$(mktemp)
+apply_repair > "$repair_log" 2>&1 &
 repair_pid=$!
 killed=0
-for _ in $(seq 1 1500); do
-  if compgen -G "$recovery_root/site-identities-before-*.sqlite" > /dev/null; then
+# The plan journal is durable before the snapshot and the mapping commit,
+# which then waits on the held lock for the 1 s busy timeout: kill as soon as
+# the journal appears.
+for _ in $(seq 1 6000); do
+  if [[ -s $journal ]]; then
     kill -KILL "$repair_pid" 2>/dev/null && killed=1
     break
   fi
   kill -0 "$repair_pid" 2>/dev/null || break
-  sleep 0.02
+  sleep 0.005
 done
 repair_status=0
 wait "$repair_pid" || repair_status=$?
@@ -246,6 +250,8 @@ wait "$lock_pid" 2>/dev/null || true
 rm -f "$lock_ready"
 (( repair_status != 0 )) || { echo 'repair completed while the mapping commit was blocked' >&2; exit 1; }
 echo "database checkpoint interruption: killed=$killed exit=$repair_status"
+(( killed )) || { echo 'the repair exited before it could be killed at the database checkpoint:' >&2; cat "$repair_log" >&2; }
+rm -f "$repair_log"
 check_state 'before mapping commit' planned 0
 
 # Interruptions 2-4, host checkpoints: a wrapper SIGKILLs the repair on one
