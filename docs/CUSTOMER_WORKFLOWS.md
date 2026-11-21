@@ -9,8 +9,9 @@ own (administrators keep the operator dashboard at `/`). Its sections are:
 
 - **Home:** the hosting account, its system user and home directory
   (`/home/USER`), each website with its document root, and a live checklist
-  for opening/creating a website and checking for a recent
-  integrity-verified backup.
+  for opening/creating a website, connecting missing domain routes, and
+  checking for a recent integrity-verified backup. Domain-route presence does
+  not prove public DNS or HTTPS.
   If inventory or backup status cannot be loaded, Home reports that as an
   unavailable check rather than showing an empty result; use **Refresh status**
   to retry.

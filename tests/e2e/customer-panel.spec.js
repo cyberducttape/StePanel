@@ -150,13 +150,17 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await expect(page.locator('#panelHome')).toHaveText(`/home/${testCustomer.username}`);
   await expect(page.locator('#panelOnboardingList')).toContainText('Open your website workspace');
   await expect(page.locator('#panelOnboardingList')).toContainText('Latest integrity-verified backup');
-  await expect(page.locator('#panelOnboardingProgress')).toContainText('2 of 2 essentials complete');
+  await expect(page.locator('#panelOnboardingList')).toContainText('Domain routes could not be checked');
+  await expect(page.locator('#panelOnboardingProgress')).toContainText('2 of 3 essentials complete');
   await expect(page.locator('#panelPrimaryAction')).toHaveAttribute('href', '#websites');
   await expect(page.locator('#panelSiteList')).toContainText('public_html');
   await expect(page.locator('#panelSiteList')).not.toContainText(`/home/${testCustomer.username}/public_html`);
   await expect(page.locator('#panelSitesStatus')).toContainText('could not be refreshed');
   await page.locator('#panelSitesStatus').getByRole('button', { name: 'Retry' }).click();
   await expect(page.locator('#panelSitesStatus')).toBeHidden();
+  await expect(page.locator('#panelOnboardingList')).toContainText('e2e-shop has no configured domain route');
+  await expect(page.locator('#panelPrimaryAction')).toHaveAttribute('href', '#site=e2e-shop&tab=domains');
+  await expect(page.locator('#panelOnboardingProgress')).toContainText('2 of 3 essentials complete');
   await expect(page.getByRole('link', { name: 'Customers' })).toHaveCount(0);
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Websites' }).click();
   await expect(page.locator('#siteOverview')).toContainText('e2e-main');

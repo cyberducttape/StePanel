@@ -136,6 +136,44 @@
       });
     }
 
+    if (!hostingLoaded || hostingError || overviewError) {
+      steps.push({
+        title: 'Connect your domain',
+        detail: `Domain routes could not be checked: ${overviewError || hostingError || 'website assignments are still loading'}. A configured route also does not prove public DNS or HTTPS is working.`,
+        href: '#websites', label: 'Review domain status', state: 'unknown',
+      });
+    } else if (!hosting.sites.length) {
+      steps.push({
+        title: 'Connect your domain',
+        detail: 'After adding a website, connect its domain and check DNS and HTTPS in the site workspace.',
+        href: '#websites', label: 'Add a website', state: 'next',
+      });
+    } else {
+      const siteWithoutRoute = hosting.sites.find((site) => {
+        const overview = overviews.get(site.site);
+        return !overview || !Array.isArray(overview.routes) || overview.routes.length === 0;
+      });
+      if (siteWithoutRoute) {
+        const overview = overviews.get(siteWithoutRoute.site);
+        const state = !overview ? 'unknown' : 'next';
+        steps.push({
+          title: 'Connect your domain',
+          detail: state === 'unknown'
+            ? `Domain status for ${siteWithoutRoute.site} could not be confirmed. Review the site workspace before assuming it has no domain.`
+            : `${siteWithoutRoute.site} has no configured domain route. Connect the domain, then verify DNS and HTTPS in its workspace.`,
+          href: `#site=${encodeURIComponent(siteWithoutRoute.site)}&tab=domains`,
+          label: state === 'unknown' ? 'Review domain status' : 'Connect a domain',
+          state,
+        });
+      } else {
+        steps.push({
+          title: 'Connect your domain',
+          detail: 'Every assigned website has a configured route. Confirm public DNS and HTTPS in each site workspace; route configuration alone does not verify either.',
+          href: '#websites', label: 'Review domains', state: 'done',
+        });
+      }
+    }
+
     if (!backupsLoaded) {
       steps.push({
         title: 'Check your recovery point',
