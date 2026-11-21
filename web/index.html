@@ -31,7 +31,7 @@
     <main class="content" id="main">
       <section class="hero">
         <div><p class="eyebrow">{{ if .IsAdministrator }}Hosting control plane{{ else }}Your hosting workspace{{ end }}</p><h1>{{ if .IsAdministrator }}Manage your sites with confidence{{ else }}Welcome back, {{ .Username }}{{ end }}</h1><p class="lede">{{ if .IsAdministrator }}Domains, applications, databases, and verified backups in one place.{{ else }}Your assigned sites, domains, and verified recovery points—without exposing other customers’ data.{{ end }}</p><p class="import-note">{{ if .IsAdministrator }}Every change is recorded. Backups are verified before they are marked ready.{{ else }}{{ .Account.Plan }} plan · {{ .AccountSiteCount }} assigned site{{ if ne .AccountSiteCount 1 }}s{{ end }} · MFA-protected account{{ end }}</p></div>
-        <a class="primary-action button-link" href="#sites">{{ if .IsAdministrator }}Set up a site{{ else }}Open my sites{{ end }}</a>
+        <a class="primary-action button-link" id="primarySetupAction" href="#sites">{{ if .IsAdministrator }}Set up a site{{ else }}Open my sites{{ end }}</a>
       </section>
       <section class="metrics customer-summary" aria-label="Hosting summary">
         <article class="metric"><span class="metric-label">Managed sites</span><strong id="siteCount">—</strong><span class="metric-note">Sites you can manage here</span></article>

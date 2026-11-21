@@ -4,6 +4,7 @@
   const list = document.querySelector('#onboardingChecklist');
   const progress = document.querySelector('#onboardingProgress');
   const refreshButton = document.querySelector('#refreshOnboarding');
+  const primaryAction = document.querySelector('#primarySetupAction');
   if (!list || !progress || !window.StepanelAPI) return;
 
   const isAdmin = document.body.dataset.isAdministrator === 'true';
@@ -17,6 +18,15 @@
     return node;
   };
   const message = (error) => error && error.message ? error.message : 'request failed';
+  const showHealthDetails = (event) => {
+    const toggle = document.querySelector('#controlPlaneDetailsToggle');
+    const details = document.querySelector('#controlPlaneDetails');
+    if (!toggle || !details) return;
+    event.preventDefault();
+    details.hidden = false;
+    toggle.setAttribute('aria-expanded', 'true');
+    details.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
 
   const load = async () => {
     if (controller) controller.abort();
@@ -132,15 +142,7 @@
       action.href = step.href;
       action.textContent = step.label;
       if (step.href === '#controlPlaneDetailsToggle') {
-        action.addEventListener('click', (event) => {
-          const toggle = document.querySelector('#controlPlaneDetailsToggle');
-          const details = document.querySelector('#controlPlaneDetails');
-          if (!toggle || !details) return;
-          event.preventDefault();
-          details.hidden = false;
-          toggle.setAttribute('aria-expanded', 'true');
-          details.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        });
+        action.addEventListener('click', showHealthDetails);
       }
       item.append(marker, body, action);
       list.append(item);
@@ -148,6 +150,13 @@
 
     const completed = steps.filter((step) => step.state === 'done').length;
     const attention = steps.filter((step) => step.state === 'attention' || step.state === 'unknown').length;
+    if (primaryAction) {
+      const next = steps.find((step) => step.state !== 'done') || { href: '#sites', label: 'Open sites' };
+      primaryAction.href = next.href;
+      primaryAction.textContent = next.label;
+      primaryAction.removeEventListener('click', showHealthDetails);
+      if (next.href === '#controlPlaneDetailsToggle') primaryAction.addEventListener('click', showHealthDetails);
+    }
     progress.textContent = attention
       ? `${completed} of ${steps.length} essentials complete · ${attention} need attention or could not be checked.`
       : `${completed} of ${steps.length} essentials complete.`;
