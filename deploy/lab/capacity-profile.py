@@ -127,8 +127,8 @@ def failure_detail(body):
     return str(body)[:300]
 
 
-def site_get(domain):
-    """GET / and separate connection, TLS, first-byte, and body timings."""
+def site_get(domain, path="/"):
+    """GET a path and separate connection, TLS, first-byte, and body timings."""
     started = time.perf_counter()
     phase_started = started
     phase = "client_setup"
@@ -153,7 +153,7 @@ def site_get(domain):
                 timings["tls_handshake_s"] = request_started - phase_started
                 phase = "server_response"
                 phase_started = request_started
-                tls.sendall(f"GET / HTTP/1.1\r\nHost: {domain}\r\nConnection: close\r\n\r\n".encode())
+                tls.sendall(f"GET {path} HTTP/1.1\r\nHost: {domain}\r\nConnection: close\r\n\r\n".encode())
                 while len(captured) < 4096 and b"\r\n" not in captured:
                     chunk = tls.recv(4096 - len(captured))
                     if not chunk:
@@ -235,6 +235,21 @@ def window_status_counts(results, inside, begin, end):
         "errors": sum(not 200 <= row[1] < 400 for row in selected),
         "status_counts": dict(sorted(Counter(row[1] for row in selected).items())),
     }
+
+
+def request_timeline(results, started, bucket_s=5):
+    """Count successes and failures per bucket of request start time.
+
+    Each row is [bucket start s, successes, failures]. A host-wide stall
+    shows as buckets where every client's requests fail together; a per-site
+    fault shows as failures spread across otherwise healthy buckets.
+    """
+    buckets = {}
+    for finished, status, seconds, _ in results:
+        start = max(0.0, finished - seconds - started)
+        row = buckets.setdefault(int(start // bucket_s) * bucket_s, [0, 0])
+        row[0 if 200 <= status < 400 else 1] += 1
+    return [[key, ok, failed] for key, (ok, failed) in sorted(buckets.items())]
 
 
 def parse_site_runtime_diagnostic(body, site_name, now=None):
@@ -458,8 +473,10 @@ def main():
     for index in range(SITES):
         name = f"cap-{index:03d}"
         domain = f"{name}.localhost"
-        create_site(panel, name, domain)
+        docroot = create_site(panel, name, domain)
         domains.append(domain)
+        if index == 0:
+            static_docroot = docroot
         if (index + 1) % 25 == 0:
             log(f"created {index + 1}/{SITES} sites")
     heavy = []
@@ -549,8 +566,28 @@ def main():
                 next_metrics_scrape = time.time() + 15
             stop.wait(0.5)
 
+    # A static file through the same web server and TLS path but no PHP. If
+    # it stalls together with the PHP pages, the stall is in the web server
+    # or host; if it does not, it is in PHP-FPM.
+    static_path = "/stepanel-static-probe.txt"
+    static_file = os.path.join(static_docroot, static_path.lstrip("/"))
+    with open(static_file, "w", encoding="utf-8") as handle:
+        handle.write("static probe\n")
+    owner = os.stat(static_docroot)
+    os.chown(static_file, owner.st_uid, owner.st_gid)
+    os.chmod(static_file, 0o644)
+    static_results = []
+
+    def static_probe():
+        while not stop.is_set():
+            status, seconds, _, timings = site_get(domains[0], static_path)
+            with lock:
+                static_results.append((time.time(), status, seconds, timings))
+            stop.wait(1)
+
     threads = [threading.Thread(target=site_client, daemon=True) for _ in range(CLIENTS)]
     threads.append(threading.Thread(target=admin_probe, daemon=True))
+    threads.append(threading.Thread(target=static_probe, daemon=True))
     for thread in threads:
         thread.start()
 
@@ -613,6 +650,13 @@ def main():
                  "logical_cpus": os.cpu_count()},
         "site_requests": {
             "total": len(site_results),
+            "timeline_5s": request_timeline(site_results, measurement_started),
+            "static_probe": {
+                "path": static_path,
+                "total": len(static_results),
+                "errors": sum(1 for (_, status, _, _) in static_results if not 200 <= status < 400),
+                "timeline_5s": request_timeline(static_results, measurement_started),
+            },
             "errors": sum(1 for (_, status, _, _) in site_results if not 200 <= status < 400),
             "status_counts": dict(sorted(Counter(status for (_, status, _, _) in site_results).items())),
             "transport_failure_phase_counts": dict(sorted(Counter(
@@ -680,6 +724,11 @@ def main():
         for phase, stats in report["site_requests"][f"phase_latency_{label}"].items():
             print(f"| {phase} | {stats['p50_ms']} | {stats['p95_ms']} | {stats['p99_ms']} | {stats['max_ms']} | {stats['count']} |")
     print(f"\nSite transport failure phases: {report['site_requests']['transport_failure_phase_counts']}")
+    timeline = report["site_requests"]["timeline_5s"]
+    stalled = sum(1 for _, ok, failed in timeline if failed and ok <= 1)
+    static = report["site_requests"]["static_probe"]
+    print(f"\nSite request timeline: {stalled} of {len(timeline)} five-second windows had failures with at most one success. "
+          f"Static file probe (no PHP, {static['path']}): {static['errors']} of {static['total']} requests failed.")
     print(f"\nMinimum available memory: {report['min_mem_available_mib']} MiB. Control-plane database-lock errors in the panel and worker journals: {lock_error_count}.")
     runtime = report["site_runtime_diagnostics"]
     peak = runtime["peak"]

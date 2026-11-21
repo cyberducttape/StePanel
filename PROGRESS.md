@@ -1,5 +1,24 @@
 # Production-readiness progress
 
+## Post-fix 500-site capacity run and new recovery smokes — 2026-11-21
+
+- Capacity run 44852768241 on `fd14d657`: successful p99 fell from 9.3 s to
+  112 ms and every pool reported, but 271/11,810 requests (2.29%) still timed
+  out in bursts of eight (one per client) every ~17 s, a host-wide stall that
+  predates the FPM fix. Report:
+  [`2026-11-21-capacity-large-e19d737-after-fpm-fix.md`](docs/lab-results/2026-11-21-capacity-large-e19d737-after-fpm-fix.md).
+  The probe gained a request timeline and a static-file probe.
+- Ubuntu 24.04/Apache install smoke 44863669797 passed the new root-broker
+  mid-seal restore smoke (job completed, state A, every file owned by the
+  site account) and the identity repair smoke with a real SIGKILL at the
+  database checkpoint. The AlmaLinux run failed the mid-seal smoke only
+  because the host lacks `cmp`/`diff`; fixed.
+- N-1 upgrade run 44863673113 passed, including the new whole-guest loss
+  during `filesystem_migration`.
+- KVM run 44863676671 failed in the existing customer-site smoke (a customer
+  site creation did not complete within 180 s; no Go changes since the last
+  pass). The smoke now prints the job as the administrator sees it.
+
 ## Installed-host suspension, ENOSPC, and alert evidence — 2026-11-21
 
 - Site suspension smoke passed on AlmaLinux 9/Caddy (44860226545) and

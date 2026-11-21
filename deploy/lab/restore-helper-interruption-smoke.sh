@@ -109,6 +109,8 @@ wait_ready() {
   fail "panel readiness did not recover: $(curl --silent --max-time 5 "$PANEL/readyz" || true)"
 }
 snapshot() { (cd "$public_root" && find . -type f -print0 | sort -z | xargs -0 -r sha256sum); }
+# Minimal hosts may lack diffutils, so compare snapshots in the shell.
+same() { [[ $(<"$1") == $(<"$2") ]]; }
 write_state() {
   local label=$1 owner
   owner=$(stat -c %U:%G "$public_root")
@@ -179,12 +181,12 @@ systemctl is-active --quiet stepanel-root-broker.service || fail 'the root broke
 wait_ready
 
 snapshot > "$work/after.sha256"
-if cmp -s "$work/after.sha256" "$work/backup.sha256"; then
+if same "$work/after.sha256" "$work/backup.sha256"; then
   on_disk=A
-elif cmp -s "$work/after.sha256" "$work/before.sha256"; then
+elif same "$work/after.sha256" "$work/before.sha256"; then
   on_disk=B
 else
-  diff "$work/backup.sha256" "$work/after.sha256" | head -20 >&2 || true
+  echo "files on disk: $(wc -l < "$work/after.sha256"); backed up: $(wc -l < "$work/backup.sha256"); before: $(wc -l < "$work/before.sha256")" >&2
   fail 'the site holds neither the backed-up nor the pre-restore tree'
 fi
 [[ $final != completed || $on_disk == A ]] || fail "the restore job completed but the site holds state $on_disk"
@@ -194,6 +196,7 @@ probe "$on_disk" || fail "the site does not serve state $on_disk, which is on di
 echo "interrupted seal: restore job $job ended $final; the site holds state $on_disk, owned entirely by $site_user"
 
 require_completed "$(api POST /api/backups/restore-files "$(json site "$site" backup "$backup" confirm RESTORE_FILES)")" "fresh restore"
-snapshot | cmp -s - "$work/backup.sha256" || fail 'a fresh restore did not produce the backed-up tree'
+snapshot > "$work/fresh.sha256"
+same "$work/fresh.sha256" "$work/backup.sha256" || fail 'a fresh restore did not produce the backed-up tree'
 probe A || fail 'the site does not serve state A after the fresh restore'
 echo 'restore helper interruption smoke passed: a root broker killed mid-seal after activation left a consistent, correctly owned site, and a fresh restore succeeded'

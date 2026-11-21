@@ -228,3 +228,14 @@ class CapacityProbeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RequestTimelineTest(unittest.TestCase):
+    def test_buckets_by_request_start_time(self):
+        started = 1000.0
+        results = [
+            (1001.0, 200, 0.5, {}),   # started at 0.5 s
+            (1018.0, 0, 15.0, {}),    # started at 3 s, timed out
+            (1007.0, 200, 0.1, {}),   # started at 6.9 s
+        ]
+        self.assertEqual(capacity_profile.request_timeline(results, started), [[0, 1, 1], [5, 1, 0]])

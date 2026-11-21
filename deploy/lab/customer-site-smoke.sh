@@ -87,7 +87,13 @@ for _ in $(seq 1 180); do
   esac
   sleep 1
 done
-[[ $state == completed ]] || fail 'customer site creation did not complete'
+if [[ $state != completed ]]; then
+  # The customer cannot read the job until the site is assigned to them, so
+  # report what the administrator sees.
+  api "$admin_cookie" "$admin_csrf" GET "/api/jobs/$job" >/dev/null || true
+  echo "customer site creation job $job as seen by the administrator: $(head -c 2000 "$work/response" 2>/dev/null)" >&2
+  fail "customer site creation did not complete (last customer state '${state:-none}', HTTP $status)"
+fi
 
 # The site is the main site of the customer's own account.
 location="/etc/stepanel/sites/$site/location"

@@ -1190,7 +1190,12 @@ as a documented limitation (`docs/PERFORMANCE.md`). The before-fix baseline
 failed 193/9,903 site requests (1.95%), matching earlier runs; see the
 [reviewed report](docs/lab-results/2026-11-21-capacity-large-e19d737-before-fpm-fix.md). The post-fix 500-site KVM run
 [44852768241](https://github.com/cyberducttape/StePanel/actions/runs/44852768241)
-is active and must pass, with repeats, before this milestone can close.
+removed the slow-success tail (successful p99 9.3 s to 112 ms) but still
+failed 271/11,810 requests (2.29%) in synchronized bursts that stall every
+site at once; see the [reviewed report](docs/lab-results/2026-11-21-capacity-large-e19d737-after-fpm-fix.md).
+That host-wide stall is a separate, still-unidentified cause. The probe now
+records a per-5-second request timeline and a static-file (no PHP) probe to
+locate it.
 
 Benchmark a named supported host with representative PHP traffic, databases,
 backups, migrations, and control-plane reads/writes. Measure CPU/RAM, disk and
