@@ -222,8 +222,9 @@ import time
 db = sqlite3.connect(sys.argv[1], timeout=15, isolation_level=None)
 db.execute("BEGIN IMMEDIATE")
 open(sys.argv[2], "w").close()
-time.sleep(30)
-db.execute("ROLLBACK")
+# Held until the smoke kills this process: preflight scans every site tree
+# and can take longer than any fixed hold on a host with many sites.
+time.sleep(3600)
 PY
 lock_pid=$!
 for _ in $(seq 1 500); do [[ -e $lock_ready ]] && break; sleep 0.02; done
@@ -232,12 +233,15 @@ repair_log=$(mktemp)
 apply_repair > "$repair_log" 2>&1 &
 repair_pid=$!
 killed=0
+lock_started=$SECONDS
 # The plan journal is durable before the snapshot and the mapping commit,
 # which then waits on the held lock for the 1 s busy timeout: kill as soon as
 # the journal appears.
-for _ in $(seq 1 6000); do
+fail_lock=0
+for _ in $(seq 1 120000); do
   if [[ -s $journal ]]; then
     kill -KILL "$repair_pid" 2>/dev/null && killed=1
+    kill -0 "$lock_pid" 2>/dev/null || fail_lock=1
     break
   fi
   kill -0 "$repair_pid" 2>/dev/null || break
@@ -249,7 +253,8 @@ kill "$lock_pid" 2>/dev/null || true
 wait "$lock_pid" 2>/dev/null || true
 rm -f "$lock_ready"
 (( repair_status != 0 )) || { echo 'repair completed while the mapping commit was blocked' >&2; exit 1; }
-echo "database checkpoint interruption: killed=$killed exit=$repair_status"
+echo "database checkpoint interruption: killed=$killed exit=$repair_status after $((SECONDS - lock_started)) s"
+(( ! fail_lock )) || { echo 'the write lock holder had exited before the plan journal appeared' >&2; exit 1; }
 (( killed )) || { echo 'the repair exited before it could be killed at the database checkpoint:' >&2; cat "$repair_log" >&2; }
 rm -f "$repair_log"
 check_state 'before mapping commit' planned 0
