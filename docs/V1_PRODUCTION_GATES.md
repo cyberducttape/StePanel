@@ -220,7 +220,9 @@ post-upgrade recovery result.
 These items do not silently become release claims. They are tracked separately:
 
 - Reversible site suspend/resume with reason, audit event, and capability
-  reporting.
+  reporting. Implemented for Caddy and Apache (ADR-0008; `site_suspension.go`,
+  `site_suspension_test.go`); installed-host evidence and the operator UI are
+  open.
 - First-class blank PHP, WordPress, Git, and Node site creation workflows.
   Blank PHP sites: implemented (`POST /api/sites`, durable `site.create` job,
   `site_creation_test.go`). WordPress sites: implemented (`"template":
@@ -315,7 +317,8 @@ delete  → lifecycle job: backups, services, tasks, routes, databases
 **Manager API contract:** `SiteManager` is the site filesystem primitive
 interface. Imports, restores, and configuration updates are orchestrated by
 durable jobs and the root broker; suspend and resume are not exposed by this
-interface. `TestGateOneDocumentMatchesManager` asserts the exact implemented
+interface: they are durable lifecycle jobs (ADR-0008) that change host
+configuration and access, not the canonical tree. `TestGateOneDocumentMatchesManager` asserts the exact implemented
 method set and rejects stale placeholder claims in this section.
 
 **Implemented but unused:** `SiteManager.Create()` and `SiteManager.Clone()`
@@ -332,7 +335,8 @@ have no production callers; the flows above use staging instead.
 - ✅ Canonical site modifications are protected by distributed locks
 - ⚠️ Configuration updates, suspend, and resume have no `SiteManager` entry
       point; updates run through domain handlers and the root broker, and
-      suspend/resume are not offered
+      suspend/resume are durable jobs that use the same privileged helpers
+      (ADR-0008)
 
 **Acceptance Criteria:**
 - [x] All site creation operations publish through SiteManager staging (Phase 1 audit: importer.go, cpmove.go, staging.go use manager staging)

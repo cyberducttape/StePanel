@@ -5,7 +5,7 @@ if [[ $EUID -ne 0 ]]; then echo 'must run as root' >&2; exit 1; fi
 action=$1
 site=$2
 [[ $site =~ ^[a-z0-9_-]{1,32}$ ]] || { echo 'invalid site' >&2; exit 1; }
-[[ $action == prepare || $action == prepare-root || $action == seal || $action == delete || $action == runtime || $action == resources || $action == quota || $action == quota-clear || $action == access || $action == ftp || $action == php-suspend || $action == php-resume ]] || { echo 'invalid action' >&2; exit 64; }
+[[ $action == prepare || $action == prepare-root || $action == seal || $action == delete || $action == runtime || $action == resources || $action == quota || $action == quota-clear || $action == access || $action == ftp || $action == php-suspend || $action == php-resume || $action == login-lock || $action == login-unlock ]] || { echo 'invalid action' >&2; exit 64; }
 
 # A suspended site (ADR-0008) has a marker in a root-only directory, outside
 # any tree its account can write. While it exists every pool write removes
@@ -32,7 +32,7 @@ remove_site_pools() {
 # scripts; it is never accepted by the installed production broker path.
 legacy_shape=0
 case "$action:$#" in
-  prepare:2|prepare-root:2|seal:2|delete:2|access:4|ftp:3|runtime:11|resources:3|quota:4|quota-clear:2|php-suspend:2|php-resume:2) legacy_shape=1 ;;
+  prepare:2|prepare-root:2|seal:2|delete:2|access:4|ftp:3|runtime:11|resources:3|quota:4|quota-clear:2|php-suspend:2|php-resume:2|login-lock:2|login-unlock:2) legacy_shape=1 ;;
 esac
 if (( legacy_shape )); then
   [[ ${STEPANEL_UNSAFE_LAB:-0} == 1 ]] || { echo 'persisted site Unix account is required' >&2; exit 1; }
@@ -79,6 +79,29 @@ if [[ $action == php-suspend ]]; then
   printf 'suspended\n' > "$staged" && chmod 0600 "$staged" && mv -fT -- "$staged" "$suspension_marker" || { rm -f -- "$staged"; echo 'could not record the PHP suspension marker' >&2; exit 1; }
   remove_site_pools || exit 1
   printf 'php_suspended\t%s\n' "$site"
+  exit 0
+fi
+# login-lock/login-unlock (ADR-0008) lock or unlock the password of a site's
+# own account, which holds its FTPS password, without changing it. They do not
+# apply to a site placed in a hosting account: that account's user serves
+# its other sites too, so its logins are account-level control.
+if [[ $action == login-lock || $action == login-unlock ]]; then
+  [[ $# == 3 ]] || { echo "usage: stepanel-sitectl $action SITE SITE_USER" >&2; exit 64; }
+  (( ! site_placed )) || { echo "site $site is in hosting account $site_location_user; its logins are controlled by the account" >&2; exit 1; }
+  if ! id "$site_user" >/dev/null 2>&1; then
+    [[ $action == login-unlock ]] || { echo "site account $site_user does not exist" >&2; exit 1; }
+    exit 0
+  fi
+  [[ $(getent passwd "$site_user" | cut -d: -f6) == "$site_root" ]] || { echo "account $site_user belongs to a different site" >&2; exit 1; }
+  password_field=$(getent shadow "$site_user" | cut -d: -f2)
+  # Only a real hash is locked or unlocked; an account with no usable
+  # password ("!" or "*") is left as it is in both directions.
+  if [[ $action == login-lock && $password_field == '$'* ]]; then
+    usermod --lock "$site_user"
+  elif [[ $action == login-unlock && $password_field == '!$'* ]]; then
+    usermod --unlock "$site_user"
+  fi
+  printf '%s\t%s\n' "$action" "$site_user"
   exit 0
 fi
 # php-resume clears the marker and then rewrites the pool from the current

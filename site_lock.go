@@ -37,7 +37,7 @@ func certificateLockKey(domain string) string {
 	return "certificate:" + strings.ToLower(domain)
 }
 
-func (a *App) acquireSiteMutationLockContext(ctx context.Context, key string) (context.Context, func(), error) {
+func (a *App) acquireSiteMutationLockContextUnchecked(ctx context.Context, key string) (context.Context, func(), error) {
 	localRelease := a.siteOperations.Acquire(key)
 	if a.dbLocks == nil {
 		return ctx, localRelease, nil
@@ -58,7 +58,7 @@ var errSiteMutationBusy = errors.New("site has a mutation in progress")
 // callers that serve many sites and must not wait on one of them. It returns
 // errSiteMutationBusy instead of waiting when the lock is held in this
 // process or by another process's live lease.
-func (a *App) tryAcquireSiteMutationLockContext(ctx context.Context, key string) (context.Context, func(), error) {
+func (a *App) tryAcquireSiteMutationLockContextUnchecked(ctx context.Context, key string) (context.Context, func(), error) {
 	localRelease, ok := a.siteOperations.TryAcquire(key)
 	if !ok {
 		return nil, nil, errSiteMutationBusy
@@ -115,7 +115,7 @@ func (a *App) acquireSiteMutationLocks(ctx context.Context, keys ...string) (fun
 // acquireSiteMutationLockContext. Losing any one fencing lease cancels the
 // shared operation context, so a multi-resource mutation cannot continue with
 // only a subset of its durable locks.
-func (a *App) acquireSiteMutationLocksContext(ctx context.Context, keys ...string) (context.Context, func(), error) {
+func (a *App) acquireSiteMutationLocksContextUnchecked(ctx context.Context, keys ...string) (context.Context, func(), error) {
 	unique := make(map[string]struct{}, len(keys))
 	ordered := make([]string, 0, len(keys))
 	for _, key := range keys {
@@ -179,4 +179,46 @@ func (a *App) acquireSiteMutationLocksContext(ctx context.Context, keys ...strin
 		cancelOperation()
 		localRelease()
 	}, nil
+}
+
+// The checked lock functions refuse a suspended site (ADR-0008) once the
+// lock is held: a suspension recorded before the lock was granted is always
+// seen, and the suspend job itself runs under the same lock.
+
+func (a *App) acquireSiteMutationLockContext(ctx context.Context, key string) (context.Context, func(), error) {
+	operationCtx, release, err := a.acquireSiteMutationLockContextUnchecked(ctx, key)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := a.checkSiteNotSuspended(ctx, key); err != nil {
+		release()
+		return nil, nil, err
+	}
+	return operationCtx, release, nil
+}
+
+func (a *App) tryAcquireSiteMutationLockContext(ctx context.Context, key string) (context.Context, func(), error) {
+	operationCtx, release, err := a.tryAcquireSiteMutationLockContextUnchecked(ctx, key)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := a.checkSiteNotSuspended(ctx, key); err != nil {
+		release()
+		return nil, nil, err
+	}
+	return operationCtx, release, nil
+}
+
+func (a *App) acquireSiteMutationLocksContext(ctx context.Context, keys ...string) (context.Context, func(), error) {
+	operationCtx, release, err := a.acquireSiteMutationLocksContextUnchecked(ctx, keys...)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, key := range keys {
+		if err := a.checkSiteNotSuspended(ctx, key); err != nil {
+			release()
+			return nil, nil, err
+		}
+	}
+	return operationCtx, release, nil
 }

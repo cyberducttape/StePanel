@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- Reversible site suspension (ADR-0008). An administrator suspends a site
+  with `POST /api/sites/suspend` and a required reason, and resumes it with
+  `POST /api/sites/resume`; `GET /api/sites/suspensions` lists them. A
+  durable job serves a generic 503 page on the site's routes (Caddy and
+  Apache), disables its PHP-FPM pool, stops and disables its applications,
+  workers and scheduled tasks, revokes SSH/SFTP and locks the FTPS password
+  of a site with its own account, and locks its managed database logins.
+  Content, databases and backups are kept. While suspended, every site
+  mutation that takes the site lock is refused, except termination and
+  backup-schedule changes. Suspended sites are re-applied first at startup.
+  Resume restores the recorded state in reverse order. No operator UI yet.
+
 ### Security
 
 - Queued site operations no longer replay their HTTP handler in the worker.

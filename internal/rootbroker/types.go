@@ -17,7 +17,7 @@ type Request struct {
 	// immediately before dispatching the host mutation.
 	Fencing []operations.FencingToken `json:"fencing,omitempty"`
 
-	// Site operations: create, delete, seal, prepare, access, resources, quota, quota-clear, php-suspend, php-resume, runtime, fpm-status, certificate-status
+	// Site operations: create, delete, seal, prepare, access, resources, quota, quota-clear, php-suspend, php-resume, login-lock, login-unlock, runtime, fpm-status, certificate-status
 	Site *SiteRequest `json:"site,omitempty"`
 
 	// App operations: apply, start, stop, restart, rollback

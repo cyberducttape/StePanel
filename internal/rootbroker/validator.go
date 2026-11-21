@@ -626,7 +626,7 @@ func (v *Validator) validateSiteRequest(req *SiteRequest) error {
 		if req.DiskMB < 1 || req.DiskMB > 1048576 || req.Inodes < 1 || req.Inodes > 1000000000 {
 			return fmt.Errorf("quota is out of range")
 		}
-	case "quota-clear", "php-suspend", "php-resume":
+	case "quota-clear", "php-suspend", "php-resume", "login-lock", "login-unlock":
 		// No additional fields are accepted.
 	case "fpm-status":
 		// The broker derives pool and socket paths from root-owned config.

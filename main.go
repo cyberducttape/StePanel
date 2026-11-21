@@ -68,6 +68,7 @@ type App struct {
 	Resources          *ResourceStore
 	Webhooks           *WebhookConfigStore
 	Notifications      *operatorNotificationStore
+	Suspensions        *siteSuspensionStore
 	AuditOutbox        *auditOutboxStore
 	BackupIndex        *metadata.BackupIndex
 	// releaseDigests records retired releases' content digests.
@@ -468,6 +469,10 @@ func Main() {
 	if err != nil {
 		log.Fatalf("initialize operator notification outbox: %v", err)
 	}
+	suspensions, err := newSiteSuspensionStore(controlPlaneDB)
+	if err != nil {
+		log.Fatalf("initialize site suspension store: %v", err)
+	}
 	siteManager, err := newSiteManagerForConfig(cfg)
 	if err != nil {
 		log.Fatalf("initialize site lifecycle manager: %v", err)
@@ -684,7 +689,7 @@ func Main() {
 	if err != nil {
 		log.Fatalf("initialize capacity ledger: %v", err)
 	}
-	app := &App{Config: cfg, View: view, PanelView: panelView, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), siteRuntimeMetrics: &siteRuntimeMetricsStore{}, Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, Notifications: notifications, AuditOutbox: auditOutbox, BackupIndex: backupIndex, Recovery: recoveryStore, releaseDigests: releaseDigests, webhookReplayCache: NewDurableWebhookReplayCache(controlPlaneDB, 5*time.Minute), dbLocks: dbLocks, siteManager: siteManager, capacity: capacity}
+	app := &App{Config: cfg, View: view, PanelView: panelView, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), siteRuntimeMetrics: &siteRuntimeMetricsStore{}, Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, Notifications: notifications, Suspensions: suspensions, AuditOutbox: auditOutbox, BackupIndex: backupIndex, Recovery: recoveryStore, releaseDigests: releaseDigests, webhookReplayCache: NewDurableWebhookReplayCache(controlPlaneDB, 5*time.Minute), dbLocks: dbLocks, siteManager: siteManager, capacity: capacity}
 	app.startup.begin()
 	// Workers in this and the external worker process claim jobs only once
 	// the panel's startup recovery has succeeded.
@@ -1621,6 +1626,10 @@ func (a *App) handleDurableJob(ctx context.Context, item Job) ([]byte, error) {
 		return a.handleNodeDeploymentJob(ctx, item)
 	case "site.terminate":
 		return a.handleSiteTermination(ctx, item)
+	case siteSuspendJobKind:
+		return a.handleSiteSuspendJob(ctx, item)
+	case siteResumeJobKind:
+		return a.handleSiteResumeJob(ctx, item)
 	case "migration.analysis":
 		return a.handleMigrationAnalysisJob(&item)
 	case "archive.inspect":

@@ -349,13 +349,15 @@ func TestSiteAccountMutationsAreSerializedAcrossBrokerRequests(t *testing.T) {
 func TestSiteHelperConfigActionsShareAccountMutationLock(t *testing.T) {
 	enabled := true
 	actions := map[string]*SiteRequest{
-		"access":      {Action: "access", SFTPEnabled: &enabled, ShellEnabled: &enabled},
-		"ftp":         {Action: "ftp", FTPEnabled: &enabled, FTPPassword: "test-ftps-password-123"},
-		"resources":   {Action: "resources", PHPWorkers: 4},
-		"quota":       {Action: "quota", DiskMB: 1024, Inodes: 100000},
-		"quota-clear": {Action: "quota-clear"},
-		"php-suspend": {Action: "php-suspend"},
-		"php-resume":  {Action: "php-resume"},
+		"access":       {Action: "access", SFTPEnabled: &enabled, ShellEnabled: &enabled},
+		"ftp":          {Action: "ftp", FTPEnabled: &enabled, FTPPassword: "test-ftps-password-123"},
+		"resources":    {Action: "resources", PHPWorkers: 4},
+		"quota":        {Action: "quota", DiskMB: 1024, Inodes: 100000},
+		"quota-clear":  {Action: "quota-clear"},
+		"php-suspend":  {Action: "php-suspend"},
+		"php-resume":   {Action: "php-resume"},
+		"login-lock":   {Action: "login-lock"},
+		"login-unlock": {Action: "login-unlock"},
 		"runtime": {Action: "runtime", PHPVersion: "8.3", MemoryLimit: "256M", ExecTimeout: 30,
 			UploadMaxFilesize: "64M", PostMaxSize: "64M", MaxInputVars: 1000, ErrorReporting: "E_ALL"},
 	}
@@ -431,7 +433,7 @@ func TestSitePHPSuspensionDelegatesWithPersistedIdentity(t *testing.T) {
 	}
 	const site = "demo"
 	want := siteidentity.UnixUser(site)
-	for _, action := range []string{"php-suspend", "php-resume"} {
+	for _, action := range []string{"php-suspend", "php-resume", "login-lock", "login-unlock"} {
 		host := &fakeHost{}
 		broker, err := newBroker(webRoot, t.TempDir(), log.New(io.Discard, "", 0), host)
 		if err != nil {

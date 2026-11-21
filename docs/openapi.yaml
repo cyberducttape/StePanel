@@ -1074,6 +1074,51 @@ paths:
         '200': {description: Deterministic termination plan returned when dry_run is true}
         '404': {description: Site document root not found}
         '503': {description: Termination cannot proceed because a required helper or backup is unavailable}
+  /api/v1/sites/suspend:
+    post:
+      summary: Queue an administrator site suspension
+      description: Records the site as suspended, then a durable job serves a static 503 page on its routes, disables its PHP-FPM pool, stops its applications, workers and scheduled tasks, revokes SSH/SFTP/FTPS for a site with its own account, and locks its managed database logins. Content, databases and backups are kept. While suspended, site mutations other than backups, termination and resume are refused with 409. See ADR-0008.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [site, reason]
+              properties:
+                site: {type: string, pattern: '^[a-z0-9_-]{1,32}$'}
+                reason: {type: string, maxLength: 500, description: Single-line reason recorded in the security audit ledger; never shown to visitors}
+      responses:
+        '202': {description: Desired state recorded and durable suspension job queued}
+        '404': {description: Site not found}
+        '409': {description: Site is already suspended or being resumed}
+        '422': {description: Invalid site or missing reason}
+        '503': {description: Suspension is unsupported on this host or the audit ledger is unavailable}
+  /api/v1/sites/resume:
+    post:
+      summary: Queue an administrator site resume
+      description: Reverses a suspension in the opposite order and removes the suspension record when the host is restored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [site, reason]
+              properties:
+                site: {type: string, pattern: '^[a-z0-9_-]{1,32}$'}
+                reason: {type: string, maxLength: 500}
+      responses:
+        '202': {description: Durable resume job queued}
+        '404': {description: Site not found}
+        '409': {description: Site is not suspended}
+        '422': {description: Invalid site or missing reason}
+        '503': {description: Suspension is unsupported on this host or the audit ledger is unavailable}
+  /api/v1/sites/suspensions:
+    get:
+      summary: List suspended sites
+      responses:
+        '200': {description: Each suspended site with its state (suspending, suspended, resuming), reason, actor, timestamps and last error}
   /api/v1/backups:
     get:
       summary: List published site backup summaries

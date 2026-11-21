@@ -252,7 +252,8 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 	if err := a.Jobs.CheckNotCancelled(item.ID); err != nil {
 		return nil, err
 	}
-	operationCtx, release, err := a.acquireSiteMutationLockContext(ctx, request.Site)
+	// Termination is allowed for a suspended site (ADR-0008).
+	operationCtx, release, err := a.acquireSiteMutationLockContext(withSuspensionExempt(ctx), request.Site)
 	if err != nil {
 		return nil, fmt.Errorf("acquire durable site lock: %w", err)
 	}
@@ -279,6 +280,11 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 	}.Run(operationCtx)
 	if err != nil {
 		return nil, err
+	}
+	if a.Suspensions != nil {
+		if err := a.Suspensions.remove(request.Site); err != nil {
+			return nil, err
+		}
 	}
 	return json.Marshal(map[string]any{
 		"site":         request.Site,

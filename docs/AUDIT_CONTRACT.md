@@ -110,6 +110,7 @@ and never affects the operation; failures are logged.
 | WordPress recovery proof (throwaway site, database, and route created and removed during a rehearsal) | A, intent-first | `recovery.proof.site` |
 | Site route publication and removal | A, intent-first | `site.deployed`, `site.deleted` |
 | Site termination | A, journaled sequence | `site.termination.initiated`, `site.terminated` |
+| Site suspension and resume (ADR-0008) | A, intent-first; the job records the host outcome | `site.suspend.initiated`, `site.suspend`, `site.suspend.failed`, `site.suspended`, `site.resume.initiated`, `site.resume`, `site.resume.failed`, `site.resumed` |
 | App, Python and proxy deployments, proxy removal | A, intent-first | `app.deployed`, `python.deployed`, `proxy.deployed`, `proxy.deleted` |
 | `.htaccess` migration into the web server | A, intent-first | `site.htaccess-migrated` |
 | Database provisioning, credential rotation, deletion | A, intent-first | `database.provisioned`, `database.credentials_rotated`, `database.deleted` |

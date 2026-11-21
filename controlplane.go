@@ -513,6 +513,12 @@ CREATE INDEX IF NOT EXISTS jobs_state_started_idx ON jobs(state, started_at, id)
 		_, err := tx.Exec(upgradeDrainTable)
 		return err
 	}),
+	// A row exists while a site is being suspended, is suspended, or is being
+	// resumed (ADR-0008, site_suspension.go).
+	migration.NewMigration(32, "record site suspensions", func(tx *sql.Tx) error {
+		_, err := tx.Exec(siteSuspensionTable)
+		return err
+	}),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {

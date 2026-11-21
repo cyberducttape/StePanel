@@ -249,8 +249,8 @@ func (a *App) probeAllCapabilities() map[string]Capability {
 	// backup signing, and site tree are all present.
 	caps["site.lifecycle.create"] = a.checkSiteCreationCapability()
 	caps["site.lifecycle.delete"] = a.checkSiteDeletionCapability()
-	caps["site.lifecycle.suspend"] = newCapability(CapabilityUnsupported, "site suspension is not implemented; the current alternative is site termination")
-	caps["site.lifecycle.resume"] = newCapability(CapabilityUnsupported, "site resume is not implemented because site suspension is unavailable")
+	caps["site.lifecycle.suspend"] = a.checkSiteSuspensionCapability()
+	caps["site.lifecycle.resume"] = a.checkSiteSuspensionCapability()
 
 	// Broker operation contract. These actions are intentionally not exposed as
 	// independent workflows: app rollback is panel-level activation-journal

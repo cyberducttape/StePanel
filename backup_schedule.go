@@ -109,7 +109,7 @@ func (a *App) backupSchedules(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "site document root does not exist", 422)
 			return
 		}
-		operationCtx, release, lockErr := a.acquireSiteMutationLockContext(r.Context(), in.Site)
+		operationCtx, release, lockErr := a.acquireSiteMutationLockContext(withSuspensionExempt(r.Context()), in.Site)
 		if lockErr != nil {
 			http.Error(w, "backup schedule mutation is busy", http.StatusConflict)
 			return
@@ -146,7 +146,7 @@ func (a *App) backupSchedules(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid site", 422)
 			return
 		}
-		operationCtx, release, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)
+		operationCtx, release, lockErr := a.acquireSiteMutationLockContext(withSuspensionExempt(r.Context()), site)
 		if lockErr != nil {
 			http.Error(w, "backup schedule mutation is busy", http.StatusConflict)
 			return

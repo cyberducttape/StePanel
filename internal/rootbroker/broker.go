@@ -663,8 +663,8 @@ func (b *Broker) handleSiteRequest(ctx context.Context, req *SiteRequest) (*Resp
 		return b.siteQuotaClear(ctx, req)
 	case "runtime":
 		return b.siteRuntime(ctx, req)
-	case "php-suspend", "php-resume":
-		return b.sitePHPSuspension(ctx, req)
+	case "php-suspend", "php-resume", "login-lock", "login-unlock":
+		return b.siteSuspensionAction(ctx, req)
 	case "fpm-status":
 		return b.siteFPMStatus(ctx, req)
 	case "certificate-status":
@@ -1108,11 +1108,12 @@ func (b *Broker) siteResources(ctx context.Context, req *SiteRequest) (*Response
 	return siteHelperResponse("site resources", output, err)
 }
 
-// sitePHPSuspension disables (php-suspend) or re-enables (php-resume) a
-// site's PHP-FPM pool for site suspension (ADR-0008). The helper keeps a
-// root-only marker so that later pool writes cannot re-enable a suspended
-// pool; both actions are idempotent.
-func (b *Broker) sitePHPSuspension(ctx context.Context, req *SiteRequest) (*Response, error) {
+// siteSuspensionAction runs one site-suspension step (ADR-0008) through the
+// site helper: php-suspend/php-resume disable or re-enable the PHP-FPM pool
+// (a root-only marker keeps later pool writes from re-enabling it), and
+// login-lock/login-unlock lock or unlock the site account's password without
+// changing it. All four are idempotent.
+func (b *Broker) siteSuspensionAction(ctx context.Context, req *SiteRequest) (*Response, error) {
 	b.accountMutationMu.Lock()
 	defer b.accountMutationMu.Unlock()
 	siteUser, err := b.resolveSiteUser(req, false)

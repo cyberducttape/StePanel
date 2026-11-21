@@ -34,7 +34,7 @@ var typedTimeouts = map[string]map[string]time.Duration{
 		// prepare and seal apply ownership and ACLs recursively over the
 		// whole site tree; delete removes it.
 		"create": timeoutBulk, "prepare": timeoutBulk, "snapshot": timeoutBulk, "snapshot-restore": timeoutBulk, "seal": timeoutBulk, "delete": timeoutBulk,
-		"access": timeoutConfig, "ftp": timeoutConfig, "resources": timeoutConfig, "quota": timeoutConfig, "quota-clear": timeoutConfig, "php-suspend": timeoutConfig, "php-resume": timeoutConfig, "runtime": timeoutConfig, "fpm-status": timeoutConfig, "certificate-status": timeoutConfig,
+		"access": timeoutConfig, "ftp": timeoutConfig, "resources": timeoutConfig, "quota": timeoutConfig, "quota-clear": timeoutConfig, "php-suspend": timeoutConfig, "php-resume": timeoutConfig, "login-lock": timeoutConfig, "login-unlock": timeoutConfig, "runtime": timeoutConfig, "fpm-status": timeoutConfig, "certificate-status": timeoutConfig,
 	},
 	"app": {
 		"apply": timeoutLifecycle, "delete": timeoutLifecycle, "start": timeoutLifecycle, "stop": timeoutLifecycle,

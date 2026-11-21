@@ -42,7 +42,7 @@ func TestStartupHostReconcilersCoverEveryDomain(t *testing.T) {
 		}
 		names = append(names, domain.name)
 	}
-	want := "routes,SSH access,workers,PHP profile,Python application,scheduled task,resource profile,environment"
+	want := "site suspension,routes,SSH access,workers,PHP profile,Python application,scheduled task,resource profile,environment"
 	if got := strings.Join(names, ","); got != want {
 		t.Fatalf("host reconcilers = %s, want %s", got, want)
 	}

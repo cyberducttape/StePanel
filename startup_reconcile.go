@@ -19,6 +19,9 @@ type hostReconciler struct {
 
 func (a *App) hostReconcilers() []hostReconciler {
 	return []hostReconciler{
+		// Suspension runs first so no later domain can bring a suspended
+		// site back before its suspension is re-applied.
+		{"site suspension", a.reconcileSiteSuspensions},
 		{"routes", a.reconcileRoutes},
 		{"SSH access", a.reconcileSiteAccess},
 		{"workers", a.reconcileWorkers},
@@ -44,6 +47,7 @@ func runHostReconcilers(domains []hostReconciler, timeout time.Duration) ([]host
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		reconciled, failed := domain.run(ctx)
 		cancel()
+		dropSuspendedSiteRefusals(failed)
 		if len(failed) == 0 {
 			continue
 		}
@@ -52,6 +56,17 @@ func runHostReconcilers(domains []hostReconciler, timeout time.Duration) ([]host
 		errs = append(errs, hostReconcileError(domain.name, len(reconciled), failed))
 	}
 	return failedDomains, errs
+}
+
+// dropSuspendedSiteRefusals removes resources that a domain skipped because
+// their site is suspended (ADR-0008). They are intentionally not applied; the
+// site suspension domain owns that site's host state until it is resumed.
+func dropSuspendedSiteRefusals(failed map[string]string) {
+	for key, message := range failed {
+		if strings.Contains(message, errSiteSuspended.Error()) {
+			delete(failed, key)
+		}
+	}
 }
 
 func hostReconcileError(name string, reconciled int, failed map[string]string) error {

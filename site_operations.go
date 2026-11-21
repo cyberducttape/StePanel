@@ -254,6 +254,10 @@ func (a *App) siteOperation(name string) http.HandlerFunc {
 			http.Error(w, "a valid site is required", http.StatusUnprocessableEntity)
 			return
 		}
+		if a.siteIsSuspended(site) {
+			http.Error(w, errSiteSuspended.Error(), http.StatusConflict)
+			return
+		}
 		if route.validate != nil {
 			if err := route.validate(body); err != nil {
 				http.Error(w, err.Error(), http.StatusUnprocessableEntity)

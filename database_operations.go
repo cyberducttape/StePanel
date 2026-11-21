@@ -113,7 +113,7 @@ func typedDatabaseAction(args []string) bool {
 		return false
 	}
 	switch args[0] {
-	case "provision", "rotate", "drop", "drop-managed", "cleanup-wordpress", "inventory", "diagnostics", "sessions", "settings", "terminate", "reconcile":
+	case "provision", "rotate", "drop", "drop-managed", "cleanup-wordpress", "inventory", "diagnostics", "sessions", "settings", "terminate", "reconcile", "suspend-logins", "resume-logins":
 		return true
 	default:
 		return false
@@ -144,6 +144,11 @@ func runTypedDatabaseMutation(ctx context.Context, cfg Config, input string, arg
 			return nil, errors.New("invalid database arguments")
 		}
 		req.Database = args[1]
+	case "suspend-logins", "resume-logins":
+		if len(args) != 3 {
+			return nil, errors.New("invalid database login suspension arguments")
+		}
+		req.Database, req.Site = args[1], args[2]
 	case "provision":
 		if len(args) != 5 {
 			return nil, errors.New("invalid database provision arguments")
