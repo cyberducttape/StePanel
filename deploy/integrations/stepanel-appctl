@@ -199,6 +199,72 @@ run_site_package_command() {
   return "$status"
 }
 
+# Site suspension (ADR-0008). suspend records which of the site's units are
+# enabled in a root-only file, then stops and disables all of them, so they
+# stay down across reboots; resume re-enables and starts exactly those. While
+# the record exists, nothing here may enable or start one of the site's units.
+suspension_root=/etc/stepanel/suspended
+suspension_units=$suspension_root/$site.units
+site_units() {
+  local unit
+  for unit in "/etc/systemd/system/stepanel-app-${site}.service" "/etc/systemd/system/stepanel-app-${site}-python.service" \
+    /etc/systemd/system/stepanel-worker-"$site"-*.service /etc/systemd/system/stepanel-task-"$site"-*.timer; do
+    [[ -f $unit && ! -L $unit ]] && printf '%s\n' "${unit##*/}"
+  done
+  return 0
+}
+if [[ $action == suspend ]]; then
+  (( $# == 2 )) || { echo 'usage: stepanel-appctl suspend SITE SITE_USER' >&2; exit 64; }
+  [[ ! -L $suspension_root && ! -L $suspension_units ]] || { echo 'suspension state must not be a symlink' >&2; exit 1; }
+  install -d -m 0700 -o root -g root -- "$suspension_root"
+  mapfile -t units < <(site_units)
+  # A repeated suspend must keep the first record: by then every unit is
+  # already disabled, and re-recording would forget what to restart.
+  if [[ ! -f $suspension_units ]]; then
+    staged=$(mktemp "$suspension_root/.$site.units.XXXXXX")
+    for unit in "${units[@]}"; do
+      if systemctl is-enabled --quiet "$unit" 2>/dev/null; then printf '%s\n' "$unit"; fi
+    done > "$staged"
+    chmod 0600 "$staged"
+    mv -fT -- "$staged" "$suspension_units"
+  fi
+  if (( ${#units[@]} > 0 )); then
+    running=("${units[@]}")
+    for unit in "${units[@]}"; do [[ $unit != *.timer ]] || running+=("${unit%.timer}.service"); done
+    systemctl stop "${running[@]}" 2>/dev/null || true
+    disable_units "${units[@]}" || { echo 'could not disable the units of the suspended site' >&2; exit 1; }
+    for unit in "${running[@]}"; do
+      ! systemctl is-active --quiet "$unit" || { echo "unit $unit is still active after suspension" >&2; exit 1; }
+    done
+  fi
+  printf 'app_suspended\t%s\t%s\n' "$site" "${#units[@]}"
+  exit 0
+fi
+if [[ $action == resume ]]; then
+  (( $# == 2 )) || { echo 'usage: stepanel-appctl resume SITE SITE_USER' >&2; exit 64; }
+  [[ ! -L $suspension_units ]] || { echo 'suspension state must not be a symlink' >&2; exit 1; }
+  [[ -f $suspension_units ]] || exit 0
+  restore=()
+  while IFS= read -r unit; do
+    [[ $unit =~ ^stepanel-(app-${site}(-python)?\.service|worker-${site}-[A-Za-z0-9_-]{1,32}\.service|task-${site}-[A-Za-z0-9_-]{1,64}\.timer)$ ]] || { echo 'invalid unit in the suspension record' >&2; exit 1; }
+    [[ -f /etc/systemd/system/$unit ]] && restore+=("$unit")
+  done < "$suspension_units"
+  if (( ${#restore[@]} > 0 )); then
+    enable_units "${restore[@]}" || { echo 'could not re-enable the units of the resumed site' >&2; exit 1; }
+    systemctl start "${restore[@]}"
+  fi
+  rm -f -- "$suspension_units"
+  printf 'app_resumed\t%s\t%s\n' "$site" "${#restore[@]}"
+  exit 0
+fi
+if [[ -f $suspension_units ]]; then
+  case "$action" in
+    apply|worker-apply|python-apply|task-apply|start|restart|python-start|python-restart|worker-start|worker-restart)
+      echo "site $site is suspended; resume it before $action" >&2
+      exit 1 ;;
+  esac
+fi
+
 # Deletion still requires the persisted identity even though the account is
 # not used to render units. Normalization removes it from positional
 # arguments after validating it, so the dispatch branch sees two arguments.
@@ -223,6 +289,7 @@ if [[ $action == delete ]]; then
   rm -f "/etc/systemd/system/stepanel-app-${site}.service" "/etc/systemd/system/stepanel-app-${site}-python.service"
   for unit in "${worker_units[@]}"; do rm -f "/etc/systemd/system/$unit"; done
   rm -rf "/var/lib/stepanel/tasks/$site"
+  rm -f -- "$suspension_units"
   systemctl daemon-reload
   systemd_unlock
   exit 0
@@ -850,5 +917,5 @@ EOF
     (( $# == 3 )) || { echo "usage: stepanel-appctl $action SITE NAME" >&2; exit 64; }
     name=$3; [[ $name =~ ^[A-Za-z0-9_-]{1,32}$ ]] || { echo 'invalid worker name' >&2; exit 1; }
     systemctl "${action#worker-}" "stepanel-worker-${site}-${name}.service" ;;
-  *) echo 'usage: stepanel-appctl apply|delete|start|stop|restart|python-start|python-stop|python-restart|worker-start|worker-stop|worker-restart SITE ...' >&2; exit 64 ;;
+  *) echo 'usage: stepanel-appctl apply|delete|suspend|resume|start|stop|restart|python-start|python-stop|python-restart|worker-start|worker-stop|worker-restart SITE ...' >&2; exit 64 ;;
 esac

@@ -666,7 +666,7 @@ func (v *Validator) validateAppRequest(req *AppRequest) error {
 		return fmt.Errorf("app request is nil")
 	}
 	switch req.Action {
-	case "apply", "delete", "start", "stop", "restart", "rollback", "composer-install", "node-tool", "python-apply", "python-start", "python-stop", "python-restart":
+	case "apply", "delete", "start", "stop", "restart", "rollback", "composer-install", "node-tool", "python-apply", "python-start", "python-stop", "python-restart", "suspend", "resume":
 	default:
 		return errors.New("unsupported app action")
 	}

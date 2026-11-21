@@ -1266,7 +1266,7 @@ func (b *Broker) handleAppRequest(ctx context.Context, req *AppRequest) (*Respon
 	switch req.Action {
 	case "apply", "delete", "start", "stop", "restart":
 		return b.runAppHelper(ctx, req)
-	case "composer-install", "node-tool", "python-apply", "python-start", "python-stop", "python-restart":
+	case "composer-install", "node-tool", "python-apply", "python-start", "python-stop", "python-restart", "suspend", "resume":
 		return b.runAppTooling(ctx, req)
 	case "rollback":
 		// Rollback is orchestrated by the panel as an apply of the previous manifest.
@@ -1289,7 +1289,8 @@ func (b *Broker) runAppTooling(ctx context.Context, req *AppRequest) (*Response,
 		args = []string{"node-tool", req.Site, siteUser, req.ToolAction, req.PackageManager, req.Root}
 	case "python-apply":
 		args = []string{"python-apply", req.Site, siteUser, req.Version, req.Root, req.EntryPoint, strconv.Itoa(req.Port), strconv.Itoa(req.Workers)}
-	case "python-start", "python-stop", "python-restart":
+	case "python-start", "python-stop", "python-restart", "suspend", "resume":
+		// suspend/resume stop or restore every unit of the site (ADR-0008).
 		args = []string{req.Action, req.Site, siteUser}
 	default:
 		return &Response{OK: false, Error: "unknown application tooling action"}, nil

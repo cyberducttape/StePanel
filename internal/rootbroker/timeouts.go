@@ -41,6 +41,7 @@ var typedTimeouts = map[string]map[string]time.Duration{
 		"restart": timeoutLifecycle, "rollback": timeoutLifecycle,
 		"composer-install": timeoutBuild, "node-tool": timeoutBuild, "python-apply": timeoutBuild,
 		"python-start": timeoutLifecycle, "python-stop": timeoutLifecycle, "python-restart": timeoutLifecycle,
+		"suspend": timeoutLifecycle, "resume": timeoutLifecycle,
 	},
 	"worker": {
 		"apply": timeoutLifecycle, "delete": timeoutLifecycle, "start": timeoutLifecycle, "stop": timeoutLifecycle,
