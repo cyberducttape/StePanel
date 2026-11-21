@@ -2285,6 +2285,30 @@
     const wordpressFields = createForm.querySelector('#wordpressCreateFields');
     const domainInput = createForm.elements.domain;
     const wordpressInputs = ['title', 'admin_user', 'admin_email', 'admin_password'].map((name) => createForm.elements[name]).filter(Boolean);
+    const adminPassword = createForm.elements.admin_password;
+    const generatePasswordButton = createForm.querySelector('#generateWordPressPassword');
+    const togglePasswordButton = createForm.querySelector('#toggleWordPressPassword');
+    if (adminPassword && generatePasswordButton) {
+      generatePasswordButton.disabled = !window.crypto || typeof window.crypto.getRandomValues !== 'function' || typeof window.btoa !== 'function';
+      generatePasswordButton.title = generatePasswordButton.disabled
+        ? 'Secure password generation is unavailable in this browser context.'
+        : 'Generate a random 24-character password in this browser.';
+      generatePasswordButton.addEventListener('click', () => {
+        if (generatePasswordButton.disabled) return;
+        const random = new Uint8Array(18);
+        window.crypto.getRandomValues(random);
+        adminPassword.value = window.btoa(String.fromCharCode(...random));
+        if (createStatus) createStatus.textContent = 'A strong password was generated. Show it and save it in your password manager before creating the site.';
+      });
+    }
+    if (adminPassword && togglePasswordButton) {
+      togglePasswordButton.addEventListener('click', () => {
+        const reveal = adminPassword.type === 'password';
+        adminPassword.type = reveal ? 'text' : 'password';
+        togglePasswordButton.textContent = reveal ? 'Hide' : 'Show';
+        togglePasswordButton.setAttribute('aria-pressed', String(reveal));
+      });
+    }
     const updateTemplateFields = () => {
       const wordpress = templateSelect.value === 'wordpress';
       if (wordpressFields) wordpressFields.hidden = !wordpress;

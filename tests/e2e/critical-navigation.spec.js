@@ -91,6 +91,10 @@ test('first-run primary action follows the next unresolved setup step', async ({
   await page.locator('#refreshOnboarding').click();
   await expect(recoveryStep).toHaveClass(/setup-step-done/);
   await expect(recoveryStep).toContainText('Every active site has an integrity-verified backup');
+
+  await page.locator('#siteCreateTemplate').selectOption('wordpress');
+  await page.getByRole('button', { name: 'Generate password' }).click();
+  await expect(page.locator('#siteCreateAdminPassword')).toHaveValue(/^[A-Za-z0-9+/]{24}$/);
 });
 
 test('database health expands into a readable, host-wide snapshot', async ({ page }) => {

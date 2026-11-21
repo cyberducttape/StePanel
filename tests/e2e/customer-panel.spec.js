@@ -198,6 +198,13 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await expect(page.locator('#siteCreateTemplate option[value="wordpress"]')).toHaveCount(1);
   await page.locator('#siteCreateTemplate').selectOption('wordpress');
   await expect(page.locator('#wordpressCreateFields')).toBeVisible();
+  await page.getByRole('button', { name: 'Generate password' }).click();
+  const generatedPassword = await page.locator('#siteCreateAdminPassword').inputValue();
+  expect(generatedPassword).toHaveLength(24);
+  await page.getByRole('button', { name: 'Show', exact: true }).click();
+  await expect(page.locator('#siteCreateAdminPassword')).toHaveAttribute('type', 'text');
+  await page.getByRole('button', { name: 'Hide', exact: true }).click();
+  await expect(page.locator('#siteCreateAdminPassword')).toHaveAttribute('type', 'password');
   await expect.poll(() => pageErrors).toEqual([]);
   await checkA11y(page);
 

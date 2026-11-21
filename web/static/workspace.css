@@ -1602,6 +1602,8 @@ button.activity-link { padding: 0; border: 0; background: transparent; text-alig
 .site-create-form > .primary-action { grid-column: 1 / -1; justify-self: start; white-space: nowrap; }
 .site-create-form > output { grid-column: 1 / -1; }
 .site-create-form > output:empty { display: none; }
+.site-create-password-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.site-create-password-actions .quiet-action { cursor: pointer; }
 body[data-theme] .site-overview > .site-create-form { border-color: var(--appearance-line) !important; }
 
 /* Site cards: the backup line is its own fact, flagged when missing. */

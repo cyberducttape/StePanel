@@ -1,5 +1,18 @@
 # Production-readiness progress
 
+## Easier WordPress administrator credential setup — 2026-11-21
+
+- Both operator and customer WordPress creation forms can generate a random
+  24-character password with the Web Crypto API, reveal/hide it, and remind
+  the user to save it before creation. Generation is disabled if a secure
+  browser API is unavailable. The password stays in the input and is still
+  submitted through the existing durable site-creation flow.
+- The operator and customer browser journeys verified generation; the
+  customer journey also verified reveal/hide and passed axe. Frontend unit
+  tests (19 passed), build, JS syntax, and `git diff --check` passed locally.
+  Exact-source hosted CI is running on the previous commit; this change has
+  not yet been pushed.
+
 ## First-run backup coverage is checked per site — 2026-11-21
 
 - Operator and customer checklists now compare verified archives against every
