@@ -438,9 +438,11 @@ test('cPanel preflight exposes compatibility evidence and downloadable report', 
 });
 
 test('navigation: Job Center opens', async ({ page }) => {
-  await page.getByRole('button', { name: /Operations/ }).click();
+  await page.getByRole('button', { name: /Open operations/ }).click();
   await expect(page.getByRole('heading', { name: 'Operations', exact: true })).toBeVisible();
   await expect(page.locator('#jobCenterList')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'View JSON' })).toHaveCount(0);
+  await expect(page.locator('#jobFeed a[href^="/api/jobs/"]')).toHaveCount(0);
 });
 
 test('navigation: Job Center lists operations or empty state', async ({ page }) => {

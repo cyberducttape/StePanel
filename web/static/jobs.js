@@ -314,6 +314,7 @@
       if (restoreFocus) toggle?.focus();
     };
     toggle?.addEventListener('click', () => { if (drawer?.hasAttribute('hidden')) openDrawer(); else closeDrawer(); });
+    document.querySelector('#jobFeedOpenOperations')?.addEventListener('click', openDrawer);
     document.querySelector('#jobCenterClose')?.addEventListener('click', () => closeDrawer());
     drawer?.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') { event.stopPropagation(); closeDrawer(); }

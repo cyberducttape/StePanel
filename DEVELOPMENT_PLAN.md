@@ -1344,7 +1344,7 @@ Scope and ordering are defined in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 ## Current sequencing
 
 1. Make first-run and customer operation dependable through clear errors,
-   context-safe workflows, and resilient status updates (M0aa/M0ab).
+   context-safe workflows, and resilient status updates (M0aa/M0ab/M0ac).
 2. Typed service extraction for durable site operations is complete (M0s);
    move the backup/restore and deployment services into `internal/` packages
    in focused changes.
@@ -1400,6 +1400,27 @@ readable and keyboard accessible.
 - Routine detail navigation does not open raw JSON.
 - An axe/browser regression covers a failed job in the light theme; unit tests,
   frontend syntax, and exact-source CI pass.
+
+### M0ac — Keep the dashboard focused on operator actions (P2)
+
+**Status:** Implemented locally; `make build`, 19 frontend unit tests, focused
+operator/customer browser checks (2 passed), documentation checks, and
+`git diff --check` passed. Exact-source CI pending.
+
+Remove raw API JSON links from the normal dashboard and ensure server-rendered
+activity rows do not point at job JSON. Keep the API available through its
+documented contract and CLI. Give operators a direct action to open the
+readable Operations drawer.
+
+**Acceptance criteria**
+
+- Routine dashboard sections contain no “View JSON” shortcuts.
+- Server-rendered activity rows are readable and do not navigate to API
+  responses before JavaScript initializes.
+- “Open operations” opens the durable job drawer; the customer activity view
+  remains readable and accessible.
+- Build, unit tests, focused operator/customer browser checks, and
+  exact-source CI pass.
 
 ### Guided site lifecycle experience (product work; not a release-gate closure)
 

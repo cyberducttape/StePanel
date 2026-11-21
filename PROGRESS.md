@@ -1,5 +1,18 @@
 # Production-readiness progress
 
+## Dashboard operation links — 2026-11-21
+
+- Removed raw JSON shortcuts from the operator dashboard and changed server-
+  rendered operator/customer job history into readable, non-navigating rows.
+  The operator dashboard now has an explicit **Open operations** action that
+  opens the job drawer. The customer activity view remains readable without
+  relying on JavaScript initialization.
+- Added browser assertions that the drawer opens and job history contains no
+  links to raw job JSON. Local verification passed: `make build`,
+  `npm run test:unit` (19 tests), and the focused operator/customer Playwright
+  checks (2 passed). JavaScript syntax, docs link/reference checks, and
+  `git diff --check` also passed. Exact-source hosted CI is pending.
+
 ## Site-creation recovery guidance — 2026-11-21
 
 - Corrected the customer workflow guide: failed site creation normally rolls
