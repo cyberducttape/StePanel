@@ -17,6 +17,12 @@
   a temporary directory. `make check` passed, including `go vet` and the full
   Go suite (root package 116.084s); docs links/references and `git diff
   --check` passed.
+- A GoReleaser v2.17.1 snapshot built from committed source `97670588` was
+  extracted and exercised: packaged setup help succeeded, required setup and
+  support docs/helper were present, and the archived binary served the
+  loopback dashboard with `/livez` 204. AMD64 and ARM64 archive checksums
+  verified. Hosted CI for `97670588` is queued/pending; no public release was
+  published.
 
 ## Verify the packaged setup command and make help exit cleanly — 2026-11-21
 
