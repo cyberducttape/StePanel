@@ -1,5 +1,25 @@
 # Production-readiness progress
 
+## Make first WordPress creation prerequisites clear — 2026-11-21
+
+- The operator and customer WordPress forms now show a short pre-creation
+  checklist: point the domain A record at this host, publish AAAA only when
+  public IPv6 works, allow inbound ports 80/443, and save the generated or
+  chosen WordPress password. The text explicitly says StePanel cannot verify
+  public DNS or firewall reachability before the site exists.
+- The destructive-action confirmation repeats these prerequisites. This
+  prevents the UI from implying that a locally configured route proves public
+  DNS or certificate reachability.
+- The installation guide now repeats the same checklist. Operator and customer
+  Playwright journeys passed (2/2), including the customer axe accessibility
+  scan. The first browser run found a nested-landmark issue in the advisory
+  block; changing it to a note role resolved the violation.
+- `npm run test:unit` passed (19/19), JavaScript syntax and documentation
+  link/reference checks passed, and `make check` passed (`go vet ./...` and
+  full Go suite; root package 114.959s). A fresh build and the focused browser
+  journeys passed after the HTML accessibility correction. No installed-host
+  WordPress creation or public certificate issuance was attempted.
+
 ## Make the loopback evaluation dashboard usable — 2026-11-21
 
 - A real process smoke initially showed `/livez` healthy but the dashboard

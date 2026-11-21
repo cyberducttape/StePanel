@@ -146,7 +146,11 @@ Work through the checklist in order:
 1. Resolve any reported broker, worker, storage, audit, or queue issue before
    provisioning a site. The health-details link opens the individual checks.
 2. Create a WordPress site or inspect a cPanel archive in the migration center.
-   Follow the resulting durable job from **Activity / Jobs**.
+   Before WordPress creation, point the domain's A record at this host, publish
+   an AAAA record only when public IPv6 reaches this host, and allow inbound
+   ports 80 and 443. StePanel cannot verify public DNS or firewall reachability
+   before the site exists. Save the WordPress administrator password in a
+   password manager. Follow the resulting durable job from **Activity / Jobs**.
 3. Open the site workspace, confirm its domain and application health, then
    create a backup and confirm its integrity. Integrity verification proves
    the stored archive can be checked; it does not by itself prove that the

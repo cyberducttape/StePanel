@@ -198,6 +198,10 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await expect(page.locator('#siteCreateTemplate option[value="wordpress"]')).toHaveCount(1);
   await page.locator('#siteCreateTemplate').selectOption('wordpress');
   await expect(page.locator('#wordpressCreateFields')).toBeVisible();
+  await expect(page.locator('#wordpressCreateFields')).toContainText('Before you create this site');
+  await expect(page.locator('#wordpressCreateFields')).toContainText('Point the domain’s DNS A record to this server');
+  await expect(page.locator('#wordpressCreateFields')).toContainText('ports 80 and 443');
+  await expect(page.locator('#wordpressCreateFields')).toContainText('cannot verify public DNS or firewall reachability');
   await page.locator('#siteCreateDomain').fill('www.shop.example.org');
   await expect(page.locator('#siteCreateName')).toHaveValue('shop');
   await page.locator('#siteCreateDomain').fill('store.example.org');

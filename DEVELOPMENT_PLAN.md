@@ -1521,8 +1521,9 @@ restore proof remains a distinct, stronger claim.
 ### M0ag — Reduce first-site setup data entry (P2)
 
 **Status:** Site names and WordPress titles are suggested from the domain;
-focused operator/customer browser journeys and local checks pass. Exact-source
-hosted CI is pending.
+the WordPress creation form now shows DNS, IPv6, HTTP/HTTPS, and password
+prerequisites before submission in both operator and customer panels. Browser
+regressions assert the guidance is visible. Exact-source hosted CI is pending.
 
 Make common first-site setup fields easy to fill without taking control away
 from the operator. Suggestions must be valid for their destination, update as
@@ -1535,6 +1536,11 @@ the domain changes, and stop changing after the user customizes them.
 - WordPress titles receive a readable domain-derived suggestion.
 - Users can edit either suggestion, and subsequent domain changes preserve
   their custom value.
+- WordPress creation explains that the domain A record must point to this host,
+  AAAA should be published only for working public IPv6, and ports 80/443 must
+  be reachable; it must clearly say the form cannot verify those public facts.
+- The confirmation repeats the prerequisites, and operator/customer browser
+  journeys assert the guidance before site creation.
 - Operator and customer journeys cover both behaviors and remain accessible.
 - Build, frontend unit tests, focused browser tests, and exact-source CI pass.
 

@@ -2386,7 +2386,7 @@
       if (template === 'wordpress') {
         const confirmed = await confirmDangerous({
           title: `Create WordPress site ${site}?`,
-          message: `StePanel will create a dedicated PHP-FPM pool and database for ${placement.domain}, publish its route, configure HTTPS, and create the first database-inclusive recovery point. DNS must already point to this server for public certificate issuance.`,
+          message: `StePanel will create a dedicated PHP-FPM pool and database for ${placement.domain}, publish its route, configure HTTPS, and create the first database-inclusive recovery point. Before continuing, confirm the domain's A record points to this server, any AAAA record points to working IPv6 on this server, and inbound ports 80 and 443 are reachable. This panel cannot verify public DNS or firewall reachability before creation.`,
           confirmText: site,
           actionLabel: 'Create WordPress site',
         });
