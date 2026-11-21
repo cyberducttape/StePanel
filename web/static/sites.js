@@ -2134,6 +2134,51 @@
       }
     }
 
+    // Suspension (ADR-0008): reversible, administrator-only, with a reason.
+    if (ctx.isAdministrator) {
+      const suspensionOutput = ctx.statusOutput();
+      const suspensionData = await ctx.getJSON('/api/sites/suspensions').catch((error) => ({ __error: error, suspensions: [] }));
+      const suspension = (suspensionData.suspensions || []).find((item) => item.site === site);
+      const reasonField = { label: 'Reason (recorded in the audit log, never shown to visitors)', placeholder: 'For example: unpaid invoice 1042' };
+      const runSuspension = async (resume) => {
+        const verb = resume ? 'resume' : 'suspend';
+        const result = await ctx.confirmDangerous({
+          title: resume ? `Resume ${site}` : `Suspend ${site}`,
+          message: resume
+            ? 'Resuming unlocks database logins and site account access, restarts the applications, workers and tasks that were running, re-enables PHP-FPM, and restores the site’s routes.'
+            : 'Suspending serves a generic 503 page on every route, disables PHP-FPM, stops applications, workers and scheduled tasks, revokes SSH/SFTP/FTPS for a site with its own account, and locks its database logins. Files, databases and backups are kept, and other changes to the site are refused until it is resumed.',
+          confirmText: site,
+          actionLabel: resume ? 'Queue resume' : 'Queue suspension',
+          extraField: reasonField,
+        });
+        if (!result || !result.confirmed) { suspensionOutput.textContent = `The ${verb} request was cancelled; nothing changed.`; return; }
+        try {
+          suspensionOutput.textContent = `Queuing ${verb}…`;
+          await ctx.postJSON(`/api/sites/${verb}`, { site, reason: result.value });
+          suspensionOutput.textContent = `${resume ? 'Resume' : 'Suspension'} queued. Track progress in Activity, then reopen this tab.`;
+        } catch (error) { suspensionOutput.textContent = error.message; }
+      };
+      const children = [el('h4', {}, 'Suspension')];
+      if (suspensionData.__error) {
+        children.push(el('p', { className: 'import-note' }, `Suspension state is unavailable: ${suspensionData.__error.message}`));
+      } else if (suspension) {
+        children.push(
+          el('p', {}, [badge(suspension.state === 'suspended' ? 'Suspended' : suspension.state === 'resuming' ? 'Resuming' : 'Suspending', 'warn'), ` Requested by ${suspension.actor} on ${new Date(suspension.requested_at).toLocaleString()}.`]),
+          el('p', {}, `Reason: ${suspension.reason}`),
+          suspension.last_error ? el('p', { className: 'import-note' }, `Last error: ${suspension.last_error}`) : null,
+          ctx.button('Resume site', () => runSuspension(true)),
+        );
+        if (suspension.state === 'suspending') children.push(ctx.button('Retry suspension', () => runSuspension(false)));
+      } else {
+        children.push(
+          el('p', { className: 'import-note' }, 'Suspension takes the site offline reversibly without deleting anything. Use it instead of termination for non-payment, abuse reports or an investigation.'),
+          ctx.button('Suspend site', () => runSuspension(false), { className: 'danger' }),
+        );
+      }
+      children.push(suspensionOutput);
+      panel.append(...children.filter(Boolean));
+    }
+
     // Danger zone
     if (ctx.isAdministrator) {
       const dangerOutput = ctx.statusOutput();
@@ -2181,10 +2226,13 @@
   // ---------------------------------------------------------------------
 
   async function loadGrid() {
-    const [siteData, backupData] = await Promise.all([
+    const [siteData, backupData, suspensionData] = await Promise.all([
       getJSON('/api/sites/overview'),
       getJSON('/api/backups').catch((error) => ({ __error: error, backups: [] })),
+      // Administrators only; other roles simply see no suspension badges.
+      getJSON('/api/sites/suspensions').catch(() => ({ suspensions: [] })),
     ]);
+    const suspended = new Map((suspensionData.suspensions || []).map((item) => [item.site, item.state]));
     grid.replaceChildren();
     let domains = 0;
     for (const site of siteData.sites || []) {
@@ -2195,7 +2243,7 @@
       const appCount = (site.applications || []).length;
       const extraDomains = Math.max((site.routes || []).length - 1, 0);
       const card = el('article', { className: 'site-card' }, [
-        el('div', { className: 'section-heading' }, [el('h3', {}, site.site), appCount ? badge(running ? 'Running' : 'Needs attention', running ? 'ok' : 'warn') : null]),
+        el('div', { className: 'section-heading' }, [el('h3', {}, site.site), suspended.has(site.site) ? badge(suspended.get(site.site) === 'suspended' ? 'Suspended' : 'Suspension changing', 'warn') : appCount ? badge(running ? 'Running' : 'Needs attention', running ? 'ok' : 'warn') : null]),
         el('code', {}, (site.routes || [])[0]?.domain ? `${site.routes[0].domain}${extraDomains ? ` +${extraDomains} more` : ''}` : 'No domain connected'),
         el('p', {}, `${plural(appCount, 'app')} · ${plural(site.database_count || 0, 'database')}`),
         el('p', { className: backup && !backupData.__error ? 'site-card-backup' : 'site-card-backup warning' }, backupLabel),
