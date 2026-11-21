@@ -47,8 +47,10 @@ website becomes the main site in `public_html`; later ones are addon domains
 (or subdomains) and need their domain, which also names their folder. The
 site gets a PHP-FPM pool running as the account's system user and a
 placeholder page, and is assigned to your account before creation starts.
-Creation runs as a durable job; if it fails, nothing is left behind and the
-site no longer counts against your plan.
+Creation runs as a durable job. On failure, the worker attempts to remove
+partial resources; if compensation cannot finish, StePanel records a
+recovery-required journal for operator reconciliation. Check **Operations**
+before retrying a failed creation.
 
 ```bash
 curl -X POST "https://panel.example.com/api/sites" \

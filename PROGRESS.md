@@ -1,5 +1,16 @@
 # Production-readiness progress
 
+## Site-creation recovery guidance — 2026-11-21
+
+- Corrected the customer workflow guide: failed site creation normally rolls
+  back partial resources, but incomplete compensation leaves a
+  recovery-required journal for operator reconciliation. It now directs users
+  to check Operations before retrying, instead of promising that every failure
+  leaves no resources behind.
+- `bash scripts/check-docs-links.sh docs`,
+  `python3 scripts/check-docs-references.py` (93 documents), and
+  `git diff --check` passed.
+
 ## Readable operation history — 2026-11-21
 
 - The Operations drawer now shows a readable disclosure with job ID, start and
@@ -9,8 +20,12 @@
   failed-job status, plus hover opacity that reduced contrast further. The
   theme-specific text colors and hover treatment were corrected. The focused
   browser/axe regression and full UI suite passed after those fixes: 26 passed,
-  one optional customer-session test skipped. Exact-source CI is pending for
-  this change.
+  one optional customer-session test skipped. Full exact-source CI
+  [44943145761](https://github.com/cyberducttape/StePanel/actions/runs/44943145761),
+  CodeQL [44943145904](https://github.com/cyberducttape/StePanel/actions/runs/44943145904),
+  documentation [44943145744](https://github.com/cyberducttape/StePanel/actions/runs/44943145744),
+  and release-evidence [44944984736](https://github.com/cyberducttape/StePanel/actions/runs/44944984736)
+  checks passed for `d69e6c4e`.
 - The browser fixture now asserts the user-facing job label rather than the
   internal job kind. No failing assertion remains in the focused run.
 
@@ -26,7 +41,7 @@
 - Regression: `npm run test:unit` passed (19 tests), including recovery after
   transient job-status failures and preserving the job ID when status remains
   unavailable. `make build`,
-  `scripts/e2e-ui-test.sh ./stepanel` (26 passed, one optional customer-session
+  `scripts/e2e-ui-test.sh ./stepanel` (25 passed, one optional customer-session
   test skipped), `node --check web/static/sites.js`, and `git diff --check`
   passed. Exact-source CI [44941126573](https://github.com/cyberducttape/StePanel/actions/runs/44941126573)
   passed all Go tests, race tests, recovery/integration checks, and the UI

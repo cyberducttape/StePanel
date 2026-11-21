@@ -1356,7 +1356,9 @@ Scope and ordering are defined in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ### M0aa — Keep durable site-operation status truthful through transient outages (P1)
 
-**Status:** Implemented locally; exact-source checks pending.
+**Status:** Implemented and verified on exact source `d0bc1f17`. CI
+[44941126573](https://github.com/cyberducttape/StePanel/actions/runs/44941126573),
+CodeQL, and documentation checks passed.
 
 Customer and operator site creation and workspace operations must treat an
 accepted durable job as accepted even when status reads temporarily fail. Use
@@ -1378,8 +1380,12 @@ from creation failures.
 
 ### M0ab — Make operation history understandable without raw API responses (P2)
 
-**Status:** Implemented locally; focused browser and accessibility regression
-passed, exact-source checks pending.
+**Status:** Implemented and verified on exact source `d69e6c4e`. The focused
+and full local browser suites passed; hosted CI
+[44943145761](https://github.com/cyberducttape/StePanel/actions/runs/44943145761),
+CodeQL [44943145904](https://github.com/cyberducttape/StePanel/actions/runs/44943145904),
+and documentation checks [44943145744](https://github.com/cyberducttape/StePanel/actions/runs/44943145744)
+passed.
 
 The Operations drawer and dashboard activity feed should explain what happened
 in the interface. They must not send operators to a raw JSON endpoint for
