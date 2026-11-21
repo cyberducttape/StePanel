@@ -449,6 +449,7 @@ bash /work/deploy/lab/sftp-access-smoke.sh
 bash /work/deploy/lab/filectl-smoke.sh
 bash /work/deploy/lab/sitectl-acl-smoke.sh "$site"
 bash /work/deploy/lab/tenant-isolation-smoke.sh
+bash /work/deploy/lab/site-suspension-smoke.sh
 bash /work/deploy/lab/ftps-access-smoke.sh
 
 apply_smoke_vhost() {
