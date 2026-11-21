@@ -456,6 +456,11 @@ body { background: var(--panel-bg); color: var(--panel-text); }
 .job-center-item progress { display: block; width: 100%; height: 7px; margin: 12px 0 7px; accent-color: var(--panel-accent); }
 .job-center-item small { display: block; color: var(--panel-muted); font-size: 11px; }
 .job-center-item .quiet-action { margin-top: 10px; }
+.job-center-details { margin-top: 10px; color: var(--panel-muted); font-size: 11px; }
+.job-center-details summary { width: fit-content; cursor: pointer; color: var(--panel-accent); font-weight: 650; }
+.job-center-details dl { display: grid; grid-template-columns: minmax(88px, auto) 1fr; gap: 5px 10px; margin: 10px 0 0; }
+.job-center-details dt { color: var(--panel-muted); }
+.job-center-details dd { min-width: 0; margin: 0; color: var(--panel-text); overflow-wrap: anywhere; }
 .job-center-error { color: var(--panel-warning, #f0b35a) !important; margin-top: 8px; }
 @media (max-width: 600px) { .job-center-toggle { right: 16px; bottom: 16px; } .job-center { right: 16px; bottom: 65px; } }
 .sidebar-footer {
@@ -744,7 +749,7 @@ body { background: var(--panel-bg); color: var(--panel-text); }
   transition: opacity .2s ease;
 }
 .activity-item:last-child { border-bottom: none; }
-.activity-item:hover { opacity: 0.8; }
+.activity-item:hover .activity-link strong { text-decoration: underline; }
 .activity-item p,
 .activity-time,
 .empty-state { color: var(--panel-muted); }
@@ -1439,7 +1444,7 @@ textarea[aria-invalid="true"] {
 .token-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--line, #d8dee8); border-radius: 9px; font-size: .84rem; }
 .token-row span { overflow-wrap: anywhere; }
 .activity-cancel { margin-left: auto; white-space: nowrap; }
-.activity-link { display: flex; align-items: center; gap: 13px; flex: 1; min-width: 0; color: inherit; text-decoration: none; }
+.activity-link { display: flex; align-items: center; gap: 13px; flex: 1; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; font: inherit; cursor: pointer; }
 .account-inventory { display: grid; gap: 8px; margin: 16px 0 20px; }
 .account-inventory-row { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding: 14px 16px; border: 1px solid var(--line, #d8dee8); border-radius: 10px; background: var(--surface, #f8fafc); }
 .account-inventory-row strong, .account-inventory-row small { display: block; }
@@ -1791,6 +1796,13 @@ body[data-theme] {
   --panel-muted: var(--appearance-muted);
   --panel-accent: var(--appearance-accent);
 }
+
+body[data-theme="default"][data-dark-mode="false"] .job-center-state.failed,
+body[data-theme="default"][data-dark-mode="false"] .job-center-state.dead-letter,
+body[data-theme="default"][data-dark-mode="false"] .job-center-error { color: #754000 !important; }
+body[data-theme="default"][data-dark-mode="false"] .activity-item strong { color: var(--appearance-text) !important; }
+body[data-theme="default"][data-dark-mode="false"] .activity-item p,
+body[data-theme="default"][data-dark-mode="false"] .activity-time { color: #4e6370 !important; }
 
 /* Per-site lifecycle journey */
 .lifecycle-summary {

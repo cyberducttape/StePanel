@@ -135,6 +135,20 @@
       status.textContent = `Cancellation failed: ${error.message || 'request was not accepted'}`;
     });
   };
+  const revealJob = (id) => {
+    const drawer = document.querySelector('#jobCenter');
+    const toggle = document.querySelector('#jobCenterToggle');
+    if (!drawer) return;
+    drawer.removeAttribute('hidden');
+    toggle?.setAttribute('aria-expanded', 'true');
+    const item = [...(document.querySelector('#jobCenterList')?.children || [])]
+      .find((child) => child.dataset.jobId === id);
+    if (!item) return;
+    const details = item.querySelector('details');
+    if (details) details.open = true;
+    item.scrollIntoView?.({ block: 'nearest' });
+    details?.querySelector('summary')?.focus();
+  };
   const failWait = (id, error) => {
     const listeners = waiters.get(id) || [];
     listeners.forEach(({ reject }) => reject(error));
@@ -194,7 +208,8 @@
       }
       visible.slice(0, 5).forEach((job) => {
         const row = document.createElement('div'); row.className = 'activity-item';
-        const link = document.createElement('a'); link.className = 'activity-link'; link.href = `/api/jobs/${encodeURIComponent(job.id)}`;
+        const link = document.createElement('button'); link.type = 'button'; link.className = 'activity-link';
+        link.addEventListener('click', () => revealJob(job.id));
         const dot = document.createElement('span'); dot.className = `activity-dot ${job.state === 'completed' ? 'green' : job.state === 'failed' ? 'amber' : 'blue'}`; dot.setAttribute('aria-hidden', 'true');
         const text = document.createElement('div'); const strong = document.createElement('strong'); strong.textContent = job.kind; const detail = document.createElement('p'); detail.textContent = `${job.user} · ${job.state}`; text.append(strong, detail);
         const time = document.createElement('time'); time.className = 'activity-time'; time.dateTime = job.started_at; time.textContent = new Date(job.started_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -222,6 +237,7 @@
     visible.forEach((job) => {
       const item = document.createElement('article');
       item.className = 'job-center-item';
+      item.dataset.jobId = job.id;
       const heading = document.createElement('div');
       heading.className = 'job-center-heading';
       const title = document.createElement('strong');
@@ -251,11 +267,24 @@
         error.className = 'job-center-error'; error.textContent = job.error;
         item.append(error);
       }
-      const details = document.createElement('a');
-      details.className = 'quiet-action';
-      details.href = `/api/jobs/${encodeURIComponent(job.id)}`;
-      details.textContent = 'View details';
-      item.append(details);
+      const detailDisclosure = document.createElement('details');
+      detailDisclosure.className = 'job-center-details';
+      const detailSummary = document.createElement('summary');
+      detailSummary.textContent = 'Operation details';
+      const detailList = document.createElement('dl');
+      const addDetail = (name, value) => {
+        if (value === undefined || value === null || value === '') return;
+        const term = document.createElement('dt'); term.textContent = name;
+        const description = document.createElement('dd'); description.textContent = value;
+        detailList.append(term, description);
+      };
+      addDetail('Job ID', job.id);
+      addDetail('Started', new Date(job.started_at).toLocaleString());
+      addDetail('Finished', job.finished_at ? new Date(job.finished_at).toLocaleString() : 'Still in progress');
+      if (job.attempts) addDetail('Attempts', `${job.attempts}${job.max_attempts ? ` of ${job.max_attempts}` : ''}`);
+      if (job.error) addDetail('Failure detail', job.error);
+      detailDisclosure.append(detailSummary, detailList);
+      item.append(detailDisclosure);
       list.append(item);
     });
   };

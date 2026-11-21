@@ -1,5 +1,19 @@
 # Production-readiness progress
 
+## Readable operation history — 2026-11-21
+
+- The Operations drawer now shows a readable disclosure with job ID, start and
+  finish times, attempts, and failure detail. Dashboard activity opens the
+  matching drawer entry rather than opening the raw JSON API response.
+- The first accessibility run found low contrast in the existing light-theme
+  failed-job status, plus hover opacity that reduced contrast further. The
+  theme-specific text colors and hover treatment were corrected. The focused
+  browser/axe regression and full UI suite passed after those fixes: 26 passed,
+  one optional customer-session test skipped. Exact-source CI is pending for
+  this change.
+- The browser fixture now asserts the user-facing job label rather than the
+  internal job kind. No failing assertion remains in the focused run.
+
 ## Durable site-operation status — 2026-11-21
 
 - Site creation, builds, deployments, dependency installs, and staging actions
@@ -12,9 +26,11 @@
 - Regression: `npm run test:unit` passed (19 tests), including recovery after
   transient job-status failures and preserving the job ID when status remains
   unavailable. `make build`,
-  `scripts/e2e-ui-test.sh ./stepanel` (25 passed, one optional customer-session
+  `scripts/e2e-ui-test.sh ./stepanel` (26 passed, one optional customer-session
   test skipped), `node --check web/static/sites.js`, and `git diff --check`
-  passed. Exact-source CI has not yet run for this change.
+  passed. Exact-source CI [44941126573](https://github.com/cyberducttape/StePanel/actions/runs/44941126573)
+  passed all Go tests, race tests, recovery/integration checks, and the UI
+  suite on `d0bc1f17`.
 
 ## First-run setup flow — 2026-11-21
 

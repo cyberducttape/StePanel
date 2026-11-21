@@ -449,6 +449,32 @@ test('navigation: Job Center lists operations or empty state', async ({ page }) 
   await expect(page.locator('#jobCenter')).toContainText(/No operations|Cancel|Complete/);
 });
 
+test('operation history shows readable details instead of raw JSON', async ({ page }) => {
+  const operation = {
+    id: 'job-ux-example', kind: 'site.backup', user: 'example', state: 'failed',
+    started_at: '2026-11-20T12:00:00Z', finished_at: '2026-11-20T12:01:00Z',
+    attempts: 2, max_attempts: 3, error: 'Database connection timed out',
+  };
+  await page.route('**/api/jobs', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ jobs: [operation] }),
+  }));
+  await page.evaluate(() => window.StepanelJobs.load());
+  await page.getByRole('button', { name: /Operations/ }).click();
+
+  const row = page.locator('#jobCenterList [data-job-id="job-ux-example"]');
+  await expect(row).toContainText('Backup · example');
+  await row.getByText('Operation details').click();
+  await expect(row).toContainText('Job ID');
+  await expect(row).toContainText('job-ux-example');
+  await expect(row).toContainText('2 of 3');
+  await expect(row).toContainText('Database connection timed out');
+  await expect(row.locator('a[href^="/api/jobs/"]')).toHaveCount(0);
+  await row.getByText('Operation details').click();
+  await page.locator('#jobFeed button.activity-link').click();
+  await expect(row.locator('details')).toHaveAttribute('open', '');
+  await checkA11y(page);
+});
+
 test('navigation: deployment form renders', async ({ page }) => {
   await page.getByRole('link', { name: 'Deployments' }).click();
   await expect(page.locator('#deployForm')).toBeVisible();

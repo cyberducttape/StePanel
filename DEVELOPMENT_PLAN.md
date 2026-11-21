@@ -1344,7 +1344,7 @@ Scope and ordering are defined in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 ## Current sequencing
 
 1. Make first-run and customer operation dependable through clear errors,
-   context-safe workflows, and resilient status updates; current item M0aa.
+   context-safe workflows, and resilient status updates (M0aa/M0ab).
 2. Typed service extraction for durable site operations is complete (M0s);
    move the backup/restore and deployment services into `internal/` packages
    in focused changes.
@@ -1375,6 +1375,25 @@ from creation failures.
 - Builds, deployments, dependency installs, and staging operations use the
   same bounded waiter rather than an unbounded custom polling loop.
 - Frontend unit/browser checks and exact-source CI pass.
+
+### M0ab — Make operation history understandable without raw API responses (P2)
+
+**Status:** Implemented locally; focused browser and accessibility regression
+passed, exact-source checks pending.
+
+The Operations drawer and dashboard activity feed should explain what happened
+in the interface. They must not send operators to a raw JSON endpoint for
+routine job details. Activity should lead to the matching job in the drawer,
+where its identifier, timestamps, retry count, and failure explanation are
+readable and keyboard accessible.
+
+**Acceptance criteria**
+
+- Job details render from authorized job summaries using text-safe DOM APIs.
+- Dashboard activity opens the corresponding drawer entry and disclosure.
+- Routine detail navigation does not open raw JSON.
+- An axe/browser regression covers a failed job in the light theme; unit tests,
+  frontend syntax, and exact-source CI pass.
 
 ### Guided site lifecycle experience (product work; not a release-gate closure)
 

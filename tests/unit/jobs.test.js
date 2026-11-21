@@ -9,7 +9,7 @@ const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, '../../web/static/jobs.js'), 'utf8');
 
 class FakeElement {
-  constructor() { this.children = []; this.attributes = {}; }
+  constructor() { this.children = []; this.attributes = {}; this.dataset = {}; }
   append(...children) { this.children.push(...children); }
   replaceChildren(...children) { this.children = [...children]; }
   setAttribute(name, value) { this.attributes[name] = value; }
