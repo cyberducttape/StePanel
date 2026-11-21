@@ -43,6 +43,9 @@ func runSetup(args []string, in *os.File, out io.Writer, host setupguide.Host, e
 	force := flags.Bool("force", false, "replace an existing settings file")
 	fromInstaller := flags.Bool("from-installer", false, "invoked by install.sh --guided")
 	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 	if _, err := os.Stat(existingEnv); err == nil {

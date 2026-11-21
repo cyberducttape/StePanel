@@ -10,6 +10,19 @@ import (
 	"time"
 )
 
+func TestSetupHelpIsSuccessful(t *testing.T) {
+	var out bytes.Buffer
+	err := runSetup([]string{"--help"}, nil, &out, nil, "/path/that/does/not/exist")
+	if err != nil {
+		t.Fatalf("setup --help returned error: %v", err)
+	}
+	for _, want := range []string{"Usage of setup:", "where to write the installer settings"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("help output missing %q: %s", want, out.String())
+		}
+	}
+}
+
 type scriptedSetupHost struct{ setupHost }
 
 func (scriptedSetupHost) HashPassword(password string) (string, error) { return "hashed", nil }

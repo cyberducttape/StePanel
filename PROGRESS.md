@@ -1,5 +1,18 @@
 # Production-readiness progress
 
+## Verify the packaged setup command and make help exit cleanly — 2026-11-21
+
+- A local GoReleaser snapshot built both Linux release archives. The amd64
+  archive contained the install guide, production gates, current six-host
+  smoke evidence, and installer support-tier helper. Running the packaged
+  `stepanel setup --help` exposed that it printed help but returned an error.
+- `setup --help` now exits successfully, with a regression test. The focused
+  test and a freshly built CLI help invocation passed. Full `make check`,
+  documentation links/references, and `git diff --check` passed. A rebuilt
+  GoReleaser snapshot contains all required support materials; the extracted
+  packaged CLI help exits 0, and both archive checksums passed. This was a
+  local snapshot from the working tree, not a published release artifact.
+
 ## Package setup and support materials in release archives — 2026-11-21
 
 - GoReleaser archives now include the documentation tree, current installation
