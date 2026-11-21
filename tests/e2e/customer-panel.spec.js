@@ -167,7 +167,15 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await page.locator('#siteOverview').getByRole('button', { name: 'Manage site' }).first().click();
   await expect(page.locator('#siteDetail')).toBeVisible();
   await expect(page.locator('#siteDetail')).toContainText('e2e-main workspace');
-  await expect(page.locator('#siteDetail [role="tablist"]')).toBeVisible();
+  await expect(page.locator('#siteDetail').getByRole('tablist', { name: 'e2e-main everyday sections' })).toBeVisible();
+  await expect(page.locator('#siteDetail').getByRole('tab', { name: 'Overview' })).toBeVisible();
+  await expect(page.locator('#siteDetail').getByRole('tab', { name: 'Runtime' })).toBeHidden();
+  await page.locator('#siteDetail .workspace-advanced summary').click();
+  await expect(page.locator('#siteDetail').getByRole('tab', { name: 'Runtime' })).toBeVisible();
+  await page.evaluate(() => { location.hash = '#site=e2e-main&tab=databases'; });
+  await expect(page.locator('#siteDetail .workspace-advanced')).toHaveJSProperty('open', true);
+  await expect(page.locator('#siteDetail').getByRole('tab', { name: 'Databases' })).toHaveAttribute('aria-selected', 'true');
+  await checkA11y(page);
   await expect.poll(() => pageErrors).toEqual([]);
   await page.locator('#siteDetail').getByRole('button', { name: 'Close' }).click();
   await expect(page.locator('#siteCreateTemplate option[value="wordpress"]')).toHaveCount(1);

@@ -23,6 +23,11 @@
   v0.7.0's environment-variable installer. Current-source CI remains the
   authority for the newest checklist commits; the product is still Operator
   Beta and its production gates remain open.
+- Commit `1a4b301f` groups the customer workspace into Overview, Guided
+  workflow, Domains, and Backups, with specialist controls under Advanced
+  administration; existing deep links expand that group. Focused customer
+  Chromium E2E and accessibility checks passed, as did the operator test that
+  exercises all tabs. Exact-source CI for this addition is pending.
 
 ## Current evidence and install-drill correction — 2026-11-21
 

@@ -228,20 +228,31 @@
     }, { className: 'quiet-action' });
     const headingRow = el('div', { className: 'section-heading' }, [heading, closeButton]);
 
-    const tablist = el('div', { className: 'workspace-tablist', role: 'tablist', 'aria-label': `${site} sections` });
+    const primaryTabIDs = new Set(['overview', 'journey', 'domains', 'backups']);
+    const primaryTabs = isAdministrator ? TABS : TABS.filter((tab) => primaryTabIDs.has(tab.id));
+    const advancedTabs = isAdministrator ? [] : TABS.filter((tab) => !primaryTabIDs.has(tab.id));
+    const tablist = el('div', { className: 'workspace-tablist', role: 'tablist', 'aria-label': isAdministrator ? `${site} sections` : `${site} everyday sections` });
+    const advancedTablist = advancedTabs.length
+      ? el('div', { className: 'workspace-tablist', role: 'tablist', 'aria-label': `${site} advanced sections` })
+      : null;
+    const advancedDetails = advancedTabs.length
+      ? el('details', { className: 'workspace-advanced' }, [
+        el('summary', {}, `Advanced administration · ${advancedTabs.length} tools`),
+        advancedTablist,
+      ])
+      : null;
     const panel = el('div', { className: 'workspace-tabpanel', role: 'tabpanel', tabindex: '0' });
-    const tabButtons = [];
+    const tabButtons = Array(TABS.length);
     const startIndex = Math.max(0, TABS.findIndex((tab) => tab.id === initialTabId));
-    let activeIndex = startIndex;
     let requestToken = 0;
 
     const activate = async (index) => {
-      activeIndex = index;
       tabButtons.forEach((tabButton, i) => {
         const selected = i === index;
         tabButton.setAttribute('aria-selected', String(selected));
         tabButton.tabIndex = selected ? 0 : -1;
       });
+      if (advancedDetails && advancedTabs.some((tab) => tab.id === TABS[index].id)) advancedDetails.open = true;
       panel.setAttribute('aria-labelledby', `tab-${TABS[index].id}`);
       history.replaceState({ site, tab: TABS[index].id }, '', workspaceHash(site, TABS[index].id));
       const token = ++requestToken;
@@ -256,34 +267,42 @@
       }
     };
 
-    TABS.forEach((tab, index) => {
-      const tabButton = el('button', {
-        type: 'button',
-        role: 'tab',
-        className: 'workspace-tab',
-        id: `tab-${tab.id}`,
-        'aria-selected': String(index === startIndex),
-        'aria-controls': 'workspace-panel',
-        tabindex: index === startIndex ? '0' : '-1',
-        onClick: () => activate(index),
-        onKeydown: (event) => {
-          let target = null;
-          if (event.key === 'ArrowRight') target = (index + 1) % TABS.length;
-          else if (event.key === 'ArrowLeft') target = (index - 1 + TABS.length) % TABS.length;
-          else if (event.key === 'Home') target = 0;
-          else if (event.key === 'End') target = TABS.length - 1;
-          if (target === null) return;
-          event.preventDefault();
-          tabButtons[target].focus();
-          activate(target);
-        },
-      }, tab.label);
-      tabButtons.push(tabButton);
-      tablist.append(tabButton);
-    });
+    const buildTabGroup = (tabs, targetList) => {
+      tabs.forEach((tab, groupIndex) => {
+        const index = TABS.indexOf(tab);
+        const tabButton = el('button', {
+          type: 'button',
+          role: 'tab',
+          className: 'workspace-tab',
+          id: `tab-${tab.id}`,
+          'aria-selected': String(index === startIndex),
+          'aria-controls': 'workspace-panel',
+          tabindex: index === startIndex ? '0' : '-1',
+          onClick: () => activate(index),
+          onKeydown: (event) => {
+            let target = null;
+            if (event.key === 'ArrowRight') target = (groupIndex + 1) % tabs.length;
+            else if (event.key === 'ArrowLeft') target = (groupIndex - 1 + tabs.length) % tabs.length;
+            else if (event.key === 'Home') target = 0;
+            else if (event.key === 'End') target = tabs.length - 1;
+            if (target === null) return;
+            event.preventDefault();
+            const targetIndex = TABS.indexOf(tabs[target]);
+            tabButtons[targetIndex].focus();
+            activate(targetIndex);
+          },
+        }, tab.label);
+        tabButtons[index] = tabButton;
+        targetList.append(tabButton);
+      });
+    };
+    buildTabGroup(primaryTabs, tablist);
+    if (advancedTablist) buildTabGroup(advancedTabs, advancedTablist);
     panel.id = 'workspace-panel';
 
-    detail.append(headingRow, tablist, panel);
+    detail.append(headingRow, tablist);
+    if (advancedDetails) detail.append(advancedDetails);
+    detail.append(panel);
     if (pushHistory) {
       history.pushState({ site, tab: TABS[startIndex].id }, '', workspaceHash(site, TABS[startIndex].id));
     }

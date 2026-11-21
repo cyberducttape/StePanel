@@ -1025,6 +1025,20 @@ body[data-theme] > .app-shell { zoom: var(--ui-scale, 1); min-height: calc(100vh
   color: #fff;
   border-color: #2c608c;
 }
+.workspace-advanced { margin: -8px 0 18px; }
+.workspace-advanced > summary {
+  width: fit-content;
+  padding: 7px 10px;
+  border: 1px solid var(--panel-line);
+  border-radius: 8px;
+  color: var(--panel-muted);
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.workspace-advanced > summary:hover,
+.workspace-advanced > summary:focus-visible { color: var(--panel-text); border-color: var(--panel-accent); }
+.workspace-advanced .workspace-tablist { margin: 10px 0 0; }
 .workspace-tabpanel { outline: none; }
 .workspace-tabpanel:focus-visible { outline: 3px solid #1c938a; outline-offset: 4px; }
 .workspace-tabpanel h4 { margin: 0 0 4px; color: var(--panel-text); font-size: 15px; }

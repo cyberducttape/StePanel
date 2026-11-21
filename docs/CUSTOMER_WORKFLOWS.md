@@ -17,7 +17,10 @@ own (administrators keep the operator dashboard at `/`). Its sections are:
   to retry.
 - **Websites:** add a website and open a website's workspace for domains,
   PHP, deployments, databases, backups, logs, workers, scheduled tasks,
-  security and settings.
+  security and settings. The workspace keeps Overview, Guided workflow,
+  Domains, and Backups in the main navigation; specialist controls are grouped
+  under **Advanced administration**. Existing links to advanced sections open
+  that group automatically.
 - **Files:** the file manager described below.
 - **Domains & SSL:** every connected domain, with a link to connect more.
 - **Databases & backups** and **PHP, cron & logs:** shortcuts into each
