@@ -1,5 +1,27 @@
 # Production-readiness progress
 
+## PHP-FPM descriptor exhaustion fixed; backup-interrupted drill passes — 2026-11-21
+
+- Capacity run 44880222946: the new static-file probe never failed (0/572)
+  while PHP pages timed out, locating the stall in PHP-FPM.
+- Diagnostic run 44886286422 on `5ad16f3f` confirmed the cause: the shared
+  PHP-FPM master hit its 1,024 open-file limit ("failed to prepare the
+  stderr pipe: Too many open files" 279 times; live workers capped at 257).
+- `06f6e94d` sets `LimitNOFILE=65536` for PHP-FPM and restarts it when the
+  drop-in changes. Capacity run 44886417491: 81,362 page requests, 0
+  failures, p99 97.1 ms baseline / 115.0 ms during backups; 557 live
+  workers, 1,622 descriptors. The run was marked failed only by one
+  `/readyz` 503 at t=0 (off-site target probe in progress); the probe now
+  waits for readiness before measuring. Install smoke 44886416024 passed
+  with the new limit check. Report:
+  [`2026-11-21-capacity-large-06f6e94-fpm-descriptor-fix.md`](docs/lab-results/2026-11-21-capacity-large-06f6e94-fpm-descriptor-fix.md).
+- KVM run 44880219867 passed install, the five abrupt-loss scenarios, the
+  WordPress-shaped database ENOSPC smoke and the SMTP alert smoke; the new
+  backup-interrupted scenario failed only because its site name exceeded 32
+  characters. After the fix, run 44886289678 passed it: the interrupted
+  backup completed on recovery, both backups verified, the earlier one
+  restored state A, and a fresh backup completed.
+
 ## Post-fix 500-site capacity run and new recovery smokes — 2026-11-21
 
 - Capacity run 44852768241 on `fd14d657`: successful p99 fell from 9.3 s to

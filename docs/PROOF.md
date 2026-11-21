@@ -14,6 +14,7 @@ Last reviewed: 2026-11-21.
 | --- | --- | --- | --- |
 | It installs and recovers on the supported platforms | Fresh install, PHP sites, a recovery matrix, database and broker outages, and a WordPress restore over HTTP, on Ubuntu 24.04, AlmaLinux 9 and Rocky Linux 9 with Apache and Caddy | Passed once on all six combinations, WordPress recovery in 4.6–6.9 s ([report](./lab-results/2026-11-20-six-host-install-smoke-059ba72.md)) | Repeated runs; other operating systems; physical servers |
 | A server crash mid-operation does not corrupt sites or data | The whole virtual machine is killed (no shutdown, host disk cache bypassed) in the middle of a file restore, database restore, Git deployment, backup retention, and control-plane writes, then booted again | All five recovered correctly ([report](./lab-results/2026-11-20-kvm-abrupt-loss-operations-cache-none-c3e37eb.md)) | Physical power loss; repeated runs |
+| A backup interrupted by a crash leaves earlier backups usable | The virtual machine is killed while a backup is being written, booted again, and the backup set inspected | The interrupted job completed on recovery, both backups verified, the earlier one restored the original files, and a fresh backup completed ([run 44886289678](https://github.com/cyberducttape/StePanel/actions/runs/44886289678)) | Repeated runs; off-site targets |
 | An upgrade interrupted by a crash recovers | v0.6.0 and v0.7.0 hosts are upgraded; the guest is killed while the installer is changing files, booted again, and the upgrade rerun; customer site and database are checked, then rolled back and upgraded again | Passed for both versions ([run 44863673113](https://github.com/cyberducttape/StePanel/actions/runs/44863673113)) | AlmaLinux/Rocky upgrade paths; large installations |
 | A full database disk does not damage the live database | A restore larger than the free space is attempted on a small database filesystem | Refused at admission; an undeclared oversized load was stopped before the disk filled; the live database was unchanged ([report](./lab-results/2026-11-21-kvm-db-enospc-alerts-7e2a575.md)) | A disk that actually fills during the load |
 | A crash of the privileged helper mid-restore leaves a consistent site | The root broker is killed while it seals a just-activated restored tree | The site held the backed-up files, every file owned by the site account ([run 44863669797](https://github.com/cyberducttape/StePanel/actions/runs/44863669797)) | Every helper call; repeated runs |
@@ -27,10 +28,11 @@ Last reviewed: 2026-11-21.
 
 These are open, and the project says so rather than implying otherwise:
 
-- **A capacity limit.** A 500-site test on a 4-CPU virtual machine still
-  times out on about 2% of requests during periodic host-wide stalls; the
-  cause is under investigation ([latest report](./lab-results/2026-11-21-capacity-large-e19d737-after-fpm-fix.md)).
-  No site count is certified.
+- **A capacity limit.** A 500-site test on a 4-CPU virtual machine now
+  completes with no failed page requests and a p99 of 97–115 ms, after a
+  PHP-FPM file-descriptor limit that caused periodic stalls was found and
+  fixed ([report](./lab-results/2026-11-21-capacity-large-06f6e94-fpm-descriptor-fix.md)).
+  That is one run; no site count is certified until runs repeat.
 - **Repeated recovery.** Each result above is a single pass. The 20-repeat
   recovery cohort has not completed.
 - **Physical power loss.** All crash tests kill a virtual machine.

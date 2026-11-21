@@ -571,6 +571,21 @@ def main():
     setup_seconds = round(time.time() - setup_started)
     log(f"setup finished in {setup_seconds}s")
 
+    # Start measuring from a ready host. Setup can leave a transient readiness
+    # check running (for example a scheduled off-site target probe); any
+    # readiness failure after this point still counts against the run.
+    ready_deadline = time.time() + 180
+    while True:
+        try:
+            ready_status, ready_body = panel.call("GET", "/readyz", timeout=30)
+        except OSError as error:
+            ready_status, ready_body = 0, str(error)
+        if 200 <= ready_status < 400:
+            break
+        if time.time() >= ready_deadline:
+            raise SystemExit(f"host not ready 180s after setup: HTTP {ready_status} {failure_detail(ready_body)}")
+        time.sleep(2)
+
     stop = threading.Event()
     fpm_offsets = fpm_log_offsets()
     fpm_since = time.strftime("%Y-%m-%d %H:%M:%S")

@@ -118,6 +118,17 @@ export STEPANEL_STAGE_RETENTION_HOURS=24  # 1 day
 
 ---
 
+### PHP-FPM master file descriptors
+
+One PHP-FPM master serves every site's pool. It holds a listening socket per
+pool and two log pipes per live worker, so its open-file limit bounds how
+many workers can run at once. The installer starts PHP-FPM with
+`LimitNOFILE=65536`. Under the systemd default of 1,024, a 500-site host
+stalled every 17–18 s: new workers failed to start with "Too many open
+files", and requests to idle sites hung until the client timed out. With the
+raised limit, the same 500-site profile completed 81,362 page requests with
+none failing ([report](./lab-results/2026-11-21-capacity-large-06f6e94-fpm-descriptor-fix.md)).
+
 ### PHP-FPM idle workers (known limitation)
 
 Each site's pool uses `pm = ondemand` with `pm.process_idle_timeout = 10s`:
