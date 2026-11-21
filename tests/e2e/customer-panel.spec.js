@@ -75,9 +75,10 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
   await page.route('**/api/account/hosting', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(hosting) }));
-  await page.route('**/api/backups?limit=100', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ backups: [
+  let customerBackups = [
     { site: 'e2e-main', verified_at: '2026-11-20T12:00:00Z' },
-  ] }) }));
+  ];
+  await page.route('**/api/backups?limit=100', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ backups: customerBackups }) }));
   let overviewRequests = 0;
   let shopRouteConfigured = false;
   await page.route('**/api/sites/overview', (route) => {
@@ -170,6 +171,13 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await expect(page.locator('#panelOnboardingList').getByRole('link', { name: 'Review DNS & HTTPS' })).toHaveAttribute('href', '#site=e2e-main&tab=domains');
   await expect(page.locator('#panelPrimaryAction')).toHaveAttribute('href', '#site=e2e-main&tab=domains');
   await expect(page.locator('#panelOnboardingProgress')).toContainText('1 of 3 essentials complete');
+  customerBackups = [
+    ...customerBackups,
+    { site: 'e2e-shop', verified_at: '2026-11-20T13:00:00Z' },
+  ];
+  await page.locator('#panelOnboardingRefresh').click();
+  await expect(page.locator('#panelOnboardingList')).toContainText('Every assigned website has an integrity-verified backup');
+  await expect(page.locator('#panelOnboardingProgress')).toContainText('2 of 3 essentials complete');
   await expect(page.getByRole('link', { name: 'Customers' })).toHaveCount(0);
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Websites' }).click();
   await expect(page.locator('#siteOverview')).toContainText('e2e-main');

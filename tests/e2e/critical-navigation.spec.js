@@ -81,6 +81,14 @@ test('first-run primary action follows the next unresolved setup step', async ({
   await expect(recoveryStep).toHaveClass(/setup-step-unknown/);
   await expect(recoveryStep).toContainText('latest 100 results');
   await expect(primary).toHaveAttribute('href', '#site=setup-b&tab=backups');
+
+  currentBackups = [
+    { site: 'setup-a', verified_at: '2026-11-20T12:00:00Z' },
+    { site: 'setup-b', verified_at: '2026-11-20T13:00:00Z' },
+  ];
+  await page.locator('#refreshOnboarding').click();
+  await expect(recoveryStep).toHaveClass(/setup-step-done/);
+  await expect(recoveryStep).toContainText('Every active site has an integrity-verified backup');
 });
 
 test('database health expands into a readable, host-wide snapshot', async ({ page }) => {
