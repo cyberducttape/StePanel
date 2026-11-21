@@ -270,6 +270,10 @@ func (g *Guide) Run() (Answers, error) {
 	g.say("This asks %d short questions, checks each answer as you go, and", totalSteps)
 	g.say("generates every key for you. Press Enter to accept a [default].")
 	g.say("Nothing on this server changes until you confirm the installation.")
+	g.say("")
+	g.say("Support status: StePanel is Operator Beta, not production-certified.")
+	g.say("Most-tested starting point: Ubuntu 24.04 + Caddy + MariaDB.")
+	g.say("Other choices have less or no installed-host evidence; see the installation support matrix.")
 
 	if err := g.panelAddress(&answers); err != nil {
 		return Answers{}, err
@@ -332,9 +336,9 @@ func (g *Guide) panelAddress(a *Answers) error {
 }
 
 var webServers = []choice{
-	{"caddy", "Caddy", "recommended · automatic HTTPS"},
-	{"apache", "Apache", "widest .htaccess compatibility"},
-	{"openlitespeed", "OpenLiteSpeed", "LiteSpeed cache · configure TLS yourself"},
+	{"caddy", "Caddy", "recommended · automatic HTTPS · host-smoke tested"},
+	{"apache", "Apache", "host-smoke tested · .htaccess compatibility"},
+	{"openlitespeed", "OpenLiteSpeed", "not in host-smoke matrix · operator integration"},
 }
 
 func (g *Guide) webServer(a *Answers) error {
@@ -359,9 +363,9 @@ func (g *Guide) webServer(a *Answers) error {
 }
 
 var databases = []choice{
-	{"mariadb", "MariaDB", "recommended · MySQL-compatible"},
-	{"mysql", "MySQL", ""},
-	{"postgresql", "PostgreSQL", "cPanel MySQL dumps need conversion"},
+	{"mariadb", "MariaDB", "recommended · host-smoke tested · MySQL-compatible"},
+	{"mysql", "MySQL", "not in current installed-host matrix"},
+	{"postgresql", "PostgreSQL", "not in current installed-host matrix · cPanel dumps need conversion"},
 }
 
 func (g *Guide) database(a *Answers) error {

@@ -1,5 +1,24 @@
 # Production-readiness progress
 
+## Clarify local evaluation and installer support tiers — 2026-11-21
+
+- Added a clearly scoped local UI evaluation path at the default loopback
+  address. It explains that development mode has no production authentication,
+  host integrations, or restore guarantee and must not be network-exposed or
+  used with customer data.
+- Guided setup now states the Operator Beta status and recommends Ubuntu 24.04
+  + Caddy + MariaDB. Its choices identify host-smoke-tested combinations and
+  options outside the current matrix. Added transcript regression assertions.
+- Updated installation evidence to distinguish the current-code one-iteration
+  six-host run from the historical nine-run cohort. Documented that v0.7.0
+  lacks guided setup and that a future release archive must be smoke-tested
+  before advertising the workflow.
+- `go test ./internal/setup`, full `make check` (including `go vet ./...` and
+  the serialized `go test -p 1 ./...` suite), docs link checks, 93-document
+  reference validation, and `git diff --check` passed locally. Release
+  packaging, platform-aware installer preflight, and the
+  clean-host first-site/backup/restore flow remain open acceptance criteria.
+
 ## Make manual first install work from setup output — 2026-11-21
 
 - `stepanel setup` now prints a root-owned, mode-0600 copy command before the

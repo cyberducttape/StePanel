@@ -89,6 +89,15 @@ func TestGuideAcceptsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
+	for _, want := range []string{
+		"Operator Beta, not production-certified",
+		"Ubuntu 24.04 + Caddy + MariaDB",
+		"not in current installed-host matrix",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("setup transcript missing support guidance %q", want)
+		}
+	}
 	if answers.PanelHostname != "panel.example.org" || answers.WebServer != "caddy" || answers.DBEngine != "mariadb" || answers.AdminUsername != "admin" {
 		t.Fatalf("answers = %+v", answers)
 	}

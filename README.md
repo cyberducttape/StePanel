@@ -135,6 +135,26 @@ go run ./cmd/stepanel
 
 Open <http://localhost:8080>. Local development uses `data/imports` and `data/www`, so root access is not required.
 
+### Local evaluation
+
+To look around without installing services or changing a host, use the
+development server from a checkout:
+
+```sh
+git clone https://github.com/cyberducttape/StePanel.git
+cd StePanel
+go run ./cmd/stepanel
+```
+
+Then open <http://127.0.0.1:8080>. This is a local UI and workflow evaluation
+only: development mode is not production-authenticated, does not install the
+root broker, web server, PHP-FPM, or database service, and does not establish
+backup recoverability. Keep the default loopback listener; do not expose this
+mode to a network or use it for customer or production data. It writes
+development state below the checkout's `data/` directory. For a host-level
+Operator Beta evaluation, follow the guided native installation below and
+review its preflight before accepting any changes.
+
 ### Container
 
 The container packages the control plane only. It does not run Apache, PHP, or

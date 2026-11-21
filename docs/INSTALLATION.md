@@ -5,18 +5,22 @@
 The installer supports systems with `apt-get` (Debian/Ubuntu) or `dnf` (Fedora, Rocky, Alma, and compatible RHEL-family systems). It installs Caddy, Apache, or OpenLiteSpeed, MySQL/MariaDB/PostgreSQL, PHP-FPM, ACL and archive utilities, and StePanel.
 
 Support tiers are intentionally explicit. The following combinations have
-passed the disposable installed-host smoke, but StePanel remains Operator Beta
-until the production gates in [V1_PRODUCTION_GATES.md](V1_PRODUCTION_GATES.md)
-are closed. A smoke pass is not a production certification:
+passed disposable installed-host smoke checks, but StePanel remains Operator
+Beta until the production gates in [V1_PRODUCTION_GATES.md](V1_PRODUCTION_GATES.md)
+are closed. The current-code six-host run completed one recovery-matrix
+iteration per combination; historical runs provide additional evidence, but
+do not meet the documented repeated-certification requirement. A smoke pass
+is not a production certification. For the most evidence-backed first
+installation, use **Ubuntu 24.04 + Caddy + MariaDB**:
 
 | Platform combination | Tier | Evidence / policy |
 | --- | --- | --- |
-| Ubuntu 24.04 + Apache + MariaDB | Operator Beta smoke-tested | Nine installed-host smoke runs; latest [run](lab-results/2026-10-16-hosted-install-smoke-38828118744.md) |
-| Ubuntu 24.04 + Caddy + MariaDB | Operator Beta smoke-tested | Nine installed-host smoke runs; latest [run](lab-results/2026-10-16-hosted-install-smoke-38828118744.md) |
-| AlmaLinux 9 + Apache + MariaDB | Operator Beta smoke-tested | Nine installed-host smoke runs; latest [run](lab-results/2026-10-16-hosted-install-smoke-38828118744.md) |
-| AlmaLinux 9 + Caddy + MariaDB | Operator Beta smoke-tested | Nine installed-host smoke runs; latest [run](lab-results/2026-10-16-hosted-install-smoke-38828118744.md) |
-| Rocky Linux 9 + Apache + MariaDB | Operator Beta smoke-tested | Nine installed-host smoke runs; latest [run](lab-results/2026-10-16-hosted-install-smoke-38828118744.md) |
-| Rocky Linux 9 + Caddy + MariaDB | Operator Beta smoke-tested | Nine installed-host smoke runs; latest [run](lab-results/2026-10-16-hosted-install-smoke-38828118744.md) |
+| Ubuntu 24.04 + Apache + MariaDB | Operator Beta smoke-tested | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
+| Ubuntu 24.04 + Caddy + MariaDB | Operator Beta smoke-tested · recommended | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
+| AlmaLinux 9 + Apache + MariaDB | Operator Beta smoke-tested | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
+| AlmaLinux 9 + Caddy + MariaDB | Operator Beta smoke-tested | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
+| Rocky Linux 9 + Apache + MariaDB | Operator Beta smoke-tested | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
+| Rocky Linux 9 + Caddy + MariaDB | Operator Beta smoke-tested | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
 | Debian 12 | Experimental | Installer coverage exists; not in the six-combination installed-host matrix |
 | Debian 13 | Unsupported until certified | No current install evidence |
 | AlmaLinux 8, Ubuntu 22.04 | Unsupported | No current release certification |
@@ -59,11 +63,12 @@ certificates automatically. Apache `.htaccess` migrations are described in
 
 ## Guided install from current source
 
-The guided installer is available on `main`, but is **not included in the
-published v0.7.0 release archive**. This source-based path is for evaluation
-and staging. For production, use a verified tagged release and follow
-[Build and install](#build-and-install), which lists that release's supported
-configuration path.
+The guided installer is available on current `main`, but is **not included in
+the published v0.7.0 release archive**. This source-based path is for
+evaluation and staging; do not assume the old archive contains current setup
+features. The next release must package and smoke-test this workflow before it
+is advertised as available from a release. For host-level installs, use a
+verified tagged release and follow [Build and install](#build-and-install).
 
 On a fresh evaluation server, install Go 1.26.11 and Git, then build the
 current source tree. The build and installer must stay together because the

@@ -12,6 +12,31 @@ successful one-off smoke does not close a host-certification gate.
 
 ## Milestones
 
+### M0aa — Make first-time evaluation and support tiers clear (P1)
+
+**Status:** Partially implemented. Local evaluation guidance and guided-setup
+support labels are in place; release-artifact availability and first-host
+preflight remain open.
+
+**Acceptance criteria**
+
+- A newcomer can start a loopback-only, no-host-mutation UI evaluation without
+  configuring offsite storage, and the instructions clearly prohibit network
+  exposure and real customer data in development mode.
+- Guided setup recommends Ubuntu 24.04 + Caddy + MariaDB while identifying
+  which alternatives are outside the current installed-host smoke matrix.
+- The install guide reports current-code evidence separately from historical
+  runs and never presents smoke coverage as production certification.
+- The next release candidate archive contains the matching guided setup,
+  installer, helpers, and assets. A clean-host artifact smoke verifies the
+  documented archive workflow before any release advertises it.
+- Installer preflight reports OS, web-server, and database support tier and
+  actionable failed prerequisites before host mutation. First-site creation,
+  backup, and restore proof are verified on the selected supported profile.
+
+The release artifact and host certification criteria require a tagged
+candidate and disposable hosts; this milestone does not authorize publishing.
+
 ### M0z — Prevent stale customer file edits from overwriting newer content (P1)
 
 **Status:** Implemented and verified locally. Exact-source CI
