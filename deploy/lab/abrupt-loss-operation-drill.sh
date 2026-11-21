@@ -33,6 +33,13 @@
 #                    has must be whole (with its manifest), and retention must
 #                    converge on its own: the half-deleted backup goes and the
 #                    site keeps exactly keep_last backups.
+#   backup-interrupted Guest dies at backup:commit, after a new backup's archive
+#                    is verified but before it is published, while an earlier
+#                    backup holds older content. The earlier backup must still
+#                    be listed and verify, no partial backup may be listed, the
+#                    site content must be unchanged, restoring the earlier
+#                    backup must produce exactly its content, and a fresh backup
+#                    must succeed.
 #   control-plane    Guest dies while a client is updating a backup schedule in
 #                    a loop. The stored value must be the last acknowledged
 #                    write or the one in flight: no acknowledged write is lost
@@ -45,7 +52,7 @@
 set -Eeuo pipefail
 
 [[ $EUID -eq 0 ]] || { echo 'abrupt-loss operation drill must run as root' >&2; exit 1; }
-scenario=${1:?usage: abrupt-loss-operation-drill.sh file-restore|database-restore|git-deploy|retention|control-plane prepare|start|verify}
+scenario=${1:?usage: abrupt-loss-operation-drill.sh file-restore|database-restore|git-deploy|retention|control-plane|backup-interrupted prepare|start|verify}
 action=${2:?usage: abrupt-loss-operation-drill.sh SCENARIO prepare|start|verify}
 
 : "${PANEL:=http://127.0.0.1:8090}"
@@ -597,6 +604,65 @@ PY
   esac
 }
 
+# --- backup-interrupted --------------------------------------------------------
+backup_names() {
+  api GET "/api/backups?site=$site" | python3 -c 'import json, sys; [print(item["path"].rstrip("/").rsplit("/", 1)[-1]) for item in json.load(sys.stdin).get("backups", [])]'
+}
+
+backup_interrupted() {
+  case "$action" in
+    prepare)
+      login
+      create_site
+      write_file_state A
+      snapshot > "$state_dir/backup.sha256"
+      backup_site false > "$state_dir/backup-name"
+      [[ -s $state_dir/backup-name ]] || fail 'backup of state A is not listed'
+      write_file_state B
+      snapshot > "$state_dir/before.sha256"
+      publish_route
+      probe / | grep -Fq DRILL_STATE_B || fail 'site does not serve state B before the new backup'
+      echo "prepared $site: earlier backup holds state A, site serves state B"
+      ;;
+    start)
+      set_pause "${DRILL_PAUSE_AT:-backup:commit}"
+      login
+      response=$(api POST /api/backups "{\"site\":\"$site\",\"include_databases\":false}")
+      job=$(job_id_of "$response")
+      [[ -n $job ]] || fail "backup was not queued: $response"
+      printf '%s\n' "$job" > "$state_dir/job"
+      sync
+      wait_pause "${DRILL_PAUSE_AT:-backup:commit}"
+      echo "backup $job paused at ${DRILL_PAUSE_AT:-backup:commit}, with its archive verified but not published"
+      ;;
+    verify)
+      clear_pause_after_reboot
+      wait_panel_ready
+      login
+      job=$(<"$state_dir/job")
+      final=$(wait_terminal "$job") || fail "interrupted backup $job did not finish ($final)"
+      earlier=$(<"$state_dir/backup-name")
+      mapfile -t listed < <(backup_names)
+      printf '%s\n' "${listed[@]}" | grep -Fxq -- "$earlier" || fail "the earlier backup $earlier is no longer listed"
+      (( ${#listed[@]} <= 2 )) || fail "the interrupted backup left ${#listed[@]} backups listed"
+      for name in "${listed[@]}"; do
+        api POST /api/backups/verify "$(json site "$site" backup "$name")" >/dev/null || fail "listed backup $name does not verify"
+      done
+      if [[ $final == completed ]]; then
+        (( ${#listed[@]} == 2 )) || fail "backup job $job completed but published no new backup"
+      fi
+      snapshot | cmp -s - "$state_dir/before.sha256" || fail 'the interrupted backup changed the site content'
+      response=$(api POST /api/backups/restore-files "$(json site "$site" backup "$earlier" confirm RESTORE_FILES)")
+      require_completed "$(job_id_of "$response")" 'restore of the earlier backup'
+      snapshot | cmp -s - "$state_dir/backup.sha256" || fail 'restoring the earlier backup did not produce state A'
+      probe / | grep -Fq DRILL_STATE_A || fail 'site does not serve state A after restoring the earlier backup'
+      backup_site false > "$work/fresh-backup"
+      [[ -s $work/fresh-backup ]] || fail 'a fresh backup after recovery is not listed'
+      echo "interrupted backup $job ended $final with ${#listed[@]} verified backup(s); the earlier backup restored state A; a fresh backup completed"
+      ;;
+  esac
+}
+
 case "$action" in prepare|start|verify) ;; *) fail "unknown action $action" ;; esac
 case "$scenario" in
   file-restore) file_restore ;;
@@ -604,5 +670,6 @@ case "$scenario" in
   git-deploy) git_deploy ;;
   retention) retention ;;
   control-plane) control_plane ;;
+  backup-interrupted) backup_interrupted ;;
   *) fail "unknown scenario $scenario" ;;
 esac

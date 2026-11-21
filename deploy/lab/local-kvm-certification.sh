@@ -24,7 +24,7 @@ set -Eeuo pipefail
 # RESUME=1 to run PHASES against the guest a previous KEEP_VM=1 run left in
 # RUN_DIR (no rebuild or reboot; results are appended),
 # ABRUPT_LOSS_SCENARIOS (file-restore database-restore git-deploy retention
-# control-plane) for abrupt-loss-operations, and VM_DISK_CACHE (writeback) for
+# control-plane backup-interrupted) for abrupt-loss-operations, and VM_DISK_CACHE (writeback) for
 # the guest disks. With writeback, writes the virtual disk acknowledged survive
 # a guest kill in the host page cache; none or directsync drops that cushion.
 #
@@ -374,7 +374,7 @@ fi
 # whole guest there, boots it, and checks customer data and the site over
 # HTTP, not only readiness. See deploy/lab/abrupt-loss-operation-drill.sh.
 if has_phase abrupt-loss-operations; then
-  for scenario in ${ABRUPT_LOSS_SCENARIOS:-file-restore database-restore git-deploy retention control-plane}; do
+  for scenario in ${ABRUPT_LOSS_SCENARIOS:-file-restore database-restore git-deploy retention control-plane backup-interrupted}; do
     # The name reaches a root command in the guest; accept only known ones.
     case $scenario in
       file-restore|database-restore|git-deploy|retention|control-plane) ;;
