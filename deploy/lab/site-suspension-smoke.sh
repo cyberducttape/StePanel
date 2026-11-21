@@ -107,7 +107,13 @@ stepanel_site_location "$site" || fail "could not resolve $site"
 owner=$(stat -c %U:%G "$public_root")
 printf '<?php echo "SUSPEND_SMOKE_LIVE";\n' > "$public_root/index.php"
 chown "$owner" "$public_root/index.php"
-STEPANEL_UNSAFE_LAB=1 /usr/local/sbin/stepanel-sitectl seal "$site" >/dev/null
+# The API places new sites in a hosting account (ADR-0007), whose account
+# user the helper requires; a legacy site keeps the lab helper shape.
+if (( site_placed )); then
+  STEPANEL_UNSAFE_LAB=1 /usr/local/sbin/stepanel-sitectl seal "$site" "$site_location_user" >/dev/null
+else
+  STEPANEL_UNSAFE_LAB=1 /usr/local/sbin/stepanel-sitectl seal "$site" >/dev/null
+fi
 /usr/local/sbin/stepanel-vhostctl apply "$site" "$domain" >/dev/null
 api POST /api/databases "$(json name "$db_name" user "$db_user" site "$site" password "$db_password" encoding utf8mb4)" >/dev/null
 [[ $(cat "$work/status") == 2?? ]] || fail "database provisioning returned $(cat "$work/status"): $(cat "$work/body")"
