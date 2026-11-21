@@ -1,5 +1,17 @@
 # Production-readiness progress
 
+## Installed-host suspension, ENOSPC, and alert evidence — 2026-11-21
+
+- Site suspension smoke passed on AlmaLinux 9/Caddy (44860226545) and
+  Ubuntu 24.04/Apache (44860227848): 503 with Retry-After, no PHP, pool
+  removed, units recorded, database logins and deploys refused, full resume.
+  Tenant isolation passed on both. Both runs then failed in the identity
+  repair smoke because its 30 s write lock expired before the mapping
+  commit; fixed in `16d205cd`.
+- KVM run 44859646620 passed database restore ENOSPC and SMTP alert
+  delivery/outage/retry on Rocky Linux 9; see
+  [`2026-11-21-kvm-db-enospc-alerts-7e2a575.md`](docs/lab-results/2026-11-21-kvm-db-enospc-alerts-7e2a575.md).
+
 ## Diagnose 500-site HTTPS timeouts — 2026-11-21
 
 - Run 44725885994's failures came in bursts across unrelated sites, and the
