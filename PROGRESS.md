@@ -24,6 +24,11 @@
   timeout, documented as a known php-fpm limitation in `docs/PERFORMANCE.md`. Capacity run 44848048837 on pre-fix
   source supplies a before-fix baseline. A post-fix run is required before
   any capacity claim.
+- The before-fix run 44848048837 failed 193/9,903 site requests (1.95%), all
+  15-second first-byte timeouts; FPM RSS averaged 3.4 GiB. Failure-correlated
+  FPM samples showed only weak enrichment (28% of failures vs 17% of sites
+  with a failed probe). Report:
+  [`2026-11-21-capacity-large-e19d737-before-fpm-fix.md`](docs/lab-results/2026-11-21-capacity-large-e19d737-before-fpm-fix.md).
 
 ## Review cache-bypassing abrupt-loss drill — 2026-11-20
 

@@ -1185,8 +1185,12 @@ to the panel's per-minute FPM status sweep. It woke every idle `ondemand`
 pool, and the mass idle expiry that followed strands connections in php-fpm.
 The probe now reports idle pools without waking them; see `PROGRESS.md`.
 The residual php-fpm idle-expiry race (about 0.02% in reproduction) is kept
-as a documented limitation (`docs/PERFORMANCE.md`). A post-fix 500-site KVM
-run remains before this milestone can close.
+as a documented limitation (`docs/PERFORMANCE.md`). The before-fix baseline
+[44848048837](https://github.com/cyberducttape/StePanel/actions/runs/44848048837)
+failed 193/9,903 site requests (1.95%), matching earlier runs; see the
+[reviewed report](docs/lab-results/2026-11-21-capacity-large-e19d737-before-fpm-fix.md). The post-fix 500-site KVM run
+[44852768241](https://github.com/cyberducttape/StePanel/actions/runs/44852768241)
+is active and must pass, with repeats, before this milestone can close.
 
 Benchmark a named supported host with representative PHP traffic, databases,
 backups, migrations, and control-plane reads/writes. Measure CPU/RAM, disk and
