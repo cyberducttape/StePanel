@@ -161,8 +161,129 @@ if len(set(users)) != len(expected) or any(item["username"] == item["legacy_user
 print("installed repair plan assigns distinct identities to both colliding sites")
 PY
 
-"$repair_tool" identity-repair apply --webroot /var/www --control-plane-db "$database" \
-  --recovery-root /var/lib/stepanel/recovery --state-dir "$state_dir"
+recovery_root=/var/lib/stepanel/recovery
+journal=$recovery_root/site-identity-repair.json
+site_ctl=/usr/local/sbin/stepanel-sitectl
+site_ctl_real=$site_ctl.identity-repair-real
+fault_spec=/run/stepanel-identity-repair-fault
+apply_repair() {
+  "$repair_tool" identity-repair apply --webroot /var/www --control-plane-db "$database" \
+    --recovery-root "$recovery_root" --state-dir "$state_dir"
+}
+restore_site_ctl() {
+  rm -f "$fault_spec"
+  if [[ -f $site_ctl_real ]]; then mv -f "$site_ctl_real" "$site_ctl"; fi
+}
+trap 'restore_site_ctl; rm -f "$plan"' EXIT
+[[ ! -e $journal ]] || { echo "an identity repair journal already exists: $journal" >&2; exit 1; }
+
+# check_state <label> <journal state> <mappings committed 0|1> <completed sites...>
+check_state() {
+  python3 - "$journal" "$database" "$legacy_user" "$@" "${sites[@]}" <<'PY'
+import json
+import sqlite3
+import sys
+
+journal_path, database, legacy, label, state, committed = sys.argv[1:7]
+rest = sys.argv[7:]
+fixture = rest[-2:]
+completed = set(rest[:-2])
+with open(journal_path, encoding="utf-8") as source:
+    journal = json.load(source)
+if journal["state"] != state:
+    raise SystemExit(f"{label}: journal state {journal['state']!r}, want {state!r}")
+done = {item["site"] for item in journal["assignments"] if item.get("completed")}
+if done != completed:
+    raise SystemExit(f"{label}: completed sites {sorted(done)}, want {sorted(completed)}")
+db = sqlite3.connect(database)
+try:
+    rows = dict(db.execute("SELECT site,username FROM site_identities WHERE site IN (?,?)", fixture).fetchall())
+finally:
+    db.close()
+assigned = {item["site"]: item["username"] for item in journal["assignments"]}
+if committed == "1":
+    if rows != {site: assigned[site] for site in fixture}:
+        raise SystemExit(f"{label}: committed mappings {rows} do not match journal {assigned}")
+elif rows != {fixture[0]: legacy}:
+    raise SystemExit(f"{label}: mappings changed before commit: {rows}")
+print(f"{label}: journal {state}, mappings {'committed' if committed == '1' else 'unchanged'}, completed {sorted(done) or 'none'}")
+PY
+}
+
+# Interruption 1, database checkpoint: hold a write lock so the mapping
+# commit blocks after the plan journal and SQLite snapshot are durable, then
+# SIGKILL the repair. A busy-timeout failure leaves the same durable state.
+lock_ready=$(mktemp -u)
+python3 - "$database" "$lock_ready" <<'PY' &
+import sqlite3
+import sys
+import time
+
+db = sqlite3.connect(sys.argv[1], timeout=15, isolation_level=None)
+db.execute("BEGIN IMMEDIATE")
+open(sys.argv[2], "w").close()
+time.sleep(30)
+db.execute("ROLLBACK")
+PY
+lock_pid=$!
+for _ in $(seq 1 500); do [[ -e $lock_ready ]] && break; sleep 0.02; done
+[[ -e $lock_ready ]] || { echo 'could not hold the control-plane write lock' >&2; exit 1; }
+apply_repair > /dev/null 2>&1 &
+repair_pid=$!
+killed=0
+for _ in $(seq 1 1500); do
+  if compgen -G "$recovery_root/site-identities-before-*.sqlite" > /dev/null; then
+    kill -KILL "$repair_pid" 2>/dev/null && killed=1
+    break
+  fi
+  kill -0 "$repair_pid" 2>/dev/null || break
+  sleep 0.02
+done
+repair_status=0
+wait "$repair_pid" || repair_status=$?
+kill "$lock_pid" 2>/dev/null || true
+wait "$lock_pid" 2>/dev/null || true
+rm -f "$lock_ready"
+(( repair_status != 0 )) || { echo 'repair completed while the mapping commit was blocked' >&2; exit 1; }
+echo "database checkpoint interruption: killed=$killed exit=$repair_status"
+check_state 'before mapping commit' planned 0
+
+# Interruptions 2-4, host checkpoints: a wrapper SIGKILLs the repair on one
+# chosen stepanel-sitectl call, before or after the real helper runs.
+mv "$site_ctl" "$site_ctl_real"
+cat > "$site_ctl" <<EOF
+#!/usr/bin/env bash
+if [[ -f $fault_spec ]]; then
+  { read -r mode; read -r pattern; } < $fault_spec
+  # shellcheck disable=SC2053
+  if [[ "\$*" == \$pattern ]]; then
+    rm -f $fault_spec
+    [[ \$mode == post ]] && $site_ctl_real "\$@"
+    kill -KILL "\$PPID"
+    exit 137
+  fi
+fi
+exec $site_ctl_real "\$@"
+EOF
+chown root:root "$site_ctl"
+chmod 0755 "$site_ctl"
+interrupt_at() {
+  printf '%s\n%s\n' "$1" "$2" > "$fault_spec"
+  local status=0
+  apply_repair > /dev/null 2>&1 || status=$?
+  [[ ! -e $fault_spec ]] || { echo "fault point was never reached: $2" >&2; exit 1; }
+  (( status == 137 )) || { echo "repair was not killed at $2 (exit $status)" >&2; exit 1; }
+}
+interrupt_at pre "access ${sites[0]} $legacy_user 0 0"
+check_state 'after commit, before host work' mappings-committed 1
+interrupt_at post "resources ${sites[0]} *"
+check_state 'mid-site host reconcile' mappings-committed 1
+interrupt_at post "seal ${sites[1]} *"
+check_state 'second site sealed, first verified' mappings-committed 1 "${sites[0]}"
+restore_site_ctl
+
+apply_repair
+check_state 'resumed to completion' completed 1 "${sites[@]}"
 # A completed journal must make retries idempotent, including after the
 # already-repaired mapping has become the only durable source of identity.
 "$repair_tool" identity-repair apply --webroot /var/www --control-plane-db "$database" \
