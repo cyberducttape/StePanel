@@ -62,8 +62,11 @@
         });
       } else {
         const readiness = readinessResult.value;
-        const failed = Object.entries(readiness.checks || {}).filter(([, check]) => !check || !check.ready);
-        const ready = readiness.operational === true && failed.length === 0;
+        const checks = readiness.checks && typeof readiness.checks === 'object' && !Array.isArray(readiness.checks)
+          ? Object.entries(readiness.checks)
+          : [];
+        const failed = checks.filter(([, check]) => !check || !check.ready);
+        const ready = readiness.operational === true && checks.length > 0 && failed.length === 0;
         const details = failed.slice(0, 2).map(([name, check]) => `${name.replace(/_/g, ' ')}: ${check.detail || 'needs attention'}`);
         steps.push({
           title: 'Check host and job health',
@@ -71,8 +74,10 @@
             ? 'The broker, durable queue, storage, audit, and required operational checks are passing.'
             : details.length
               ? details.join(' · ')
-              : 'The readiness endpoint responded, but did not report a ready state.',
-          href: '#controlPlaneDetailsToggle', label: ready ? 'Review health checks' : 'Show what needs attention', state: ready ? 'done' : 'attention',
+              : checks.length === 0
+                ? 'Health check details were not returned, so the host cannot be marked ready. Refresh or inspect the health details.'
+                : 'The readiness endpoint responded, but did not report a ready state.',
+          href: '#controlPlaneDetailsToggle', label: ready ? 'Review health checks' : checks.length ? 'Show what needs attention' : 'Show health details', state: ready ? 'done' : checks.length ? 'attention' : 'unknown',
         });
       }
     }

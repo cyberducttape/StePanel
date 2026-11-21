@@ -12,6 +12,16 @@
   tests (19 passed), build, JS syntax, and `git diff --check` passed locally.
   Commit `ba1f3ced` is pushed to `main`; its exact-source hosted CI is queued.
 
+## First-run health stays unknown without check evidence — 2026-11-21
+
+- The operator checklist no longer marks host health complete when the
+  operational endpoint says `operational: true` but omits its `checks` map.
+  It shows an unknown state and directs the operator to inspect details or
+  refresh instead of presenting an unsupported green result.
+- The first-run browser regression covers this incomplete response. `make
+  build`, frontend unit tests (19 passed), JavaScript syntax, and
+  `git diff --check` passed locally. Exact-source hosted CI pending.
+
 ## First-run backup coverage is checked per site — 2026-11-21
 
 - Operator and customer checklists now compare verified archives against every

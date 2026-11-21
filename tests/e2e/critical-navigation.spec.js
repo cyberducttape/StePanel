@@ -35,6 +35,7 @@ test('login and overview accessibility', async ({ page }) => {
 
 test('first-run primary action follows the next unresolved setup step', async ({ page }) => {
   let hostNeedsAttention = true;
+  let omitHealthChecks = false;
   let currentSites = [];
   let currentBackups = [];
   await page.route('**/api/sites/overview', (route) => route.fulfill({
@@ -46,10 +47,12 @@ test('first-run primary action follows the next unresolved setup step', async ({
   await page.route('**/api/health/operational', (route) => route.fulfill({
     status: hostNeedsAttention ? 503 : 200,
     contentType: 'application/json',
-    body: JSON.stringify({
-      operational: !hostNeedsAttention,
-      checks: { broker: { ready: !hostNeedsAttention, detail: hostNeedsAttention ? 'broker is unavailable' : 'broker is ready' } },
-    }),
+    body: JSON.stringify(omitHealthChecks
+      ? { operational: true }
+      : {
+        operational: !hostNeedsAttention,
+        checks: { broker: { ready: !hostNeedsAttention, detail: hostNeedsAttention ? 'broker is unavailable' : 'broker is ready' } },
+      }),
   }));
 
   await page.reload();
@@ -60,6 +63,14 @@ test('first-run primary action follows the next unresolved setup step', async ({
   await expect(page.locator('#controlPlaneDetails')).toBeVisible();
 
   hostNeedsAttention = false;
+  omitHealthChecks = true;
+  await page.locator('#refreshOnboarding').click();
+  const hostStep = page.locator('#onboardingChecklist .setup-step').filter({ hasText: 'Check host and job health' });
+  await expect(hostStep).toHaveClass(/setup-step-unknown/);
+  await expect(hostStep).toContainText('Health check details were not returned');
+  await expect(primary).toHaveAttribute('href', '#controlPlaneDetailsToggle');
+
+  omitHealthChecks = false;
   await page.locator('#refreshOnboarding').click();
   await expect(primary).toHaveAttribute('href', '#sites');
   await expect(primary).toHaveText('Set up a site');
