@@ -78,6 +78,8 @@ pause_dir=/var/lib/ste-panel/pause-markers
 install -d -m 0700 "$state_dir"
 site_scenario=$scenario
 [[ $site_scenario != database-restore ]] || site_scenario=dbrestore
+# Site names are at most 32 characters; keep this one short.
+[[ $site_scenario != backup-interrupted ]] || site_scenario=bkintr
 site=drill-${site_scenario}-${DRILL_RUN_SUFFIX}
 domain=$site.localhost
 # shellcheck source=../integrations/stepanel-site-location.sh

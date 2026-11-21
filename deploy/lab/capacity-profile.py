@@ -22,6 +22,7 @@ Lab only: it creates and leaves sites named cap-* and cap-heavy-*.
 """
 
 import base64
+import glob
 import hashlib
 import hmac
 import http.cookiejar
@@ -335,6 +336,78 @@ def rss_mib(match):
     return round(total / 1024, 1)
 
 
+def fpm_master_stats():
+    """Return (open fds, soft fd limit, live children) summed over PHP-FPM masters.
+
+    One master serves every pool on the host, holding a listening socket per
+    pool and log pipes per child, so its descriptor headroom bounds how many
+    children it can start."""
+    fds = limit = children = 0
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as handle:
+                command = handle.read().replace(b"\0", b" ").decode(errors="replace")
+            if command.startswith("php-fpm: pool "):
+                children += 1
+                continue
+            if not command.startswith("php-fpm: master process"):
+                continue
+            fds += len(os.listdir(f"/proc/{pid}/fd"))
+            with open(f"/proc/{pid}/limits") as handle:
+                for line in handle:
+                    if line.startswith("Max open files"):
+                        limit += int(line.split()[3])
+        except (OSError, ValueError, IndexError):
+            continue
+    return fds, limit, children
+
+
+FPM_LOG_PATTERNS = ("Too many open files", "fork() failed", "process.max", "max_children")
+
+
+def fpm_log_offsets():
+    offsets = {}
+    for path in glob.glob("/var/log/php-fpm/*.log") + glob.glob("/var/log/php*-fpm.log"):
+        try:
+            offsets[path] = os.path.getsize(path)
+        except OSError:
+            continue
+    return offsets
+
+
+def fpm_log_errors(offsets, since):
+    """Count PHP-FPM master warnings written since the measurement began."""
+    counts = {pattern: 0 for pattern in FPM_LOG_PATTERNS}
+    examples = []
+    texts = []
+    for path in glob.glob("/var/log/php-fpm/*.log") + glob.glob("/var/log/php*-fpm.log"):
+        try:
+            with open(path, errors="replace") as handle:
+                handle.seek(offsets.get(path, 0))
+                texts.append(handle.read())
+        except OSError:
+            continue
+    units = subprocess.run(
+        ["systemctl", "list-units", "--type=service", "--no-legend", "--plain", "php*-fpm.service", "php-fpm.service"],
+        capture_output=True, text=True).stdout.split()
+    units = [unit for unit in units if unit.endswith(".service")]
+    if units:
+        args = ["journalctl", "--since", since, "--no-pager", "-q"]
+        for unit in units:
+            args += ["-u", unit]
+        texts.append(subprocess.run(args, capture_output=True, text=True).stdout)
+    for text in texts:
+        for line in text.splitlines():
+            matched = [pattern for pattern in FPM_LOG_PATTERNS if pattern in line]
+            for pattern in matched:
+                counts[pattern] += 1
+            if matched and len(examples) < 10:
+                examples.append(line[-300:])
+    return {"counts": counts, "examples": examples}
+
+
 WHOLE_DISK = re.compile(r"^(vd[a-z]+|sd[a-z]+|xvd[a-z]+|nvme[0-9]+n[0-9]+)$")
 SITE_METRIC = re.compile(
     r'^(stepanel_site_(?:fpm_[a-z_]+|resource_[a-z_]+))\{([^}]*)\}\s+([0-9.eE+-]+)$'
@@ -448,7 +521,11 @@ class Sampler(threading.Thread):
             with open("/proc/meminfo") as meminfo:
                 memory = {line.split(":")[0]: int(line.split()[1]) for line in meminfo}
             elapsed = max(now - last_time, 0.001)
+            fpm_fds, fpm_fd_limit, fpm_children = fpm_master_stats()
             self.samples.append({
+                "fpm_master_fds": fpm_fds,
+                "fpm_master_fd_limit": fpm_fd_limit,
+                "fpm_children": fpm_children,
                 "t": now,
                 "cpu_pct": round(100 * (1 - (idle - last_idle) / max(total - last_total, 1)), 1),
                 "mem_available_mib": round(memory["MemAvailable"] / 1024),
@@ -495,6 +572,8 @@ def main():
     log(f"setup finished in {setup_seconds}s")
 
     stop = threading.Event()
+    fpm_offsets = fpm_log_offsets()
+    fpm_since = time.strftime("%Y-%m-%d %H:%M:%S")
     sampler = Sampler(stop)
     sampler.start()
     lock = threading.Lock()
@@ -624,6 +703,7 @@ def main():
     lock_errors = subprocess.run(
         ["journalctl", "--since", since, "-u", "stepanel", "-u", "stepanel-worker", "--no-pager", "-q"],
         capture_output=True, text=True).stdout
+    fpm_errors = fpm_log_errors(fpm_offsets, fpm_since)
     lock_error_count = sum(1 for line in lock_errors.splitlines() if "database is locked" in line or "SQLITE_BUSY" in line)
 
     def window(results, inside):
@@ -688,10 +768,12 @@ def main():
         } for job in heavy_jobs],
         "resources": {
             key: {"max": max(s[key] for s in sampler.samples), "mean": round(sum(s[key] for s in sampler.samples) / len(sampler.samples), 1)}
-            for key in ("cpu_pct", "panel_worker_rss_mib", "php_fpm_rss_mib", "mariadb_rss_mib", "disk_read_mib_s", "disk_write_mib_s")
+            for key in ("cpu_pct", "panel_worker_rss_mib", "php_fpm_rss_mib", "mariadb_rss_mib", "disk_read_mib_s", "disk_write_mib_s",
+                        "fpm_master_fds", "fpm_master_fd_limit", "fpm_children")
         } if sampler.samples else {},
         "min_mem_available_mib": min((s["mem_available_mib"] for s in sampler.samples), default=None),
         "control_plane_lock_errors": lock_error_count,
+        "fpm_log_errors": fpm_errors,
         "admin_failures": admin_failures,
     }
     os.makedirs(os.path.dirname(REPORT), exist_ok=True)
@@ -730,6 +812,12 @@ def main():
     print(f"\nSite request timeline: {stalled} of {len(timeline)} five-second windows had failures with at most one success. "
           f"Static file probe (no PHP, {static['path']}): {static['errors']} of {static['total']} requests failed.")
     print(f"\nMinimum available memory: {report['min_mem_available_mib']} MiB. Control-plane database-lock errors in the panel and worker journals: {lock_error_count}.")
+    fpm_resources = report["resources"]
+    if "fpm_master_fds" in fpm_resources:
+        print(f"\nPHP-FPM master descriptors: peak {fpm_resources['fpm_master_fds']['max']} of a {fpm_resources['fpm_master_fd_limit']['max']} limit; peak live children {fpm_resources['fpm_children']['max']}.")
+    print(f"PHP-FPM master warnings during measurement: {fpm_errors['counts']}")
+    for line in fpm_errors["examples"]:
+        print(f"- `{line}`")
     runtime = report["site_runtime_diagnostics"]
     peak = runtime["peak"]
     print("\n| Site runtime diagnostics | Value |")
