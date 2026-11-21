@@ -1344,7 +1344,7 @@ Scope and ordering are defined in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 ## Current sequencing
 
 1. Make first-run and customer operation dependable through clear errors,
-   context-safe workflows, and resilient status updates (M0aa/M0ab/M0ac/M0ad).
+   context-safe workflows, and resilient status updates (M0aa/M0ab/M0ac/M0ad/M0ae).
 2. Typed service extraction for durable site operations is complete (M0s);
    move the backup/restore and deployment services into `internal/` packages
    in focused changes.
@@ -1445,6 +1445,26 @@ measurements unknown, and let the operator retry after an unavailable result.
   manual retry can update the result.
 - Browser accessibility and regression checks, build, unit tests, docs checks,
   and exact-source CI pass.
+
+### M0ae — Keep customer domain onboarding evidence honest (P2)
+
+**Status:** Implemented locally; build, frontend unit tests, and customer
+Playwright/accessibility regression passed. Exact-source CI pending.
+
+A configured web-server route does not prove that public DNS resolves or that
+HTTPS works. The customer checklist must keep domain verification unresolved
+until the operator has reviewed DNS and TLS evidence, and its next action must
+open that website's domain workspace. A missing route remains a setup action;
+missing or unavailable route data remains unknown.
+
+**Acceptance criteria**
+
+- A site with no route is directed to its Domains tab to connect one.
+- Sites with configured routes are directed to the Domains tab to review DNS
+  and HTTPS; the checklist does not count route configuration as verified.
+- Missing route data is shown as unknown rather than as an absent route.
+- The customer browser regression covers all three states and passes axe;
+  exact-source CI passes.
 
 ### Guided site lifecycle experience (product work; not a release-gate closure)
 

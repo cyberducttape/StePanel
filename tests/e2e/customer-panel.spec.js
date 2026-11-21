@@ -79,6 +79,7 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
     { site: 'e2e-main', verified_at: '2026-11-20T12:00:00Z' },
   ] }) }));
   let overviewRequests = 0;
+  let shopRouteConfigured = false;
   await page.route('**/api/sites/overview', (route) => {
     overviewRequests++;
     // sites.js loads the Websites grid first; fail the subsequent customer
@@ -88,7 +89,7 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
     }
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sites: [
     { site: 'e2e-main', routes: [{ site: 'e2e-main', domain: 'main.example.org' }], database_count: 1, kind: 'main' },
-    { site: 'e2e-shop', routes: [], database_count: 0, kind: 'addon' },
+    { site: 'e2e-shop', routes: shopRouteConfigured ? [{ site: 'e2e-shop', domain: 'shop.example.org' }] : [], database_count: 0, kind: 'addon' },
     ] }) });
   });
   const writes = [];
@@ -160,6 +161,13 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await expect(page.locator('#panelSitesStatus')).toBeHidden();
   await expect(page.locator('#panelOnboardingList')).toContainText('e2e-shop has no configured domain route');
   await expect(page.locator('#panelPrimaryAction')).toHaveAttribute('href', '#site=e2e-shop&tab=domains');
+  await expect(page.locator('#panelOnboardingProgress')).toContainText('2 of 3 essentials complete');
+  shopRouteConfigured = true;
+  await page.locator('#panelOnboardingRefresh').click();
+  await expect(page.locator('#panelOnboardingList')).toContainText('Verify DNS and HTTPS');
+  await expect(page.locator('#panelOnboardingList')).toContainText('does not prove public DNS resolves or HTTPS works');
+  await expect(page.locator('#panelOnboardingList').getByRole('link', { name: 'Review DNS & HTTPS' })).toHaveAttribute('href', '#site=e2e-main&tab=domains');
+  await expect(page.locator('#panelPrimaryAction')).toHaveAttribute('href', '#site=e2e-main&tab=domains');
   await expect(page.locator('#panelOnboardingProgress')).toContainText('2 of 3 essentials complete');
   await expect(page.getByRole('link', { name: 'Customers' })).toHaveCount(0);
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Websites' }).click();

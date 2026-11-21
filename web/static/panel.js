@@ -155,7 +155,7 @@
       });
       if (siteWithoutRoute) {
         const overview = overviews.get(siteWithoutRoute.site);
-        const state = !overview ? 'unknown' : 'next';
+        const state = !overview || !Array.isArray(overview.routes) ? 'unknown' : 'next';
         steps.push({
           title: 'Connect your domain',
           detail: state === 'unknown'
@@ -166,10 +166,12 @@
           state,
         });
       } else {
+        const firstSite = hosting.sites[0];
         steps.push({
-          title: 'Connect your domain',
-          detail: 'Every assigned website has a configured route. Confirm public DNS and HTTPS in each site workspace; route configuration alone does not verify either.',
-          href: '#websites', label: 'Review domains', state: 'done',
+          title: 'Verify DNS and HTTPS',
+          detail: 'Every website has a configured route, but this does not prove public DNS resolves or HTTPS works. Review DNS and certificate evidence in each website workspace.',
+          href: `#site=${encodeURIComponent(firstSite.site)}&tab=domains`,
+          label: 'Review DNS & HTTPS', state: 'next',
         });
       }
     }

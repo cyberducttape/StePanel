@@ -1,5 +1,16 @@
 # Production-readiness progress
 
+## Customer domain checklist requires DNS and HTTPS review — 2026-11-21
+
+- A configured route no longer marks domain setup complete. The customer
+  checklist now explains that public DNS and HTTPS are unverified and opens the
+  first website's Domains tab for review. A missing route still links directly
+  to that website to connect it; missing route data remains unknown.
+- Extended the customer E2E journey to cover both missing-route and
+  configured-route states. `make build`, frontend unit tests (19 passed),
+  JavaScript syntax checks, `git diff --check`, and the customer Playwright
+  journey with axe (1 passed) passed locally. Exact-source CI pending.
+
 ## Readable database health snapshot — 2026-11-21
 
 - Replaced the database diagnostics JSON shortcut with a collapsed, on-demand
