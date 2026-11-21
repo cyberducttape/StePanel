@@ -1,5 +1,19 @@
 # Production-readiness progress
 
+## Make the first-site action open WordPress setup — 2026-11-21
+
+- When the first-run checklist has no site and site creation is available, its
+  action now says **Create WordPress site**, selects the WordPress template,
+  and reveals the setup fields before navigating to the form. The customer
+  portal follows the same behavior. Other visits still default to blank PHP.
+- The operator browser test covers the readiness-gated primary action and
+  template change. The customer journey starts from its normal seeded state,
+  then exercises the no-site first-run action; both Playwright journeys passed
+  (2/2), including customer accessibility checks.
+- This verifies the form handoff only. It does not prove a real host can
+  provision a site or issue a public certificate; the installed-host
+  first-site/backup/restore proof remains open.
+
 ## Make first WordPress creation prerequisites clear — 2026-11-21
 
 - The operator and customer WordPress forms now show a short pre-creation

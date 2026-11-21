@@ -286,5 +286,16 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
     await expect(page.locator(id)).toBeVisible();
     await checkA11y(page);
   }
+  hosting.sites = [];
+  await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Websites' }).click();
+  await page.locator('#siteCreateTemplate').selectOption('php');
+  await page.evaluate(() => { location.hash = '#home'; });
+  await expect(page.locator('#home')).toBeVisible();
+  await page.locator('#panelOnboardingRefresh').click();
+  await expect(page.locator('#panelOnboardingList')).toContainText('Create your first WordPress site');
+  await expect(page.locator('#panelPrimaryAction')).toHaveText('Create WordPress site');
+  await page.locator('#panelPrimaryAction').click();
+  await expect(page.locator('#siteCreateTemplate')).toHaveValue('wordpress');
+  await expect(page.locator('#wordpressCreateFields')).toBeVisible();
   await context.close();
 });

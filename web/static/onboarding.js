@@ -27,6 +27,18 @@
     toggle.setAttribute('aria-expanded', 'true');
     details.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   };
+  const selectSetupTemplate = (template) => {
+    if (template !== 'wordpress') return;
+    const selector = document.querySelector('#siteCreateTemplate');
+    if (!selector || selector.value === template) return;
+    selector.value = template;
+    selector.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  if (primaryAction) {
+    primaryAction.addEventListener('click', () => {
+      selectSetupTemplate(primaryAction.dataset.setupTemplate);
+    });
+  }
 
   const load = async () => {
     if (controller) controller.abort();
@@ -94,7 +106,8 @@
         detail: isAdmin
           ? 'Create a WordPress site or inspect a cPanel archive before importing it.'
           : 'No sites are assigned to this account yet. Ask your hosting operator to assign one.',
-        href: isAdmin ? '#sites' : '#jobs', label: isAdmin ? 'Set up a site' : 'View activity', state: 'next',
+        href: isAdmin ? '#sites' : '#jobs', label: isAdmin ? 'Create WordPress site' : 'View activity', state: 'next',
+        template: isAdmin ? 'wordpress' : undefined,
       });
     } else {
       steps.push({
@@ -156,6 +169,7 @@
       if (step.href === '#controlPlaneDetailsToggle') {
         action.addEventListener('click', showHealthDetails);
       }
+      if (step.template) action.addEventListener('click', () => selectSetupTemplate(step.template));
       item.append(marker, body, action);
       list.append(item);
     });
@@ -166,6 +180,8 @@
       const next = steps.find((step) => step.state !== 'done') || { href: '#sites', label: 'Open sites' };
       primaryAction.href = next.href;
       primaryAction.textContent = next.label;
+      if (next.template) primaryAction.dataset.setupTemplate = next.template;
+      else delete primaryAction.dataset.setupTemplate;
       primaryAction.removeEventListener('click', showHealthDetails);
       if (next.href === '#controlPlaneDetailsToggle') primaryAction.addEventListener('click', showHealthDetails);
     }

@@ -1522,8 +1522,11 @@ restore proof remains a distinct, stronger claim.
 
 **Status:** Site names and WordPress titles are suggested from the domain;
 the WordPress creation form now shows DNS, IPv6, HTTP/HTTPS, and password
-prerequisites before submission in both operator and customer panels. Browser
-regressions assert the guidance is visible. Exact-source hosted CI is pending.
+prerequisites before submission in both operator and customer panels. The
+first-run call to action now selects WordPress and opens those fields, while
+the ordinary creation form retains its blank-PHP default. Operator/customer
+browser journeys cover both behavior and guidance. Exact-source hosted CI is
+pending.
 
 Make common first-site setup fields easy to fill without taking control away
 from the operator. Suggestions must be valid for their destination, update as
@@ -1541,6 +1544,9 @@ the domain changes, and stop changing after the user customizes them.
   be reachable; it must clearly say the form cannot verify those public facts.
 - The confirmation repeats the prerequisites, and operator/customer browser
   journeys assert the guidance before site creation.
+- When an account has no sites, the first-run action selects WordPress and
+  reveals its setup fields before navigation; outside the first-run action,
+  blank PHP remains the normal form default.
 - Operator and customer journeys cover both behaviors and remain accessible.
 - Build, frontend unit tests, focused browser tests, and exact-source CI pass.
 

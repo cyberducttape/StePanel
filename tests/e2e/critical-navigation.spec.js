@@ -73,8 +73,12 @@ test('first-run primary action follows the next unresolved setup step', async ({
   omitHealthChecks = false;
   await page.locator('#refreshOnboarding').click();
   await expect(primary).toHaveAttribute('href', '#sites');
-  await expect(primary).toHaveText('Set up a site');
+  await expect(primary).toHaveText('Create WordPress site');
   await expect(page.locator('#onboardingChecklist')).toContainText('Create or migrate your first site');
+  await primary.click();
+  await expect(page.locator('#siteCreateTemplate')).toHaveValue('wordpress');
+  await expect(page.locator('#wordpressCreateFields')).toBeVisible();
+  await page.locator('#siteCreateTemplate').selectOption('php');
   await page.locator('#siteCreateDomain').fill('www.blog.example.test');
   await expect(page.locator('#siteCreateName')).toHaveValue('blog');
   await page.locator('#siteCreateDomain').fill('store.example.test');

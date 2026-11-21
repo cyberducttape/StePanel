@@ -101,6 +101,17 @@
     el('button', { type: 'button', className: 'quiet-action', onClick: () => loadHosting() }, 'Retry'),
   ]);
 
+  const selectSetupTemplate = (template) => {
+    if (template !== 'wordpress') return;
+    const selector = $('#siteCreateTemplate');
+    if (!selector || selector.value === template) return;
+    selector.value = template;
+    selector.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  $('#panelPrimaryAction')?.addEventListener('click', (event) => {
+    selectSetupTemplate(event.currentTarget.dataset.setupTemplate);
+  });
+
   const renderSetupChecklist = () => {
     const list = $('#panelOnboardingList');
     const progress = $('#panelOnboardingProgress');
@@ -124,9 +135,9 @@
       });
     } else if ($('#siteCreateForm')) {
       steps.push({
-        title: 'Add your first website',
-        detail: 'Choose WordPress for a ready-to-use site, or start with a blank PHP website.',
-        href: '#websites', label: 'Add a website', state: 'next',
+        title: 'Create your first WordPress site',
+        detail: 'StePanel provisions the database, site-owned PHP-FPM pool, HTTPS route, security defaults, and first recovery point.',
+        href: '#websites', label: 'Create WordPress site', state: 'next', template: 'wordpress',
       });
     } else {
       steps.push({
@@ -216,11 +227,15 @@
       });
     }
 
-    list.replaceChildren(...steps.map((step, index) => el('li', { className: `panel-setup-step panel-setup-${step.state}` }, [
-      el('span', { className: 'panel-setup-marker', 'aria-hidden': 'true' }, step.state === 'done' ? '✓' : String(index + 1)),
-      el('div', { className: 'panel-setup-copy' }, [el('strong', {}, step.title), el('p', {}, step.detail)]),
-      el('a', { href: step.href }, step.label),
-    ])));
+    list.replaceChildren(...steps.map((step, index) => {
+      const action = el('a', { href: step.href }, step.label);
+      if (step.template) action.addEventListener('click', () => selectSetupTemplate(step.template));
+      return el('li', { className: `panel-setup-step panel-setup-${step.state}` }, [
+        el('span', { className: 'panel-setup-marker', 'aria-hidden': 'true' }, step.state === 'done' ? '✓' : String(index + 1)),
+        el('div', { className: 'panel-setup-copy' }, [el('strong', {}, step.title), el('p', {}, step.detail)]),
+        action,
+      ]);
+    }));
     const completed = steps.filter((step) => step.state === 'done').length;
     const unresolved = steps.filter((step) => step.state === 'unknown').length;
     progress.textContent = `${completed} of ${steps.length} essentials complete${unresolved ? ` · ${unresolved} could not be checked` : ''}.`;
@@ -228,6 +243,8 @@
       const next = steps.find((step) => step.state !== 'done') || { href: '#websites', label: 'Open my websites' };
       primary.href = next.href;
       primary.textContent = next.label;
+      if (next.template) primary.dataset.setupTemplate = next.template;
+      else delete primary.dataset.setupTemplate;
     }
   };
 
