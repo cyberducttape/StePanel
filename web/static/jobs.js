@@ -150,7 +150,7 @@
       const failures = (waitFailures.get(id) || 0) + 1;
       waitFailures.set(id, failures);
       if (failures >= maxWaitRequestFailures) {
-        failWait(id, new Error(`Unable to confirm operation status after ${failures} attempts. Check Operations and retry when the API is available. (${error.message || 'request failed'})`));
+        failWait(id, new Error(`Unable to confirm job ${id} status after ${failures} attempts. Check Operations before retrying when the API is available. (${error.message || 'request failed'})`));
       }
     });
   const wait = (id) => new Promise((resolve, reject) => {
@@ -165,7 +165,7 @@
     if (!waiterPoller) waiterPoller = setInterval(() => {
       [...waiters.keys()].forEach((jobID) => {
         if (Date.now() - waitStarted.get(jobID) >= maxWaitDuration) {
-          failWait(jobID, new Error('Stopped waiting after six hours. The operation may still be running; check its status in Operations.'));
+          failWait(jobID, new Error(`Stopped waiting for job ${jobID} after six hours. It may still be running; check its status in Operations.`));
           return;
         }
         readWaitStatus(jobID);

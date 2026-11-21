@@ -133,3 +133,20 @@ test('a durable operation waiter recovers from a transient status API failure', 
   assert.equal((await result).state, 'completed');
   assert.equal(statusReads, 2);
 });
+
+test('a durable operation waiter identifies an accepted job when status stays unavailable', async () => {
+  const harness = loadJobs((url) => url === '/api/jobs'
+    ? Promise.resolve({ jobs: [] })
+    : Promise.reject(new Error('database unavailable')));
+  await flush();
+
+  const result = harness.jobs.wait('job-accepted-42');
+  const rejection = assert.rejects(result, /job job-accepted-42 status.*Check Operations/);
+  await flush();
+  const poll = harness.intervals.find((interval) => interval.delay === 10000);
+  for (let retry = 0; retry < 4; retry += 1) {
+    poll.callback();
+    await flush();
+  }
+  await rejection;
+});

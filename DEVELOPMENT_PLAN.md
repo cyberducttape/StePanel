@@ -1354,15 +1354,15 @@ Scope and ordering are defined in [`docs/ROADMAP.md`](docs/ROADMAP.md).
    evidence.
 5. Measure M4 and complete M5; then perform the M6 exact-source audit.
 
-### M0aa — Keep site-creation status truthful through transient outages (P1)
+### M0aa — Keep durable site-operation status truthful through transient outages (P1)
 
 **Status:** Implemented locally; exact-source checks pending.
 
-The customer and operator site-creation flow must treat an accepted durable
-job as accepted even when status reads temporarily fail. Use the shared job
-waiter with durable polling/retries, retain the job ID when status cannot be
-confirmed, and report inventory-refresh failures separately from creation
-failures.
+Customer and operator site creation and workspace operations must treat an
+accepted durable job as accepted even when status reads temporarily fail. Use
+the shared job waiter with durable polling/retries, retain the job ID when
+status cannot be confirmed, and report inventory-refresh failures separately
+from creation failures.
 
 **Acceptance criteria**
 
@@ -1372,6 +1372,8 @@ failures.
   its ID; it never claims site creation failed or that nothing was changed.
 - A successful create followed by an inventory refresh failure is reported
   as created with a refresh problem, not as a failed create.
+- Builds, deployments, dependency installs, and staging operations use the
+  same bounded waiter rather than an unbounded custom polling loop.
 - Frontend unit/browser checks and exact-source CI pass.
 
 ### Guided site lifecycle experience (product work; not a release-gate closure)

@@ -35,14 +35,9 @@
     const queued = await postJSON(path, body);
     if (!queued || !queued.job_id) return queued;
     if (onQueued) onQueued(queued.job_id);
-    const done = new Set(['completed', 'failed', 'cancelled', 'dead-letter']);
-    for (let delay = 1000; ; delay = Math.min(delay * 1.5, 5000)) {
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      const job = await getJSON(`/api/jobs/${encodeURIComponent(queued.job_id)}`);
-      if (!done.has(job.state)) continue;
-      if (job.state === 'completed') return job.output || {};
-      throw new Error(job.error || `The operation was ${job.state}.`);
-    }
+    const job = await window.StepanelJobs.wait(queued.job_id);
+    if (job.state === 'completed') return job.output || {};
+    throw new Error(job.error || `The operation was ${job.state}.`);
   };
 
   // ---------------------------------------------------------------------
