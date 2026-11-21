@@ -11,7 +11,7 @@ to administrators but not exposed as a tenant entitlement; **Experimental**
 means the interface may change; **Planned** means not implemented. Release-tag
 documentation must be read from the matching release tag, not from `main`.
 
-Documentation version: `main` (reviewed 2026-11-20)
+Documentation version: `main` (reviewed 2026-11-21)
 Release approval: use `V1_PRODUCTION_GATES.md`; this catalog is not a release gate.
 
 ## Available now
@@ -144,7 +144,11 @@ Shipped in v0.7.0 and earlier:
 - Customer-first hosting workspace that leads with managed sites, connected
   domains, and verified-backup counts. Site workspaces can queue a verified
   file-and-managed-database backup and connect a validated web route; the UI
-  explains the required DNS cutover after a route is created.
+  explains the required DNS cutover after a route is created. The customer
+  home and operator dashboard also show live first-run checklists with a
+  primary action for the next incomplete step. Customer setup distinguishes
+  missing domain routes from unavailable inventory and does not treat route
+  configuration as proof of public DNS or HTTPS.
 - Domain route desired state is durable in the control plane, reconciles after
   restart, and supports tenant-scoped route removal for tracked customer
   routes. Customer route activation requires a durable DNS TXT claim at
