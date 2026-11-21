@@ -949,8 +949,8 @@ run [44735170833](https://github.com/cyberducttape/StePanel/actions/runs/4473517
 passed all five operation scenarios once on source `c3e37ebc`; this is guest
 loss with QEMU cache bypass, not physical-host power loss. The six-host repeat
 cohort [44725816245](https://github.com/cyberducttape/StePanel/actions/runs/44725816245)
-is active on stale source `f464f79d`; eight full six-host iterations had passed
-and the ninth was active at review, so it contributes no current-source
+is active on stale source `f464f79d`; nine full six-host iterations had passed
+and the tenth was active at review, so it contributes no current-source
 repeats. Install smoke [44897989372](https://github.com/cyberducttape/StePanel/actions/runs/44897989372)
 passed its normal recovery matrix but failed the optional identity-repair
 checkpoint drill. Artifact review traced this to the drill killing a wrapper
@@ -960,12 +960,13 @@ smoke must pass before the corrected drill is accepted. Physical power loss,
 operation-specific ENOSPC, and the repeated current-source matrix remain open.
 Current-source KVM abrupt-loss operation drills
 [44731756198](https://github.com/cyberducttape/StePanel/actions/runs/44731756198)
-started on `94b90f5e` for file restore, database restore, Git deployment,
-retention, and control-plane writes; results are pending. A QEMU guest kill is
-not physical host power-loss evidence, and that run uses QEMU `writeback`, so
-the host page cache can preserve acknowledged guest writes. The abrupt-loss
-workflow now defaults future runs to `cache=none` to remove that cushion; this
-still does not simulate loss of the physical host or storage controller. The
+completed one pass on `94b90f5e` for file restore, database restore, Git
+deployment, retention, and control-plane writes; all five passed. A QEMU guest
+kill is not physical host power-loss evidence, and that run used QEMU
+`writeback`, so the host page cache can preserve acknowledged guest writes.
+The abrupt-loss workflow now defaults future runs to `cache=none` to remove
+that cushion; this still does not simulate loss of the physical host or storage
+controller. The
 follow-up run [44735170833](https://github.com/cyberducttape/StePanel/actions/runs/44735170833)
 on `c3e37ebc` with `cache=none` passed the same five operation scenarios once;
 see the [reviewed report](docs/lab-results/2026-11-20-kvm-abrupt-loss-operations-cache-none-c3e37eb.md). It is one pass, not repeated or
@@ -1004,10 +1005,11 @@ were cancelled because their source trees do not match current `main`; one
 completed repetition from 44686066552 is historical only. The six-host cohort
 [44725816245](https://github.com/cyberducttape/StePanel/actions/runs/44725816245)
 was dispatched while `f464f79d6287741eefd14174caaac35cd9f18534` was `main` and
-is still running its first repetition. Main has since advanced to `634e99ce`
-with capacity-probe and workflow-contract changes outside the product runtime
-path; completed host artifacts still require source comparison and review
-before they are counted. The current-code single-host smoke
+is still running. At the 2026-11-21 review, nine complete six-host iterations
+had passed and iteration ten was active. Main has since changed product code,
+including PHP-FPM descriptor and status-probe behavior; this cohort is stale
+and none of its repetitions count for current-source certification. The
+current-code single-host smoke
 [44724016501](https://github.com/cyberducttape/StePanel/actions/runs/44724016501)
 completed successfully on source `6e80a189` with a database-backed WordPress
 recovery proof (RTO 5.022 s); it predates current main and is one host/one
