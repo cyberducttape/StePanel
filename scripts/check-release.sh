@@ -25,6 +25,18 @@ if ! grep -Eq '^[[:space:]]+write_env STEPANEL_BACKUP_ENCRYPTION_KEY "\$BACKUP_E
   echo "install.sh does not persist the backup encryption key" >&2
   exit 1
 fi
+if ! grep -Fqx '      - docs/**' .goreleaser.yaml ||
+   ! grep -Fqx '      - deploy/**' .goreleaser.yaml ||
+   ! grep -Fqx '      - PROGRESS.md' .goreleaser.yaml; then
+  echo "release archive does not package the setup/support documentation and installer assets" >&2
+  exit 1
+fi
+if ! grep -Fq 'docs/INSTALLATION.md' scripts/verify-release-artifacts.sh ||
+   ! grep -Fq 'docs/lab-results/2026-11-20-six-host-install-smoke-059ba72.md' scripts/verify-release-artifacts.sh ||
+   ! grep -Fq 'deploy/lib/install-support-tier.sh' scripts/verify-release-artifacts.sh; then
+  echo "release artifact verification does not require the current installer support materials" >&2
+  exit 1
+fi
 if grep -Fq 'sudoers_tmp' install.sh; then
   echo "install.sh still provisions a panel sudoers policy" >&2
   exit 1

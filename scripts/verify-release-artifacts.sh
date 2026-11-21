@@ -100,6 +100,19 @@ for archive in "${archives[@]}"; do
         fi
     done
 
+    for required_path in \
+        docs/INSTALLATION.md \
+        docs/V1_PRODUCTION_GATES.md \
+        docs/PRODUCTION_READINESS.md \
+        docs/lab-results/2026-11-20-six-host-install-smoke-059ba72.md; do
+        if tar -tzf "$archive" | grep -Fqx "$required_path"; then
+            echo "  ✓ $required_path present"
+        else
+            echo "  ✗ FAIL: $required_path missing" >&2
+            exit 1
+        fi
+    done
+
     if tar -tzf "$archive" | grep -Eq '(^|/)deploy/lib/install-postcommit\.sh$'; then
         echo "  ✓ installer post-commit recovery helper present"
     else
@@ -118,6 +131,13 @@ for archive in "${archives[@]}"; do
         echo "  ✓ bounded vsftpd configuration validator present"
     else
         echo "  ✗ FAIL: deploy/lib/vsftpd-config-validation.sh missing" >&2
+        exit 1
+    fi
+
+    if tar -tzf "$archive" | grep -Fqx 'deploy/lib/install-support-tier.sh'; then
+        echo "  ✓ installer support-tier classifier present"
+    else
+        echo "  ✗ FAIL: deploy/lib/install-support-tier.sh missing" >&2
         exit 1
     fi
 

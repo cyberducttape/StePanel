@@ -15,8 +15,9 @@ successful one-off smoke does not close a host-certification gate.
 ### M0aa — Make first-time evaluation and support tiers clear (P1)
 
 **Status:** Partially implemented. Local evaluation guidance and guided-setup
-support labels are in place; release-artifact availability and first-host
-preflight remain open.
+support labels, pre-mutation platform classification, and release archive
+documentation requirements are in place. Exact GoReleaser output and
+first-host application proof remain open.
 
 **Acceptance criteria**
 

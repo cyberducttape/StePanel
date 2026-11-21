@@ -1,5 +1,17 @@
 # Production-readiness progress
 
+## Package setup and support materials in release archives — 2026-11-21
+
+- GoReleaser archives now include the documentation tree, current installation
+  and support evidence, progress notes, and project runbooks rather than
+  shipping a README whose linked setup instructions are absent.
+- Release metadata checks require those documentation patterns, and artifact
+  verification requires the installation guide, production gates, current
+  six-host result, and support-tier helper in each archive.
+- `bash scripts/check-release.sh`, shell syntax checks, and the support-tier
+  contract passed. A real GoReleaser archive and clean-host archive install
+  have not been produced in this environment; release remains unpublished.
+
 ## Show platform evidence in installer preflight — 2026-11-21
 
 - The pre-mutation host preview now classifies the exact OS/web-server/database

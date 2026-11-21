@@ -47,8 +47,13 @@ archives:
       - LICENSE
       - README.md
       - SECURITY.md
+      - CHANGELOG.md
+      - CONTRIBUTING.md
+      - PROGRESS.md
       - install.sh
       - deploy/**
+      - docs/**
+      - observability/README.md
       - web/**
 
 checksum:
