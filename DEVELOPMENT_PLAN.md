@@ -1468,8 +1468,9 @@ missing or unavailable route data remains unknown.
 
 ### M0af — Require backup evidence for each active site (P1)
 
-**Status:** Implemented locally; build, frontend unit tests, and the focused
-operator/customer browser regressions passed. Exact-source CI pending.
+**Status:** Implemented locally; build, frontend unit tests, and focused
+operator/customer browser regressions (including complete coverage) passed.
+Exact-source CI pending.
 
 The first-run checklist must not imply account-wide recovery coverage when
 only one of several sites has a verified backup. Compare the latest bounded

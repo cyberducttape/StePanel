@@ -8,8 +8,9 @@
   unknown and directs the operator to inspect full history. Completion still
   says archive integrity does not prove application recovery.
 - Expanded operator and customer browser regressions for multi-site gaps and
-  direct navigation. Build, frontend unit tests (19 passed), and the customer
-  panel Playwright/axe journey passed locally. Exact-source CI pending.
+  direct navigation, truncated history, and complete coverage. Build,
+  frontend unit tests (19 passed), and focused operator/customer Playwright
+  and axe journeys (2 passed) passed locally. Exact-source CI pending.
 
 ## Customer domain checklist requires DNS and HTTPS review — 2026-11-21
 
