@@ -1,5 +1,20 @@
 # Production-readiness progress
 
+## Show platform evidence in installer preflight — 2026-11-21
+
+- The pre-mutation host preview now classifies the exact OS/web-server/database
+  tuple. It highlights Ubuntu 24.04 + Caddy + MariaDB, identifies the six
+  current-code Operator Beta smoke combinations, and warns when the chosen
+  combination is outside that evidence. This remains advisory and does not
+  turn smoke coverage into a production claim.
+- Added a shell contract test covering all six matrix entries, the recommended
+  profile, non-matrix database/web-server/OS choices, and the Operator Beta
+  disclaimer; wired it into `make check`.
+- `bash -n install.sh deploy/lib/install-support-tier.sh scripts/test-install-support-tier.sh`,
+  the support-tier contract, full `make check` (including `go vet ./...` and
+  all Go tests), documentation links/references (93 documents), and
+  `git diff --check` passed locally.
+
 ## Clarify local evaluation and installer support tiers — 2026-11-21
 
 - Added a clearly scoped local UI evaluation path at the default loopback

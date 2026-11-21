@@ -59,6 +59,7 @@ shell-contract-check:
 	python3 scripts/test-filectl-revisions.py
 	bash scripts/test-site-package-cgroups.sh
 	bash scripts/test-node-runtime-resolution.sh
+	bash scripts/test-install-support-tier.sh
 
 check: fmt-check api-check shell-contract-check vet test
 

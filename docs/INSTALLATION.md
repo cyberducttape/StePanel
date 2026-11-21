@@ -195,6 +195,10 @@ sudo STEPANEL_ADMIN_PASSWORD='use-a-password-manager' \
 
 Before changing anything, the installer prints a host preflight:
 
+- **SUPPORT TIER**: identifies the recommended Ubuntu 24.04 + Caddy + MariaDB
+  profile, the six current-code Operator Beta smoke combinations, or a
+  package-compatible combination outside that smoke matrix. This is evidence
+  guidance, not production certification or a package-availability promise.
 - **DETECTED**: existing web servers, listeners on ports 80/443, `/var/www`
   content, vhost directories, database services, and login accounts.
 - **PROPOSED CHANGES**: the packages it will install, the services it will
