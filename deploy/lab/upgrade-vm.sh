@@ -64,14 +64,17 @@ runcmd:
 EOF
 cloud-localds "$vm_root/seed.iso" "$vm_root/user-data"
 
-qemu-system-x86_64 \
-  -machine "accel=$accel" -cpu max -smp 2 -m 4096 \
-  -drive "file=$image,if=virtio,format=qcow2" \
-  -drive "file=$vm_root/seed.iso,if=virtio,media=cdrom,readonly=on" \
-  -netdev user,id=net0,hostfwd=tcp:127.0.0.1:2222-:22 \
-  -device virtio-net-pci,netdev=net0 \
-  -display none -serial "file:$vm_root/console.log" -monitor none \
-  -daemonize -pidfile "$vm_root/qemu.pid"
+start_guest() {
+  qemu-system-x86_64 \
+    -machine "accel=$accel" -cpu max -smp 2 -m 4096 \
+    -drive "file=$image,if=virtio,format=qcow2" \
+    -drive "file=$vm_root/seed.iso,if=virtio,media=cdrom,readonly=on" \
+    -netdev user,id=net0,hostfwd=tcp:127.0.0.1:2222-:22 \
+    -device virtio-net-pci,netdev=net0 \
+    -display none -serial "file:$vm_root/console.log" -monitor none \
+    -daemonize -pidfile "$vm_root/qemu.pid"
+}
+start_guest
 
 ssh_options=(-i "$vm_root/id_ed25519" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=3 -o LogLevel=ERROR)
 ssh_args=("${ssh_options[@]}" -p 2222)
@@ -112,4 +115,27 @@ guest 120s 'sudo install -d -m 0755 /work && sudo tar -xzf /tmp/trees.tar.gz -C 
 
 web_server=${STEPANEL_WEBSERVER:-apache}
 [[ $web_server =~ ^(apache|caddy|openlitespeed)$ ]] || { echo "invalid web server: $web_server" >&2; exit 1; }
-guest 80m "sudo env STEPANEL_PREVIOUS_VERSION=$previous_version STEPANEL_WEBSERVER=$web_server STEPANEL_UPGRADE_ROLLBACK=1 bash /work/candidate/deploy/lab/upgrade-smoke.sh /work/previous /work/candidate /work/broken"
+smoke_env="STEPANEL_PREVIOUS_VERSION=$previous_version STEPANEL_WEBSERVER=$web_server STEPANEL_UPGRADE_ROLLBACK=1"
+smoke="bash /work/candidate/deploy/lab/upgrade-smoke.sh /work/previous /work/candidate /work/broken"
+guest_loss_at=${STEPANEL_UPGRADE_GUEST_LOSS_AT:-}
+if [[ -z $guest_loss_at ]]; then
+  guest 80m "sudo env $smoke_env $smoke"
+  exit 0
+fi
+[[ $guest_loss_at =~ ^[a-z_]+$ ]] || { echo "invalid installer phase: $guest_loss_at" >&2; exit 1; }
+# Whole-guest loss in the middle of the candidate upgrade: the smoke returns
+# once the detached installer reaches the phase, the guest is SIGKILLed with
+# no shutdown, and the same disk boots again.
+guest 60m "sudo env $smoke_env STEPANEL_UPGRADE_GUEST_LOSS_AT=$guest_loss_at $smoke"
+guest 20s 'test -e /run/stepanel-upgrade-guest-loss-ready' || { echo 'the guest-loss boundary was not reached' >&2; exit 1; }
+kill -KILL "$(<"$vm_root/qemu.pid")"
+for _ in $(seq 1 50); do kill -0 "$(<"$vm_root/qemu.pid")" 2>/dev/null || break; sleep 0.2; done
+echo "guest killed during the candidate installer phase $guest_loss_at; booting it again"
+start_guest
+booted=0
+for _ in $(seq 1 120); do
+  if guest 20s 'sudo systemctl is-system-running --wait >/dev/null 2>&1; test ! -e /run/stepanel-upgrade-guest-loss-ready'; then booted=1; break; fi
+  sleep 5
+done
+(( booted )) || { echo 'guest did not boot again after the loss' >&2; exit 1; }
+guest 80m "sudo env $smoke_env STEPANEL_UPGRADE_RESUME=1 $smoke"

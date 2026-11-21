@@ -108,13 +108,16 @@ jobs:
     # sudo-based database helper), so the upgrade migrates their real
     # LoadCredential handoff. Apache: their fresh Caddy install cannot bind
     # port 80 on Ubuntu 24.04 (see deploy/lab/upgrade-vm.sh).
-    name: upgrade ${{ matrix.previous }} (helper fixture, Apache, QEMU guest)
+    name: upgrade ${{ matrix.previous }} (helper fixture, Apache, QEMU guest, guest loss ${{ matrix.guest_loss }})
     strategy:
       fail-fast: false
       matrix:
         previous: [v0.6.0, v0.7.0]
+        # filesystem_migration is inside the installer's file transaction:
+        # the guest is killed after files began changing and before commit.
+        guest_loss: [none, filesystem_migration]
     runs-on: ubuntu-24.04
-    timeout-minutes: 100
+    timeout-minutes: 170
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -138,9 +141,10 @@ jobs:
           mv /tmp/stepanel-broken/stepanel /tmp/stepanel-broken/stepanel.real
           install -m 0755 /tmp/stepanel-candidate/deploy/lab/broken-candidate.sh /tmp/stepanel-broken/stepanel
       - name: Upgrade ${{ matrix.previous }} on a disposable QEMU guest
-        timeout-minutes: 90
+        timeout-minutes: 160
         env:
           PREVIOUS: ${{ matrix.previous }}
+          STEPANEL_UPGRADE_GUEST_LOSS_AT: ${{ matrix.guest_loss != 'none' && matrix.guest_loss || '' }}
         run: |
-          timeout --foreground --kill-after=5s 88m bash deploy/lab/upgrade-vm.sh "$RUNNER_TEMP/stepanel-upgrade-vm" \
+          timeout --foreground --kill-after=5s 158m bash deploy/lab/upgrade-vm.sh "$RUNNER_TEMP/stepanel-upgrade-vm" \
             /tmp/stepanel-previous /tmp/stepanel-candidate /tmp/stepanel-broken "${PREVIOUS#v}"

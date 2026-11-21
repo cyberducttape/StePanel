@@ -11,6 +11,18 @@ broken_root=${3:-}
 # the candidate installer to complete the upgrade.
 interrupt_at=${STEPANEL_UPGRADE_INTERRUPT_AT:-}
 [[ -z $interrupt_at || $interrupt_at =~ ^[a-z_]+$ ]] || { echo "invalid installer phase: $interrupt_at" >&2; exit 1; }
+# Whole-guest loss during the upgrade is a two-run exercise driven by
+# deploy/lab/upgrade-vm.sh. With STEPANEL_UPGRADE_GUEST_LOSS_AT=PHASE the
+# smoke prepares the previous release, starts the candidate installer
+# detached, and exits once the installer journal records PHASE; the harness
+# then kills the guest. After the reboot, STEPANEL_UPGRADE_RESUME=1 skips the
+# preparation, reruns the candidate installer, and runs every check.
+guest_loss_at=${STEPANEL_UPGRADE_GUEST_LOSS_AT:-}
+[[ -z $guest_loss_at || $guest_loss_at =~ ^[a-z_]+$ ]] || { echo "invalid installer phase: $guest_loss_at" >&2; exit 1; }
+resume=${STEPANEL_UPGRADE_RESUME:-0}
+[[ $resume == 0 || $resume == 1 ]] || { echo 'STEPANEL_UPGRADE_RESUME must be 0 or 1' >&2; exit 1; }
+[[ -z $guest_loss_at || $resume == 0 ]] || { echo 'guest loss and resume are separate runs' >&2; exit 1; }
+smoke_state=/var/lib/stepanel-upgrade-smoke.state
 # STEPANEL_UPGRADE_ROLLBACK=1 finally undoes the committed upgrade with the
 # documented procedure (docs/COMPATIBILITY.md), proves the previous release
 # runs again, and upgrades once more.
@@ -27,7 +39,7 @@ if [[ -n "$broken_root" && ( ! -x "$broken_root/install.sh" || ! -x "$broken_roo
 fi
 # Lab only: the smoke installs and replaces StePanel and prints diagnostics
 # on failure, so it refuses a host that already has an installation.
-if [[ -e /etc/ste-panel.env || -e /opt/stepanel ]]; then
+if (( ! resume )) && [[ -e /etc/ste-panel.env || -e /opt/stepanel ]]; then
   echo 'upgrade smoke refuses a host with an existing StePanel installation; run it on a disposable host' >&2
   exit 1
 fi
@@ -63,6 +75,7 @@ export STEPANEL_INSTALL_SECURITY=0
 export STEPANEL_REQUIRE_OFFSITE_BACKUP=1
 export STEPANEL_OFFSITE_TARGET=local:/tmp/stepanel-offsite
 
+if (( ! resume )); then
 if command -v apt-get >/dev/null 2>&1; then
   export DEBIAN_FRONTEND=noninteractive
   # GitHub-hosted systemd containers can transiently receive mirror/proxy
@@ -87,7 +100,9 @@ install -d -m 0755 -o root -g root /etc/stepanel
 printf '[local]\ntype = local\n' > /etc/stepanel/rclone.conf
 chown root:root /etc/stepanel/rclone.conf
 chmod 0644 /etc/stepanel/rclone.conf
+fi
 export RCLONE_CONFIG=/etc/stepanel/rclone.conf
+if (( ! resume )); then
 # Avoid taking the running daemon's process lock just to verify the immutable
 # previous-release build identity; the release version is compiled into the executable.
 grep -aFq "$previous_version" /opt/stepanel/stepanel || { echo "installed binary is not release $previous_version" >&2; exit 1; }
@@ -103,6 +118,7 @@ install -d -m 0750 -o stepanel -g stepanel /var/lib/ste-panel
 printf '%s\n' '[]' > /var/lib/ste-panel/jobs.json
 chown stepanel:stepanel /var/lib/ste-panel/jobs.json
 chmod 0600 /var/lib/ste-panel/jobs.json
+fi
 
 # Upgrade a host containing actual customer-like data, not only an empty
 # control plane. The legacy layout is intentionally retained across the N-1
@@ -110,14 +126,16 @@ chmod 0600 /var/lib/ste-panel/jobs.json
 legacy_site=upgrade-customer
 legacy_site_root="/var/www/sites/$legacy_site/public"
 legacy_site_marker=customer-content-survives-upgrade-and-rollback
+legacy_db=stepanel_upgrade_customer
+if (( ! resume )); then
 install -d -m 0755 "$legacy_site_root"
 printf '%s\n' "$legacy_site_marker" > "$legacy_site_root/index.html"
-legacy_db=stepanel_upgrade_customer
 mariadb --protocol=socket --user=root --batch --skip-column-names <<SQL
 CREATE DATABASE $legacy_db;
 CREATE TABLE $legacy_db.recovery_fixture (value VARCHAR(128) NOT NULL);
 INSERT INTO $legacy_db.recovery_fixture VALUES ('customer-database-survives-upgrade-and-rollback');
 SQL
+fi
 assert_populated_upgrade_fixture() {
   [[ $(<"$legacy_site_root/index.html") == "$legacy_site_marker" ]] || {
     echo 'upgrade or rollback changed the existing customer site marker' >&2
@@ -135,15 +153,23 @@ assert_populated_upgrade_fixture() {
 web_service=apache2
 [[ $STEPANEL_WEBSERVER != caddy ]] || web_service=caddy
 [[ $STEPANEL_WEBSERVER != openlitespeed ]] || web_service=lsws
-web_active_before_candidate=$(systemctl is-active "$web_service")
-web_enabled_before_candidate=$(systemctl is-enabled "$web_service")
+if (( resume )); then
+  # shellcheck disable=SC1090
+  . "$smoke_state"
+else
+  web_active_before_candidate=$(systemctl is-active "$web_service")
+  web_enabled_before_candidate=$(systemctl is-enabled "$web_service")
+  printf 'web_active_before_candidate=%q\nweb_enabled_before_candidate=%q\n' "$web_active_before_candidate" "$web_enabled_before_candidate" > "$smoke_state"
+fi
 
 # Operators configure these runtime values in /etc/ste-panel.env. The
 # candidate installer must preserve them while regenerating installer-owned
 # settings. Use non-secret values with no external side effects in this lab.
-printf '%s\n' 'STEPANEL_GIT_ALLOWED_HOSTS="git.example.test,code.example.test"' >> /etc/ste-panel.env
-printf '%s\n' 'STEPANEL_HSTS_PRELOAD="0"' >> /etc/ste-panel.env
-chmod 0600 /etc/ste-panel.env
+if (( ! resume )); then
+  printf '%s\n' 'STEPANEL_GIT_ALLOWED_HOSTS="git.example.test,code.example.test"' >> /etc/ste-panel.env
+  printf '%s\n' 'STEPANEL_HSTS_PRELOAD="0"' >> /etc/ste-panel.env
+  chmod 0600 /etc/ste-panel.env
+fi
 
 wait_ready() {
   local label=$1
@@ -198,6 +224,38 @@ interrupt_candidate_install() {
 
 if [[ -n $interrupt_at ]]; then
   interrupt_candidate_install "$interrupt_at"
+fi
+
+if [[ -n $guest_loss_at ]]; then
+  marker=$(mktemp)
+  journal=''
+  (cd "$candidate_root" && exec setsid nohup ./install.sh --unsafe-lab) >/var/log/stepanel-guest-loss-install.log 2>&1 </dev/null &
+  installer=$!
+  for _ in {1..12000}; do
+    [[ -n $journal ]] || journal=$(find /var/lib/stepanel/install-journal -maxdepth 1 -name '*.tsv' -newer "$marker" -print -quit 2>/dev/null || true)
+    if [[ -n $journal ]] && grep -q $'\t'"$guest_loss_at"$'\tstarted\t' "$journal"; then break; fi
+    kill -0 "$installer" 2>/dev/null || { echo "candidate installer exited before reaching phase $guest_loss_at" >&2; tail -n 40 /var/log/stepanel-guest-loss-install.log >&2 || true; exit 1; }
+    sleep 0.1
+  done
+  [[ -n $journal ]] && grep -q $'\t'"$guest_loss_at"$'\tstarted\t' "$journal" || { echo "candidate installer never reached phase $guest_loss_at" >&2; exit 1; }
+  ! grep -q $'\tcommit\t' "$journal" || { echo 'installer committed before the guest loss point' >&2; exit 1; }
+  printf 'interrupted_journal=%q\n' "$journal" >> "$smoke_state"
+  printf '%s\n' "$guest_loss_at" > /run/stepanel-upgrade-guest-loss-ready
+  echo "candidate installer is in phase $guest_loss_at (journal $journal); ready for guest loss"
+  exit 0
+fi
+
+if (( resume )); then
+  echo "resuming after guest loss; the interrupted installer journal ${interrupted_journal:-was not recorded}:"
+  if [[ -n ${interrupted_journal:-} && -f $interrupted_journal ]]; then
+    cut -f2-4 "$interrupted_journal"
+    ! grep -q $'\tcommit\t' "$interrupted_journal" || { echo 'the interrupted installer journal records a commit; the guest loss did not interrupt the upgrade' >&2; exit 1; }
+  else
+    echo '  (journal not on disk after the guest loss)'
+  fi
+  # The previous or partly upgraded panel may or may not be running; the
+  # rerun below must converge either way.
+  systemctl --no-pager --plain list-units 'stepanel*' || true
 fi
 
 cd "$candidate_root"
