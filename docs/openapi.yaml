@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: StePanel API
-  version: 0.7.0
+  version: 0.9.0
   description: |
     Versioned v1 automation API for server operations, site lifecycle, backups,
     migrations, diagnostics, and durable jobs. StePanel remains an operator

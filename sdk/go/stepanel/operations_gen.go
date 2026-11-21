@@ -2,7 +2,7 @@
 package stepanel
 
 // ContractVersion is the OpenAPI info.version used to generate this client.
-const ContractVersion = "0.7.0"
+const ContractVersion = "0.9.0"
 
 // Operation describes an operation in the checked-in OpenAPI contract.
 type Operation struct{ ID, Method, Path, CLICommand string }

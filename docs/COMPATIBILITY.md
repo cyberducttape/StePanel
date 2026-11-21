@@ -14,7 +14,7 @@ claims paths that have recorded evidence; everything else is untested.
 | v0.6.0 | GitHub release, 2026-09-05 | JSON state files | none | `/var/www/sites/SITE/public` |
 | v0.7.0 | GitHub release (latest), 2026-09-15 | JSON state files | none | `/var/www/sites/SITE/public` |
 | `0.8` | GitHub pre-release named "updates", 2026-09-22 | SQLite control plane | 4 | `/var/www/sites/SITE/public` |
-| Unreleased (`main`) | not released; `version.go` still reports 0.7.0 | SQLite control plane | 21 | New sites in hosting accounts: `/home/USER/public_html` or `/home/USER/DOMAIN` ([ADR-0007](adr/0007-home-account-layout.md)); existing legacy sites keep `/var/www/sites` |
+| v0.9.0 (release candidate on `main`) | not yet tagged; `version.go` reports 0.9.0 | SQLite control plane | 21 | New sites in hosting accounts: `/home/USER/public_html` or `/home/USER/DOMAIN` ([ADR-0007](adr/0007-home-account-layout.md)); existing legacy sites keep `/var/www/sites` |
 
 The `0.8` tag lacks the `v` prefix used by every other release and has no
 [CHANGELOG](../CHANGELOG.md) entry. Treat it as a pre-release snapshot, not a

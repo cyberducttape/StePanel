@@ -2,5 +2,5 @@ apiVersion: v2
 name: stepanel
 description: StePanel hosting control plane
 type: application
-version: 0.7.0
-appVersion: "0.7.0"
+version: 0.9.0
+appVersion: "0.9.0"

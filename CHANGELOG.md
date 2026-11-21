@@ -6,6 +6,43 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.9.0] - release candidate
+
+The first release since v0.7.0. It replaces JSON state with a durable SQLite
+control plane and moves every privileged action behind a typed root broker.
+v0.7.0 hosts upgrade in place; see [Version compatibility](docs/COMPATIBILITY.md).
+
+### Highlights
+
+- **Durable control plane.** Backups, restores, imports, deployments, and site
+  lifecycle operations run as durable jobs with leases, fencing tokens,
+  retries, cancellation, and a dead-letter readiness gate, so a restart or
+  crash never leaves an operation half-applied or silently lost.
+- **Hosting accounts.** New sites live in a hosting account's home
+  (`/home/USER/public_html`), cPanel-style, with customer logins, MFA,
+  delegated roles, plans, and a customer panel (ADR-0007).
+- **Narrow privilege boundary.** The panel runs unprivileged; host changes go
+  through a typed root broker and fixed helpers (ADR-0002).
+- **Recovery you can check.** Signed, verified backups; restore rehearsals
+  and a WordPress application-level restore proof; atomic database restores
+  through a shadow database; recovery status that reports what has been
+  proven. See [what is proven](docs/PROOF.md).
+- **Reversible site suspension** for administrators (ADR-0008).
+- **Safer cPanel migration.** Destination-bound migration plans, capacity
+  admission, component-level evidence, and staged mailbox restore.
+- **Tamper-evident audit** with intent-first security events and optional
+  signed checkpoints published off the host.
+- **Operator alerts** by signed webhook and STARTTLS email from a durable
+  outbox, with delivery state in operational health.
+- **Releases and deployments.** Git deployments with reviewed rollback, a
+  release pipeline with rootless builds, staging sites, and Node and Python
+  applications.
+
+Status: Operator Beta. Production gates for 1.0 remain open; see
+[V1_PRODUCTION_GATES.md](docs/V1_PRODUCTION_GATES.md).
+
+### Detailed changes
+
 ### Added
 
 - Reversible site suspension (ADR-0008). An administrator suspends a site
