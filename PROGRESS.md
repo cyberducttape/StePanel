@@ -1,5 +1,23 @@
 # Production-readiness progress
 
+## Make the loopback evaluation dashboard usable — 2026-11-21
+
+- A real process smoke initially showed `/livez` healthy but the dashboard
+  redirecting into an unavailable customer view: unauthenticated development
+  requests had no administrator identity. The final design makes the local
+  dashboard an explicit `STEPANEL_DEVELOPMENT_ADMIN=1` opt-in, allowed only
+  for unauthenticated `STEPANEL_ENV=development` bound to loopback. Without
+  that opt-in, authentication-disabled requests remain identity-less and do
+  not gain administrator privileges. Production auth behavior is unchanged.
+- The README uses the opt-in command and warns that it has no login barrier.
+  Focused security tests verify non-admin default, explicit loopback admin,
+  tenant-principal precedence, audit attribution, and rejection on public
+  listeners. The isolated runtime smoke passed with the explicit flag: `/livez`
+  204 and dashboard 200 on a loopback listener, with all state redirected into
+  a temporary directory. `make check` passed, including `go vet` and the full
+  Go suite (root package 116.084s); docs links/references and `git diff
+  --check` passed.
+
 ## Verify the packaged setup command and make help exit cleanly — 2026-11-21
 
 - A local GoReleaser snapshot built both Linux release archives. The amd64

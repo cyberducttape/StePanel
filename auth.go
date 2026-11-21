@@ -35,10 +35,13 @@ type Auth struct {
 	// It may be false only for loopback development or the isolated install
 	// smoke override; non-loopback HTTP configurations are rejected at startup.
 	Enabled, SecureCookies bool
-	TOTPEnabled            bool
-	TrustedProxies         authpolicy.TrustedProxies
-	totpSecret             []byte
-	totpReplay             *totpReplayState
+	// DevelopmentAdmin grants a synthetic administrator only when explicitly
+	// enabled in unauthenticated loopback development mode.
+	DevelopmentAdmin bool
+	TOTPEnabled      bool
+	TrustedProxies   authpolicy.TrustedProxies
+	totpSecret       []byte
+	totpReplay       *totpReplayState
 	// loginLimiter is the client-wide abuse bucket. It counts every failed
 	// attempt from a client address and is never reset by a successful
 	// login, so authenticating to one account cannot launder failed guesses
@@ -87,6 +90,13 @@ func newAuth(secureCookies bool) (Auth, error) {
 	}
 	password := os.Getenv("STEPANEL_ADMIN_PASSWORD")
 	hash := os.Getenv("STEPANEL_ADMIN_PASSWORD_HASH")
+	developmentAdmin := os.Getenv("STEPANEL_DEVELOPMENT_ADMIN")
+	if developmentAdmin != "" && developmentAdmin != "0" && developmentAdmin != "1" {
+		return Auth{}, errors.New("STEPANEL_DEVELOPMENT_ADMIN must be 0 or 1")
+	}
+	if developmentAdmin == "1" && (os.Getenv("STEPANEL_ENV") != "development" || password != "" || hash != "") {
+		return Auth{}, errors.New("STEPANEL_DEVELOPMENT_ADMIN=1 requires unauthenticated STEPANEL_ENV=development")
+	}
 	if hash == "" && password != "" {
 		generated, err := hashPassword(password)
 		if err != nil {
@@ -110,7 +120,7 @@ func newAuth(secureCookies bool) (Auth, error) {
 		}
 	}
 	if password == "" && hash == "" {
-		return Auth{Username: username, SecureCookies: secureCookies}, nil
+		return Auth{Username: username, SecureCookies: secureCookies, DevelopmentAdmin: developmentAdmin == "1"}, nil
 	}
 	if secret == "" {
 		return Auth{}, errors.New("STEPANEL_SESSION_SECRET must be configured when authentication is enabled")
@@ -678,6 +688,15 @@ func (a Auth) UsernameForRequest(r *http.Request) string {
 	if username, ok := r.Context().Value(apiTokenUsernameKey{}).(string); ok {
 		return username
 	}
+	// Unauthenticated development requests have no identity by default. A
+	// synthetic principal is available only through an explicit opt-in that
+	// startup accepts on a loopback development listener.
+	if !a.Enabled && a.DevelopmentAdmin {
+		return a.Username
+	}
+	if !a.Enabled {
+		return ""
+	}
 	if !a.validSession(r) {
 		return ""
 	}
@@ -696,18 +715,23 @@ func (a Auth) UsernameForRequest(r *http.Request) string {
 	return parts[0]
 }
 
-// AuditActor names the actor of a request in audit events: the
-// authenticated requester, or "auth-disabled" when authentication is turned
-// off (non-production only), where every request acts with full authority
-// and no identity exists. With authentication enabled and no identity it
-// returns "", so Class A operations fail closed rather than record an
-// unattributed mutation.
+// AuditActor names the actor of a request in audit events: the authenticated
+// requester, "development-admin" for the explicit loopback development
+// principal, or "auth-disabled" when no identity is configured. With
+// authentication enabled and no identity it returns "", so Class A
+// operations fail closed rather than record an unattributed mutation.
 func (a Auth) AuditActor(r *http.Request) string {
-	if username := a.UsernameForRequest(r); username != "" {
+	if username, ok := r.Context().Value(apiTokenUsernameKey{}).(string); ok {
 		return username
 	}
 	if !a.Enabled {
+		if a.DevelopmentAdmin {
+			return "development-admin"
+		}
 		return "auth-disabled"
+	}
+	if username := a.UsernameForRequest(r); username != "" {
+		return username
 	}
 	return ""
 }

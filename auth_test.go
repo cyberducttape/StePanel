@@ -118,6 +118,53 @@ func TestDisabledAuthenticationRequiresExplicitLoopbackDevelopment(t *testing.T)
 	}
 }
 
+func TestLoopbackDevelopmentUsesSyntheticAdministratorIdentity(t *testing.T) {
+	auth := Auth{Username: "admin", Enabled: false}
+	r := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/", nil)
+	if username := auth.UsernameForRequest(r); username != "" || auth.IsAdministrator(r) {
+		t.Fatalf("development request without opt-in gained admin identity %q", username)
+	}
+	auth.DevelopmentAdmin = true
+	if username := auth.UsernameForRequest(r); username != "admin" {
+		t.Fatalf("development username = %q, want synthetic administrator", username)
+	}
+	if !auth.IsAdministrator(r) {
+		t.Fatal("loopback development request was not treated as administrator")
+	}
+	if actor := auth.AuditActor(r); actor != "development-admin" {
+		t.Fatalf("development audit actor = %q, want development-admin", actor)
+	}
+	tokenRequest := r.WithContext(context.WithValue(r.Context(), apiTokenUsernameKey{}, "alice"))
+	if username := auth.UsernameForRequest(tokenRequest); username != "alice" {
+		t.Fatalf("explicit request principal = %q, want alice", username)
+	}
+	if auth.IsAdministrator(tokenRequest) {
+		t.Fatal("explicit tenant principal was promoted to development administrator")
+	}
+	if actor := auth.AuditActor(tokenRequest); actor != "alice" {
+		t.Fatalf("explicit tenant audit actor = %q, want alice", actor)
+	}
+}
+
+func TestDevelopmentAdminRequiresExplicitLoopbackOptIn(t *testing.T) {
+	t.Setenv("STEPANEL_ENV", "development")
+	t.Setenv("STEPANEL_DEVELOPMENT_ADMIN", "1")
+	t.Setenv("STEPANEL_ADMIN_PASSWORD", "")
+	t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")
+	t.Setenv("STEPANEL_SESSION_SECRET", "")
+	auth, err := NewAuthForConfig(Config{Listen: "127.0.0.1:8080"})
+	if err != nil || !auth.DevelopmentAdmin {
+		t.Fatalf("loopback development-admin opt-in = %#v, %v", auth, err)
+	}
+	if _, err := NewAuthForConfig(Config{Listen: "0.0.0.0:8080"}); err == nil || !strings.Contains(err.Error(), "loopback") {
+		t.Fatalf("development-admin opt-in accepted a public listener: %v", err)
+	}
+	t.Setenv("STEPANEL_DEVELOPMENT_ADMIN", "maybe")
+	if _, err := NewAuthForConfig(Config{Listen: "127.0.0.1:8080"}); err == nil || !strings.Contains(err.Error(), "must be 0 or 1") {
+		t.Fatalf("invalid development-admin setting was accepted: %v", err)
+	}
+}
+
 func TestHashPassword(t *testing.T) {
 	hash, err := hashPassword("hosting-grade-password")
 	if err != nil {
