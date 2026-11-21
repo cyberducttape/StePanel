@@ -1,5 +1,29 @@
 # Production-readiness progress
 
+## Diagnose 500-site HTTPS timeouts — 2026-11-21
+
+- Run 44725885994's failures came in bursts across unrelated sites, and the
+  sites missing FPM data formed contiguous blocks that moved between scrapes.
+  Both point to a php-fpm-wide stall, not a single saturated pool.
+- Reproduced in a 4-CPU Rocky Linux 9 container (PHP 8.0.30): one master,
+  500 pools rendered from the `stepanel-sitectl` template, 8 clients at the
+  profile's ~16 req/s, plus the panel's 16-worker status sweep every minute.
+  Hangs that ran to the 15-second timeout came about 10 s after each sweep.
+  That is the idle timeout of the ~500 workers the sweep had forked. php-src
+  `fpm_pctl_on_socket_accept` skips spawning while any child is still idle,
+  and a child that was just sent SIGQUIT still counts as idle until reaped.
+  PHP 8.3 and master have the same logic.
+- Fix: the counters-only broker probe reports an `ondemand` pool with no
+  workers (and a live master) as `idle` without connecting. Same 300 s
+  workload: waking sweep 5/5,048 stalled, passive sweep 1/5,184, no sweep
+  1/5,186.
+- Still open: the underlying php-fpm race remains at about 0.02% of requests
+  for sites whose traffic gaps match the idle timeout. Mitigations (a longer
+  `pm.process_idle_timeout`, or `pm = dynamic` at a per-site memory cost) are
+  a default change still to be decided. Capacity run 44848048837 on pre-fix
+  source supplies a before-fix baseline. A post-fix run is required before
+  any capacity claim.
+
 ## Review cache-bypassing abrupt-loss drill — 2026-11-20
 
 - Reviewed the artifacts of KVM drill

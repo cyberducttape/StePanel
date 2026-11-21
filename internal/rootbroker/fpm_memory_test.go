@@ -91,3 +91,34 @@ func TestEstimateFPMWorkerCeilingUsesReserveAndCapsResult(t *testing.T) {
 		}
 	}
 }
+
+func TestScanFPMPoolProcessesRequiresVersionMasterAndRealWorkers(t *testing.T) {
+	previous := procEntryOwnerMayMatch
+	procEntryOwnerMayMatch = func(os.DirEntry, ...uint32) bool { return true }
+	t.Cleanup(func() { procEntryOwnerMayMatch = previous })
+
+	proc := t.TempDir()
+	writeFakeProc(t, proc, 10, 1, 0, 30000, "php-fpm: master process (/etc/php/8.3/fpm/php-fpm.conf)")
+	writeFakeProc(t, proc, 20, 1, 0, 30000, "php-fpm: master process (/etc/php/8.2/fpm/php-fpm.conf)")
+	writeFakeProc(t, proc, 200, 20, 1001, 9999, "php-fpm: pool stepanel-demo")      // other PHP version
+	writeFakeProc(t, proc, 300, 10, 1001, 9999, "php-fpm: pool stepanel-demo-shop") // prefix site
+	writeFakeProc(t, proc, 400, 10, 1002, 9999, "php-fpm: pool stepanel-demo")      // other account
+	writeFakeProc(t, proc, 11, 1, 1001, 9999, "php-fpm: master process (/etc/php/8.3/fpm/php-fpm.conf)")
+	writeFakeProc(t, proc, 500, 11, 1001, 9999, "php-fpm: pool stepanel-demo") // site process spoofing a worker title
+
+	if got := scanFPMPoolProcesses(proc, 1001, "demo", "8.3"); !got.masterAlive || got.workers {
+		t.Fatalf("idle pool scan = %#v; want live master and no workers", got)
+	}
+	if got := scanFPMPoolProcesses(proc, 1001, "demo", "8.1"); got.masterAlive {
+		t.Fatalf("scan for a version without a master = %#v; must not claim a live master", got)
+	}
+
+	writeFakeProc(t, proc, 100, 10, 1001, 9999, "php-fpm: pool stepanel-demo")
+	if got := scanFPMPoolProcesses(proc, 1001, "demo", "8.3"); !got.masterAlive || !got.workers {
+		t.Fatalf("busy pool scan = %#v; want live master and workers", got)
+	}
+
+	if got := scanFPMPoolProcesses(filepath.Join(proc, "missing"), 1001, "demo", "8.3"); got.masterAlive || !got.workers {
+		t.Fatalf("unreadable process table scan = %#v; must be conservative", got)
+	}
+}

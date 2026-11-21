@@ -1180,6 +1180,13 @@ before tuning defaults. The earlier profile
 [44711012147](https://github.com/cyberducttape/StePanel/actions/runs/44711012147)
 was cancelled before producing a report and contributes no measurement.
 
+**Diagnosis (2026-11-21):** the timeouts were reproduced off-host and traced
+to the panel's per-minute FPM status sweep. It woke every idle `ondemand`
+pool, and the mass idle expiry that followed strands connections in php-fpm.
+The probe now reports idle pools without waking them; see `PROGRESS.md`.
+A residual php-fpm idle-expiry race (about 0.02% in reproduction) and a
+post-fix 500-site KVM run remain before this milestone can close.
+
 Benchmark a named supported host with representative PHP traffic, databases,
 backups, migrations, and control-plane reads/writes. Measure CPU/RAM, disk and
 inode pressure, SQLite/WAL growth and lock waits, queue latency, job backlog,

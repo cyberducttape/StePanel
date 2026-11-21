@@ -145,6 +145,33 @@ func TestSiteRuntimeMetricsMarkUnavailableProbesWithoutInventingUsage(t *testing
 	}
 }
 
+func TestSiteRuntimeMetricsReportIdlePoolsWithoutUnsampledCounters(t *testing.T) {
+	var output strings.Builder
+	writeSiteRuntimeSamples(&output, map[string]siteRuntimeMetricSample{
+		"quiet": {
+			site: "quiet", collectedAt: time.Unix(1_800_000_000, 0).UTC(),
+			fpmConfigured: true, fpmAvailable: true,
+			pools: []rootbroker.FPMStatusPool{{PHPVersion: "8.3", State: "idle", MaxChildren: 5}},
+		},
+	})
+	for _, want := range []string{
+		`stepanel_site_fpm_probe_up{site="quiet"} 1`,
+		`stepanel_site_fpm_idle{site="quiet",php_version="8.3"} 1`,
+		`stepanel_site_fpm_saturated{site="quiet",php_version="8.3"} 0`,
+		`stepanel_site_fpm_active_workers{site="quiet",php_version="8.3"} 0`,
+		`stepanel_site_fpm_max_children{site="quiet",php_version="8.3"} 5`,
+	} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("idle pool metric %q missing:\n%s", want, output.String())
+		}
+	}
+	for _, unwanted := range []string{`stepanel_site_fpm_listen_queue{site="quiet"`, `stepanel_site_fpm_slow_requests{site="quiet"`} {
+		if strings.Contains(output.String(), unwanted) {
+			t.Fatalf("idle pool emitted an unsampled counter %q:\n%s", unwanted, output.String())
+		}
+	}
+}
+
 func TestGitReleaseMetricsExposeInventoryReadFailures(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "sites"), []byte("not-a-directory"), 0600); err != nil {

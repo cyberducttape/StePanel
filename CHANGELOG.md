@@ -87,6 +87,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Reliability
 
+- Periodic PHP-FPM telemetry no longer wakes idle sites. Every minute the panel
+  sampled each site's pool through its FastCGI status page. On an `ondemand`
+  pool that forks a worker, so at 500 sites the sweep started hundreds of
+  workers, which then all hit the 10-second idle timeout together. php-fpm
+  counts a worker it has just told to exit as idle and spawns no replacement,
+  so a customer request arriving then could wait until the client timed out.
+  The counters-only probe now checks `/proc` first. An `ondemand` pool with
+  no workers, under a live master of its PHP version, is reported as idle
+  without connecting (`stepanel_site_fpm_idle`). Its listen queue and
+  slow-request counter are left out rather than invented. A reproduction
+  with 500 pools and the shipped pool template went from 5 stalled requests
+  in 5,048 to 1 in 5,184, the same rate as no sweep at all.
+
 - Backups are stored per site (`BACKUP_ROOT/sites/SITE/`), so listing,
   retention and restore read only the requesting site's backups. Existing
   backups move into place on first start; entries whose owner cannot be

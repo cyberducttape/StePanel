@@ -105,6 +105,7 @@ type fpmPoolConfig struct {
 	socket        string
 	max           uint64
 	slowThreshold string
+	ondemand      bool
 }
 
 // collectFPMStatus discovers only root-owned StePanel pool files and only
@@ -151,6 +152,21 @@ func collectFPMStatusFrom(ctx context.Context, site, siteUser, identityConfig st
 			result.Warnings = append(result.Warnings, fmt.Sprintf("PHP %s pool socket is unavailable or failed its ownership check.", pool.version))
 			result.Pools = append(result.Pools, item)
 			continue
+		}
+		// A FastCGI status request is served by a pool worker, so on an
+		// ondemand pool with no workers it forks one. Periodic telemetry sweeps
+		// every site; waking hundreds of idle pools makes them all expire
+		// together, and connections that arrive while the master reaps them
+		// can stall until the client times out. Report such a pool as idle
+		// instead, but only while its root-owned master is alive, so a dead
+		// master is never reported as an idle pool.
+		if !includeWorkerMemory && pool.ondemand {
+			if state := scanFPMPoolProcesses(fpmProcRoot, uid, site, pool.version); state.masterAlive && !state.workers {
+				item.State = "idle"
+				result.Available = true
+				result.Pools = append(result.Pools, item)
+				continue
+			}
 		}
 		stats, err := requestFPMStatus(ctx, pool.socket)
 		if err != nil {
@@ -315,6 +331,92 @@ func sampleFPMWorkerMemory(procRoot string, uid uint32, site, version string) (*
 	}, nil
 }
 
+// fpmProcRoot and procEntryOwnerMayMatch are replaced in tests, whose fake
+// process directories are not owned by the simulated process UIDs.
+var (
+	fpmProcRoot            = "/proc"
+	procEntryOwnerMayMatch = func(entry os.DirEntry, uids ...uint32) bool {
+		info, err := entry.Info()
+		if err != nil {
+			return false
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			return true
+		}
+		for _, uid := range uids {
+			if stat.Uid == uid {
+				return true
+			}
+		}
+		return false
+	}
+)
+
+type fpmPoolProcessState struct {
+	masterAlive bool
+	workers     bool
+}
+
+// scanFPMPoolProcesses reports whether the site pool has any worker process
+// and whether the root-owned master for its PHP version is running. It reads
+// no customer data: only process ownership, titles and parent PIDs. The owner
+// prefilter uses the /proc directory owner so only root and site processes
+// are opened. Any error makes the scan conservative (no idle claim).
+func scanFPMPoolProcesses(procRoot string, uid uint32, site, version string) fpmPoolProcessState {
+	entries, err := os.ReadDir(procRoot)
+	if err != nil || len(entries) > 32768 {
+		return fpmPoolProcessState{workers: true}
+	}
+	needle := "php-fpm: pool stepanel-" + site
+	var state fpmPoolProcessState
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, err := strconv.ParseUint(entry.Name(), 10, 32); err != nil {
+			continue
+		}
+		if !procEntryOwnerMayMatch(entry, 0, uid) {
+			continue
+		}
+		base := filepath.Join(procRoot, entry.Name())
+		status, err := os.ReadFile(filepath.Join(base, "status"))
+		if err != nil || len(status) > 64<<10 {
+			continue
+		}
+		isRoot := procStatusHasUID(status, 0)
+		if !isRoot && !procStatusHasUID(status, uid) {
+			continue
+		}
+		cmdline, err := os.ReadFile(filepath.Join(base, "cmdline"))
+		if err != nil || len(cmdline) > 16<<10 {
+			continue
+		}
+		title := procTitle(cmdline)
+		switch {
+		case isRoot && fpmMasterTitleMatchesVersion(title, version):
+			state.masterAlive = true
+		case !isRoot && title == needle && fpmWorkerMasterMatchesVersion(procRoot, status, version):
+			state.workers = true
+		}
+		if state.masterAlive && state.workers {
+			break
+		}
+	}
+	return state
+}
+
+func fpmMasterTitleMatchesVersion(title, version string) bool {
+	if !strings.HasPrefix(title, "php-fpm: master process") {
+		return false
+	}
+	if version == "default" {
+		return !strings.Contains(title, "/etc/php/")
+	}
+	return strings.Contains(title, "/etc/php/"+version+"/")
+}
+
 // procTitle normalizes a process title; php-fpm may pad it with NULs or spaces.
 func procTitle(cmdline []byte) string {
 	return strings.TrimRight(strings.ReplaceAll(string(cmdline), "\x00", " "), " ")
@@ -340,14 +442,7 @@ func fpmWorkerMasterMatchesVersion(procRoot string, status []byte, version strin
 	if err != nil || len(cmdline) > 16<<10 {
 		return false
 	}
-	title := procTitle(cmdline)
-	if !strings.HasPrefix(title, "php-fpm: master process") {
-		return false
-	}
-	if version == "default" {
-		return !strings.Contains(title, "/etc/php/")
-	}
-	return strings.Contains(title, "/etc/php/"+version+"/")
+	return fpmMasterTitleMatchesVersion(procTitle(cmdline), version)
 }
 
 func procStatusHasUID(status []byte, wanted uint32) bool {
@@ -559,7 +654,7 @@ func parseManagedFPMPool(data []byte, site, socketRoot, version string) (fpmPool
 		}
 		key, value = strings.TrimSpace(key), strings.TrimSpace(value)
 		switch key {
-		case "listen", "pm.status_path", "pm.max_children", "request_slowlog_timeout":
+		case "listen", "pm", "pm.status_path", "pm.max_children", "request_slowlog_timeout":
 			if _, exists := values[key]; exists {
 				return fpmPoolConfig{}, fmt.Errorf("duplicate %s setting", key)
 			}
@@ -594,7 +689,7 @@ func parseManagedFPMPool(data []byte, site, socketRoot, version string) (fpmPool
 	if threshold == "" || threshold == "0" || threshold == "0s" {
 		threshold = "off"
 	}
-	return fpmPoolConfig{version: version, socket: listen, max: max, slowThreshold: threshold}, nil
+	return fpmPoolConfig{version: version, socket: listen, max: max, slowThreshold: threshold, ondemand: values["pm"] == "ondemand"}, nil
 }
 
 func verifyFPMSocket(path, root string, uid uint32) error {

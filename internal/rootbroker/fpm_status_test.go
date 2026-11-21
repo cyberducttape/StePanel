@@ -27,8 +27,12 @@ request_slowlog_timeout = 5s
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.version != "8.3" || got.max != 12 || got.socket != "/run/php/stepanel-demo-8.3.sock" || got.slowThreshold != "5s" {
+	if got.version != "8.3" || got.max != 12 || got.socket != "/run/php/stepanel-demo-8.3.sock" || got.slowThreshold != "5s" || !got.ondemand {
 		t.Fatalf("pool = %#v", got)
+	}
+	dynamic, err := parseManagedFPMPool([]byte(strings.ReplaceAll(string(valid), "pm = ondemand", "pm = dynamic")), "demo", "/run/php", "8.3")
+	if err != nil || dynamic.ondemand {
+		t.Fatalf("dynamic pool = %#v, %v; want ondemand=false", dynamic, err)
 	}
 	withoutThreshold := strings.ReplaceAll(string(valid), "request_slowlog_timeout = 5s\n", "")
 	legacy, err := parseManagedFPMPool([]byte(withoutThreshold), "demo", "/run/php", "8.3")
@@ -45,6 +49,7 @@ request_slowlog_timeout = 5s
 		"invalid max children":     []byte(strings.ReplaceAll(string(valid), "pm.max_children = 12", "pm.max_children = 0")),
 		"duplicate listen":         []byte(string(valid) + "listen = /run/php/stepanel-demo.sock\n"),
 		"duplicate slow threshold": []byte(string(valid) + "request_slowlog_timeout = 10s\n"),
+		"duplicate pm":             []byte(string(valid) + "pm = static\n"),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := parseManagedFPMPool(input, "demo", "/run/php", "8.3"); err == nil {

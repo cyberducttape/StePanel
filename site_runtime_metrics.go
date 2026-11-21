@@ -354,6 +354,7 @@ func writeSiteRuntimeSamples(w io.Writer, samples map[string]siteRuntimeMetricSa
 		{"stepanel_site_fpm_configured", "Whether a site resource profile expects a PHP-FPM pool"},
 		{"stepanel_site_fpm_probe_up", "Whether a live PHP-FPM status sample was obtained for a site"},
 		{"stepanel_site_fpm_sample_timestamp_seconds", "Unix timestamp of the site's live PHP-FPM sample"},
+		{"stepanel_site_fpm_idle", "Whether this ondemand PHP-FPM pool had no workers and was reported without waking it; listen queue and slow requests are then not sampled"},
 		{"stepanel_site_fpm_saturated", "Whether this PHP-FPM pool has active workers waiting in its listen queue"},
 		{"stepanel_site_fpm_active_workers", "Active PHP-FPM workers in the latest pool sample"},
 		{"stepanel_site_fpm_max_children", "Configured PHP-FPM max_children for the latest pool sample"},
@@ -378,13 +379,19 @@ func writeSiteRuntimeSamples(w io.Writer, samples map[string]siteRuntimeMetricSa
 		_, _ = fmt.Fprintf(w, "stepanel_site_fpm_probe_up{site=%q} %d\n", site, boolMetric(sample.fpmAvailable))
 		_, _ = fmt.Fprintf(w, "stepanel_site_fpm_sample_timestamp_seconds{site=%q} %d\n", site, sample.collectedAt.Unix())
 		for _, pool := range sample.pools {
-			if pool.State != "available" || !sample.fpmAvailable {
+			if (pool.State != "available" && pool.State != "idle") || !sample.fpmAvailable {
 				continue
 			}
 			labels := fmt.Sprintf("site=%q,php_version=%q", site, pool.PHPVersion)
+			_, _ = fmt.Fprintf(w, "stepanel_site_fpm_idle{%s} %d\n", labels, boolMetric(pool.State == "idle"))
 			_, _ = fmt.Fprintf(w, "stepanel_site_fpm_saturated{%s} %d\n", labels, boolMetric(pool.Saturated))
 			_, _ = fmt.Fprintf(w, "stepanel_site_fpm_active_workers{%s} %d\n", labels, pool.ActiveProcesses)
 			_, _ = fmt.Fprintf(w, "stepanel_site_fpm_max_children{%s} %d\n", labels, pool.MaxChildren)
+			if pool.State == "idle" {
+				// The listen queue and slow-request counter are only readable
+				// through a worker; an idle pool is not woken to read them.
+				continue
+			}
 			_, _ = fmt.Fprintf(w, "stepanel_site_fpm_listen_queue{%s} %d\n", labels, pool.ListenQueue)
 			_, _ = fmt.Fprintf(w, "stepanel_site_fpm_slow_requests{%s} %d\n", labels, pool.SlowRequests)
 		}
