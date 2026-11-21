@@ -119,19 +119,35 @@ app -e "CREATE TABLE orders (id INT PRIMARY KEY, note VARCHAR(200)); INSERT INTO
 expected=$(snapshot)
 before_kib=$(free_kib)
 
-# A dump 512 MiB larger than the free space, in multi-row inserts.
+# A WordPress-shaped dump 512 MiB larger than the free space: the core
+# posts, postmeta and options tables with their usual indexes, most of the
+# volume in post content, loaded in multi-row inserts as mysqldump writes it.
 python3 -I - "$(( before_kib / 1024 + 512 ))" > "$work/huge.sql" <<'PY'
 import sys
 target_mib = int(sys.argv[1])
-print("CREATE TABLE filler (id INT PRIMARY KEY, blob_value LONGTEXT);")
-row = "x" * 60000
+print("""CREATE TABLE wp_options (option_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, option_name VARCHAR(191) NOT NULL DEFAULT '',
+  option_value LONGTEXT NOT NULL, autoload VARCHAR(20) NOT NULL DEFAULT 'yes', PRIMARY KEY (option_id),
+  UNIQUE KEY option_name (option_name), KEY autoload (autoload)) DEFAULT CHARSET=utf8mb4;""")
+print("""CREATE TABLE wp_posts (ID BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, post_author BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  post_date DATETIME NOT NULL DEFAULT '2026-01-01 00:00:00', post_content LONGTEXT NOT NULL, post_title TEXT NOT NULL,
+  post_status VARCHAR(20) NOT NULL DEFAULT 'publish', post_name VARCHAR(200) NOT NULL DEFAULT '',
+  post_type VARCHAR(20) NOT NULL DEFAULT 'post', PRIMARY KEY (ID), KEY post_name (post_name(191)),
+  KEY type_status_date (post_type, post_status, post_date, ID), KEY post_author (post_author)) DEFAULT CHARSET=utf8mb4;""")
+print("""CREATE TABLE wp_postmeta (meta_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, post_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  meta_key VARCHAR(255) DEFAULT NULL, meta_value LONGTEXT, PRIMARY KEY (meta_id), KEY post_id (post_id),
+  KEY meta_key (meta_key(191))) DEFAULT CHARSET=utf8mb4;""")
+print("INSERT INTO wp_options (option_name, option_value) VALUES ('siteurl','https://example.test'),('home','https://example.test'),('blogname','ENOSPC drill');")
+paragraph = "<!-- wp:paragraph --><p>" + "Lorem ipsum dolor sit amet, consectetur adipiscing elit. " * 1000 + "</p><!-- /wp:paragraph -->"
 rows_per_insert = 16
-total_rows = target_mib * 1024 * 1024 // len(row) + 1
-next_id = 1
-while next_id <= total_rows:
-    values = ",".join(f"({i},'{row}')" for i in range(next_id, min(next_id + rows_per_insert, total_rows + 1)))
-    print(f"INSERT INTO filler VALUES {values};")
-    next_id += rows_per_insert
+total_rows = target_mib * 1024 * 1024 // len(paragraph) + 1
+post_id = 1
+while post_id <= total_rows:
+    last = min(post_id + rows_per_insert, total_rows + 1)
+    posts = ",".join(f"({i},1,'{paragraph}','Post {i}','post-{i}')" for i in range(post_id, last))
+    meta = ",".join(f"({i},'_edit_last','1'),({i},'_wp_page_template','default')" for i in range(post_id, last))
+    print(f"INSERT INTO wp_posts (ID,post_author,post_content,post_title,post_name) VALUES {posts};")
+    print(f"INSERT INTO wp_postmeta (post_id,meta_key,meta_value) VALUES {meta};")
+    post_id = last
 PY
 dump_bytes=$(stat -c %s "$work/huge.sql")
 pass "generated a $(( dump_bytes / 1048576 )) MiB dump for $(( before_kib / 1024 )) MiB free"
