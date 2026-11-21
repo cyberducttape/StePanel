@@ -113,3 +113,23 @@ test('a failed refresh labels the retained snapshot as potentially stale', async
   warning = harness.feed.children.find((child) => child.attributes.role === 'status');
   assert.equal(warning, undefined);
 });
+
+test('a durable operation waiter recovers from a transient status API failure', async () => {
+  let statusReads = 0;
+  const harness = loadJobs((url) => {
+    if (url === '/api/jobs') return Promise.resolve({ jobs: [] });
+    statusReads += 1;
+    if (statusReads === 1) return Promise.reject(new Error('temporary database error'));
+    return Promise.resolve(job('completed'));
+  });
+  await flush();
+
+  const result = harness.jobs.wait('job-1');
+  await flush();
+  const poll = harness.intervals.find((interval) => interval.delay === 10000);
+  assert.ok(poll, 'waiter installs its bounded durable-status poller');
+  poll.callback();
+
+  assert.equal((await result).state, 'completed');
+  assert.equal(statusReads, 2);
+});

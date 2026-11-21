@@ -1343,14 +1343,36 @@ Scope and ordering are defined in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Current sequencing
 
-1. Typed service extraction for durable site operations is complete (M0s);
+1. Make first-run and customer operation dependable through clear errors,
+   context-safe workflows, and resilient status updates; current item M0aa.
+2. Typed service extraction for durable site operations is complete (M0s);
    move the backup/restore and deployment services into `internal/` packages
    in focused changes.
-2. Obtain an accessible disposable KVM certification host/runner and execute
+3. Obtain an accessible disposable KVM certification host/runner and execute
    M1 before broader production claims.
-3. Complete M2 and M3 with real installed services while retaining failure
+4. Complete M2 and M3 with real installed services while retaining failure
    evidence.
-4. Measure M4 and complete M5; then perform the M6 exact-source audit.
+5. Measure M4 and complete M5; then perform the M6 exact-source audit.
+
+### M0aa — Keep site-creation status truthful through transient outages (P1)
+
+**Status:** Implemented locally; exact-source checks pending.
+
+The customer and operator site-creation flow must treat an accepted durable
+job as accepted even when status reads temporarily fail. Use the shared job
+waiter with durable polling/retries, retain the job ID when status cannot be
+confirmed, and report inventory-refresh failures separately from creation
+failures.
+
+**Acceptance criteria**
+
+- A transient job-status read failure followed by recovery still reaches the
+  correct terminal state without asking the operator to resubmit the mutation.
+- Persistent status failure states that the job was accepted and identifies
+  its ID; it never claims site creation failed or that nothing was changed.
+- A successful create followed by an inventory refresh failure is reported
+  as created with a refresh problem, not as a failed create.
+- Frontend unit/browser checks and exact-source CI pass.
 
 ### Guided site lifecycle experience (product work; not a release-gate closure)
 

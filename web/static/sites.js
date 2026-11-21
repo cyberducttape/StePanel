@@ -2298,7 +2298,6 @@
     };
     templateSelect.addEventListener('change', updateTemplateFields);
     updateTemplateFields();
-    const terminal = new Set(['completed', 'failed', 'cancelled', 'dead-letter']);
     createForm.addEventListener('submit', withBusySubmit(async (event) => {
       event.preventDefault();
       const site = createForm.elements.site.value.trim();
@@ -2322,30 +2321,37 @@
         if (!confirmed) return;
       }
       createStatus.textContent = `Queuing ${site}…`;
+      let queued;
       try {
-        const queued = await postJSON('/api/sites', { site, template, ...placement, ...wordpress });
+        queued = await postJSON('/api/sites', { site, template, ...placement, ...wordpress });
         createStatus.textContent = `Creating ${site}: preparing its account and PHP pool…`;
-        for (let attempt = 0; attempt < 90; attempt += 1) {
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-          const job = await getJSON(`/api/jobs/${encodeURIComponent(queued.job_id)}`);
-          if (!terminal.has(job.state)) continue;
-          if (job.state === 'completed') {
-            const result = job.output || {};
-            createStatus.textContent = template === 'wordpress'
-              ? `${site} is ready at ${result.domain || placement.domain}. ${result.https || 'HTTPS configuration is active.'} Database: ${result.database || 'created'}. Integrity-verified recovery point: ${result.recovery_point || 'check Backups'}${result.recovery_verified_at ? ` (${new Date(result.recovery_verified_at).toLocaleString()})` : ''}. ${result.recovery_evidence || ''} Backups: ${result.backup_schedule || 'check schedule status'}.`
-              : `${site} is ready. Connect a domain from its workspace.`;
-            createForm.reset();
-            updateTemplateFields();
-            await loadGrid();
-            openWorkspace(site, 'journey');
-          } else {
-            createStatus.textContent = `${site} was not created: ${job.error || job.state}. Nothing was left behind.`;
-          }
+        // Use the shared durable-job waiter: it reconciles events against the
+        // authoritative API and retries transient status-read failures. A
+        // status outage must never make an accepted create look rejected.
+        const job = await window.StepanelJobs.wait(queued.job_id);
+        if (job.state !== 'completed') {
+          createStatus.textContent = `${site} was not created: ${job.error || job.state}.`;
           return;
         }
-        createStatus.textContent = `${site} is still being created; follow job ${queued.job_id} under Activity.`;
+        const result = job.output || {};
+        createStatus.textContent = template === 'wordpress'
+          ? `${site} is ready at ${result.domain || placement.domain}. ${result.https || 'HTTPS configuration is active.'} Database: ${result.database || 'created'}. Integrity-verified recovery point: ${result.recovery_point || 'check Backups'}${result.recovery_verified_at ? ` (${new Date(result.recovery_verified_at).toLocaleString()})` : ''}. ${result.recovery_evidence || ''} Backups: ${result.backup_schedule || 'check schedule status'}.`
+          : `${site} is ready. Connect a domain from its workspace.`;
+        createForm.reset();
+        updateTemplateFields();
+        try {
+          await loadGrid();
+          openWorkspace(site, 'journey');
+        } catch (error) {
+          createStatus.textContent += ` The site was created, but its list could not refresh: ${error.message}`;
+        }
       } catch (error) {
-        createStatus.textContent = error.message;
+        // The job was accepted before waiting began. Preserve that fact and
+        // give the operator a route to its durable record instead of implying
+        // the site creation itself failed.
+        createStatus.textContent = queued
+          ? `Site creation was accepted as job ${queued.job_id}, but its status could not be confirmed. Check Operations before retrying. ${error.message}`
+          : error.message;
       }
     }));
   }

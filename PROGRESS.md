@@ -1,5 +1,19 @@
 # Production-readiness progress
 
+## Durable site-creation status — 2026-11-21
+
+- Site creation now waits through the shared durable-job client, which retries
+  transient status reads and reconciles cross-process worker updates. If
+  status remains unavailable, the UI says the operation was accepted, shows
+  the job ID, and tells the operator to check Operations before retrying.
+- A post-success site-grid refresh error is reported separately; it no longer
+  turns a completed create into a generic create failure.
+- Regression: `npm run test:unit` passed (18 tests), including recovery after
+  a transient job-status API failure. `make build`,
+  `scripts/e2e-ui-test.sh ./stepanel` (25 passed, one optional customer-session
+  test skipped), `node --check web/static/sites.js`, and `git diff --check`
+  passed. Exact-source CI has not yet run for this change.
+
 ## First-run setup flow — 2026-11-21
 
 - Commits `e0918674`, `6e97b1f7`, and `b7863b39` add live operator and
