@@ -1,15 +1,21 @@
 # StePanel
 
-> Current stable release: [`v0.7.0`](https://github.com/cyberducttape/StePanel/releases/tag/v0.7.0).
-> See [ROADMAP.md](docs/ROADMAP.md) for next version planning.
+**An open-source Linux hosting control panel that proves its backups work.**
+Manage PHP and WordPress sites, databases, TLS, deployments, and backups on
+your own server, and move off cPanel with a migration that checks every
+archive before it touches your host.
 
-![CI](https://github.com/cyberducttape/StePanel/actions/workflows/ci.yml/badge.svg) ![Release](https://img.shields.io/github/v/release/cyberducttape/StePanel?display_name=tag) ![License](https://img.shields.io/github/license/cyberducttape/StePanel)
+[![CI](https://github.com/cyberducttape/StePanel/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberducttape/StePanel/actions/workflows/ci.yml)
+[![Installation smoke](https://github.com/cyberducttape/StePanel/actions/workflows/install-smoke.yml/badge.svg)](https://github.com/cyberducttape/StePanel/actions/workflows/install-smoke.yml)
+[![Release](https://img.shields.io/github/v/release/cyberducttape/StePanel?display_name=tag)](https://github.com/cyberducttape/StePanel/releases)
+[![License](https://img.shields.io/github/license/cyberducttape/StePanel)](LICENSE)
 
-> A safety-first Linux web and application hosting control plane with cPanel migration tooling.
-
-StePanel is an open-source server management panel written in Go. It installs Caddy by default, with Apache and OpenLiteSpeed available explicitly, plus PHP and a selectable MySQL, MariaDB, or PostgreSQL version. It provides a focused operations dashboard and imports cPanel `cpmove` backups through an asynchronous, validated workflow.
-
-It is designed for people who want a small, understandable hosting control plane instead of a large opaque platform.
+> **Status: Operator Beta.** StePanel runs real single-server installations
+> today and is ready for experienced Linux administrators who test restores
+> before trusting them. It is not yet certified for production hosting:
+> repeated failure-recovery runs and a measured capacity limit are still in
+> progress. Everything we claim is backed by a CI run you can open; see
+> [what is proven](docs/PROOF.md) and the [release gates](docs/V1_PRODUCTION_GATES.md).
 
 ![StePanel operator overview in the dark appearance](docs/assets/screenshots/operator-overview.png)
 
@@ -29,14 +35,44 @@ branding. These are screenshots of the real UI, captured with synthetic data by
 [`scripts/capture-screenshots.sh`](scripts/capture-screenshots.sh). See
 [SCREENSHOTS.md](docs/SCREENSHOTS.md) for every view and how they are produced.
 
+## Who it is for
+
+- **Freelancers and small agencies** running client sites on one VPS who want
+  a clean panel without a per-account licence.
+- **Teams leaving cPanel** who need their sites and databases moved, and
+  their mailboxes staged, with a plan they can review first.
+- **Administrators who care about recovery**: every backup is signed and
+  verified, and restore rehearsals report what has actually been proven.
+
+It is not yet the right choice for hosting providers that sell space to
+untrusted customers: sites share one kernel, and multi-server high
+availability is not on the 1.0 roadmap.
+
 ## Why StePanel?
 
-- **Migration-focused:** move cPanel accounts into a controlled Linux hosting environment.
-- **Safety-first:** validate archives, reject unsafe entries, stage uploads privately, and expose restore status as a job.
-- **Small footprint:** a Go control plane with a limited dependency surface.
-- **Operator-friendly:** clear health endpoints, tamper-evident audit events, systemd deployment, and readable documentation.
-- **Flexible database layer:** choose MySQL, MariaDB, or PostgreSQL and request an exact repository/AppStream version during installation.
-- **Database administration:** optionally install phpMyAdmin for MySQL/MariaDB or phpPgAdmin for PostgreSQL; the dashboard reports service health and links to the matching administrator.
+- **Recovery you can check, not assume.** Backups are signed and verified,
+  restores run as durable jobs that survive restarts, database restores take
+  a safety backup first, and the panel shows which restores have been
+  rehearsed. The project publishes its own
+  [crash and recovery test results](docs/PROOF.md).
+- **Migrations that look before they leap.** cPanel archives are inspected,
+  staged privately, and checked against the destination before anything is
+  imported. Unsafe entries are rejected, not skipped silently.
+- **Small and understandable.** One Go control plane, narrow root-owned
+  helpers, systemd services, and plain documentation.
+- **An audit trail you can trust.** Security-relevant actions are recorded in
+  a tamper-evident chain, with optional signed checkpoints off the host.
+- **Your choice of stack.** Caddy (default), Apache, or OpenLiteSpeed; PHP;
+  MySQL, MariaDB, or PostgreSQL.
+
+## Get started
+
+| I want to... | Start here |
+| --- | --- |
+| Look around in two minutes, no server needed | [Run it locally](#local-development) |
+| Install on a fresh server | [Installation guide](docs/INSTALLATION.md) (Ubuntu 24.04, AlmaLinux 9, Rocky Linux 9) |
+| Move a cPanel account | [cPanel migration guide](docs/CPMOVE_IMPORTS.md) |
+| See how it compares | [StePanel vs. cPanel, Plesk, HestiaCP, CloudPanel](docs/COMPARISON.md) |
 
 ## Current capabilities
 
@@ -58,7 +94,12 @@ constraints, off-site backups, and operational configuration, see the
 [integration guide](docs/INTEGRATIONS.md), [installation guide](docs/INSTALLATION.md),
 [operations runbook](docs/OPERATIONS.md), [customer workflows](docs/CUSTOMER_WORKFLOWS.md), and [version compatibility and rollback](docs/COMPATIBILITY.md).
 
+<details>
+<summary>Tenant isolation and production limits in detail</summary>
+
 > **Status:** StePanel supports single-host operation with tenant-scoped account provisioning (TOTP MFA, assigned-site limits, plan-limited site creation by tenant owners, delegated roles, scoped access, resource profiles, and a customer plan/usage panel). Tenants are separated in the control plane and by Unix user and cgroup on the host, but sites share one kernel and network, so StePanel is not a security boundary between hostile customers; see [what tenant isolation covers](SECURITY.md#what-tenant-isolation-does-and-does-not-mean). Multi-tenant production deployment is NOT RECOMMENDED yet: provider-wide audit segregation, HA datastore/failover, and cross-host durable job routing remain open platform requirements. See [PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) for detailed capability status. Administrators can inspect verified local restore dependencies through the authenticated `/api/capabilities` endpoint; remote backup access and each artifact's integrity are checked when an operation runs. Always run behind authenticated HTTPS and test restores against a disposable server before using production data.
+
+</details>
 
 ## Architecture at a glance
 
