@@ -10,7 +10,10 @@
 - Expanded operator and customer browser regressions for multi-site gaps and
   direct navigation, truncated history, and complete coverage. Build,
   frontend unit tests (19 passed), and focused operator/customer Playwright
-  and axe journeys (2 passed) passed locally. Exact-source CI pending.
+  and axe journeys passed locally. The full browser suite passed 28 tests with
+  one optional credential test skipped. A slow repeated axe scan now has a
+  60-second test budget; the full suite initially showed it can exceed 30
+  seconds under parallel load. Exact-source CI pending.
 
 ## Customer domain checklist requires DNS and HTTPS review — 2026-11-21
 

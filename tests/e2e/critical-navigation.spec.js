@@ -423,6 +423,7 @@ function stubSiteInventory(page, site) {
 }
 
 test('every site workspace tab passes axe when its data is unavailable', async ({ page }) => {
+  test.setTimeout(60_000);
   const site = { site: 'e2e-a11y', routes: [{ domain: 'a11y.example.test', state: 'applied' }], applications: [], database_count: 0 };
   await stubSiteInventory(page, site);
   await scanSiteWorkspaceTabs(page, site.site);
