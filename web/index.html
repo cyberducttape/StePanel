@@ -40,8 +40,8 @@
         <article class="metric"><span class="metric-label">{{ if .IsAdministrator }}Needs attention{{ else }}Your plan{{ end }}</span><strong{{ if not .IsAdministrator }} class="metric-text"{{ end }}>{{ if .IsAdministrator }}{{ .Alerts }}{{ else }}{{ .Account.Plan }}{{ end }}</strong><span class="metric-note {{ if .IsAdministrator }}warning{{ end }}">{{ if .IsAdministrator }}Platform checks requiring review{{ else }}Site access is limited to your assigned workspace{{ end }}</span></article>
       </section>
       <section class="onboarding" id="start" aria-labelledby="start-heading">
-        <div><p class="eyebrow">Start here</p><h2 id="start-heading">What would you like to do?</h2><p>Start with a guided task. You can review the result and recent activity from the site workspace.</p></div>
-        <div class="onboarding-actions">{{ if .IsAdministrator }}<a class="task-card" href="#migrations"><strong>Move a cPanel site</strong><span>Inspect a backup before restoring it.</span></a>{{ end }}<a class="task-card" href="#sites"><strong>Manage a site</strong><span>Connect a domain or create a verified backup.</span></a>{{ if .IsAdministrator }}<a class="task-card" href="#deploy"><strong>Deploy an application</strong><span>Route a local Node application safely.</span></a>{{ else }}<a class="task-card" href="#jobs"><strong>Review activity</strong><span>Track work performed for your sites.</span></a>{{ end }}</div>
+        <div class="onboarding-intro"><p class="eyebrow">{{ if .IsAdministrator }}First-run checklist{{ else }}Your next steps{{ end }}</p><h2 id="start-heading">{{ if .IsAdministrator }}Get your hosting workspace ready{{ else }}Get your site ready{{ end }}</h2><p>{{ if .IsAdministrator }}Work through the essentials in order. Each step reflects live checks, not a saved setup wizard.{{ else }}See what is ready and what to do next. Your site and recovery status update from live data.{{ end }}</p><p class="onboarding-progress" id="onboardingProgress" role="status" aria-live="polite">Checking your workspace…</p><button class="quiet-action onboarding-refresh" id="refreshOnboarding" type="button">Refresh status</button></div>
+        <div class="onboarding-checklist" id="onboardingChecklist" aria-live="polite"><p class="empty-state">Loading your setup checklist…</p></div>
       </section>
       {{ if .IsAdministrator }}
       <section class="security-card" id="security">
@@ -116,6 +116,7 @@
 <script src="/static/wpress.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/database.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/sites.js?v={{ .AssetVersion }}" defer></script>
+<script src="/static/onboarding.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/htaccess.js?v={{ .AssetVersion }}" defer></script>
 </body>
 </html>

@@ -106,6 +106,30 @@ guide refuses to run on a server where StePanel is already installed, because
 new keys would make existing backups unreadable; upgrade with
 `sudo ./install.sh` instead.
 
+## After installation: first sign-in
+
+Open the panel at the hostname you configured and sign in with the administrator
+credentials and authenticator code. The overview's **First-run checklist**
+checks operational health, confirms that site inventory loaded, and looks for
+an integrity-verified backup belonging to an active site. It refreshes while
+the page is open. A failed API request is shown as unavailable, not as an empty
+server or a completed step.
+
+Work through the checklist in order:
+
+1. Resolve any reported broker, worker, storage, audit, or queue issue before
+   provisioning a site. The health-details link opens the individual checks.
+2. Create a WordPress site or inspect a cPanel archive in the migration center.
+   Follow the resulting durable job from **Activity / Jobs**.
+3. Open the site workspace, confirm its domain and application health, then
+   create a backup and confirm its integrity. Integrity verification proves
+   the stored archive can be checked; it does not by itself prove that the
+   application can be restored and served.
+
+The checklist is guidance, not a production certification. Review the
+[release gates](V1_PRODUCTION_GATES.md) before placing customer workloads on a
+host.
+
 ## Build and install
 
 For production, use a verified tagged release archive:

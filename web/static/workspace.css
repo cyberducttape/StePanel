@@ -587,6 +587,40 @@ body { background: var(--panel-bg); color: var(--panel-text); }
   box-shadow: 0 12px 32px rgba(0, 0, 0, .4);
   border-radius: 16px;
 }
+.onboarding { align-items: stretch; }
+.onboarding-intro { max-width: 340px; }
+.onboarding-progress { margin-top: 18px!important; font-weight: 700; }
+.onboarding-refresh { margin-top: 10px; padding: 0; border: 0; background: transparent; color: var(--panel-muted); cursor: pointer; text-decoration: underline; }
+.onboarding-checklist { display: grid; gap: 9px; min-width: 0; }
+.setup-step {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 13px;
+  padding: 13px 15px;
+  border: 1px solid var(--ws-border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .86);
+}
+.setup-step-marker {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--ws-border);
+  border-radius: 50%;
+  color: var(--ws-muted);
+  font: 700 12px ui-monospace, monospace;
+}
+.setup-step-done .setup-step-marker { border-color: #a4d6c8; background: #eaf8f2; color: #19714f; }
+.setup-step-attention .setup-step-marker,
+.setup-step-unknown .setup-step-marker { border-color: #f0c98f; background: #fff7e8; color: #8a5514; }
+.setup-step-copy { min-width: 0; }
+.setup-step-copy strong { display: block; color: var(--panel-text); font-size: 13px; }
+.setup-step-copy p { margin-top: 4px; color: var(--panel-muted); font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+.setup-step-action { color: var(--panel-text); font-size: 11px; font-weight: 750; text-decoration: none; white-space: nowrap; }
+.setup-step-action:hover { text-decoration: underline; }
+.setup-step-action:focus-visible { outline: 3px solid #28718e; outline-offset: 3px; }
 .onboarding h2 { font-size: 26px; margin-bottom: 12px; }
 .onboarding > div:first-child > p:first-of-type { margin-bottom: 8px; }
 .task-card {
@@ -848,6 +882,10 @@ body[data-theme] .security-card,
 body[data-theme] .site-detail,
 body[data-theme] .account-panel,
 body[data-theme] .site-card { background: var(--appearance-surface) !important; border-color: var(--appearance-line) !important; box-shadow: var(--appearance-shadow) !important; }
+body[data-theme] .setup-step { background: var(--appearance-raised); border-color: var(--appearance-line); }
+body[data-theme] .setup-step-copy strong,
+body[data-theme] .setup-step-action { color: var(--appearance-text); }
+body[data-theme] .setup-step-copy p { color: var(--appearance-muted); }
 body[data-theme] .site-card button,
 body[data-theme] .site-detail .site-detail-actions button,
 body[data-theme] .quiet-action { background: var(--appearance-raised) !important; border-color: var(--appearance-line) !important; color: var(--appearance-link) !important; }
@@ -1333,6 +1371,8 @@ textarea[aria-invalid="true"] {
 @media (max-width: 1024px) {
   .hero { flex-direction: column; }
   .metrics { grid-template-columns: repeat(2, 1fr); }
+  .onboarding { grid-template-columns: 1fr; }
+  .onboarding-intro { max-width: none; }
   .onboarding-actions { grid-template-columns: 1fr; }
 }
 
@@ -1340,6 +1380,8 @@ textarea[aria-invalid="true"] {
   .metrics { grid-template-columns: 1fr; }
   .topbar { min-height: 64px; padding: 0 16px; }
   .content { padding: 16px; }
+  .setup-step { grid-template-columns: 30px minmax(0, 1fr); }
+  .setup-step-action { grid-column: 2; }
 
   .activity-item {
     flex-direction: column;
