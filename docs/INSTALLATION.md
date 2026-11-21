@@ -57,19 +57,34 @@ validate/reload the complete Caddyfile after each change. Caddy manages HTTPS
 certificates automatically. Apache `.htaccess` migrations are described in
 [`HTACCESS_MIGRATION.md`](HTACCESS_MIGRATION.md).
 
-## Guided install (recommended)
+## Guided install from current source
 
-> **Availability:** guided setup (`--guided`, `--config`, `stepanel setup`)
-> is on `main` and ships in the first release after v0.7.0. With the v0.7.0
-> release archive, use the environment-variable install under
-> [Build and install](#build-and-install).
+The guided installer is available on `main`, but is **not included in the
+published v0.7.0 release archive**. This source-based path is for evaluation
+and staging. For production, use a verified tagged release and follow
+[Build and install](#build-and-install), which lists that release's supported
+configuration path.
 
-On a fresh server, download and verify a release (below), install rclone and
-add a storage remote for offsite backups (`sudo rclone config`), then run:
+On a fresh evaluation server, install Go 1.26.11 and Git, then build the
+current source tree. The build and installer must stay together because the
+installer uses helpers and assets from that checkout:
+
+```sh
+git clone --branch main https://github.com/cyberducttape/StePanel.git
+cd StePanel
+make build
+```
+
+Install rclone and configure the remote used for offsite backups
+(`sudo rclone config`). Then run the guided installer from the same checkout:
 
 ```sh
 sudo ./install.sh --guided
 ```
+
+Do not run this on a host already serving websites unless you intend to hand
+ports 80 and 443 to StePanel. The preflight lists services and files it will
+change, and the installer asks before taking over an existing web server.
 
 The guide asks seven questions and checks every answer before moving on:
 
@@ -93,7 +108,8 @@ server is already running, it asks before stopping it. Keep a copy of the
 settings file offline: it holds the backup encryption key, and encrypted
 backups cannot be restored without it.
 
-To prepare settings on one machine and install later, or to review them first:
+To prepare settings on one machine and install later, or to review them first,
+run setup from the built checkout:
 
 ```sh
 ./stepanel setup --output stepanel-install.env      # answer the questions
