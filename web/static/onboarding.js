@@ -93,7 +93,7 @@
       });
     } else {
       steps.push({
-        title: isAdmin ? 'Create or migrate your first site' : 'Open your assigned site',
+        title: isAdmin ? 'Manage your websites' : 'Open your assigned site',
         detail: `${sites.length} ${sites.length === 1 ? 'site is' : 'sites are'} available. Open a site workspace to check its domain, runtime, and application health.`,
         href: '#sites', label: 'Open sites', state: 'done',
       });

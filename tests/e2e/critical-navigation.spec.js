@@ -68,6 +68,8 @@ test('first-run primary action follows the next unresolved setup step', async ({
   currentSites = [{ site: 'setup-a' }, { site: 'setup-b' }];
   currentBackups = [{ site: 'setup-a', verified_at: '2026-11-20T12:00:00Z' }];
   await page.locator('#refreshOnboarding').click();
+  await expect(page.locator('#onboardingChecklist')).toContainText('Manage your websites');
+  await expect(page.locator('#onboardingChecklist')).not.toContainText('Create or migrate your first site');
   await expect(page.locator('#onboardingChecklist')).toContainText('No integrity-verified backup is recorded for setup-b');
   await expect(page.locator('#onboardingChecklist').getByRole('link', { name: 'Review setup-b backups' })).toHaveAttribute('href', '#site=setup-b&tab=backups');
   await expect(primary).toHaveAttribute('href', '#site=setup-b&tab=backups');
