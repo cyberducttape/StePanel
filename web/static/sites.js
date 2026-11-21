@@ -2285,6 +2285,7 @@
     const wordpressFields = createForm.querySelector('#wordpressCreateFields');
     const domainInput = createForm.elements.domain;
     const siteNameInput = createForm.elements.site;
+    const siteTitleInput = createForm.elements.title;
     const wordpressInputs = ['title', 'admin_user', 'admin_email', 'admin_password'].map((name) => createForm.elements[name]).filter(Boolean);
     const suggestSiteName = () => {
       if (!siteNameInput || siteNameInput.dataset.manuallyEdited === 'true') return;
@@ -2309,6 +2310,32 @@
         delete siteNameInput.dataset.manuallyEdited;
         delete siteNameInput.dataset.autoSuggested;
         window.setTimeout(suggestSiteName, 0);
+      });
+    }
+    const suggestSiteTitle = () => {
+      if (!siteTitleInput || siteTitleInput.dataset.manuallyEdited === 'true') return;
+      const labels = domainInput.value.trim().toLowerCase().replace(/\.$/, '').split('.');
+      if (labels[0] === 'www') labels.shift();
+      const label = labels[0] || '';
+      if (label && /^[a-z0-9_-]{1,63}$/.test(label)) {
+        siteTitleInput.value = label.split(/[-_]+/).filter(Boolean)
+          .map((part) => part[0].toUpperCase() + part.slice(1)).join(' ');
+        siteTitleInput.dataset.autoSuggested = 'true';
+      } else if (siteTitleInput.dataset.autoSuggested === 'true') {
+        siteTitleInput.value = '';
+        delete siteTitleInput.dataset.autoSuggested;
+      }
+    };
+    if (siteTitleInput && domainInput) {
+      siteTitleInput.addEventListener('input', () => {
+        siteTitleInput.dataset.manuallyEdited = 'true';
+        delete siteTitleInput.dataset.autoSuggested;
+      });
+      domainInput.addEventListener('input', suggestSiteTitle);
+      createForm.addEventListener('reset', () => {
+        delete siteTitleInput.dataset.manuallyEdited;
+        delete siteTitleInput.dataset.autoSuggested;
+        window.setTimeout(suggestSiteTitle, 0);
       });
     }
     const adminPassword = createForm.elements.admin_password;

@@ -1492,6 +1492,26 @@ restore proof remains a distinct, stronger claim.
 - Operator and customer browser regressions cover single-site coverage,
   multi-site gaps, truncation, and exact navigation.
 
+### M0ag — Reduce first-site setup data entry (P2)
+
+**Status:** Site names and WordPress titles are suggested from the domain;
+focused operator/customer browser journeys and local checks pass. Exact-source
+hosted CI is pending.
+
+Make common first-site setup fields easy to fill without taking control away
+from the operator. Suggestions must be valid for their destination, update as
+the domain changes, and stop changing after the user customizes them.
+
+**Acceptance criteria**
+
+- A valid domain suggests a site identifier; `www` is ignored and invalid or
+  overlong labels are not submitted as identifiers.
+- WordPress titles receive a readable domain-derived suggestion.
+- Users can edit either suggestion, and subsequent domain changes preserve
+  their custom value.
+- Operator and customer journeys cover both behaviors and remain accessible.
+- Build, frontend unit tests, focused browser tests, and exact-source CI pass.
+
 ### Guided site lifecycle experience (product work; not a release-gate closure)
 
 **Status:** Implemented in the site workspace, with browser regression coverage.

@@ -202,9 +202,17 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await expect(page.locator('#siteCreateName')).toHaveValue('shop');
   await page.locator('#siteCreateDomain').fill('store.example.org');
   await expect(page.locator('#siteCreateName')).toHaveValue('store');
-  await page.locator('#siteCreateName').fill('my-store');
+  await page.locator('#siteCreateDomain').fill('this-site-name-is-longer-than-thirty-two-characters.example.org');
+  await expect(page.locator('#siteCreateName')).toHaveValue('');
   await page.locator('#siteCreateDomain').fill('another.example.org');
+  await expect(page.locator('#siteCreateName')).toHaveValue('another');
+  await page.locator('#siteCreateName').fill('my-store');
+  await page.locator('#siteCreateDomain').fill('last-domain.example.org');
   await expect(page.locator('#siteCreateName')).toHaveValue('my-store');
+  await expect(page.locator('#siteCreateTitle')).toHaveValue('Last Domain');
+  await page.locator('#siteCreateTitle').fill('My Shop');
+  await page.locator('#siteCreateDomain').fill('new-domain.example.org');
+  await expect(page.locator('#siteCreateTitle')).toHaveValue('My Shop');
   await page.getByRole('button', { name: 'Generate password' }).click();
   const generatedPassword = await page.locator('#siteCreateAdminPassword').inputValue();
   expect(generatedPassword).toHaveLength(24);

@@ -79,8 +79,11 @@ test('first-run primary action follows the next unresolved setup step', async ({
   await expect(page.locator('#siteCreateName')).toHaveValue('blog');
   await page.locator('#siteCreateDomain').fill('store.example.test');
   await expect(page.locator('#siteCreateName')).toHaveValue('store');
-  await page.locator('#siteCreateName').fill('custom-store');
+  await page.locator('#siteCreateDomain').fill('this-site-name-is-longer-than-thirty-two-characters.example.test');
+  await expect(page.locator('#siteCreateName')).toHaveValue('');
   await page.locator('#siteCreateDomain').fill('changed.example.test');
+  await page.locator('#siteCreateName').fill('custom-store');
+  await page.locator('#siteCreateDomain').fill('another.example.test');
   await expect(page.locator('#siteCreateName')).toHaveValue('custom-store');
 
   currentSites = [{ site: 'setup-a' }, { site: 'setup-b' }];
@@ -111,6 +114,13 @@ test('first-run primary action follows the next unresolved setup step', async ({
   await expect(recoveryStep).toContainText('Every active site has an integrity-verified backup');
 
   await page.locator('#siteCreateTemplate').selectOption('wordpress');
+  await page.locator('#siteCreateDomain').fill('www.blog-example.test');
+  await expect(page.locator('#siteCreateTitle')).toHaveValue('Blog Example');
+  await page.locator('#siteCreateDomain').fill('store.example.test');
+  await expect(page.locator('#siteCreateTitle')).toHaveValue('Store');
+  await page.locator('#siteCreateTitle').fill('My Storefront');
+  await page.locator('#siteCreateDomain').fill('changed.example.test');
+  await expect(page.locator('#siteCreateTitle')).toHaveValue('My Storefront');
   await page.getByRole('button', { name: 'Generate password' }).click();
   await expect(page.locator('#siteCreateAdminPassword')).toHaveValue(/^[A-Za-z0-9+/]{24}$/);
 });

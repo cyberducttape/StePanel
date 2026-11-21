@@ -1,5 +1,15 @@
 # Production-readiness progress
 
+## Suggest WordPress titles from the domain — 2026-11-21
+
+- WordPress site creation now suggests a readable title from the domain and
+  updates it with domain changes until the user edits the title. This removes
+  one required manual field while preserving custom branding.
+- Operator and customer browser regressions cover title formatting, updating,
+  and preserving a manually chosen title. `make build`, focused Playwright
+  journeys (2 passed), frontend unit tests (19 passed), JavaScript syntax,
+  and `git diff --check` passed locally. Exact-source hosted CI pending.
+
 ## Reduce site-creation data entry — 2026-11-21
 
 - Site creation now suggests a valid site name from the entered domain,
