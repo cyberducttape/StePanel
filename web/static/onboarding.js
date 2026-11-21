@@ -33,7 +33,7 @@
     controller = new AbortController();
     const signal = controller.signal;
     const generation = ++requestGeneration;
-    list.replaceChildren(text('p', 'empty-state', 'Checking your workspace…'));
+    list.replaceChildren(text('li', 'empty-state', 'Checking your workspace…'));
     progress.textContent = 'Checking your workspace…';
 
     const [sitesResult, backupsResult, readinessResult] = await Promise.allSettled([
@@ -130,7 +130,7 @@
 
     list.replaceChildren();
     steps.forEach((step, index) => {
-      const item = document.createElement('article');
+      const item = document.createElement('li');
       item.className = `setup-step setup-step-${step.state}`;
       const marker = text('span', 'setup-step-marker', step.state === 'done' ? '✓' : String(index + 1));
       marker.setAttribute('aria-hidden', 'true');

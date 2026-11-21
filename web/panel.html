@@ -36,8 +36,12 @@
       <section class="panel-view" id="home" aria-labelledby="home-heading" data-view="home">
         <div class="hero">
           <div><p class="eyebrow">Your hosting account</p><h1 id="home-heading">Welcome back, {{ .Username }}</h1><p class="lede">Your websites, files, domains, databases and backups in one place.</p><p class="import-note">{{ .Account.Plan }} plan · {{ .AccountSiteCount }} website{{ if ne .AccountSiteCount 1 }}s{{ end }}</p></div>
-          <a class="primary-action button-link" href="#files">Open the file manager</a>
+          <a class="primary-action button-link" id="panelPrimaryAction" href="#websites">Manage my websites</a>
         </div>
+        <section class="panel-onboarding" aria-labelledby="panelOnboardingHeading">
+          <div class="panel-onboarding-heading"><div><p class="eyebrow">Getting started</p><h2 id="panelOnboardingHeading">Your next steps</h2><p id="panelOnboardingProgress" role="status" aria-live="polite">Checking your websites and backups…</p></div><button class="quiet-action" id="panelOnboardingRefresh" type="button">Refresh status</button></div>
+          <ol class="panel-onboarding-list" id="panelOnboardingList" aria-live="polite"><li class="empty-state">Loading your setup checklist…</li></ol>
+        </section>
         <div class="account-grid panel-account-facts" aria-label="Hosting account">
           <article class="account-card"><span class="metric-label">Account</span><strong id="panelAccount">—</strong><small>Hosting account name</small></article>
           <article class="account-card"><span class="metric-label">System user</span><strong class="mono" id="panelUnixUser">—</strong><small>Owns your files and runs your sites</small></article>

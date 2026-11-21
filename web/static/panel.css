@@ -33,6 +33,19 @@
 .customer-panel .section-heading h1,
 .customer-panel .card-heading h1 { margin: 0; font-size: 25px; line-height: 1.2; letter-spacing: -.05em; }
 .panel-view .hero { margin-bottom: 18px; }
+.panel-onboarding { margin: 20px 0 28px; padding: 22px; border: 1px solid var(--cp-line); border-radius: 14px; background: var(--cp-surface); box-shadow: var(--appearance-shadow, none); }
+.panel-onboarding-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 14px; }
+.panel-onboarding-heading h2 { margin: 0; color: var(--cp-text); font-size: 21px; letter-spacing: -.03em; }
+.panel-onboarding-heading p:not(.eyebrow) { margin-top: 5px; color: var(--cp-muted); font-size: 12px; }
+.panel-onboarding-list { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
+.panel-setup-step { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--cp-line); border-radius: 11px; background: var(--cp-raised); }
+.panel-setup-marker { display: grid; place-items: center; width: 27px; height: 27px; border: 1px solid var(--cp-line); border-radius: 50%; color: var(--cp-muted); font: 700 12px ui-monospace, monospace; }
+.panel-setup-done .panel-setup-marker { color: #19714f; background: #eaf8f2; border-color: #a4d6c8; }
+.panel-setup-unknown .panel-setup-marker { color: #8a5514; background: #fff7e8; border-color: #f0c98f; }
+.panel-setup-copy strong { display: block; color: var(--cp-text); font-size: 13px; }
+.panel-setup-copy p { margin-top: 3px; color: var(--cp-muted); font-size: 11px; line-height: 1.5; }
+.panel-setup-step a { color: var(--appearance-link, var(--cp-accent)); font-size: 11px; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.panel-setup-step a:hover { text-decoration: underline; }
 .panel-account-facts { margin-bottom: 24px; }
 .panel-path { overflow-wrap: anywhere; font-size: 15px; }
 
@@ -145,6 +158,9 @@
 }
 
 @media (max-width: 720px) {
+  .panel-onboarding-heading { align-items: flex-start; }
+  .panel-setup-step { grid-template-columns: 28px minmax(0, 1fr); }
+  .panel-setup-step a { grid-column: 2; }
   .file-table th:nth-child(3),
   .file-table td:nth-child(3),
   .file-table th:nth-child(4),

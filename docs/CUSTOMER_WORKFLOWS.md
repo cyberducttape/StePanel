@@ -8,7 +8,12 @@ Customers sign in at the panel address and land on `/panel`, a page of their
 own (administrators keep the operator dashboard at `/`). Its sections are:
 
 - **Home:** the hosting account, its system user and home directory
-  (`/home/USER`), and each website with its document root.
+  (`/home/USER`), each website with its document root, and a live checklist
+  for opening/creating a website and checking for a recent
+  integrity-verified backup.
+  If inventory or backup status cannot be loaded, Home reports that as an
+  unavailable check rather than showing an empty result; use **Refresh status**
+  to retry.
 - **Websites:** add a website and open a website's workspace for domains,
   PHP, deployments, databases, backups, logs, workers, scheduled tasks,
   security and settings.

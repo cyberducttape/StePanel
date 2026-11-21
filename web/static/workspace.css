@@ -591,7 +591,7 @@ body { background: var(--panel-bg); color: var(--panel-text); }
 .onboarding-intro { max-width: 340px; }
 .onboarding-progress { margin-top: 18px!important; font-weight: 700; }
 .onboarding-refresh { margin-top: 10px; padding: 0; border: 0; background: transparent; color: var(--panel-muted); cursor: pointer; text-decoration: underline; }
-.onboarding-checklist { display: grid; gap: 9px; min-width: 0; }
+.onboarding-checklist { display: grid; gap: 9px; min-width: 0; margin: 0; padding: 0; list-style: none; }
 .setup-step {
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr) auto;

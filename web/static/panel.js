@@ -92,11 +92,99 @@
   let hostingLoaded = false;
   let hostingError = null;
   let overviewError = null;
+  let backups = [];
+  let backupsLoaded = false;
+  let backupsError = null;
 
   const retryNotice = (message) => el('span', {}, [
     document.createTextNode(`${message} `),
     el('button', { type: 'button', className: 'quiet-action', onClick: () => loadHosting() }, 'Retry'),
   ]);
+
+  const renderSetupChecklist = () => {
+    const list = $('#panelOnboardingList');
+    const progress = $('#panelOnboardingProgress');
+    const primary = $('#panelPrimaryAction');
+    if (!list || !progress) return;
+
+    const steps = [];
+    if (!hostingLoaded || hostingError) {
+      steps.push({
+        title: 'Open your websites',
+        detail: hostingLoaded
+          ? `Could not refresh website assignments: ${hostingError}. The list may be out of date.`
+          : `Website assignments could not be checked: ${hostingError || 'still loading'}. Your sites may still exist.`,
+        href: '#websites', label: 'Review website status', state: 'unknown',
+      });
+    } else if (hosting.sites.length) {
+      steps.push({
+        title: 'Open your website workspace',
+        detail: `${ui.plural(hosting.sites.length, 'website')} available. Manage its domain, files, PHP, databases, and application health from one workspace.`,
+        href: '#websites', label: 'Open websites', state: 'done',
+      });
+    } else if ($('#siteCreateForm')) {
+      steps.push({
+        title: 'Add your first website',
+        detail: 'Choose WordPress for a ready-to-use site, or start with a blank PHP website.',
+        href: '#websites', label: 'Add a website', state: 'next',
+      });
+    } else {
+      steps.push({
+        title: 'Get a website assigned',
+        detail: 'No websites are assigned to this login. Ask your account owner to add a website or grant access.',
+        href: '#account', label: 'View account access', state: 'next',
+      });
+    }
+
+    if (!backupsLoaded) {
+      steps.push({
+        title: 'Check your recovery point',
+        detail: `Backup status could not be checked: ${backupsError || 'still loading'}.`,
+        href: '#data', label: 'View backup status', state: 'unknown',
+      });
+    } else if (!hostingLoaded || hostingError) {
+      steps.push({
+        title: 'Create a verified backup',
+        detail: 'Current website assignments are unavailable, so StePanel cannot safely match backups to your sites.',
+        href: '#data', label: 'View backup status', state: 'unknown',
+      });
+    } else if (!hosting.sites.length) {
+      steps.push({
+        title: 'Create a verified backup',
+        detail: 'After a website is assigned, create a backup and confirm its integrity before risky changes.',
+        href: '#websites', label: 'Open websites', state: 'next',
+      });
+    } else {
+      const siteNames = new Set(hosting.sites.map((site) => site.site));
+      const latest = backups
+        .filter((backup) => siteNames.has(backup.site) && backup.verified_at)
+        .sort((a, b) => new Date(b.verified_at) - new Date(a.verified_at))[0];
+      const truncated = backups.length >= 100;
+      steps.push({
+        title: 'Create a verified backup',
+        detail: latest
+          ? `Latest integrity-verified backup: ${new Date(latest.verified_at).toLocaleString()}. This proves archive integrity, not a complete application restore.`
+          : truncated
+            ? 'No verified backup for your websites appears in the latest 100 results. Check the selected website’s backup history.'
+            : 'No verified backup is recorded for your websites yet. Create one before making high-risk changes.',
+        href: '#data', label: latest ? 'Review backups' : 'Open backup list', state: latest ? 'done' : truncated ? 'unknown' : 'next',
+      });
+    }
+
+    list.replaceChildren(...steps.map((step, index) => el('li', { className: `panel-setup-step panel-setup-${step.state}` }, [
+      el('span', { className: 'panel-setup-marker', 'aria-hidden': 'true' }, step.state === 'done' ? '✓' : String(index + 1)),
+      el('div', { className: 'panel-setup-copy' }, [el('strong', {}, step.title), el('p', {}, step.detail)]),
+      el('a', { href: step.href }, step.label),
+    ])));
+    const completed = steps.filter((step) => step.state === 'done').length;
+    const unresolved = steps.filter((step) => step.state === 'unknown').length;
+    progress.textContent = `${completed} of ${steps.length} essentials complete${unresolved ? ` · ${unresolved} could not be checked` : ''}.`;
+    if (primary) {
+      const next = steps.find((step) => step.state !== 'done') || { href: '#websites', label: 'Open my websites' };
+      primary.href = next.href;
+      primary.textContent = next.label;
+    }
+  };
 
   const siteMeta = (site) => el('div', { className: 'item-meta' }, [
     el('strong', {}, [site.site, site.kind ? el('span', { className: 'panel-kind' }, kindLabel[site.kind] || site.kind) : null]),
@@ -145,6 +233,7 @@
       workspaceLink(site.site, 'logs', 'Logs'),
     ], 'Add a website first.');
     renderDomains();
+    renderSetupChecklist();
   };
 
   const renderDomains = () => {
@@ -175,9 +264,10 @@
   };
 
   const loadHosting = async () => {
-    const [accountResult, overviewResult] = await Promise.allSettled([
+    const [accountResult, overviewResult, backupResult] = await Promise.allSettled([
       api.get('/api/account/hosting', { errorMessage: 'Your hosting account is unavailable' }),
       api.get('/api/sites/overview', { errorMessage: 'Website details are unavailable' }),
+      api.get('/api/backups?limit=100', { errorMessage: 'Backup status is unavailable' }),
     ]);
     if (accountResult.status === 'fulfilled') {
       hosting = { ...accountResult.value, sites: accountResult.value.sites || [] };
@@ -193,6 +283,13 @@
     } else {
       overviewError = overviewResult.reason?.message || 'request failed';
     }
+    if (backupResult.status === 'fulfilled') {
+      backups = Array.isArray(backupResult.value.backups) ? backupResult.value.backups : [];
+      backupsLoaded = true;
+      backupsError = null;
+    } else {
+      backupsError = backupResult.reason?.message || 'request failed';
+    }
     if (!hostingLoaded) {
       const message = hostingError || 'Your hosting account is unavailable';
       $('#panelSitesStatus').hidden = false;
@@ -200,6 +297,7 @@
       $('#panelDomainsStatus').hidden = false;
       $('#panelDomainsStatus').replaceChildren(retryNotice(`Domain inventory is unavailable: ${message}`));
       fileManager.unavailable(message);
+      renderSetupChecklist();
       return;
     }
     renderSummaries();
@@ -599,5 +697,9 @@
   })();
 
   showView(viewForHash(location.hash) || 'home');
+  $('#panelOnboardingRefresh')?.addEventListener('click', loadHosting);
+  window.addEventListener('hashchange', () => {
+    if (viewForHash(location.hash) === 'home') loadHosting();
+  });
   loadHosting();
 })();

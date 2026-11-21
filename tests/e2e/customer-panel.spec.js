@@ -75,6 +75,9 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
   await page.route('**/api/account/hosting', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(hosting) }));
+  await page.route('**/api/backups?limit=100', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ backups: [
+    { site: 'e2e-main', verified_at: '2026-11-20T12:00:00Z' },
+  ] }) }));
   let overviewRequests = 0;
   await page.route('**/api/sites/overview', (route) => {
     overviewRequests++;
@@ -145,6 +148,10 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   // Home: the account and its websites, with no operator navigation.
   await expect(page.getByRole('heading', { name: `Welcome back, ${testCustomer.username}` })).toBeVisible();
   await expect(page.locator('#panelHome')).toHaveText(`/home/${testCustomer.username}`);
+  await expect(page.locator('#panelOnboardingList')).toContainText('Open your website workspace');
+  await expect(page.locator('#panelOnboardingList')).toContainText('Latest integrity-verified backup');
+  await expect(page.locator('#panelOnboardingProgress')).toContainText('2 of 2 essentials complete');
+  await expect(page.locator('#panelPrimaryAction')).toHaveAttribute('href', '#websites');
   await expect(page.locator('#panelSiteList')).toContainText('public_html');
   await expect(page.locator('#panelSiteList')).not.toContainText(`/home/${testCustomer.username}/public_html`);
   await expect(page.locator('#panelSitesStatus')).toContainText('could not be refreshed');

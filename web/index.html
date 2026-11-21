@@ -41,7 +41,7 @@
       </section>
       <section class="onboarding" id="start" aria-labelledby="start-heading">
         <div class="onboarding-intro"><p class="eyebrow">{{ if .IsAdministrator }}First-run checklist{{ else }}Your next steps{{ end }}</p><h2 id="start-heading">{{ if .IsAdministrator }}Get your hosting workspace ready{{ else }}Get your site ready{{ end }}</h2><p>{{ if .IsAdministrator }}Work through the essentials in order. Each step reflects live checks, not a saved setup wizard.{{ else }}See what is ready and what to do next. Your site and recovery status update from live data.{{ end }}</p><p class="onboarding-progress" id="onboardingProgress" role="status" aria-live="polite">Checking your workspace…</p><button class="quiet-action onboarding-refresh" id="refreshOnboarding" type="button">Refresh status</button></div>
-        <div class="onboarding-checklist" id="onboardingChecklist" aria-live="polite"><p class="empty-state">Loading your setup checklist…</p></div>
+        <ol class="onboarding-checklist" id="onboardingChecklist" aria-live="polite"><li class="empty-state">Loading your setup checklist…</li></ol>
       </section>
       {{ if .IsAdministrator }}
       <section class="security-card" id="security">
