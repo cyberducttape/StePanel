@@ -33,6 +33,37 @@ test('login and overview accessibility', async ({ page }) => {
   await checkA11y(page);
 });
 
+test('first-run primary action follows the next unresolved setup step', async ({ page }) => {
+  let hostNeedsAttention = true;
+  await page.route('**/api/sites/overview', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ sites: [] }),
+  }));
+  await page.route('**/api/backups?limit=100', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ backups: [] }),
+  }));
+  await page.route('**/api/health/operational', (route) => route.fulfill({
+    status: hostNeedsAttention ? 503 : 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      operational: !hostNeedsAttention,
+      checks: { broker: { ready: !hostNeedsAttention, detail: hostNeedsAttention ? 'broker is unavailable' : 'broker is ready' } },
+    }),
+  }));
+
+  await page.reload();
+  const primary = page.locator('#primarySetupAction');
+  await expect(primary).toHaveAttribute('href', '#controlPlaneDetailsToggle');
+  await expect(primary).toHaveText('Show what needs attention');
+  await primary.click();
+  await expect(page.locator('#controlPlaneDetails')).toBeVisible();
+
+  hostNeedsAttention = false;
+  await page.locator('#refreshOnboarding').click();
+  await expect(primary).toHaveAttribute('href', '#sites');
+  await expect(primary).toHaveText('Set up a site');
+  await expect(page.locator('#onboardingChecklist')).toContainText('Create or migrate your first site');
+});
+
 test('capture seeded administrator overview screenshots', async ({ page }, testInfo) => {
   const directory = process.env.STEPANEL_E2E_SCREENSHOT_DIR;
   test.skip(!directory, 'Screenshot capture is enabled only by the release/evidence runner');
