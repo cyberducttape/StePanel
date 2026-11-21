@@ -10,8 +10,7 @@
 - The operator and customer browser journeys verified generation; the
   customer journey also verified reveal/hide and passed axe. Frontend unit
   tests (19 passed), build, JS syntax, and `git diff --check` passed locally.
-  Exact-source hosted CI is running on the previous commit; this change has
-  not yet been pushed.
+  Commit `ba1f3ced` is pushed to `main`; its exact-source hosted CI is queued.
 
 ## First-run backup coverage is checked per site — 2026-11-21
 
