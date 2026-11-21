@@ -1,11 +1,35 @@
 # Production-readiness progress
 
+## First-run setup flow — 2026-11-21
+
+- Commits `e0918674`, `6e97b1f7`, and `b7863b39` add live operator and
+  customer setup checklists, with the primary action following the next
+  unresolved step. Customer Home distinguishes unavailable site/backup data
+  from empty state and does not equate archive integrity with application
+  recovery.
+- Commit `bd928e50` adds a domain-route check and direct navigation to the
+  affected site's Domains tab. It explicitly avoids claiming that a configured
+  route proves public DNS or HTTPS. `0cc1eb56` adds operator checklist E2E
+  coverage for the changing primary action.
+- Focused local account-owner and operator browser tests passed; the 17
+  frontend unit tests, `make build`, documentation link check, and documentation
+  reference check passed. CI run [44935589869](https://github.com/cyberducttape/StePanel/actions/runs/44935589869)
+  passed on `b7863b39`. The domain-check change's browser job passed in
+  [44937587330](https://github.com/cyberducttape/StePanel/actions/runs/44937587330);
+  its full Go job was still running when the subsequent checklist-test commit
+  was pushed. Exact-source CI for `0cc1eb56` is queued as
+  [44937938000](https://github.com/cyberducttape/StePanel/actions/runs/44937938000).
+- `docs/INSTALLATION.md` now separates the current-source guided path from
+  v0.7.0's environment-variable installer. Current-source CI remains the
+  authority for the newest checklist commits; the product is still Operator
+  Beta and its production gates remain open.
+
 ## Current evidence and install-drill correction — 2026-11-21
 
 - Reviewed cache-disabled abrupt-loss run [44735170833](https://github.com/cyberducttape/StePanel/actions/runs/44735170833): all five scenarios passed once on source `c3e37ebc`; the report is in [`2026-11-20-kvm-abrupt-loss-operations-cache-none-c3e37eb.md`](docs/lab-results/2026-11-20-kvm-abrupt-loss-operations-cache-none-c3e37eb.md). This bypasses the guest host page cache, but remains a QEMU guest-loss test, not physical-host power-loss evidence.
 - Reviewed diagnostic capacity run [44737124383](https://github.com/cyberducttape/StePanel/actions/runs/44737124383) on `634e99ce`: 191/9,830 page requests timed out before first response byte; sampled FPM pools showed no queue/saturation but coverage was incomplete. Later evidence isolated the PHP-FPM master descriptor ceiling and fixed its systemd limit. The confirming same-profile run [44897996332](https://github.com/cyberducttape/StePanel/actions/runs/44897996332) passed with 70,715 page requests, zero failures, and 126.9/132.9 ms p99. The earlier post-fix run [44886417491](https://github.com/cyberducttape/StePanel/actions/runs/44886417491) also had zero page failures; its only failure was a readiness probe racing an offsite check before measurement. Two passes on one KVM runner type do not certify a capacity envelope. Details: [`2026-11-21-capacity-large-06f6e94-fpm-descriptor-fix.md`](docs/lab-results/2026-11-21-capacity-large-06f6e94-fpm-descriptor-fix.md).
 - Install smoke [44897989372](https://github.com/cyberducttape/StePanel/actions/runs/44897989372) passed its ordinary recovery matrix, then failed in the optional identity-repair database-checkpoint drill. Artifact review found that the smoke killed a shell wrapper while its `stepanel-root` child could continue after SQLite lock release. The drill now launches the helper directly and waits for the pre-commit SQLite snapshot before killing it. Exact-source installed-host rerun is required to verify this correction.
-- The six-host 20-repeat cohort [44725816245](https://github.com/cyberducttape/StePanel/actions/runs/44725816245) remains active on stale source `f464f79d`; nine six-host iterations had passed and the tenth was running at review. These are useful diagnostic results but count as zero current-source repeats.
+- The six-host 20-repeat cohort [44725816245](https://github.com/cyberducttape/StePanel/actions/runs/44725816245) was canceled on stale source `f464f79d` after nine six-host iterations; its tenth iteration was interrupted. These are useful diagnostic results but count as zero current-source repeats.
 
 ## PHP-FPM descriptor exhaustion fixed; backup-interrupted drill passes — 2026-11-21
 

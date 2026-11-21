@@ -949,9 +949,9 @@ run [44735170833](https://github.com/cyberducttape/StePanel/actions/runs/4473517
 passed all five operation scenarios once on source `c3e37ebc`; this is guest
 loss with QEMU cache bypass, not physical-host power loss. The six-host repeat
 cohort [44725816245](https://github.com/cyberducttape/StePanel/actions/runs/44725816245)
-is active on stale source `f464f79d`; nine full six-host iterations had passed
-and the tenth was active at review, so it contributes no current-source
-repeats. Install smoke [44897989372](https://github.com/cyberducttape/StePanel/actions/runs/44897989372)
+was canceled on stale source `f464f79d` after nine full six-host iterations;
+the tenth was interrupted, so it contributes no current-source repeats.
+Install smoke [44897989372](https://github.com/cyberducttape/StePanel/actions/runs/44897989372)
 passed its normal recovery matrix but failed the optional identity-repair
 checkpoint drill. Artifact review traced this to the drill killing a wrapper
 shell while the helper child could continue; the harness now targets the
@@ -1005,8 +1005,8 @@ were cancelled because their source trees do not match current `main`; one
 completed repetition from 44686066552 is historical only. The six-host cohort
 [44725816245](https://github.com/cyberducttape/StePanel/actions/runs/44725816245)
 was dispatched while `f464f79d6287741eefd14174caaac35cd9f18534` was `main` and
-is still running. At the 2026-11-21 review, nine complete six-host iterations
-had passed and iteration ten was active. Main has since changed product code,
+was canceled after nine complete six-host iterations; iteration ten was
+interrupted. Main had changed product code,
 including PHP-FPM descriptor and status-probe behavior; this cohort is stale
 and none of its repetitions count for current-source certification. The
 current-code single-host smoke
