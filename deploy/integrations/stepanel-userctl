@@ -106,9 +106,17 @@ case "$action" in
     mount=$(findmnt -no TARGET -T "$home") || { echo 'could not determine the home filesystem mount' >&2; exit 1; }
     options=$(findmnt -no OPTIONS -T "$home") || { echo 'could not inspect the home filesystem quota options' >&2; exit 1; }
     [[ $options =~ (^|,)(usrquota|uquota|usrjquota)(=|,|$) ]] || { echo 'the home filesystem is not mounted with user quotas enabled' >&2; exit 1; }
+    # Name the quota domain by its block device, not its mountpoint.
+    # setquota keeps only the first mount-table entry per device; in the
+    # broker's sandboxed mount namespace a Caddy view bind mount of a home
+    # directory (a child of /var/www) can be listed before /home itself, and
+    # then setquota does not find /home. A device is matched by number alone.
+    device=$(findmnt -no SOURCE -T "$home") || { echo 'could not determine the home filesystem device' >&2; exit 1; }
+    device=${device%%\[*}
+    [[ -b $device ]] || { echo "the home filesystem source $device is not a block device" >&2; exit 1; }
     if [[ $action == account-quota-clear ]]; then
       (( $# == 2 )) || exit 64
-      setquota -u "$user" 0 0 0 0 "$mount"
+      setquota -u "$user" 0 0 0 0 "$device"
       printf 'account_quota_cleared\tmount=%s\n' "$mount"
       exit 0
     fi
@@ -116,7 +124,7 @@ case "$action" in
     disk_mb=$3; inodes=$4
     [[ $disk_mb =~ ^[0-9]+$ && $inodes =~ ^[0-9]+$ ]] && (( disk_mb >= 64 && disk_mb <= 1048576 && inodes >= 1000 && inodes <= 1000000000 )) || { echo 'account quota out of range' >&2; exit 1; }
     blocks=$(( disk_mb * 1024 ))
-    setquota -u "$user" "$blocks" "$blocks" "$inodes" "$inodes" "$mount"
+    setquota -u "$user" "$blocks" "$blocks" "$inodes" "$inodes" "$device"
     printf 'account_quota_applied\tmount=%s\tdisk_mb=%s\tinodes=%s\n' "$mount" "$disk_mb" "$inodes"
     ;;
   place)

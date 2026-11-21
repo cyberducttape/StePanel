@@ -573,7 +573,11 @@ elif [[ $action == quota ]]; then
   options=$(findmnt -no OPTIONS -T "$site_root") || { echo 'could not inspect site filesystem quota options' >&2; exit 1; }
   [[ $options =~ (^|,)(usrquota|uquota|usrjquota)(=|,|$) ]] || { echo 'site filesystem is not mounted with user quotas enabled' >&2; exit 1; }
   blocks=$(( (disk_mb * 1024 * 1024 + 1023) / 1024 ))
-  setquota -u "$site_user" "$blocks" "$blocks" "$inodes" "$inodes" "$mount"
+  # By device, not mountpoint: see stepanel-userctl account-quota.
+  device=$(findmnt -no SOURCE -T "$site_root") || { echo 'could not determine site filesystem device' >&2; exit 1; }
+  device=${device%%\[*}
+  [[ -b $device ]] || { echo "site filesystem source $device is not a block device" >&2; exit 1; }
+  setquota -u "$site_user" "$blocks" "$blocks" "$inodes" "$inodes" "$device"
   printf 'filesystem_quota_applied\tmount=%s\tdisk_mb=%s\tinodes=%s\n' "$mount" "$disk_mb" "$inodes"
   exit 0
 elif [[ $action == quota-clear ]]; then
@@ -582,7 +586,11 @@ elif [[ $action == quota-clear ]]; then
   mount=$(findmnt -no TARGET -T "$site_root") || { echo 'could not determine site filesystem mount' >&2; exit 1; }
   options=$(findmnt -no OPTIONS -T "$site_root") || { echo 'could not inspect site filesystem quota options' >&2; exit 1; }
   [[ $options =~ (^|,)(usrquota|uquota|usrjquota)(=|,|$) ]] || { echo 'site filesystem is not mounted with user quotas enabled' >&2; exit 1; }
-  setquota -u "$site_user" 0 0 0 0 "$mount"
+  # By device, not mountpoint: see stepanel-userctl account-quota.
+  device=$(findmnt -no SOURCE -T "$site_root") || { echo 'could not determine site filesystem device' >&2; exit 1; }
+  device=${device%%\[*}
+  [[ -b $device ]] || { echo "site filesystem source $device is not a block device" >&2; exit 1; }
+  setquota -u "$site_user" 0 0 0 0 "$device"
   printf 'filesystem_quota_cleared\tmount=%s\n' "$mount"
   exit 0
 fi

@@ -43,6 +43,14 @@ Status: Operator Beta. Production gates for 1.0 remain open; see
 
 ### Detailed changes
 
+- Hosting-account and site disk quotas name the filesystem by its block
+  device instead of its mountpoint. `setquota` keeps only the first
+  mount-table entry per device, and in the root broker's sandboxed mount
+  namespace a Caddy view of a home directory can be listed before `/home`;
+  after a broker restart on a Caddy host with placed sites, account quota
+  changes, and therefore customer site creation, failed with "Mountpoint
+  /home not found". Git staging quotas already used the device.
+
 ### Added
 
 - Reversible site suspension (ADR-0008). An administrator suspends a site
