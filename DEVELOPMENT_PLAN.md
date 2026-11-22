@@ -57,7 +57,9 @@ passed the first-run checklist and WordPress-creation entry point.
   website” when the active inventory is empty and “Create another website”
   after a site exists. The current complete disposable Chromium suite exercises
   both the administrator first-run journey and a freshly provisioned account
-  owner; both passed in the latest run.
+  owner; both passed in the latest run. If site inventory is unavailable, the
+  website list explains that sites may still exist and offers an in-place
+  retry; the retry path is browser-tested.
 - The install guide reports current-code evidence separately from historical
   runs and never presents smoke coverage as production certification.
 - The next release candidate archive contains the matching guided setup,

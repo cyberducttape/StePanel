@@ -321,6 +321,29 @@ test('site overview makes backup failures explicit', async ({ page }) => {
   await expect(page.locator('.overview-stat').filter({ hasText: 'Last verified backup' })).toContainText('Backup API unavailable');
 });
 
+test('site inventory failure can be retried without reloading', async ({ page }) => {
+  await page.route('**/api/sites/overview', (route) => route.fulfill({
+    status: 503,
+    contentType: 'application/json',
+    body: JSON.stringify({ error: 'site inventory unavailable for test' }),
+  }));
+  await page.reload();
+  const status = page.locator('#siteOverviewStatus');
+  await expect(status).toContainText('Your sites may still exist');
+  await expect(status.getByRole('button', { name: 'Retry' })).toBeVisible();
+  await expect(page.locator('#site-create-heading')).toHaveText('Create a website');
+
+  await page.unroute('**/api/sites/overview');
+  await page.route('**/api/sites/overview', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ sites: [{ site: 'retry-site', routes: [], applications: [], database_count: 0 }] }),
+  }));
+  await status.getByRole('button', { name: 'Retry' }).click();
+  await expect(page.locator('#siteOverview')).toContainText('retry-site');
+  await expect(status).toHaveText('1 website. Select one to manage it.');
+});
+
 test('site guided workflow connects lifecycle checks and practical diagnostics', async ({ page }) => {
   const site = { site: 'e2e-journey', routes: [{ domain: 'journey.example.test', state: 'applied' }, { domain: 'quiet.example.test', state: 'applied' }], applications: [], database_count: 1 };
   const accessAt = new Date();

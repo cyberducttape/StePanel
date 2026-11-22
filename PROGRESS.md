@@ -17,6 +17,21 @@
   package. No Go behavior changed. Browser coverage verifies UI behavior, not
   real host provisioning or recovery.
 
+## Make site inventory failures recoverable from the page — 2026-11-21
+
+- When the site-overview API fails, the dashboard now states that the sites
+  may still exist and presents a Retry button. A successful retry reloads the
+  inventory in place; it does not confuse an unavailable inventory with an
+  empty account. Existing cards are retained until a fresh response succeeds.
+- Added a browser regression that injects a 503, checks the explicit unknown
+  state, restores the API response, and retries without a page reload. The
+  targeted test passed. The full disposable Chromium suite passed (29 passed,
+  1 skipped), the customer-panel journey passed, and `npm run test:unit`
+  passed (19 tests). `node --check` and `git diff --check` passed. The one
+  skip is an optional second-context test that requires an externally supplied
+  customer password. This is local browser evidence; hosted CI and real-host
+  operation are not established by this run.
+
 ## Preflight packages for selected optional features — 2026-11-21
 
 - Installer package preflight now includes Fail2ban, mail, FTP, ModSecurity,

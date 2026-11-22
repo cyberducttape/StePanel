@@ -2239,13 +2239,36 @@
   // Site grid (list view)
   // ---------------------------------------------------------------------
 
+  const showGridError = (error) => {
+    const retry = button('Retry', async () => {
+      gridStatus.textContent = 'Loading websites…';
+      try {
+        await loadGrid();
+      } catch (retryError) {
+        showGridError(retryError);
+      }
+    }, { className: 'quiet-action' });
+    gridStatus.replaceChildren(
+      document.createTextNode(`Could not load websites: ${error?.message || 'request failed'}. Your sites may still exist. `),
+      retry,
+    );
+  };
+
   async function loadGrid() {
-    const [siteData, backupData, suspensionData] = await Promise.all([
-      getJSON('/api/sites/overview'),
-      getJSON('/api/backups').catch((error) => ({ __error: error, backups: [] })),
-      // Administrators only; other roles simply see no suspension badges.
-      getJSON('/api/sites/suspensions').catch(() => ({ suspensions: [] })),
-    ]);
+    let siteData;
+    let backupData;
+    let suspensionData;
+    try {
+      [siteData, backupData, suspensionData] = await Promise.all([
+        getJSON('/api/sites/overview'),
+        getJSON('/api/backups').catch((error) => ({ __error: error, backups: [] })),
+        // Administrators only; other roles simply see no suspension badges.
+        getJSON('/api/sites/suspensions').catch(() => ({ suspensions: [] })),
+      ]);
+    } catch (error) {
+      showGridError(error);
+      throw error;
+    }
     const activeSites = (siteData.sites || []).filter((site) => !site.deleted);
     const createHeading = document.querySelector('#site-create-heading');
     if (createHeading) {
@@ -2438,5 +2461,5 @@
       const initial = parseWorkspaceHash();
       if (initial) openWorkspace(initial.site, initial.tab, { pushHistory: false });
     })
-    .catch((error) => { gridStatus.textContent = error.message; });
+    .catch(showGridError);
 })();
