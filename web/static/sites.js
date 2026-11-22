@@ -2378,6 +2378,7 @@
     const adminPassword = createForm.elements.admin_password;
     const generatePasswordButton = createForm.querySelector('#generateWordPressPassword');
     const togglePasswordButton = createForm.querySelector('#toggleWordPressPassword');
+    const copyPasswordButton = createForm.querySelector('#copyWordPressPassword');
     if (adminPassword && generatePasswordButton) {
       generatePasswordButton.disabled = !window.crypto || typeof window.crypto.getRandomValues !== 'function' || typeof window.btoa !== 'function';
       generatePasswordButton.title = generatePasswordButton.disabled
@@ -2397,6 +2398,24 @@
         adminPassword.type = reveal ? 'text' : 'password';
         togglePasswordButton.textContent = reveal ? 'Hide' : 'Show';
         togglePasswordButton.setAttribute('aria-pressed', String(reveal));
+      });
+    }
+    if (adminPassword && copyPasswordButton) {
+      copyPasswordButton.addEventListener('click', async () => {
+        if (!adminPassword.value) {
+          if (createStatus) createStatus.textContent = 'Generate or enter a password first.';
+          return;
+        }
+        if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
+          if (createStatus) createStatus.textContent = 'Clipboard access is unavailable here. Show the password and copy it manually.';
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(adminPassword.value);
+          if (createStatus) createStatus.textContent = 'Password copied. Save it in your password manager before creating the site.';
+        } catch (error) {
+          if (createStatus) createStatus.textContent = 'Could not copy automatically. Show the password and copy it manually.';
+        }
       });
     }
     const updateTemplateFields = () => {

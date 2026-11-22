@@ -1,5 +1,18 @@
 # Production-readiness progress
 
+## Make WordPress setup passwords easier to save — 2026-11-21
+
+- Added a Copy password control beside Generate and Show in both operator and
+  customer WordPress creation forms. Clipboard success reminds the user to
+  save the value in a password manager; unavailable or denied clipboard access
+  gives a manual-copy instruction. This control does not log or persist the
+  secret.
+- Added the copy interaction to the customer browser journey. `node --check`
+  and all 19 frontend unit tests passed. `make check` passed, including
+  `go vet ./...` and all Go tests. The focused browser journey was skipped
+  because `STEPANEL_E2E_BASE_URL` and administrator credentials were not
+  configured. This does not establish fresh-host WordPress setup.
+
 ## Make first site creation clearer — 2026-11-21
 
 - The customer-facing website section now uses direct language (“Your

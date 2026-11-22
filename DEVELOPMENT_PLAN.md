@@ -1609,6 +1609,8 @@ the domain changes, and stop changing after the user customizes them.
 - WordPress titles receive a readable domain-derived suggestion.
 - Users can edit either suggestion, and subsequent domain changes preserve
   their custom value.
+- Generated WordPress administrator passwords can be copied with clear
+  success/fallback feedback, without logging or persisting the secret.
 - WordPress creation explains that the domain A record must point to this host,
   AAAA should be published only for working public IPv6, and ports 80/443 must
   be reachable; it must clearly say the form cannot verify those public facts.

@@ -243,6 +243,17 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await page.getByRole('button', { name: 'Generate password' }).click();
   const generatedPassword = await page.locator('#siteCreateAdminPassword').inputValue();
   expect(generatedPassword).toHaveLength(24);
+  let copiedPassword = '';
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: async (value) => { window.__copiedPassword = value; } },
+    });
+  });
+  await page.getByRole('button', { name: 'Copy password' }).click();
+  await expect(page.locator('#siteCreateStatus')).toContainText('Password copied');
+  copiedPassword = await page.evaluate(() => window.__copiedPassword);
+  expect(copiedPassword).toBe(generatedPassword);
   await page.getByRole('button', { name: 'Show', exact: true }).click();
   await expect(page.locator('#siteCreateAdminPassword')).toHaveAttribute('type', 'text');
   await page.getByRole('button', { name: 'Hide', exact: true }).click();
