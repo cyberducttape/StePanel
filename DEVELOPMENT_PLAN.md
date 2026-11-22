@@ -1600,7 +1600,10 @@ browser journeys cover both behavior and guidance. The operator checklist now
 also separates archive integrity from application-level restore proof for the
 first active site and links to its rehearsal action. The browser journey now
 covers missing, unavailable, archive-only, failed, and matching application-
-level proof states. Exact-source hosted CI is pending.
+level proof states. Exact-source CI
+[44980349367](https://github.com/cyberducttape/StePanel/actions/runs/44980349367)
+passed on `f59d2c1f`; this included the generated-password copy control and
+the simplified operator workspace.
 
 Make common first-site setup fields easy to fill without taking control away
 from the operator. Suggestions must be valid for their destination, update as

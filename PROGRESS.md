@@ -11,8 +11,10 @@
   access, deep-link selection, and accessibility for all twelve tabs. `make
   check` passed (including `go vet ./...` and all Go tests); the disposable UI
   harness passed 29 browser tests with one optional customer-context test
-  skipped. `make build` and `make release-check` passed. This is UI evidence,
-  not fresh-host installation evidence.
+  skipped. `make build` and `make release-check` passed. Exact-source CI
+  [44980349367](https://github.com/cyberducttape/StePanel/actions/runs/44980349367)
+  passed on `f59d2c1f`. This is UI evidence, not fresh-host installation
+  evidence.
 
 ## Make WordPress setup passwords easier to save — 2026-11-21
 
@@ -25,7 +27,11 @@
   and all 19 frontend unit tests passed. `make check` passed, including
   `go vet ./...` and all Go tests. The focused browser journey was skipped
   because `STEPANEL_E2E_BASE_URL` and administrator credentials were not
-  configured. This does not establish fresh-host WordPress setup.
+  configured at that point. The later full disposable UI suite passed 29
+  tests with one optional test skipped, and hosted CI
+  [44980349367](https://github.com/cyberducttape/StePanel/actions/runs/44980349367)
+  passed against exact source `f59d2c1f`. This does not establish fresh-host
+  WordPress setup.
 
 ## Make first site creation clearer — 2026-11-21
 
