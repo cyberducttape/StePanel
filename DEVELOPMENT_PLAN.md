@@ -51,8 +51,11 @@ host report](docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-b2e95a
 This host smoke predates the source bootstrap changes in `a3cbb37a`, and the
 GoReleaser archive does not contain or execute `scripts/install-guided.sh`;
 it is not runtime evidence for that bootstrap. The bootstrap contract test
-passed in exact-source integration CI, but no installed-host run has tested
-that specific source-build path.
+passed in exact-source integration CI. A clean temporary checkout at
+`7e1d88df` subsequently downloaded and SHA-256-verified the real Go 1.26.11
+archive, built both binaries, removed the temporary toolchain, and reached a
+mocked `sudo` handoff. This verifies compiler bootstrap and build behavior, not
+the native installer on an installed host.
 This is one disposable-container pass, not repeated host certification. A
 clean-host smoke of the official tagged release archive also remains open:
 no currently published stable archive supports a fresh Ubuntu 24.04 install.

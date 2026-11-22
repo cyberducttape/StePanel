@@ -17,9 +17,16 @@
   extraction or elevation. `bash scripts/test-install-guided.sh`,
   `make shell-contract-check`, `make release-check`, ShellCheck on the changed
   bootstrap scripts, the 93-document reference check, documentation links, and
-  `git diff --check` passed. The Go suite was not rerun because this change is
-  shell/docs-only. Real download and installed-host execution of the new
-  bootstrap path remain unverified; existing host smoke does not exercise it.
+  `git diff --check` passed. A clean temporary checkout then exercised the
+  actual Go 1.26.11 download and SHA-256 verification, built both binaries,
+  confirmed the temporary toolchain was removed, and reached a mocked sudo
+  handoff. No system services were changed. Exact-source Documentation,
+  CodeQL, and release-evidence workflows passed; integration run
+  [45020762860](https://github.com/cyberducttape/StePanel/actions/runs/45020762860)
+  is still running its full race/recovery sequence at the time of this entry.
+  The Go suite was not rerun locally because this change is shell/docs-only.
+  A real installed-host execution of the source-bootstrap path remains open;
+  the packaged-host smoke does not execute this script.
 
 ## Verify exact-source install and integration after rclone config staging — 2026-11-22
 
