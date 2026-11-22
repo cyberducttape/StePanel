@@ -31,16 +31,15 @@ documentation requirements are in place. A newcomer can run a loopback-only
 evaluation, or use the source bootstrap to build as an unprivileged user and
 then start the guided native installer. The setup guidance and installer
 preflight identify Ubuntu 24.04 + Caddy + MariaDB as the recommended Beta
-profile. The latest installed-host smoke on code source `94fbf293` passed on
+profile. The latest installed-host smoke on code source `b2e95a3a` passed on
 Ubuntu 24.04 + Caddy + MariaDB ([host run
-45002811271](https://github.com/cyberducttape/StePanel/actions/runs/45002811271));
-matching integration CI [45002811283](https://github.com/cyberducttape/StePanel/actions/runs/45002811283)
-passed. The installer completed `spamd.service` handling and WordPress
-HTTPS/database recovery proof measured 4.422 seconds; one recovery-matrix
-iteration passed. Integration CI also passed the administrator first-run and
-account-owner browser journeys. The GoReleaser snapshot was installed from
-its extracted archive on a disposable systemd container. See the [reviewed
-host report](docs/lab-results/2026-11-22-ubuntu-spamd-service-smoke-94fbf293.md).
+45009421543](https://github.com/cyberducttape/StePanel/actions/runs/45009421543));
+matching integration CI [45008851534](https://github.com/cyberducttape/StePanel/actions/runs/45008851534)
+passed. The GoReleaser snapshot was extracted and installed on a disposable
+systemd container, `post_install_status=complete`, and the WordPress
+HTTPS/database recovery proof measured 7.565 seconds; one recovery-matrix
+iteration passed. The exact-source host log and limits are in the [reviewed
+host report](docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-b2e95a3.md).
 This is one disposable-container pass, not repeated host certification. A
 clean-host smoke of the official tagged release archive also remains open:
 no currently published stable archive supports a fresh Ubuntu 24.04 install.

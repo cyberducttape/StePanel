@@ -1,5 +1,25 @@
 # Production-readiness progress
 
+## Verify the exact-source Ubuntu packaged install — 2026-11-22
+
+- Installation smoke [45009421543](https://github.com/cyberducttape/StePanel/actions/runs/45009421543)
+  passed on source `b2e95a3a749b5e0d4b7aa6a6015ea930000516e4`. The workflow
+  built and extracted the GoReleaser snapshot, installed it on a disposable
+  Ubuntu 24.04 + Caddy + MariaDB systemd container, and reported
+  `post_install_status=complete`.
+- The installed workflow provisioned WordPress, created and restored a backup,
+  imported its database, and served the database-backed HTTPS canary. The
+  application recovery proof measured 7,565 ms. The log also records database
+  and broker outage recovery and one recovery-matrix iteration. Integration CI
+  passed on the same exact source at
+  [45008851534](https://github.com/cyberducttape/StePanel/actions/runs/45008851534).
+- The reviewed evidence and limitations are recorded in
+  [`2026-11-22-ubuntu-packaged-first-host-smoke-b2e95a3.md`](docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-b2e95a3.md).
+  This is one disposable-container pass, not repeated certification; public
+  DNS/TLS issuance, physical power loss, broad ENOSPC, quota enforcement,
+  certified capacity, and a tagged release archive remain unproven. Production
+  remains NO-GO.
+
 ## Make readiness diagnostics readable from the CLI — 2026-11-22
 
 - `stepanelctl doctor` now prints a concise per-check report with result,
