@@ -3,19 +3,20 @@
 ## Check native-host blockers before building — 2026-11-22
 
 - The one-command source installer now checks the detected support tier,
-  systemd availability, and quota readiness through a read-only root preflight
+  systemd availability, quota readiness, and rclone configuration/remote
   before downloading the pinned Go compiler or building binaries. The native
-  installer repeats these checks before host mutation. This prevents an
-  unsupported host from spending time on compilation before being rejected.
+  installer repeats host checks before mutation; the setup wizard then probes
+  the selected offsite destination. Existing installs use the standard
+  upgrade path. These checks avoid a wasted build on common first-run blockers.
 - Added a shell contract for preflight ordering and included the new scripts in
   syntax checks. Focused contract and shell syntax checks pass locally; full
   `make shell-contract-check`, documentation-link/reference checks,
-  `make release-check`, ShellCheck, and `git diff --check` pass locally. Full Go
-  tests were not needed for this shell/documentation-only change. The first
-  exact-source integration run exposed a missing download-log fixture in the
-  new existing-install bootstrap case; the fixture is corrected and its local
-  contract passes. Hosted CI for the correction is pending. No host was
-  modified by this change.
+  `make release-check`, ShellCheck, and `git diff --check` passed locally for
+  the initial preflight change. Hosted CI caught a missing download-log fixture
+  in the existing-install regression; that was corrected and pushed, then the
+  preflight was extended to catch absent rclone configuration before build.
+  Full Go tests were not needed for the shell changes. CI is running against
+  the latest commit. No host was modified.
 
 ## Make quota preflight failures actionable — 2026-11-22
 

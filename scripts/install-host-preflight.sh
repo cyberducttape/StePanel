@@ -9,6 +9,7 @@ fi
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 . "$repo_root/deploy/lib/install-support-tier.sh"
 . "$repo_root/deploy/lib/install-systemd-preflight.sh"
+. "$repo_root/deploy/lib/install-offsite-preflight.sh"
 . "$repo_root/deploy/integrations/stepanel-quota-state.sh"
 . "$repo_root/deploy/lib/install-quota-preflight.sh"
 
@@ -28,6 +29,13 @@ if quota_preflight=$(install_preflight_user_quotas /var/www /home); then
   echo "HOST REQUIREMENT: $quota_preflight"
 else
   echo "BLOCKER: $quota_preflight" >&2
+  exit 1
+fi
+
+if offsite_preflight=$(install_preflight_offsite); then
+  echo "HOST REQUIREMENT: $offsite_preflight"
+else
+  echo "BLOCKER: $offsite_preflight" >&2
   exit 1
 fi
 

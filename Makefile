@@ -70,13 +70,14 @@ shell-contract-check:
 	bash scripts/test-node-runtime-resolution.sh
 	bash scripts/test-install-support-tier.sh
 	bash scripts/test-install-guided-preflight-order.sh
+	bash scripts/test-install-offsite-preflight.sh
 	bash scripts/test-install-host-inventory.sh
 	bash scripts/test-install-change-plan.sh
 	bash scripts/test-install-systemd-preflight.sh
 	bash scripts/test-install-quota-preflight.sh
 	bash scripts/test-install-package-preflight.sh
 	bash scripts/test-install-database-version-preflight.sh
-	bash -n scripts/install-guided.sh scripts/install-host-preflight.sh scripts/test-install-guided-preflight-order.sh scripts/test-install-guided.sh scripts/go-toolchain.sh scripts/evaluate-local.sh
+	bash -n scripts/install-guided.sh scripts/install-host-preflight.sh scripts/test-install-guided-preflight-order.sh scripts/test-install-offsite-preflight.sh scripts/test-install-guided.sh scripts/go-toolchain.sh scripts/evaluate-local.sh
 	bash scripts/test-install-guided.sh
 	bash scripts/test-evaluation-bootstrap.sh
 	bash scripts/test-install-env-file.sh

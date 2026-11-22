@@ -157,9 +157,11 @@ cd StePanel
 ```
 
 Before downloading Go or compiling, the script uses `sudo` for a read-only
-check of the OS support tier, running systemd manager, and user-quota readiness
-on `/var/www` and `/home`. A blocker stops setup before the toolchain download;
-the full installer repeats the checks before host changes. The script then
+check of the OS support tier, running systemd manager, user-quota readiness on
+`/var/www` and `/home`, and a usable rclone configuration with at least one
+remote. A blocker stops setup before the toolchain download. The wizard later
+tests write/read/delete access to the destination you select; the full
+installer repeats the host checks before making changes. The script then
 builds both binaries as your normal user with the repository-pinned Go
 toolchain and runs the guided native installer through `sudo`. It does not
 build Go code as root. If you intentionally want StePanel to stop an
