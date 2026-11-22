@@ -14,8 +14,11 @@
   ownership, and secret-file permissions. `make check` passed, including
   `go vet ./...` and the complete Go suite (root package 115.792s);
   `make release-check`, focused ShellCheck, documentation links/references,
-  syntax checks, and `git diff --check` passed. Exact-source release snapshot
-  and hosted install-smoke remain pending.
+  syntax checks, and `git diff --check` passed. A GoReleaser v2.17.1 snapshot
+  from source `ea13350d` built for amd64 and arm64; both archives include the
+  parser helper, checksums pass, and the extracted amd64 setup help runs. The
+  exact-source installation smoke and full CI for `ea13350d` are queued or
+  pending; no hosted pass is claimed.
 
 ## Reject unavailable database versions during read-only preflight — 2026-11-21
 
