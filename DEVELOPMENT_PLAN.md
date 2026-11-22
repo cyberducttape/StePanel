@@ -197,13 +197,14 @@ download command is not restored.
 
 ### M0ad — Match the optional SpamAssassin service to supported packages (P2)
 
-**Status:** Corrected locally after the Ubuntu 24.04 installed-host log showed
-that the installer tried to disable nonexistent `spamassassin.service`. Debian
-and Ubuntu split the daemon into the `spamd` package, which provides
-`spamd.service`; the installer now preflights, installs, and manages that
-service name. The focused package-preflight contract and shell syntax checks
-pass. An installed-host rerun is required to prove the post-install journal no
-longer reports the action as pending.
+**Status:** Implemented and verified on exact source `94fbf293`. The Ubuntu
+24.04 installed-host run [45002811271](https://github.com/cyberducttape/StePanel/actions/runs/45002811271)
+installed the `spamd` package, disabled `spamd.service`, and recorded
+`post_install_status=complete`. The full integration run
+[45002811283](https://github.com/cyberducttape/StePanel/actions/runs/45002811283)
+passed, including race tests; local `make check` and the package-preflight
+contract passed. The packaged first-install result is recorded in the
+[smoke report](docs/lab-results/2026-11-22-ubuntu-spamd-service-smoke-94fbf293.md).
 
 **Acceptance criteria**
 

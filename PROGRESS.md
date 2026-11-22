@@ -4,7 +4,8 @@
 
 - The passing installed-host log for run [44998862460](https://github.com/cyberducttape/StePanel/actions/runs/44998862460) exposed `systemctl disable --now spamassassin` failing because Ubuntu 24.04 ships `spamd.service`. Canonical's [Ubuntu 24.04 package file list](https://packages.ubuntu.com/noble/all/spamd/filelist) confirms the unit path; Debian's [Bookworm `spamd` package](https://packages.debian.org/bookworm/spamd) also provides that daemon as a separate package.
 - Changed the installer to select and manage `spamd` consistently, and changed Debian/Ubuntu optional-mail preflight and installation to require the `spamd` daemon package. Updated the package-preflight regression contract.
-- `bash scripts/test-install-package-preflight.sh`, shell syntax checks, and `git diff --check` pass. Full `make check` and exact-source hosted CI remain to be run. The latest install smoke is still the prior source, so installed-host confirmation of a clean post-install journal remains outstanding.
+- The exact-source Ubuntu installed-host run [45002811271](https://github.com/cyberducttape/StePanel/actions/runs/45002811271) installed `spamd`, disabled `spamd.service`, and reported `post_install_status=complete`; the full log shows no pending mail-service action. WordPress HTTPS recovery proof passed with a measured 4,422 ms RTO, and one recovery-matrix iteration passed. See `docs/lab-results/2026-11-22-ubuntu-spamd-service-smoke-94fbf293.md`.
+- Local `make check`, `make release-check`, documentation checks, and the package-preflight contract pass. Exact-source CI [45002811283](https://github.com/cyberducttape/StePanel/actions/runs/45002811283), including race and recovery tests, passed. This is one disposable-container run and does not meet repeated certification or production readiness.
 - Tracked as M0ad in `DEVELOPMENT_PLAN.md`.
 
 ## Repeat the current packaged Ubuntu first-install evidence — 2026-11-22
