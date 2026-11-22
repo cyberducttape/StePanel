@@ -10,6 +10,7 @@
   `--force` guidance, and preservation of the existing file.
 - Focused setup tests and full `make check` passed, including API artifact,
   installer contract, `go vet ./...`, and all Go package tests.
+- Exact-source hosted integration CI [44993864711](https://github.com/cyberducttape/StePanel/actions/runs/44993864711), CodeQL [44993864715](https://github.com/cyberducttape/StePanel/actions/runs/44993864715), documentation CI [44993864722](https://github.com/cyberducttape/StePanel/actions/runs/44993864722), and release evidence [44994033387](https://github.com/cyberducttape/StePanel/actions/runs/44994033387) passed for commit `7250004d`. The source-based setup retry milestone is verified; a tagged release archive containing this workflow remains a separate release task.
 
 ## Exact-source Ubuntu first-install and WordPress recovery passed — 2026-11-22
 

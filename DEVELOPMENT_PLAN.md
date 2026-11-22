@@ -1675,9 +1675,8 @@ the domain changes, and stop changing after the user customizes them.
 
 ### M0ah — Make generated installer settings directly usable (P1)
 
-**Status:** Manual setup now prints a root-owned private-copy command and the
-guide matches it. Settings parser regression tests, build, shell syntax, and
-documentation checks pass locally. Exact-source CI is pending.
+**Status:** Complete for the source-based setup workflow on exact source
+`7250004d`. Hosted integration CI [44993864711](https://github.com/cyberducttape/StePanel/actions/runs/44993864711), CodeQL [44993864715](https://github.com/cyberducttape/StePanel/actions/runs/44993864715), documentation CI [44993864722](https://github.com/cyberducttape/StePanel/actions/runs/44993864722), and release evidence [44994033387](https://github.com/cyberducttape/StePanel/actions/runs/44994033387) passed. Setup output and the existing-file retry message both provide the root-owned private-copy path; parser regressions reject truncated quotes, trailing characters, and invalid escapes. This does not make the workflow available in the published v0.7.0 archive or certify an official release package.
 
 The documented `stepanel setup` flow must continue successfully into the
 installer. Treat its generated settings as the supported contract: promote a
