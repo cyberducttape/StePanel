@@ -3035,3 +3035,5 @@ does not close a current-source or power-loss gate.
   `git diff --check` passes. No host installation was performed.
 - This improves first-run transparency but does not close the clean-host
   installation, first-site, backup/restore, or production-certification gates.
+- The release-artifact verifier now requires this helper in packaged archives,
+  so setup cannot silently lose the pre-install feature plan in a release.

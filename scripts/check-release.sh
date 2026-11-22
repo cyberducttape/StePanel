@@ -38,6 +38,7 @@ if ! grep -Fq 'docs/INSTALLATION.md' scripts/verify-release-artifacts.sh ||
    ! grep -Fq 'deploy/lib/install-quota-preflight.sh' scripts/verify-release-artifacts.sh ||
    ! grep -Fq 'deploy/lib/install-package-preflight.sh' scripts/verify-release-artifacts.sh ||
    ! grep -Fq 'deploy/lib/install-database-version-preflight.sh' scripts/verify-release-artifacts.sh ||
+   ! grep -Fq 'deploy/lib/install-change-plan.sh' scripts/verify-release-artifacts.sh ||
    ! grep -Fq 'deploy/lib/install-env-file.sh' scripts/verify-release-artifacts.sh; then
   echo "release artifact verification does not require the current installer support materials" >&2
   exit 1
