@@ -11,8 +11,8 @@ evaluation_docs=$(awk '
   /^### / && in_evaluation && $0 != "### Local evaluation" { exit }
   in_evaluation { print }
 ' "$ROOT_DIR/README.md")
-grep -Fq 'Requirements: Git and Go 1.21 or later' <<<"$evaluation_docs" || {
-  echo 'README local evaluation instructions omit the Go/toolchain prerequisite' >&2
+grep -Fq 'Requirements: Git and either Go 1.21 or later' <<<"$evaluation_docs" || {
+  echo 'README local evaluation instructions omit the supported compiler/bootstrap prerequisites' >&2
   exit 1
 }
 grep -Fxq 'make evaluate' <<<"$evaluation_docs" || {

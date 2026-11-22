@@ -1,5 +1,26 @@
 # Production-readiness progress
 
+## Bootstrap the pinned Go compiler for first-time source setup — 2026-11-22
+
+- `scripts/install-guided.sh` no longer stops and asks a new operator to
+  install Go when the compiler is missing, too old, cannot report a version,
+  or `GOTOOLCHAIN=local` is set. On Linux amd64/arm64 it downloads the exact
+  Go 1.26.11 archive pinned by `go.mod` into its temporary build directory,
+  checks its SHA-256 before extraction, verifies the extracted compiler
+  version, builds both binaries as the invoking user, and removes the toolchain
+  with the build directory. No host package is installed or modified.
+- README and installation instructions now show the compiler-free path and
+  its small host prerequisites. This remains a source-based Beta workflow;
+  there is still no supported fresh-install release archive.
+- Regression contracts cover missing and old Go, `GOTOOLCHAIN=local`, normal
+  build-before-sudo behavior, rejected options, and checksum failure before
+  extraction or elevation. `bash scripts/test-install-guided.sh`,
+  `make shell-contract-check`, `make release-check`, ShellCheck on the changed
+  bootstrap scripts, the 93-document reference check, documentation links, and
+  `git diff --check` passed. The Go suite was not rerun because this change is
+  shell/docs-only. Real download and installed-host execution of the new
+  bootstrap path remain unverified; existing host smoke does not exercise it.
+
 ## Verify exact-source install and integration after rclone config staging — 2026-11-22
 
 - Integration CI [45017173779](https://github.com/cyberducttape/StePanel/actions/runs/45017173779)

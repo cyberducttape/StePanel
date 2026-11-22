@@ -130,9 +130,11 @@ Operational key backup and rotation procedures are documented in
 
 ### Local development
 
-Requirements: Go 1.21 or later with Go's automatic toolchain selection enabled
-(the default). The first build downloads the repository-pinned Go 1.26.11
-toolchain. If `GOTOOLCHAIN=local` is set, unset it before building.
+Requirements: Go 1.21 or later with automatic toolchain selection, or the
+bootstrap utilities `curl`/`wget`, `tar`, and `sha256sum`. Without a suitable
+Go command, the first build downloads the pinned Go 1.26.11 toolchain into a
+temporary directory and verifies its SHA-256; no system Go installation is
+needed.
 
 ```sh
 git clone --depth 1 https://github.com/cyberducttape/StePanel.git
@@ -148,9 +150,10 @@ Open <http://localhost:8080>. Local development uses `data/imports` and `data/ww
 To look around without installing services or changing a host, use the
 development server from a checkout:
 
-Requirements: Git and Go 1.21 or later with automatic toolchain selection
-enabled (the default). The first build downloads the pinned Go 1.26.11
-toolchain; the initial download requires internet access.
+Requirements: Git and either Go 1.21 or later with automatic toolchain
+selection, or `curl`/`wget`, `tar`, and `sha256sum`. If needed, the launcher
+downloads the pinned Go 1.26.11 toolchain to a temporary directory and verifies
+it before building; the initial download requires internet access.
 
 ```sh
 git clone --depth 1 https://github.com/cyberducttape/StePanel.git
@@ -233,7 +236,7 @@ before using an older archive for an existing installation.
 
 For a disposable host or staging environment, the current-source guided
 installer builds both binaries as your user and starts the native installer.
-It requires Git and Go 1.21 or later; the
+It requires Git and either Go 1.21 or later, or curl/wget, tar, and sha256sum; the
 [installation guide](docs/INSTALLATION.md#guided-install-from-current-source)
 has copyable Ubuntu 24.04 prerequisite commands and explains the first-build
 toolchain download:

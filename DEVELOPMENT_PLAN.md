@@ -19,8 +19,8 @@ three-way choice (local preview, disposable/staging Beta, or stop before
 production) and states the real prerequisites and release limitation before
 the platform matrix. The API workflow guide also clarifies that restore-to-
 staging returns a queued job and that the operator must wait for completion.
-These documentation changes reduce ambiguity but do not remove the checkout
-and Go toolchain requirement or create a supported fresh-install archive.
+These documentation changes reduce ambiguity but do not create a supported
+fresh-install archive.
 The `stepanelctl doctor` command now presents readiness failures as a readable
 checklist by default, includes the diagnostic and suggested next step, retains
 JSON output for automation, and exits nonzero for critical/not-ready or
@@ -30,9 +30,11 @@ support labels, pre-mutation platform classification, and release archive
 documentation requirements are in place. A newcomer can run a loopback-only
 evaluation, or use the source bootstrap to build as an unprivileged user and
 then start the guided native installer. The source bootstrap now checks for
-Go 1.21+ before building and prints the recommended Ubuntu 24.04 prerequisite
-command when Go is missing or too old; its contract test verifies it exits
-before building or invoking `sudo`. Exact-source CI on `a3cbb37a` passed the
+Go 1.21+ before building; when Go is unavailable, too old, unidentified, or
+`GOTOOLCHAIN=local`, it bootstraps the pinned Go 1.26.11 archive into a
+temporary directory and verifies its SHA-256 before extraction. It does not
+install host packages. Contract tests cover missing/old Go, local mode, build
+before privilege elevation, and checksum rejection. Exact-source CI on `a3cbb37a` passed the
 contract, full Go suite, race suite, release checks, and browser workflow
 ([integration run 45012500672](https://github.com/cyberducttape/StePanel/actions/runs/45012500672));
 Documentation and CodeQL also passed. The setup guidance and installer
@@ -74,11 +76,13 @@ path is usable, but it is not a production-ready release.
   200, and listened on `127.0.0.1:8080` before clean shutdown. This is UI
   evaluation evidence only, not a native installation test.
 - Build instructions explain that Go 1.21+ with automatic toolchain selection
-  downloads the exact pinned Go 1.26.11 compiler, so a manual compiler upgrade
-  is not a prerequisite. `scripts/install-guided.sh` builds both binaries as
-  the normal user, then invokes the guided host installer through `sudo`; its
-  mocked contract test proves build happens before privilege elevation and
-  unsupported installer options are rejected. Source-based installation
+  downloads the exact pinned Go 1.26.11 compiler, or that the guided bootstrap
+  verifies and temporarily extracts the pinned Linux amd64/arm64 toolchain if
+  no usable Go is installed or `GOTOOLCHAIN=local` is set. No system Go package
+  is installed. Contract tests cover missing/old Go, local mode, checksum
+  failure before extraction/build/privilege elevation, and unsupported options.
+  `scripts/install-guided.sh` builds both binaries as the normal user, then
+  invokes the guided host installer through `sudo`. Source-based installation
   remains clearly distinct from a published release archive. The manual
   fallback `make build && sudo ./install.sh --guided` also builds both
   `stepanel` and `stepanel-root`; `make evaluate` builds only the panel binary.

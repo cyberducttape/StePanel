@@ -4,7 +4,7 @@
 
 | If you want to… | Start here |
 | --- | --- |
-| Preview the interface without changing a host | [Local evaluation](../README.md#local-evaluation). It needs Git and Go 1.21+ with automatic toolchain selection; the pinned toolchain downloads on the first build. |
+| Preview the interface without changing a host | [Local evaluation](../README.md#local-evaluation). It needs Git and either Go 1.21+ with automatic toolchain selection or curl/wget, tar, and sha256sum to bootstrap the pinned compiler. |
 | Try real host integration | Use the [current-source Operator Beta path](#guided-install-from-current-source) on a disposable or staging server. Recommended profile: Ubuntu 24.04 + Caddy + MariaDB. |
 | Install customer production workloads | **Stop here for now.** No published stable archive is certified for a fresh install; production remains NO-GO pending the gates below. |
 
@@ -88,19 +88,21 @@ archive cannot perform a fresh installation on Ubuntu 24.04; see
 [tagged release status](#tagged-release-status). For current-source Beta
 installation, use the guided path below only on a disposable or staging host.
 
-On Ubuntu 24.04, install the two build prerequisites with the system package
-manager:
+On Ubuntu 24.04, install Git and the small host utilities used by the
+bootstrap (curl, tar, and coreutils):
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y git golang-go
+sudo apt-get install -y git curl tar coreutils
 ```
 
-The bootstrap needs Git and Go 1.21 or later. Go's default automatic toolchain
-selection downloads the exact Go 1.26.11 toolchain pinned by this checkout on
-the first build; `GOTOOLCHAIN=local` disables that behavior and must be unset.
-The bootstrap checks the Go version first and prints these Ubuntu commands if
-the compiler is missing or too old; it exits before building or invoking sudo.
+The bootstrap needs Git, a POSIX shell, and either Go 1.21 or later or curl/wget,
+tar, and sha256sum. If Go is missing, too old, unrecognized, or forced to local
+toolchain mode, it downloads the repository-pinned Go 1.26.11 compiler into a
+temporary directory, verifies its published SHA-256, and removes it after the
+build. It does not install Go or modify host packages. Automatic bootstrap
+supports Linux amd64 and arm64. With a suitable installed Go version, Go's
+default automatic toolchain selection downloads the pinned compiler as usual.
 The build and installer must stay together because the installer uses helpers
 and assets from that checkout:
 
