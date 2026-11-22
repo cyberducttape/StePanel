@@ -141,6 +141,17 @@ for archive in "${archives[@]}"; do
         exit 1
     fi
 
+    for required_helper in \
+        deploy/lib/install-systemd-preflight.sh \
+        deploy/lib/install-quota-preflight.sh; do
+        if tar -tzf "$archive" | grep -Fqx "$required_helper"; then
+            echo "  ✓ $required_helper present"
+        else
+            echo "  ✗ FAIL: $required_helper missing" >&2
+            exit 1
+        fi
+    done
+
     # Verify binary is present
     if tar -tzf "$archive" | grep -Eq '(^|/)stepanel$'; then
         echo "  ✓ stepanel binary present"

@@ -32,8 +32,9 @@ first-host application proof remain open.
 - The install guide reports current-code evidence separately from historical
   runs and never presents smoke coverage as production certification.
 - The next release candidate archive contains the matching guided setup,
-  installer, helpers, and assets. A clean-host artifact smoke verifies the
-  documented archive workflow before any release advertises it.
+  installer, helpers, and assets. The artifact verifier requires the support-
+  tier, systemd-preflight, and quota-preflight helpers. A clean-host artifact
+  smoke verifies the documented archive workflow before any release advertises it.
 - Installer preflight reports OS, web-server, and database support tier and
   actionable failed prerequisites (including a live systemd manager and
   enforced user quotas on `/var/www` and `/home`) before host mutation.
