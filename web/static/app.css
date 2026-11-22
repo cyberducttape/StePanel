@@ -22,7 +22,7 @@
 .platform-operations>summary>span:first-child{display:grid;gap:4px}
 .platform-operations>summary .eyebrow{margin:0}
 .platform-operations>summary strong{font-size:16px;letter-spacing:-.03em}
-.platform-operations>summary small,.operations-summary{color:var(--muted);font-size:11px}
+.platform-operations>summary small,.operations-summary{color:#52697a;font-size:11px}
 .operations-summary{margin-left:auto;text-align:right}
 .platform-operations #capabilityCenter{margin:0 16px 16px}
 .platform-operations[open]+.resource-table{margin-top:18px}
