@@ -27,6 +27,13 @@
   The Go suite was not rerun locally because this change is shell/docs-only.
   A real installed-host execution of the source-bootstrap path remains open;
   the packaged-host smoke does not execute this script.
+- Follow-up: removed the duplicated Go version by reading the pin from
+  `go.mod`. `make release-check` now requires checksum entries for that exact
+  version on both supported architectures, and the contract test confirms an
+  unsupported future pin fails before build or sudo. After that change, a
+  clean temporary checkout of the current source diff repeated the real
+  download, hash check, both builds, temp cleanup, and mocked installer
+  handoff successfully.
 
 ## Verify exact-source install and integration after rclone config staging — 2026-11-22
 

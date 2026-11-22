@@ -8,7 +8,8 @@ fake_repo="$tmp/repo"
 fake_bin="$tmp/bin"
 mkdir -p "$fake_repo/scripts" "$fake_bin"
 cp "$repo/scripts/install-guided.sh" "$fake_repo/scripts/install-guided.sh"
-touch "$fake_repo/go.mod" "$fake_repo/install.sh"
+printf 'module guided-test\n\ntoolchain go1.26.11\n' > "$fake_repo/go.mod"
+touch "$fake_repo/install.sh"
 chmod 0755 "$fake_repo/install.sh"
 
 cat > "$fake_bin/go" <<'SH'
@@ -115,6 +116,16 @@ if grep -Fq extract "$tmp/bad-bootstrap.log"; then
   exit 1
 fi
 [[ ! -e $fake_repo/stepanel && ! -e $fake_repo/stepanel-root && ! -e $tmp/bad-sudo.log ]]
+
+printf 'module guided-test\n\ntoolchain go1.27.0\n' > "$fake_repo/go.mod"
+if env GO="$tmp/missing-go" SUDO=sudo SUDO_LOG="$tmp/unsupported-sudo.log" \
+  PATH="$fake_bin:$PATH" bash "$fake_repo/scripts/install-guided.sh" \
+  >"$tmp/unsupported-pin.out" 2>&1; then
+  echo 'bootstrap accepted a pinned toolchain without a verified checksum' >&2
+  exit 1
+fi
+grep -Fq 'No verified Go archive checksum is configured for go1.27.0 linux/amd64' "$tmp/unsupported-pin.out"
+[[ ! -e $tmp/unsupported-sudo.log ]]
 
 if GO_LOG="$tmp/invalid-go.log" SUDO_LOG="$tmp/invalid-sudo.log" GO=go SUDO=sudo PATH="$fake_bin:$PATH" \
   bash "$fake_repo/scripts/install-guided.sh" --unsafe-lab >/dev/null 2>&1; then

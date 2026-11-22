@@ -41,7 +41,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-toolchain_version=go1.26.11
+toolchain_version=$(sed -n 's/^toolchain \(go[0-9][0-9.]*\)$/\1/p' "$repo_root/go.mod")
+[[ $toolchain_version =~ ^go[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+  echo 'Could not read a supported Go toolchain pin from go.mod.' >&2
+  exit 1
+}
 toolchain_go_version=
 if command -v -- "$go_bin" >/dev/null 2>&1; then
   go_version=$("$go_bin" version 2>/dev/null || true)
@@ -67,19 +71,29 @@ if [[ -z $toolchain_go_version || ${GOTOOLCHAIN:-auto} == local ]]; then
     exit 1
   }
   go_arch=
-  go_sha256=
   case "$(uname -m)" in
     x86_64|amd64)
       go_arch=amd64
-      go_sha256=9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec
       ;;
     aarch64|arm64)
       go_arch=arm64
-      go_sha256=6c2f29b458b5add0835f18b776f69c8881a6d88428f1484a6da55755e620757e
       ;;
     *)
       echo "Automatic Go bootstrap supports Linux amd64 and arm64; found $(uname -m)." >&2
       echo 'Install Go 1.21 or later from your distribution, then retry the guided install.' >&2
+      exit 1
+      ;;
+  esac
+  case "$toolchain_version:$go_arch" in
+    go1.26.11:amd64)
+      go_sha256=9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec
+      ;;
+    go1.26.11:arm64)
+      go_sha256=6c2f29b458b5add0835f18b776f69c8881a6d88428f1484a6da55755e620757e
+      ;;
+    *)
+      echo "No verified Go archive checksum is configured for $toolchain_version linux/$go_arch." >&2
+      echo 'Update the guided bootstrap checksum map before changing the repository toolchain pin.' >&2
       exit 1
       ;;
   esac
