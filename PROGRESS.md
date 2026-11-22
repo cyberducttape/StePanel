@@ -3,11 +3,13 @@
 ## Show the selected platform's support tier during guided setup — 2026-11-22
 
 - After selecting a web server and database, setup now calls the same
-  `install-support-tier.sh` classifier used by the installer. It displays the
-  exact OS/stack evidence and requires explicit confirmation when the tuple is
-  outside the installed-host smoke matrix. This occurs before offsite storage
-  probing, administrator credentials, or writing the settings file; installer
-  preflight still repeats the classification before host changes.
+  `install-support-tier.sh` classifier used by the installer; the script is
+  embedded so setup works from source, a release archive, or a symlinked
+  executable without looking for a helper in the current directory. It displays
+  the exact OS/stack evidence and requires explicit confirmation when the
+  tuple is outside the installed-host smoke matrix. This occurs before offsite
+  storage probing, administrator credentials, or writing the settings file;
+  installer preflight still repeats the classification before host changes.
 - Added regressions for unsupported-platform confirmation ordering and the
   real wizard's use of the installer classifier. The first root-package run
   exposed tests inheriting the host's Ubuntu 26.04 support tier; the setup test

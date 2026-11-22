@@ -183,7 +183,7 @@ func TestSetupHostVerifiesTOTPWithOneStepOfDrift(t *testing.T) {
 	}
 }
 
-func TestSetupHostUsesInstallerSupportTierHelper(t *testing.T) {
+func TestSetupHostUsesEmbeddedInstallerSupportTierClassifier(t *testing.T) {
 	tier, err := (setupHost{}).SupportTier("caddy", "mariadb")
 	if err != nil {
 		t.Fatal(err)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	_ "embed"
 	"errors"
 	"flag"
 	"fmt"
@@ -121,6 +122,9 @@ func (t *setupTerminal) ReadSecret() (string, error) {
 // setupHost connects the guide to this host.
 type setupHost struct{}
 
+//go:embed deploy/lib/install-support-tier.sh
+var setupSupportTierScript string
+
 func newSetupHost() setupHost { return setupHost{} }
 
 func (setupHost) HashPassword(password string) (string, error) { return hashPassword(password) }
@@ -204,34 +208,14 @@ func (setupHost) SSHClientIP() string {
 }
 
 func (setupHost) SupportTier(webServer, dbEngine string) (string, error) {
-	executable, err := os.Executable()
-	if err != nil {
-		return "", fmt.Errorf("locate setup executable: %w", err)
-	}
-	if resolved, resolveErr := filepath.EvalSymlinks(executable); resolveErr == nil {
-		executable = resolved
-	}
-	candidates := []string{filepath.Join(filepath.Dir(executable), "deploy", "lib", "install-support-tier.sh")}
-	if workingDirectory, err := os.Getwd(); err == nil {
-		candidates = append(candidates, filepath.Join(workingDirectory, "deploy", "lib", "install-support-tier.sh"))
-	}
-	var helper string
-	for _, candidate := range candidates {
-		info, statErr := os.Lstat(candidate)
-		if statErr == nil && info.Mode().IsRegular() {
-			helper = candidate
-			break
-		}
-	}
-	if helper == "" {
-		return "", errors.New("install-support-tier.sh is missing; run setup from a full StePanel checkout or release archive")
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	const classify = `. /etc/os-release
-. "$1"
-install_support_tier "${ID:-unknown}" "${VERSION_ID:-unknown}" "$2" "$3"`
-	output, err := exec.CommandContext(ctx, "/bin/bash", "-c", classify, "stepanel-support-tier", helper, webServer, dbEngine).Output()
+	const classify = `source /dev/stdin
+. /etc/os-release
+install_support_tier "${ID:-unknown}" "${VERSION_ID:-unknown}" "$1" "$2"`
+	cmd := exec.CommandContext(ctx, "/bin/bash", "-c", classify, "stepanel-support-tier", webServer, dbEngine)
+	cmd.Stdin = strings.NewReader(setupSupportTierScript)
+	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("classify %s/%s on this host: %w", webServer, dbEngine, err)
 	}
