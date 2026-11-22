@@ -63,6 +63,10 @@ if (( GUIDED == 1 )); then
   # shellcheck source=deploy/lib/install-support-tier.sh
   . "$ROOT_DIR/deploy/lib/install-support-tier.sh"
   install_guided_host_support
+  if [[ -f "$ENV_FILE" ]]; then
+    echo "StePanel is already installed on this server. Run 'sudo ./install.sh' to upgrade; your settings and keys are kept." >&2
+    exit 1
+  fi
   echo "Checking native host requirements before asking setup questions."
   if systemd_preflight=$(install_preflight_systemd); then
     echo "HOST REQUIREMENT: $systemd_preflight"
@@ -79,10 +83,6 @@ if (( GUIDED == 1 )); then
     fi
   else
     echo "LAB OVERRIDE: user quota preflight skipped; hosted-site quota guarantees are disabled."
-  fi
-  if [[ -f "$ENV_FILE" ]]; then
-    echo "StePanel is already installed on this server. Run 'sudo ./install.sh' to upgrade; your settings and keys are kept." >&2
-    exit 1
   fi
   CONFIG_FILE="$ROOT_DIR/stepanel-install.env"
   reuse_answers=n

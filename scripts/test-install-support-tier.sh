@@ -54,9 +54,13 @@ rm -f "$fixture"
 
 # The current host/profile check must precede setup's questions and secrets.
 host_check_line=$(grep -n 'install_guided_host_support$' "$ROOT_DIR/install.sh" | head -1 | cut -d: -f1)
+installed_guard_line=$(grep -n 'StePanel is already installed on this server' "$ROOT_DIR/install.sh" | head -1 | cut -d: -f1)
+native_preflight_line=$(grep -n 'Checking native host requirements before asking setup questions' "$ROOT_DIR/install.sh" | head -1 | cut -d: -f1)
 setup_line=$(grep -n '"$ROOT_DIR/stepanel" setup --output' "$ROOT_DIR/install.sh" | head -1 | cut -d: -f1)
-[[ -n $host_check_line && -n $setup_line && $host_check_line -lt $setup_line ]] || {
-  echo 'guided host support must be shown before setup collects answers' >&2
+[[ -n $host_check_line && -n $installed_guard_line && -n $native_preflight_line && -n $setup_line && \
+  $host_check_line -lt $installed_guard_line && $installed_guard_line -lt $native_preflight_line && \
+  $native_preflight_line -lt $setup_line ]] || {
+  echo 'guided mode must show support, direct installed hosts to upgrade, and check prerequisites before setup collects answers' >&2
   exit 1
 }
 
