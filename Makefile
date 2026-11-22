@@ -68,6 +68,7 @@ shell-contract-check:
 	bash scripts/test-install-systemd-preflight.sh
 	bash scripts/test-install-quota-preflight.sh
 	bash scripts/test-install-package-preflight.sh
+	bash scripts/test-install-database-version-preflight.sh
 	bash scripts/test-evaluation-entrypoint.sh
 
 check: fmt-check api-check shell-contract-check vet test

@@ -1,5 +1,22 @@
 # Production-readiness progress
 
+## Reject unavailable database versions during read-only preflight — 2026-11-21
+
+- Explicit MariaDB/MySQL versions are now checked against APT/DNF metadata
+  before package installation. PostgreSQL AppStream streams are checked before
+  enabling one, and explicit PostgreSQL versions on Debian/Ubuntu are rejected
+  before any host mutation with the supported repository guidance. The later
+  install phase now executes the already-preflighted request instead of
+  discovering these errors after base packages have changed.
+- Added mocked APT/DNF pass/failure contracts and source ordering coverage;
+  release archive verification requires the helper. Focused shell tests,
+  ShellCheck on the new helper/tests, `make release-check`, syntax checks,
+  documentation links/references, and `git diff --check` passed. Full
+  `make check` passed, including `go vet ./...` and the complete Go suite
+  (root package 114.772s). Full-file ShellCheck reports the existing,
+  unrelated `public_root` sourced-variable warning at `install.sh:1461`.
+  Artifact snapshot and hosted host-smoke remain pending.
+
 ## Check required packages before installer mutations — 2026-11-21
 
 - Native installer preflight now checks required base utilities, PHP runtime

@@ -336,6 +336,7 @@ preflight_blockers=()
 . "$ROOT_DIR/deploy/lib/install-support-tier.sh"
 . "$ROOT_DIR/deploy/lib/install-systemd-preflight.sh"
 . "$ROOT_DIR/deploy/lib/install-package-preflight.sh"
+. "$ROOT_DIR/deploy/lib/install-database-version-preflight.sh"
 . "$ROOT_DIR/deploy/integrations/stepanel-quota-state.sh"
 . "$ROOT_DIR/deploy/lib/install-quota-preflight.sh"
 MAIL_EXIM_SERVICE=$([[ "$PKG" == apt ]] && printf exim4 || printf exim)
@@ -382,6 +383,11 @@ if package_preflight=$(install_preflight_packages web_package_available "${prefl
   echo "HOST REQUIREMENT: $package_preflight"
 else
   preflight_blockers+=("$package_preflight")
+fi
+if database_version_preflight=$(install_preflight_database_version "$PKG" "$DB_ENGINE" "$DB_PACKAGE" "$DB_VERSION"); then
+  echo "HOST REQUIREMENT: $database_version_preflight"
+else
+  preflight_blockers+=("$database_version_preflight")
 fi
 echo "DETECTED:"
 [[ -f "$ENV_FILE" ]] && echo "  existing StePanel installation ($ENV_FILE); this run is an upgrade"
@@ -628,12 +634,6 @@ for web_service in apache2 httpd caddy lsws; do
 done
 
 if [[ "$DB_ENGINE" == "postgresql" && "$PKG" == "dnf" && "$DB_VERSION" != "default" ]]; then
-  dnf module list postgresql --all >/dev/null 2>&1 || { echo 'PostgreSQL AppStream metadata is unavailable; enable the appropriate RHEL-family repositories first.' >&2; exit 1; }
-  if ! dnf module list postgresql --all 2>/dev/null | awk -v requested="$DB_VERSION" '$1 == "postgresql" && $2 == requested {found=1} END {exit(found ? 0 : 1)}'; then
-    echo "Requested PostgreSQL AppStream stream $DB_VERSION is not available." >&2
-    dnf module list postgresql --all || true
-    exit 1
-  fi
   install_journal_record dependency_installation started manual "enabling PostgreSQL AppStream module $DB_VERSION; module state is not reversed"
   dnf module enable -y "postgresql:$DB_VERSION"
 fi
@@ -644,15 +644,12 @@ if [[ "$DB_VERSION" == "default" ]]; then
     dnf install -y "$DB_PACKAGE"
   fi
 elif [[ "$PKG" == "apt" ]]; then
-  [[ "$DB_ENGINE" != "postgresql" ]] || { echo 'Explicit PostgreSQL versions on Debian/Ubuntu require a configured versioned PostgreSQL repository; use an AppStream stream on RHEL-family systems.' >&2; exit 1; }
-  if ! apt-cache madison "$DB_PACKAGE" | awk '{print $3}' | grep -Fxq "$DB_VERSION"; then echo "Requested $DB_PACKAGE version $DB_VERSION is not available. Configure the appropriate repository first." >&2; apt-cache madison "$DB_PACKAGE" || true; exit 1; fi
   apt-get install -y "$DB_PACKAGE=$DB_VERSION"
 elif [[ "$DB_ENGINE" == "postgresql" ]]; then
   # The selected AppStream module controls the PostgreSQL server package
   # version; the RPM itself remains named postgresql-server.
   dnf install -y "$DB_PACKAGE"
 else
-  if ! dnf --assumeno install "$DB_PACKAGE-$DB_VERSION" >/dev/null 2>&1; then echo "Requested $DB_PACKAGE version $DB_VERSION is not available. Enable the appropriate DNF repository/module first." >&2; dnf list --showduplicates "$DB_PACKAGE" || true; exit 1; fi
   dnf install -y "$DB_PACKAGE-$DB_VERSION"
 fi
 if [[ "$INSTALL_DB_ADMIN" == "1" ]]; then
