@@ -3983,10 +3983,11 @@ does not close a current-source or power-loss gate.
   support and preflight decisions, local evaluation startup/cleanup, and
   first-login guidance. It is local contract evidence, not an installed-host
   or release certification.
-- The full Ubuntu 24.04 + Caddy + MariaDB installed-host interruption run is
-  still active in [workflow 45040904045](https://github.com/cyberducttape/StePanel/actions/runs/45040904045).
-  Packaging, fixture staging, and disposable systemd host startup passed; the
-  install and recovery matrix has no terminal result yet.
+- At the time of this entry, the Ubuntu 24.04 + Caddy + MariaDB interruption
+  run [45040904045](https://github.com/cyberducttape/StePanel/actions/runs/45040904045)
+  was still active. It subsequently passed installation, an HTTPS WordPress
+  database restore proof (4.539 s), and one recovery-matrix iteration; see the
+  [result report](docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-e5fae4a.md).
 
 
 ## Make guided setup reuse saved answers reliably — 2026-11-22
@@ -3998,8 +3999,9 @@ does not close a current-source or power-loss gate.
   owned by an unrelated user, group/world-accessible files, and hard links.
 - Added the regression to `make shell-contract-check`; focused settings tests,
   the full shell contract suite, `make release-check`, shell syntax checks, and
-  `git diff --check` all pass locally. The exact-source hosted run for this new
-  installer change has not completed yet.
+  `git diff --check` all pass locally. Exact-source integration CI passed on
+  `d2695cd0`; its installed-host verification is still running in
+  [workflow 45060415981](https://github.com/cyberducttape/StePanel/actions/runs/45060415981).
 
 ## Explain first-run readiness failures — 2026-11-22
 
@@ -4046,7 +4048,9 @@ does not close a current-source or power-loss gate.
   The focused browser run could not execute locally because this environment
   has no disposable E2E credentials. Exact-source UI and accessibility CI
   passed on [run 45059366069](https://github.com/cyberducttape/StePanel/actions/runs/45059366069);
-  the full integration job is still running its race and recovery stages.
+  exact-source integration CI on `d2695cd0` also passed its full Go, race,
+  recovery, ENOSPC, database, container, and security checks in
+  [run 45060416027](https://github.com/cyberducttape/StePanel/actions/runs/45060416027).
 
 ## Clarify first-host smoke evidence and remove a fresh-install warning — 2026-11-22
 
@@ -4062,5 +4066,7 @@ does not close a current-source or power-loss gate.
   before the first site is created. Installer inventory now reports zero for
   an absent directory, with a shell regression. Focused contract, syntax,
   ShellCheck for the new helper/test, the full shell-contract suite, frontend
-  unit tests (19/19), and `git diff --check` passed. The warning fix still
-  needs exact-source hosted CI and an installed-host check.
+  unit tests (19/19), and `git diff --check` passed. Exact-source integration,
+  documentation, CodeQL, and release-evidence workflows passed on `d2695cd0`.
+  The exact-source installed-host check is still running in
+  [workflow 45060415981](https://github.com/cyberducttape/StePanel/actions/runs/45060415981).
