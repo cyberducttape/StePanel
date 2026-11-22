@@ -11,8 +11,14 @@
   state-changing workflows accurately and explain the doctor output modes.
 - Regression tests exercise the actual SDK HTTP request, human/JSON output,
   readiness exit policy, and check rendering. `go test ./cmd/stepanelctl`,
-  `go vet ./cmd/stepanelctl`, and `git diff --check` pass. Full repository CI
-  has not yet run for this source change.
+  `go test -race ./cmd/stepanelctl`, `go vet ./cmd/stepanelctl`, and
+  `git diff --check` pass. Exact-source integration CI
+  [45008851534](https://github.com/cyberducttape/StePanel/actions/runs/45008851534),
+  Documentation CI [45008851571](https://github.com/cyberducttape/StePanel/actions/runs/45008851571),
+  and CodeQL [45008851596](https://github.com/cyberducttape/StePanel/actions/runs/45008851596)
+  passed on `b2e95a3a`. The exact-source Ubuntu packaged-host install and
+  recovery smoke [45009421543](https://github.com/cyberducttape/StePanel/actions/runs/45009421543)
+  is still in progress; do not count it as installed-host evidence yet.
 
 ## Put the first-install decision and restore status up front — 2026-11-22
 
