@@ -1,6 +1,6 @@
 # Production-readiness progress
 
-## Verify exact-source integration after rclone config staging — 2026-11-22
+## Verify exact-source install and integration after rclone config staging — 2026-11-22
 
 - Integration CI [45017173779](https://github.com/cyberducttape/StePanel/actions/runs/45017173779)
   passed on source `55c1421a`. It completed formatting, release checks, vet,
@@ -11,11 +11,16 @@
 - The customer-panel browser job passed, including account-owner website
   creation initialization, uncaught JavaScript error checks, stale-list
   navigation, and delayed file-read/site-switch protection.
-- This run does not replace the separate exact-source installed-host test.
-  Ubuntu 24.04 + Caddy + MariaDB install and WordPress recovery smoke
+- The exact-source Ubuntu 24.04 + Caddy + MariaDB installation smoke
   [45017173718](https://github.com/cyberducttape/StePanel/actions/runs/45017173718)
-  is still running on the same source; the staged root-only rclone config
-  remains unverified on a completed fresh-host run until that job passes.
+  also passed. It verified default root config discovery, private source-file
+  preservation, staged `root:stepanel` mode `0640`, remote listing as the
+  service account, and the required-offsite `/readyz` probe. The same run
+  passed WordPress recovery over its disposable HTTPS trust setup in 4.333 s.
+  Details and limits are recorded in the [host report](docs/lab-results/2026-11-22-ubuntu-rclone-staging-smoke-55c1421a.md).
+- The smoke used a local rclone remote and one disposable-container repetition.
+  It does not establish external-provider recovery, public DNS/TLS, physical
+  power-loss durability, quota/capacity certification, or production readiness.
 
 ## Stage rclone credentials for the service account — 2026-11-22
 
@@ -32,9 +37,10 @@
   the installer fallback now preserve config paths containing spaces.
 - Focused setup Go tests, settings/bootstrap contracts, shell syntax,
   ShellCheck, 93-document source-reference checks, documentation links, and
-  `git diff --check` pass locally. The exact installed-host run for this change
-  has not yet run; the existing Ubuntu smoke is still validating its earlier
-  source. Production install claims remain gated on the new host result.
+  `git diff --check` passed locally. Exact-source integration and installed-host
+  smoke subsequently passed on `55c1421a`; see the current-source evidence
+  section above. The host result is one disposable-container run and does not
+  close the broader production certification gates.
 
 ## Keep local-evaluation failure guidance literal — 2026-11-22
 
