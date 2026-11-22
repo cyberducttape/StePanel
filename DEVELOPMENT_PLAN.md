@@ -41,9 +41,12 @@ checks, and browser workflow
 Documentation and CodeQL also passed. That integration workflow did not run
 the installer/bootstrap contract scripts. The current workflow now runs
 `make shell-contract-check`, which includes those regressions. Exact-source CI
-on `a6dfa99a` ([run 45027692263](https://github.com/cyberducttape/StePanel/actions/runs/45027692263))
-has passed the shell contracts, Go vet, full Go tests, browser suite, and
-documentation workflow; race and recovery checks are still running. The setup guidance and installer
+on `a6dfa99a` passed the full integration workflow, including shell contracts,
+Go vet/tests, race tests, recovery drills, real ENOSPC checks, MySQL and
+PostgreSQL restore tests, container checks, and deployment-manifest validation
+([run 45027692263](https://github.com/cyberducttape/StePanel/actions/runs/45027692263));
+the browser suite also passed. Documentation and CodeQL passed on the
+code-equivalent documentation-only descendants. The setup guidance and installer
 preflight identify Ubuntu 24.04 + Caddy + MariaDB as the recommended Beta
 profile. The latest installed-host smoke on code source `b901b258` passed on
 Ubuntu 24.04 + Caddy + MariaDB ([host run

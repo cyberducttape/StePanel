@@ -14,11 +14,14 @@
   same. The separate `local` bootstrap case remains covered explicitly.
 - `GOTOOLCHAIN=local GOMAXPROCS=2 GOFLAGS=-p=1 make shell-contract-check`,
   `make release-check`, and `git diff --check` pass locally. On exact source
-  `a6dfa99a`, the installer contract step, `go vet`, full Go tests, ENOSPC
-  drill, benchmark, browser suite, and documentation workflow have passed in
-  [CI run 45027692263](https://github.com/cyberducttape/StePanel/actions/runs/45027692263).
-  Race and recovery checks remain in progress; the earlier failed run is not
-  counted as passing evidence.
+  `a6dfa99a`, the full integration workflow passed in
+  [CI run 45027692263](https://github.com/cyberducttape/StePanel/actions/runs/45027692263),
+  including the installer contract step, Go vet/tests, race tests, recovery
+  drills, real ENOSPC checks, MySQL/PostgreSQL restore tests, container checks,
+  and deployment-manifest validation. The browser suite passed in that run;
+  documentation and CodeQL passed on code-equivalent documentation-only
+  descendants. The earlier failed harness run is not counted as passing
+  evidence.
 
 ## Refresh the recommended-profile installed-host evidence — 2026-11-22
 
