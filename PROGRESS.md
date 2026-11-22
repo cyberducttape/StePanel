@@ -3128,7 +3128,7 @@ does not close a current-source or power-loss gate.
   support-tier helper and checks that OS support is printed before the setup
   wizard runs. `check-release.sh` requires that contract. A non-publishing
   GoReleaser v2.17.1 snapshot built both amd64 and arm64 archives from source
-  `d73f9f1f`; the artifact verifier passed on both archives, including the
+  `920a1997`; the artifact verifier passed on both archives, including the
   native packaged `stepanel setup --help` smoke. The evidence and SBOM used
   for this local verifier run were synthetic, so this is packaging evidence,
   not official signed release evidence or host-install certification.
