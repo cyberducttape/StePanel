@@ -95,8 +95,16 @@ bootstrap (curl, tar, and coreutils):
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y git curl tar coreutils
+sudo apt-get install -y git curl tar coreutils rclone
+sudo rclone config
+sudo rclone listremotes
 ```
+
+Configure at least one remote before building. The wizard verifies that it can
+write, read, and delete a probe object at the chosen destination; without a
+working remote it exits before setup, so this ordering avoids an unnecessary
+build-and-restart. See [Prepare offsite storage once](#prepare-offsite-storage-once)
+for provider and headless-server instructions.
 
 The bootstrap needs Git, a POSIX shell, and either Go 1.21 or later or curl/wget,
 tar, and sha256sum. If Go is missing, too old, unrecognized, or forced to local

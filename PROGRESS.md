@@ -1,5 +1,14 @@
 # Production-readiness progress
 
+## Remove avoidable setup retry and correct wizard step guidance — 2026-11-22
+
+- The Ubuntu native-install command sequence now installs and configures rclone
+  before building StePanel. A new user no longer reaches the wizard's expected
+  “remote required” exit after spending time on the toolchain build. Corrected
+  the documented probe step to match the wizard's Step 3.
+- Documentation link/reference checks and `git diff --check` pass. Hosted
+  documentation CI is pending.
+
 ## Gate release packages on a fresh-host install proof — 2026-11-22
 
 - The tag release workflow now calls the disposable Ubuntu 24.04 + Caddy +

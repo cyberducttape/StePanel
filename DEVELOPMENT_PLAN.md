@@ -189,6 +189,9 @@ path is usable, but it is not a production-ready release.
   before asking for hostname or credentials; it tests the selected destination
   before collecting administrator passwords/MFA and before saving installer
   settings.
+  The installation guide places the Ubuntu rclone install/config commands
+  before the source build, preventing a predictable build-then-abort restart;
+  the written probe step now matches the wizard's Step 3.
 - The first-login browser journey presents health findings, opens the
   WordPress form from the primary next action, verifies template fields, and
   updates the next task to site backup and restore proof. The website area is
