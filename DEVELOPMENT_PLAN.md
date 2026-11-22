@@ -151,8 +151,10 @@ descriptor-bound stream through the local store or typed root-broker protocol,
 so files larger than the 2 MiB text-editor limit do not become JSON payloads
 or whole-file panel allocations. Downloads are capped at 40 GiB, limited to
 two concurrent transfers per tenant and eight per host, and receive a
-size-aware overall deadline plus a per-write stall deadline. Installed-host
-helper smoke and exact-source hosted CI remain pending.
+size-aware overall deadline plus a per-write stall deadline. The customer file
+manager and workflow guide now distinguish editor, upload, and download limits
+before a transfer begins. The full local Chromium suite passes; installed-host
+helper smoke remains pending.
 
 **Acceptance criteria**
 

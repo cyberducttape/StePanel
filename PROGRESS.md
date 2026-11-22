@@ -1,5 +1,19 @@
 # Production-readiness progress
 
+## Explain customer file-transfer limits before use — 2026-11-22
+
+- The customer Files view now states the separate limits: 2 MiB for editing,
+  4 MiB for upload, and streamed downloads up to 40 GiB. It directs customers
+  to SFTP only for transfers beyond those limits. The workflow guide and
+  roadmap now describe the same behavior.
+- Added an account-owner browser assertion for the visible limits. The full
+  disposable Chromium suite passed: 29 passed, 1 skipped, including customer
+  onboarding, website creation, file-manager cross-site/edit races, and
+  accessibility checks.
+- `make build-panel`, Playwright test discovery, JavaScript syntax, docs link
+  and reference checks passed. Installed-host file-helper certification
+  remains pending.
+
 ## Verify first-site ownership and file-operation recovery — 2026-11-22
 
 - Confirmed the setup-file ownership and malformed-quote findings are already

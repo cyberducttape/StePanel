@@ -272,6 +272,7 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   failNextMainList = true;
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Files' }).click();
   await expect(page.locator('#files')).toBeVisible();
+  await expect(page.locator('#fileTransferLimits')).toHaveText('Edit files up to 2 MiB, upload files up to 4 MiB, and download files up to 40 GiB. Use SFTP for larger transfers.');
   await expect(page.locator('#fileStatus')).toContainText('temporary listing failure');
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Websites' }).click();
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Files' }).click();
