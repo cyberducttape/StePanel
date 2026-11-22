@@ -72,9 +72,11 @@ if (( GUIDED == 1 )); then
     force_setup=()
     [[ -f $CONFIG_FILE ]] && force_setup=(--force)
     "$ROOT_DIR/stepanel" setup --output "$CONFIG_FILE" --from-installer "${force_setup[@]}" || exit $?
-    chown root:root "$CONFIG_FILE"
-    chmod 0600 "$CONFIG_FILE"
   fi
+  # setup run directly by an unprivileged user leaves a reusable settings
+  # file owned by that user. Secure it whether answers were reused or newly
+  # generated before the strict private-file loader checks ownership.
+  secure_install_settings_file "$CONFIG_FILE" || exit $?
   echo
 fi
 if [[ -n $CONFIG_FILE ]]; then

@@ -78,6 +78,7 @@ shell-contract-check:
 	bash scripts/test-install-guided.sh
 	bash scripts/test-evaluation-bootstrap.sh
 	bash scripts/test-install-env-file.sh
+	bash scripts/test-install-guided-settings.sh
 	bash scripts/test-install-first-login.sh
 	bash scripts/test-evaluation-entrypoint.sh
 

@@ -55,6 +55,13 @@ The `stepanelctl doctor` command now presents readiness failures as a readable
 checklist by default, includes the diagnostic and suggested next step, retains
 JSON output for automation, and exits nonzero for critical/not-ready or
 unrecognized status.
+The integrated guided installer also secures a previously saved setup file
+before reusing it, so `./stepanel setup` followed by
+`sudo ./install.sh --guided` no longer offers a reuse path that fails root
+ownership validation. The promotion rejects symlinks, unexpected owners,
+nonprivate permissions, and multiply linked files. A shell contract test
+executes those rejection rules and ensures both reuse and regeneration pass
+through the same promotion step.
 Local evaluation guidance and guided-setup
 support labels, pre-mutation platform classification, and release archive
 documentation requirements are in place. A newcomer can run a loopback-only

@@ -3940,3 +3940,16 @@ does not close a current-source or power-loss gate.
   still active in [workflow 45040904045](https://github.com/cyberducttape/StePanel/actions/runs/45040904045).
   Packaging, fixture staging, and disposable systemd host startup passed; the
   install and recovery matrix has no terminal result yet.
+
+
+## Make guided setup reuse saved answers reliably — 2026-11-22
+
+- Fixed the guided-installer path where an existing user-owned
+  `stepanel-install.env` was offered for reuse but failed the later root-owner
+  check. Saved answers are now promoted to root ownership and mode 0600 whether
+  they were reused or just generated. The promotion rejects symlinks, files
+  owned by an unrelated user, group/world-accessible files, and hard links.
+- Added the regression to `make shell-contract-check`; focused settings tests,
+  the full shell contract suite, `make release-check`, shell syntax checks, and
+  `git diff --check` all pass locally. The exact-source hosted run for this new
+  installer change has not completed yet.
