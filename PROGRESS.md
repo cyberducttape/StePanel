@@ -36,13 +36,16 @@
   returned `status_url` and use staging only after the job reaches `completed`.
 - `python3 scripts/check-docs-references.py` passed (93 documents),
   `bash scripts/check-docs-links.sh docs` passed, and `git diff --check` passed.
-  Documentation CI [45011131302](https://github.com/cyberducttape/StePanel/actions/runs/45011131302)
-  passed on commit `9975152e`.
-  The exact-source packaged Ubuntu install and recovery smoke is running at
-  [45009421543](https://github.com/cyberducttape/StePanel/actions/runs/45009421543);
-  its host-install result is still pending. CodeQL
-  [45011131264](https://github.com/cyberducttape/StePanel/actions/runs/45011131264)
-  is still running on `9975152e`.
+  On exact source `23c74dc8`, Documentation CI
+  [45011269994](https://github.com/cyberducttape/StePanel/actions/runs/45011269994)
+  and CodeQL
+  [45011270018](https://github.com/cyberducttape/StePanel/actions/runs/45011270018)
+  passed. Generated release evidence
+  [45011460791](https://github.com/cyberducttape/StePanel/actions/runs/45011460791)
+  records 3 checks passed and 6 incomplete; the exact-source packaged Ubuntu
+  install and recovery smoke
+  [45009421543](https://github.com/cyberducttape/StePanel/actions/runs/45009421543)
+  is still running and is not yet evidence of host installation success.
 - This improves wayfinding, but does not eliminate the source checkout/toolchain
   prerequisite or substitute for a tagged archive passing fresh-host install
   gates. Production remains NO-GO.
