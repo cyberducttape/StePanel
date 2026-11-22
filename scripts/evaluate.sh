@@ -8,11 +8,11 @@ if (( $# > 1 )); then
   exit 64
 fi
 if (( EUID == 0 )); then
-  echo 'Local evaluation must not run as root; run `make evaluate` as your normal user.' >&2
+  printf '%s\n' 'Local evaluation must not run as root; run `make evaluate` as your normal user.' >&2
   exit 1
 fi
 if [[ ! -x $binary ]]; then
-  echo "StePanel binary is not executable: $binary (run `make evaluate` from the checkout)." >&2
+  printf 'StePanel binary is not executable: %s (run `make evaluate` from the checkout).\n' "$binary" >&2
   exit 1
 fi
 

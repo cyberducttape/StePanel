@@ -26,6 +26,24 @@ cp "$ROOT_DIR/scripts/evaluate.sh" "$tmp/repo/scripts/evaluate.sh"
 ROOT_DIR="$tmp/repo"
 binary="$tmp/fake-stepanel"
 report="$tmp/environment"
+mkdir -p "$tmp/bin"
+cat > "$tmp/bin/make" <<'EOF'
+#!/usr/bin/env bash
+printf 'unexpected make invocation\n' > "$EVALUATION_TEST_MAKE_MARKER"
+exit 99
+EOF
+chmod 0700 "$tmp/bin/make"
+if EVALUATION_TEST_MAKE_MARKER="$tmp/make-invoked" PATH="$tmp/bin:$PATH" \
+  bash "$ROOT_DIR/scripts/evaluate.sh" "$tmp/missing-stepanel" >"$tmp/missing-output" 2>&1; then
+  echo 'missing evaluation binary was accepted' >&2
+  exit 1
+fi
+grep -Fq 'binary is not executable' "$tmp/missing-output"
+grep -Fq 'run `make evaluate` from the checkout' "$tmp/missing-output"
+[[ ! -e $tmp/make-invoked ]] || {
+  echo 'evaluation error message unexpectedly executed make' >&2
+  exit 1
+}
 cat > "$binary" <<'EOF'
 #!/usr/bin/env bash
 env | sort > "$EVALUATION_TEST_REPORT"

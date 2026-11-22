@@ -1,5 +1,20 @@
 # Production-readiness progress
 
+## Keep local-evaluation failure guidance literal — 2026-11-22
+
+- Fixed `scripts/evaluate.sh` so its advice to run `make evaluate` is printed
+  literally. Previously, the backticks inside a double-quoted message invoked
+  command substitution, producing a confusing extra `make` error when the
+  binary was missing (and on the root-user refusal path).
+- Extended `scripts/test-evaluation-entrypoint.sh` with a fake `make` executable
+  and a missing-binary case. It verifies the recovery instruction is shown
+  and the executable is never invoked. `bash -n`, the focused contract test,
+  ShellCheck, and `git diff --check` pass.
+- Built the current panel binary and launched the current preview script in an
+  isolated temporary directory, leaving the checkout's existing `data/`
+  untouched. The dashboard returned HTTP 200 and `ss` confirmed the listener
+  was `127.0.0.1:8080`; the process was stopped after the probe.
+
 ## Verify first-install settings handoff and parser safety — 2026-11-22
 
 - The manual `stepanel setup` flow prints a copy command that installs its
