@@ -12,8 +12,12 @@
   passed (including `go vet ./...` and the full Go suite; root package
   119.795s), `make release-check`, all installer shell contracts, syntax
   checks, documentation links, all 93 documentation references, and
-  `git diff --check` passed. Exact-source GoReleaser snapshot verification and
-  hosted CI are pending for this change.
+  `git diff --check` passed. A GoReleaser v2.17.1 snapshot built from exact
+  code source `1f29564b` for amd64 and arm64; both archives include
+  `install-package-preflight.sh`, checksums verify, the extracted amd64 setup
+  help runs, and the packaged helper passes `bash -n`. This is not a tagged or
+  signed release, nor a clean-host installation. Hosted CI runs for
+  `1f29564b` are queued/pending; no hosted result is claimed yet.
 
 ## Require current preflight helpers in release archives — 2026-11-21
 
