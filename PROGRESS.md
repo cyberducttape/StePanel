@@ -1,5 +1,22 @@
 # Production-readiness progress
 
+## Install the packaged build in installed-host smoke — 2026-11-21
+
+- Changed the recommended Ubuntu installed-host workflow to build an exact-
+  source GoReleaser snapshot, extract the amd64 release archive, verify the
+  packaged setup command and required installer/runtime assets, then mount
+  that package as `/work` for the host installation and recovery drill.
+  Previously, the host drill used the source checkout with binaries built
+  separately, so it could miss archive omissions or layout differences.
+- Added a release-check contract for the archive-based smoke and retained the
+  complete multi-platform matrix for manual runs. Local workflow-bound,
+  action-SHA, release, shell-syntax, and whitespace checks pass.
+- Exact-source hosted run
+  [44988484953](https://github.com/cyberducttape/StePanel/actions/runs/44988484953)
+  built and extracted the archive successfully; the disposable host is
+  starting. Installer, recovery, and identity-repair results are pending.
+  This tests a release-shaped snapshot, not an official tagged archive.
+
 ## Exact-source Ubuntu first-install and recovery smoke passed — 2026-11-21
 
 - Exact source `67b40760e575e0dd2d626b64010c496d9245f0da` passed integration CI

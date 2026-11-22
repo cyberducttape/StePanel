@@ -84,10 +84,14 @@ checklist and WordPress-creation entry point. See the
   tier, systemd-, quota-, package-, database-version-, change-plan-, and
   env-file helpers.
   The artifact verifier checks archive contents and executes the packaged
-  setup command on the native CI architecture. A clean-host artifact smoke
-  verifies the full documented archive workflow before any release advertises
-  it. A current-source snapshot confirmed the two release archives and setup
-  command, but the synthetic evidence/SBOM are not official release evidence.
+  setup command on the native CI architecture. The installed-host workflow now
+  builds an exact-source GoReleaser snapshot, validates its packaged setup and
+  runtime assets, and runs the disposable host smoke from the extracted
+  archive instead of the checkout. The first hosted run of that path is in
+  progress at [44988484953](https://github.com/cyberducttape/StePanel/actions/runs/44988484953);
+  archive build and extraction checks passed, while host installation and
+  recovery remain pending. This snapshot workflow does not replace a clean-host
+  test of the official tagged archive before release.
 - Installer preflight reports OS, web-server, and database support tier and
   actionable failed prerequisites (including availability of required base,
   PHP, database, web-server, and selected optional-feature packages in
