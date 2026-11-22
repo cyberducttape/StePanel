@@ -80,15 +80,19 @@ installer uses helpers and assets from that checkout:
 ```sh
 git clone --branch main https://github.com/cyberducttape/StePanel.git
 cd StePanel
-make build
+./scripts/install-guided.sh
 ```
 
-Install rclone and configure the remote used for offsite backups
-(`sudo rclone config`). Then run the guided installer from the same checkout:
+The script builds both binaries as your normal user with the repository-pinned
+Go toolchain, then runs the guided native installer through `sudo`. It does
+not build Go code as root. If you intentionally want StePanel to stop an
+existing web server, pass `--take-over-host`; otherwise the installer asks
+before making that change. The setup wizard checks for rclone and a configured
+offsite remote before collecting credentials and prints the exact command to
+fix either missing prerequisite.
 
-```sh
-sudo ./install.sh --guided
-```
+For a manual build and install, use `make build` followed by
+`sudo ./install.sh --guided` from the same checkout.
 
 Do not run this on a host already serving websites unless you intend to hand
 ports 80 and 443 to StePanel. The preflight lists services and files it will

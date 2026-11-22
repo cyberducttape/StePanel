@@ -1,5 +1,20 @@
 # Production-readiness progress
 
+## Simplify the source-based guided installation command — 2026-11-21
+
+- Added `scripts/install-guided.sh`: a new operator clones the current-source
+  checkout and runs one command. The script builds both Go binaries as the
+  invoking user with the pinned automatic toolchain, publishes each completed
+  binary atomically into the checkout, then invokes `sudo ./install.sh
+  --guided`. It supports only the explicit `--take-over-host` consent switch,
+  reports the missing-Go and disabled-toolchain cases, and refuses to run as
+  root.
+- Updated the installation guide and README to make this the current-source
+  path while retaining the manual build steps. Added a mocked shell test that
+  verifies both builds precede sudo and unsafe/unknown flags are rejected.
+- Local shell syntax, shellcheck, and the focused bootstrap test pass. Full
+  shell-contract, release, documentation, and hosted CI checks are in progress.
+
 ## Install the packaged build in installed-host smoke — 2026-11-21
 
 - Changed the recommended Ubuntu installed-host workflow to build an exact-

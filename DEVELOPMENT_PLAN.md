@@ -26,6 +26,8 @@ smoke of the official tagged release archive remain open. On exact source
 `656f12d2`, the disposable seeded browser journey passed the first-run
 checklist and WordPress-creation entry point. See the
 [`67b40760` host-smoke report](docs/lab-results/2026-11-21-ubuntu-first-host-smoke-67b4076.md).
+The source-based native path now has a single bootstrap command that builds
+both executables as the invoking user before elevating for the installer.
 
 **Acceptance criteria**
 
@@ -42,8 +44,11 @@ checklist and WordPress-creation entry point. See the
   evaluation evidence only, not a native installation test.
 - Build instructions explain that Go 1.21+ with automatic toolchain selection
   downloads the exact pinned Go 1.26.11 compiler, so a manual compiler upgrade
-  is not a prerequisite; source-based installation remains clearly distinct
-  from a published release archive.
+  is not a prerequisite. `scripts/install-guided.sh` builds both binaries as
+  the normal user, then invokes the guided host installer through `sudo`; its
+  mocked contract test proves build happens before privilege elevation and
+  unsupported installer options are rejected. Source-based installation
+  remains clearly distinct from a published release archive.
 - Guided setup recommends Ubuntu 24.04 + Caddy + MariaDB while identifying
   which alternatives are outside the current installed-host smoke matrix;
   interactive and unattended installer defaults select that same profile.

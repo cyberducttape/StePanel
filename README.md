@@ -239,7 +239,9 @@ for the required keys, offsite target, and rclone configuration. The guided
 installer is available from `main` and is documented separately; do not pass
 `--guided` to the v0.7.0 release installer. Before starting, install rclone
 and add a storage remote with `sudo rclone config`; the installer tests that
-remote before continuing.
+remote before continuing. For a current-source Beta installation, the
+[guided source installer](docs/INSTALLATION.md#guided-install-from-current-source)
+builds both binaries as your user and then starts the native installer.
 
 The installer records the selected database engine/version, creates a restricted `stepanel` service account, writes the requested panel hostname into the selected webserver, and binds the control plane to `127.0.0.1:8090`. Caddy provisions HTTPS automatically; Apache installations must complete TLS termination before signing in.
 
