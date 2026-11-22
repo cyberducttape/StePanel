@@ -16,6 +16,20 @@ record of each gate's status and remaining work.
 
 ### Release evidence
 
+The latest exact-source Ubuntu 24.04 + Caddy + MariaDB installed-host smoke
+passed on source `94fbf293` ([host run
+45002811271](https://github.com/cyberducttape/StePanel/actions/runs/45002811271));
+matching integration CI passed ([run
+45002811283](https://github.com/cyberducttape/StePanel/actions/runs/45002811283)).
+The disposable host installed and disabled the optional `spamd.service`,
+reported `post_install_status=complete`, and passed database-backed WordPress
+HTTPS recovery proof with measured RTO 4.422 seconds and one recovery-matrix
+iteration. This is one disposable-host smoke, not repeated certification.
+Repeated recovery, physical-host and power-loss evidence, broad ENOSPC/quota
+and capacity certification, and a clean-host test of the official tagged
+archive remain open. See the
+[`94fbf293` host-smoke report](./lab-results/2026-11-22-ubuntu-spamd-service-smoke-94fbf293.md).
+
 The latest exact-source Ubuntu 24.04 + Caddy + MariaDB snapshot install smoke
 passed on source `e04235f838834f32b6a54d40cc57e50648c00339` ([host run
 44990700250](https://github.com/cyberducttape/StePanel/actions/runs/44990700250));
