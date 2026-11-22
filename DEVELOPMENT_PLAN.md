@@ -33,7 +33,10 @@ passed the first-run checklist and WordPress-creation entry point.
   and real customer data in development mode. Setup users are shown the
   evaluation escape route before storage prerequisites are checked. README's
   quick-start link lands directly on this path and states the compiler and
-  first-download requirements there.
+  first-download requirements there. A temporary checkout at `c5a2765e`
+  completed `make evaluate`, served the dashboard with HTTP 200, and was
+  observed listening only on `127.0.0.1:8080`; Ctrl-C stopped it. This is UI
+  evaluation evidence only, not a native installation test.
 - Build instructions explain that Go 1.21+ with automatic toolchain selection
   downloads the exact pinned Go 1.26.11 compiler, so a manual compiler upgrade
   is not a prerequisite; source-based installation remains clearly distinct

@@ -32,6 +32,16 @@
   customer password. This is local browser evidence; hosted CI and real-host
   operation are not established by this run.
 
+## Verify the documented local evaluation command — 2026-11-21
+
+- Built a temporary checkout at `c5a2765e` and ran the documented
+  `make evaluate` command. It built the binary, started StePanel, served the
+  dashboard at `http://127.0.0.1:8080` with HTTP 200, and `ss` confirmed the
+  listener was bound only to loopback. Ctrl-C stopped the server and a follow-
+  up request confirmed the listener was gone. This verifies the no-host-change
+  evaluation path; it does not prove native installer behavior, login
+  security, or recovery on a managed host.
+
 ## Preflight packages for selected optional features — 2026-11-21
 
 - Installer package preflight now includes Fail2ban, mail, FTP, ModSecurity,
