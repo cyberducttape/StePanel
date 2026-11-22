@@ -1,5 +1,25 @@
 # Production-readiness progress
 
+## Verify first-install settings handoff and parser safety — 2026-11-22
+
+- The manual `stepanel setup` flow prints a copy command that installs its
+  user-owned settings file as root-owned mode 0600 at
+  `/etc/ste-panel-install.env`; `docs/INSTALLATION.md` documents that same
+  sequence. The installer requires a root-owned, private input because it
+  contains credentials. This resolves the documented-workflow ownership
+  mismatch without asking users to run the setup wizard as root.
+- `deploy/lib/install-env-file.sh` rejects unterminated quoted values,
+  unsupported escapes, and trailing characters. `scripts/test-install-env-file.sh`
+  contains regression cases for truncated and trailing values, and
+  `setup_test.go` checks that setup prints the root-copy and installer steps.
+- Local verification on Go 1.26.11: focused setup Go tests,
+  `scripts/test-install-env-file.sh`, `scripts/test-install-guided.sh`, and
+  `make release-check` passed. The source-bootstrap contract also passed in
+  exact-source CI run
+  [45012500672](https://github.com/cyberducttape/StePanel/actions/runs/45012500672).
+  This does not substitute for a full current-source installed-host run of the
+  source bootstrap.
+
 ## Explain source-install compiler failures before building — 2026-11-22
 
 - `scripts/install-guided.sh` now checks that the installed Go command reports
@@ -20,7 +40,12 @@
   passed. Exact-source report
   [45014390695](https://github.com/cyberducttape/StePanel/actions/runs/45014390695)
   records three checks passed and six incomplete; the packaged-host smoke is
-  equivalent by code and passed on `b2e95a3a`.
+  not code-equivalent: it passed on `b2e95a3a`, before the bootstrap script
+  and its test changed on `a3cbb37a`. The GoReleaser host smoke does not package
+  or execute `scripts/install-guided.sh`, so it provides no runtime evidence
+  for that source-bootstrap path. The bootstrap contract test did pass in the
+  exact-source integration run; no installed-host smoke has been run for the
+  changed bootstrap script.
 - Copyable README and installation commands now use shallow Git clones for
   development, local evaluation, and the native source bootstrap. The source
   reference/link checks (93 documents), `make release-check`, and
