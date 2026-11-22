@@ -724,6 +724,16 @@ test('major administrator workspaces remain accessible after navigation', async 
   }
 });
 
+test('platform capability details stay out of the first-run view and open from navigation', async ({ page }) => {
+  const operations = page.locator('#operations');
+  await expect(operations).not.toHaveAttribute('open', '');
+  await expect(page.locator('#capabilityCenter')).toBeHidden();
+
+  await page.getByRole('link', { name: 'Infrastructure', exact: true }).click();
+  await expect(operations).toHaveAttribute('open', '');
+  await expect(operations.locator('summary')).toContainText(/unavailable|available|report unavailable|View details/i);
+});
+
 test('customer session hides administrator navigation', async ({ page }) => {
   test.skip(!process.env.STEPANEL_E2E_CUSTOMER_PASSWORD, 'Provide customer credentials for the second-context isolation check');
   const customer = await page.context().browser().newContext({ baseURL: process.env.STEPANEL_E2E_BASE_URL });

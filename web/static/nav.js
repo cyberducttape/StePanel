@@ -39,6 +39,10 @@
     .map((node) => node.textContent).join('').trim();
   const setActive = (hash) => {
     const target = hash || '#main';
+    if (target === '#operations') {
+      const operations = document.querySelector('#operations');
+      if (operations instanceof HTMLDetailsElement) operations.open = true;
+    }
     links.forEach((link) => {
       const active = link.getAttribute('href') === target;
       link.classList.toggle('is-active', active);

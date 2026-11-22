@@ -95,6 +95,11 @@ quotas, Git deployment was refused and the live site remained unchanged; this
 proves fail-closed behavior, not quota enforcement. The report records scope
 and limitations in
 [`2026-11-22-ubuntu-packaged-first-host-smoke-6af93e8.md`](docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-6af93e8.md).
+The administrator's first-run dashboard also keeps the long unavailable-
+capability inventory collapsed behind a disclosure that reports its current
+counts. Infrastructure navigation expands it directly; service inventory
+and security checks remain available. A browser regression covers the default
+and navigation states, pending exact-source browser CI.
 Although this host smoke postdates the source bootstrap changes in `a3cbb37a`,
 the GoReleaser archive does not contain or execute `scripts/install-guided.sh`;
 it is not runtime evidence for that separate bootstrap path. A clean temporary checkout at

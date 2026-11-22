@@ -1,5 +1,17 @@
 # Production-readiness progress
 
+## Simplify first-run administrator dashboard — 2026-11-22
+
+- The administrator first-run dashboard no longer expands a long list of
+  unavailable capabilities beneath the setup checklist. The Platform
+  operations disclosure shows the live unavailable/setup-needed count and
+  retains the detailed reasons on demand. Infrastructure navigation opens it
+  directly; service inventory remains visible.
+- Added a browser regression for collapsed initial state and navigation
+  expansion. `npm run test:unit`, JavaScript syntax checks, and `git diff
+  --check` pass locally. Exact-source browser CI is pending; no hosted E2E
+  result is claimed yet.
+
 ## Verify packaged first install and WordPress recovery on current source — 2026-11-22
 
 - Ran the disposable installed-host workflow against exact source

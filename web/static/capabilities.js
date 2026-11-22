@@ -3,6 +3,7 @@
 
   const panel = document.querySelector('#capabilityCenter');
   if (!panel || document.body.dataset.isAdministrator !== 'true') return;
+  const operationsSummary = document.querySelector('#operationsSummary');
 
   // Readable names for the capability keys reported by /api/capabilities.
   // Unknown keys fall back to a title built from the key itself.
@@ -78,6 +79,7 @@
       .filter(([, capability]) => capability && !capability.available);
     if (!entries.length) {
       panel.hidden = true;
+      if (operationsSummary) operationsSummary.textContent = 'All capabilities available';
       return;
     }
     panel.hidden = false;
@@ -88,6 +90,9 @@
     h.id = 'capabilityCenterHeading';
     titleBlock.append(h, element('p', 'import-copy', 'Each unavailable operation shows what the host is missing and the next step to enable it.'));
     const needsSetup = entries.filter(([, capability]) => capability.mode === 'unsupported').length;
+    if (operationsSummary) {
+      operationsSummary.textContent = `${entries.length} unavailable · ${needsSetup} need setup`;
+    }
     const summary = element('p', 'capability-summary');
     summary.append(element('strong', '', String(entries.length)), ` unavailable · ${needsSetup} need setup`);
     heading.append(titleBlock, summary);
@@ -132,6 +137,7 @@
     .then((response) => response.ok ? response.json() : Promise.reject(new Error('capability report unavailable')))
     .then((report) => render(report.capabilities))
     .catch(() => {
+      if (operationsSummary) operationsSummary.textContent = 'Capability report unavailable';
       panel.hidden = false;
       panel.textContent = 'Capability explanations are temporarily unavailable. Check readiness and try again.';
     });
