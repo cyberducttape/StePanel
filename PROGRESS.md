@@ -3054,3 +3054,7 @@ does not close a current-source or power-loss gate.
   full archive verifier passes on both snapshot architectures, including the
   packaged CLI smoke. The fixture uses synthetic evidence/SBOM only to exercise
   the verifier; it does not constitute signed release evidence.
+- Ran `make evaluate` in an isolated worktree. The compiled panel bound to
+  `127.0.0.1:8080`, completed startup recovery, returned HTTP 204 from `/livez`
+  and HTTP 200 with dashboard HTML from `/`. The disposable process was
+  stopped cleanly; no host installation or customer data was involved.
