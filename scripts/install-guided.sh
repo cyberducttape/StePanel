@@ -29,6 +29,17 @@ command -v -- "$sudo_bin" >/dev/null 2>&1 || {
   exit 1
 }
 
+existing_install=0
+if "$sudo_bin" test -f /etc/ste-panel.env; then
+  existing_install=1
+  echo 'Existing StePanel installation detected; preparing the standard upgrade path.'
+else
+  # Fail before downloading a compiler or building binaries when this host
+  # cannot run a fresh native installation. The check is read-only; install.sh
+  # repeats it before making any host changes.
+  "$sudo_bin" bash "$repo_root/scripts/install-host-preflight.sh"
+fi
+
 build_dir=$(mktemp -d "${TMPDIR:-/tmp}/stepanel-guided-build.XXXXXX")
 panel_tmp=
 root_tmp=
@@ -66,4 +77,8 @@ root_tmp=
 
 echo 'Build complete. Starting the guided native installer.'
 cd "$repo_root"
-"$sudo_bin" ./install.sh --guided "${takeover[@]}"
+if (( existing_install )); then
+  "$sudo_bin" ./install.sh
+else
+  "$sudo_bin" ./install.sh --guided "${takeover[@]}"
+fi

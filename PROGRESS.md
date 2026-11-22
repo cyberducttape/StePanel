@@ -1,5 +1,19 @@
 # Production-readiness progress
 
+## Check native-host blockers before building — 2026-11-22
+
+- The one-command source installer now checks the detected support tier,
+  systemd availability, and quota readiness through a read-only root preflight
+  before downloading the pinned Go compiler or building binaries. The native
+  installer repeats these checks before host mutation. This prevents an
+  unsupported host from spending time on compilation before being rejected.
+- Added a shell contract for preflight ordering and included the new scripts in
+  syntax checks. Focused contract and shell syntax checks pass locally; full
+  `make shell-contract-check`, documentation-link/reference checks,
+  `make release-check`, ShellCheck, and `git diff --check` pass locally. Full Go
+  tests were not needed for this shell/documentation-only change. Hosted CI is
+  pending. No host was modified by this change.
+
 ## Make quota preflight failures actionable — 2026-11-22
 
 - Quota blockers now point to a focused installation-guide procedure. It

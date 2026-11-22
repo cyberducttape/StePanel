@@ -64,7 +64,9 @@ executes those rejection rules and ensures both reuse and regeneration pass
 through the same promotion step.
 Local evaluation guidance and guided-setup
 support labels, pre-mutation platform classification, and release archive
-documentation requirements are in place. A newcomer can run a loopback-only
+documentation requirements are in place. The one-command source installer
+now runs a read-only OS/systemd/quota check before downloading Go or compiling;
+the privileged native installer repeats it before host changes. A newcomer can run a loopback-only
 evaluation or use the source bootstrap to build as an unprivileged user and
 then start the guided native installer. Both entry points share a Go
 bootstrap: when Go is unavailable, too old, unidentified, or
@@ -165,6 +167,10 @@ path is usable, but it is not a production-ready release.
   remains clearly distinct from a published release archive. The manual
   fallback `make build && sudo ./install.sh --guided` also builds both
   `stepanel` and `stepanel-root`; `make evaluate` builds only the panel binary.
+  Before fetching the compiler, the source bootstrap checks for an existing
+  installation and routes it to the ordinary upgrade path; fresh hosts must
+  pass the read-only OS/systemd/quota preflight before any toolchain download
+  or build. A regression verifies that a failed preflight launches no build.
 - Guided setup recommends Ubuntu 24.04 + Caddy + MariaDB while identifying
   which alternatives are outside the current installed-host smoke matrix;
   interactive and unattended installer defaults select that same profile.

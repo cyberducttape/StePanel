@@ -156,9 +156,13 @@ cd StePanel
 ./scripts/install-guided.sh
 ```
 
-The script builds both binaries as your normal user with the repository-pinned
-Go toolchain, then runs the guided native installer through `sudo`. It does
-not build Go code as root. If you intentionally want StePanel to stop an
+Before downloading Go or compiling, the script uses `sudo` for a read-only
+check of the OS support tier, running systemd manager, and user-quota readiness
+on `/var/www` and `/home`. A blocker stops setup before the toolchain download;
+the full installer repeats the checks before host changes. The script then
+builds both binaries as your normal user with the repository-pinned Go
+toolchain and runs the guided native installer through `sudo`. It does not
+build Go code as root. If you intentionally want StePanel to stop an
 existing web server, pass `--take-over-host`; otherwise the installer asks
 before making that change. The setup wizard checks for rclone and a configured
 offsite remote before collecting credentials and prints the exact command to

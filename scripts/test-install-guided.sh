@@ -8,6 +8,7 @@ fake_repo="$tmp/repo"
 fake_bin="$tmp/bin"
 mkdir -p "$fake_repo/scripts" "$fake_bin"
 cp "$repo/scripts/install-guided.sh" "$fake_repo/scripts/install-guided.sh"
+cp "$repo/scripts/install-host-preflight.sh" "$fake_repo/scripts/install-host-preflight.sh"
 cp "$repo/scripts/go-toolchain.sh" "$fake_repo/scripts/go-toolchain.sh"
 printf 'module guided-test\n\ntoolchain go1.26.11\n' > "$fake_repo/go.mod"
 touch "$fake_repo/install.sh"
@@ -32,7 +33,13 @@ SH
 cat > "$fake_bin/sudo" <<'SH'
 #!/usr/bin/env bash
 set -Eeuo pipefail
-printf '%s\n' "$*" > "$SUDO_LOG"
+printf '%s\n' "$*" >> "$SUDO_LOG"
+if [[ ${1:-} == test && ${2:-} == -f && ${3:-} == /etc/ste-panel.env ]]; then
+  [[ ${EXISTING_INSTALL:-0} == 1 ]]
+fi
+if [[ ${2:-} == */install-host-preflight.sh && ${PREFLIGHT_FAIL:-0} == 1 ]]; then
+  exit 42
+fi
 SH
 cat > "$fake_bin/curl" <<'SH'
 #!/usr/bin/env bash
@@ -83,11 +90,24 @@ GO_LOG="$tmp/go.log" SUDO_LOG="$tmp/sudo.log" GO=go SUDO=sudo \
 [[ -x $fake_repo/stepanel && -x $fake_repo/stepanel-root ]]
 grep -Fq './cmd/stepanel' "$tmp/go.log"
 grep -Fq './cmd/stepanel-root' "$tmp/go.log"
-[[ $(<"$tmp/sudo.log") == './install.sh --guided --take-over-host' ]]
+[[ $(wc -l < "$tmp/sudo.log") == 3 ]]
+grep -Fq 'test -f /etc/ste-panel.env' "$tmp/sudo.log"
+grep -Fq 'install-host-preflight.sh' "$tmp/sudo.log"
+[[ $(tail -n 1 "$tmp/sudo.log") == './install.sh --guided --take-over-host' ]]
 if grep -Fq sudo "$tmp/go.log"; then
   echo 'Go build unexpectedly ran with sudo' >&2
   exit 1
 fi
+
+if env GO=go GO_LOG="$tmp/preflight-fail-go.log" \
+  SUDO_LOG="$tmp/preflight-fail-sudo.log" SUDO=sudo PREFLIGHT_FAIL=1 \
+  PATH="$fake_bin:$PATH" bash "$fake_repo/scripts/install-guided.sh" \
+  >"$tmp/preflight-fail.out" 2>&1; then
+  echo 'bootstrap continued after a failed host preflight' >&2
+  exit 1
+fi
+grep -Fq 'install-host-preflight.sh' "$tmp/preflight-fail-sudo.log"
+[[ ! -e $tmp/preflight-fail-go.log ]]
 
 for compiler_mode in missing old local; do
   rm -f -- "$fake_repo/stepanel" "$fake_repo/stepanel-root"
@@ -103,12 +123,24 @@ for compiler_mode in missing old local; do
   env "${env_args[@]}" bash "$fake_repo/scripts/install-guided.sh"
   [[ -x $fake_repo/stepanel && -x $fake_repo/stepanel-root ]]
   [[ $(<"$tmp/bootstrap.log") == $'verify:'* && $(tail -n 1 "$tmp/bootstrap.log") == extract ]]
-  [[ $(<"$tmp/$compiler_mode-sudo.log") == './install.sh --guided' ]]
+  [[ $(wc -l < "$tmp/$compiler_mode-sudo.log") == 3 ]]
+  grep -Fq 'test -f /etc/ste-panel.env' "$tmp/$compiler_mode-sudo.log"
+  grep -Fq 'install-host-preflight.sh' "$tmp/$compiler_mode-sudo.log"
+  [[ $(tail -n 1 "$tmp/$compiler_mode-sudo.log") == './install.sh --guided' ]]
   grep -Fq './cmd/stepanel' "$tmp/$compiler_mode-go.log"
   if [[ $compiler_mode == missing ]]; then
     grep -Fq -- '--progress-bar' "$tmp/download.log"
   fi
 done
+
+rm -f -- "$fake_repo/stepanel" "$fake_repo/stepanel-root"
+env GO=go GO_LOG="$tmp/existing-go.log" SUDO_LOG="$tmp/existing-sudo.log" \
+  SUDO=sudo EXISTING_INSTALL=1 PATH="$fake_bin:$PATH" \
+  bash "$fake_repo/scripts/install-guided.sh"
+[[ $(wc -l < "$tmp/existing-sudo.log") == 2 ]]
+grep -Fq 'test -f /etc/ste-panel.env' "$tmp/existing-sudo.log"
+! grep -Fq 'install-host-preflight.sh' "$tmp/existing-sudo.log"
+[[ $(tail -n 1 "$tmp/existing-sudo.log") == './install.sh' ]]
 
 rm -f -- "$fake_repo/stepanel" "$fake_repo/stepanel-root" "$tmp/bad-sudo.log"
 if env GO="$tmp/missing-go" SUDO=sudo SUDO_LOG="$tmp/bad-sudo.log" \
@@ -123,7 +155,12 @@ if grep -Fq extract "$tmp/bad-bootstrap.log"; then
   echo 'bootstrap extracted an archive before verifying its checksum' >&2
   exit 1
 fi
-[[ ! -e $fake_repo/stepanel && ! -e $fake_repo/stepanel-root && ! -e $tmp/bad-sudo.log ]]
+[[ ! -e $fake_repo/stepanel && ! -e $fake_repo/stepanel-root ]]
+grep -Fq 'install-host-preflight.sh' "$tmp/bad-sudo.log"
+if grep -Fq './install.sh' "$tmp/bad-sudo.log"; then
+  echo 'bootstrap handed off to the installer after a failed checksum' >&2
+  exit 1
+fi
 
 printf 'module guided-test\n\ntoolchain go1.27.0\n' > "$fake_repo/go.mod"
 if env GO="$tmp/missing-go" SUDO=sudo SUDO_LOG="$tmp/unsupported-sudo.log" \
@@ -133,7 +170,11 @@ if env GO="$tmp/missing-go" SUDO=sudo SUDO_LOG="$tmp/unsupported-sudo.log" \
   exit 1
 fi
 grep -Fq 'No verified Go archive checksum is configured for go1.27.0 linux/amd64' "$tmp/unsupported-pin.out"
-[[ ! -e $tmp/unsupported-sudo.log ]]
+grep -Fq 'install-host-preflight.sh' "$tmp/unsupported-sudo.log"
+if grep -Fq './install.sh' "$tmp/unsupported-sudo.log"; then
+  echo 'bootstrap handed off after an unverified Go toolchain pin' >&2
+  exit 1
+fi
 
 if GO_LOG="$tmp/invalid-go.log" SUDO_LOG="$tmp/invalid-sudo.log" GO=go SUDO=sudo PATH="$fake_bin:$PATH" \
   bash "$fake_repo/scripts/install-guided.sh" --unsafe-lab >/dev/null 2>&1; then
