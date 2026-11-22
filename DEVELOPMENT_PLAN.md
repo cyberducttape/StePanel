@@ -16,28 +16,25 @@ successful one-off smoke does not close a host-certification gate.
 
 **Status:** Partially implemented. Local evaluation guidance and guided-setup
 support labels, pre-mutation platform classification, and release archive
-documentation requirements are in place. The setup greeting now separates
-the no-host-change evaluation path from native installation, and build docs
-explain the automatic pinned-toolchain download. A GoReleaser snapshot now
-verifies packaged guided-setup ordering on amd64 and arm64. Exact-source
-Ubuntu 24.04 + Caddy + MariaDB smoke passed once on `e04235f8`: the snapshot
-installed on a disposable systemd container, WordPress HTTPS/database
-recovery proof passed with measured RTO 4.351 s, and one recovery-matrix
-iteration passed. Repeated host acceptance and a clean-host smoke of the
-official tagged release archive remain open. See the
-[`e04235f8` host-smoke report](docs/lab-results/2026-11-22-ubuntu-first-host-smoke-e04235f.md).
-On exact source
-`656f12d2`, the disposable seeded browser journey passed the first-run
-checklist and WordPress-creation entry point. The earlier Ubuntu host run on
-`67b40760` is documented in its
-[host-smoke report](docs/lab-results/2026-11-21-ubuntu-first-host-smoke-67b4076.md).
-The earlier installed-host run [44998862460](https://github.com/cyberducttape/StePanel/actions/runs/44998862460) passed on source `5d87e6e8`, installing the exact-source snapshot on Ubuntu 24.04 + Caddy + MariaDB and proving WordPress restore over HTTPS in 4.627 seconds. Its log exposed the incorrect optional SpamAssassin unit name, which was corrected on `94fbf293`. The latest installed-host run [45002811271](https://github.com/cyberducttape/StePanel/actions/runs/45002811271) passed on `94fbf293`: the installer installed and disabled `spamd.service`, reported `post_install_status=complete`, and restored WordPress with HTTPS/application proof in 4.422 seconds. One recovery-matrix iteration passed. The latest log and limits are recorded in the [spamd-service smoke report](docs/lab-results/2026-11-22-ubuntu-spamd-service-smoke-94fbf293.md). These are disposable-container runs, not repeated certification.
-The source-based native path now has a single bootstrap command that builds
-both executables as the invoking user before elevating for the installer.
-When setup finds an existing user-owned settings file, its recovery message
-now gives the same safe `sudo install -o root ...` copy path as the successful
-setup transcript; a regression test ensures it never recommends passing that
-untrusted-owner file directly to the installer.
+documentation requirements are in place. A newcomer can run a loopback-only
+evaluation, or use the source bootstrap to build as an unprivileged user and
+then start the guided native installer. The setup guidance and installer
+preflight identify Ubuntu 24.04 + Caddy + MariaDB as the recommended Beta
+profile. The latest installed-host smoke on code source `94fbf293` passed on
+Ubuntu 24.04 + Caddy + MariaDB ([host run
+45002811271](https://github.com/cyberducttape/StePanel/actions/runs/45002811271));
+matching integration CI [45002811283](https://github.com/cyberducttape/StePanel/actions/runs/45002811283)
+passed. The installer completed `spamd.service` handling and WordPress
+HTTPS/database recovery proof measured 4.422 seconds; one recovery-matrix
+iteration passed. Integration CI also passed the administrator first-run and
+account-owner browser journeys. The GoReleaser snapshot was installed from
+its extracted archive on a disposable systemd container. See the [reviewed
+host report](docs/lab-results/2026-11-22-ubuntu-spamd-service-smoke-94fbf293.md).
+This is one disposable-container pass, not repeated host certification. A
+clean-host smoke of the official tagged release archive also remains open:
+no currently published stable archive supports a fresh Ubuntu 24.04 install.
+These release and repetition gates keep M0aa partial; the source-based staging
+path is usable, but it is not a production-ready release.
 
 **Acceptance criteria**
 
