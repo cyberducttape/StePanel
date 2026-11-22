@@ -18,8 +18,17 @@
   the initial preflight change. Hosted CI caught a missing download-log fixture
   in the existing-install regression; that was corrected and pushed, then the
   preflight was extended to catch absent rclone configuration before build.
-  Full Go tests were not needed for the shell changes. CI is running against
-  the latest commit. No host was modified.
+  Exact-source integration CI passed on `a309055d`
+  ([run 45069529444](https://github.com/cyberducttape/StePanel/actions/runs/45069529444)),
+  including installer shell contracts, vet, all Go tests, race tests, recovery
+  drills, real ENOSPC, MySQL/PostgreSQL restore checks, and UI E2E. Documentation
+  and CodeQL passed on the code-equivalent `8050f805` commit ([docs
+  run](https://github.com/cyberducttape/StePanel/actions/runs/45070146909),
+  [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/45070146987)).
+  The exact-source Ubuntu 24.04 + Caddy + MariaDB install/recovery smoke
+  ([run 45069529493](https://github.com/cyberducttape/StePanel/actions/runs/45069529493))
+  remains in progress; it is a disposable-host test and would not close
+  production certification. No host was modified locally.
 
 ## Make quota preflight failures actionable — 2026-11-22
 
