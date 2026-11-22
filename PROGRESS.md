@@ -26,6 +26,12 @@
   native Beta installation, and customer production. It names the recommended
   Ubuntu 24.04 + Caddy + MariaDB profile and links production readers directly
   to the release gates instead of presenting Beta as an ordinary fresh install.
+- The README and installation guide now state the native bootstrap's Git/Go
+  prerequisites up front and provide copyable Ubuntu 24.04 package commands.
+  `make release-check`, the 93-document source-reference check, documentation
+  link checking, and `git diff --check` pass locally. Documentation CI and
+  CodeQL for this docs-only source `cc9b4e20` are running; the exact-source
+  Ubuntu host smoke for code-equivalent source `b2e95a3a` is still active.
 - The installation guide now starts with three direct paths: loopback preview,
   disposable/staging Operator Beta, or stop before customer production. It
   states the preview and source-build prerequisites, the recommended Ubuntu
