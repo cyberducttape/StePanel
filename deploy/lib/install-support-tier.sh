@@ -26,7 +26,7 @@ install_support_tier() {
 # web/database combination is still checked again during the normal preflight.
 install_guided_host_support() {
   local os_release=${1:-/etc/os-release}
-  local ID= VERSION_ID= PRETTY_NAME=
+  local ID='' VERSION_ID='' PRETTY_NAME=''
   if [[ ! -r $os_release ]]; then
     echo "Cannot identify the operating system: $os_release is unreadable." >&2
     return 1

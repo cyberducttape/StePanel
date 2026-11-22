@@ -1,5 +1,15 @@
 # Production-readiness progress
 
+## Fix ShellCheck failure in installer support-tier helper — 2026-11-21
+
+- Exact-source CI `44982304932` passed Go tests, race tests, recovery and ENOSPC
+  drills, load checks, and UI E2E, then failed the shell lint step on
+  `SC1007` for empty local assignments in `install-support-tier.sh`. Changed
+  those assignments to explicit empty strings. The exact CI ShellCheck command
+  and `make shell-contract-check` pass locally. Hosted rerun is pending; this
+  correction is committed locally and will be pushed after the independent
+  Ubuntu install smoke completes.
+
 ## Explain support evidence before host configuration — 2026-11-21
 
 - Guided setup now distinguishes the recommended Ubuntu 24.04 + Caddy +
