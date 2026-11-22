@@ -37,7 +37,9 @@ first-host application proof remain open.
   smoke verifies the documented archive workflow before any release advertises it.
 - Installer preflight reports OS, web-server, and database support tier and
   actionable failed prerequisites (including a live systemd manager and
-  enforced user quotas on `/var/www` and `/home`) before host mutation.
+  user-quota mount settings on `/var/www` and `/home`) before host mutation;
+  it verifies active enforcement immediately if tools are available, otherwise
+  reports the deferral and fails before site services if enforcement is absent.
   First-site creation,
   backup, and restore proof are verified on the selected supported profile.
 

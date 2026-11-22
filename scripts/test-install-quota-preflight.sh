@@ -12,6 +12,10 @@ test_home_mount=/tmp/stepanel-test-home
 quota_failure=
 findmnt() { printf '%s\n' "$test_home_mount"; }
 stepanel_user_quota_active() {
+  if [[ $quota_failure == tools ]]; then
+    printf 'quotaon is required to inspect ext4 user quotas' >&2
+    return 1
+  fi
   if [[ -n $quota_failure && $1 == "$quota_failure" ]]; then
     printf 'user quotas are not enabled on mount %s' "$1" >&2
     return 1
@@ -36,5 +40,9 @@ if message=$(install_preflight_user_quotas "$web_root" /home 2>&1); then
 fi
 grep -Fq "$test_home_mount" <<<"$message"
 grep -Fq 'Enable and verify usrquota' <<<"$message"
+
+quota_failure=tools
+message=$(install_preflight_user_quotas "$web_root" /home)
+grep -Fq 'Enforcement will be checked again before setup continues' <<<"$message"
 
 echo 'installer quota preflight contract passed'

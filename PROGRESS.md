@@ -16,12 +16,13 @@
 
 ## Check mandatory quotas before package installation — 2026-11-21
 
-- Installer preflight now verifies enforced user quotas on `/var/www` and the
-  filesystem containing `/home` before package updates. It reports the
-  filesystem-specific helper error and directs the operator to enable
-  `usrquota`; after packages install, the existing second check revalidates
-  enforcement. Missing project quota remains an explicit Git-deployment
-  limitation rather than blocking basic hosting.
+- Installer preflight now checks user-quota mount configuration on `/var/www`
+  and the filesystem containing `/home` before package updates. When the
+  quota inspection tools already exist, it verifies enforcement immediately;
+  when the installer must install those tools, it reports the deferred check
+  and revalidates enforcement after package installation, before continuing
+  into host service setup. Missing project quota remains an explicit
+  Git-deployment limitation rather than a blocker for basic hosting.
 - Added mocked passing/failing contracts for both required quota mounts and a
   source-order check proving the guard precedes package installation.
   `make check` passed (`go vet ./...` and the full Go suite; root package
