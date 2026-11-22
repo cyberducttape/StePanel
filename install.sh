@@ -491,7 +491,7 @@ fi
 if (( GUIDED == 1 )); then
   read -r -p "Install StePanel with the changes above? [y/N]: " install_answer
   if [[ ${install_answer,,} != y && ${install_answer,,} != yes ]]; then
-    echo "Nothing was changed. Your answers are saved in $CONFIG_FILE;"
+    echo "No system services were changed. Your saved settings were secured at $CONFIG_FILE and can be reused;"
     echo "install later with: sudo ./install.sh --config $CONFIG_FILE"
     exit 0
   fi

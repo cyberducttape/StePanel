@@ -51,6 +51,7 @@ type Auth struct {
 	// successful login clears only that account's failure history.
 	loginAccountLimiter    *authpolicy.Limiter
 	recoveryLimiter        *authpolicy.Limiter
+	credentialLimiter      *authpolicy.Limiter
 	sessions               *sessionRegistry
 	Accounts               *AccountStore
 	apiTokens              *apiTokenStore
@@ -135,7 +136,7 @@ func newAuth(secureCookies bool) (Auth, error) {
 		passwordDigest := sha256.Sum256([]byte(password))
 		credentialKey = "password-digest:" + hex.EncodeToString(passwordDigest[:])
 	}
-	return Auth{Username: username, PasswordHash: hash, Secret: secret, credentialKey: credentialKey, credentialHash: hash, Enabled: true, SecureCookies: secureCookies, TOTPEnabled: len(totpSecret) > 0, totpSecret: totpSecret, totpReplay: &totpReplayState{lastCounter: make(map[string]uint64)}, loginLimiter: authpolicy.NewLimiterWithPolicy(loginClientAttemptLimit, loginAttemptWindow), loginAccountLimiter: authpolicy.NewLimiterWithPolicy(loginAccountAttemptLimit, loginAttemptWindow), recoveryLimiter: authpolicy.NewLimiter(), sessions: &sessionRegistry{inner: sessionstate.New("")}, apiTokenLimiter: newAPITokenRateLimiter()}, nil
+	return Auth{Username: username, PasswordHash: hash, Secret: secret, credentialKey: credentialKey, credentialHash: hash, Enabled: true, SecureCookies: secureCookies, TOTPEnabled: len(totpSecret) > 0, totpSecret: totpSecret, totpReplay: &totpReplayState{lastCounter: make(map[string]uint64)}, loginLimiter: authpolicy.NewLimiterWithPolicy(loginClientAttemptLimit, loginAttemptWindow), loginAccountLimiter: authpolicy.NewLimiterWithPolicy(loginAccountAttemptLimit, loginAttemptWindow), recoveryLimiter: authpolicy.NewLimiter(), credentialLimiter: authpolicy.NewLimiter(), sessions: &sessionRegistry{inner: sessionstate.New("")}, apiTokenLimiter: newAPITokenRateLimiter()}, nil
 }
 
 // NewAuthForConfig is the startup-only constructor. Authentication may be

@@ -109,4 +109,13 @@ load_line=$(grep -n 'load_env_file "\$CONFIG_FILE" private' "$repo/install.sh" |
   exit 1
 }
 
+grep -Fq 'No system services were changed. Your saved settings were secured at $CONFIG_FILE and can be reused;' "$repo/install.sh" || {
+  echo 'installer cancellation must distinguish secured setup settings from system-service changes' >&2
+  exit 1
+}
+if grep -Fq 'Nothing was changed.' "$repo/install.sh"; then
+  echo 'installer cancellation must not claim that no changes were made' >&2
+  exit 1
+fi
+
 echo 'guided installer saved-settings ownership contract passed'

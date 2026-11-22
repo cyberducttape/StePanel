@@ -94,6 +94,7 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   let accountMfaEnabled = false;
   const testSetupSecret = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
   let confirmedMfaCode = '';
+  let confirmedMfaCurrentPassword = '';
   await page.route('**/api/account/me', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
     username: testCustomer.username, tenant_id: testCustomer.username, role: 'owner', plan: 'professional',
     created_at: '2026-01-01T00:00:00Z', sites: [], sites_used: 0, site_limit: 5, sites_percent: 0,
@@ -111,6 +112,7 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await page.route('**/api/account/mfa', async (route) => {
     const body = route.request().postDataJSON();
     confirmedMfaCode = body.code;
+    confirmedMfaCurrentPassword = body.current_password;
     accountMfaEnabled = true;
     return route.fulfill({ status: 204, body: '' });
   });
@@ -269,28 +271,9 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await page.locator('#siteCreateName').fill('my-store');
   await page.locator('#siteCreateDomain').fill('last-domain.example.org');
   await expect(page.locator('#siteCreateName')).toHaveValue('my-store');
-  await expect(page.locator('#siteCreateTitle')).toHaveValue('Last Domain');
-  await page.locator('#siteCreateTitle').fill('My Shop');
   await page.locator('#siteCreateDomain').fill('new-domain.example.org');
-  await expect(page.locator('#siteCreateTitle')).toHaveValue('My Shop');
-  await page.getByRole('button', { name: 'Generate password' }).click();
-  const generatedPassword = await page.locator('#siteCreateAdminPassword').inputValue();
-  expect(generatedPassword).toHaveLength(24);
-  let copiedPassword = '';
-  await page.evaluate(() => {
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: { writeText: async (value) => { window.__copiedPassword = value; } },
-    });
-  });
-  await page.getByRole('button', { name: 'Copy password' }).click();
-  await expect(page.locator('#siteCreateStatus')).toContainText('Password copied');
-  copiedPassword = await page.evaluate(() => window.__copiedPassword);
-  expect(copiedPassword).toBe(generatedPassword);
-  await page.getByRole('button', { name: 'Show', exact: true }).click();
-  await expect(page.locator('#siteCreateAdminPassword')).toHaveAttribute('type', 'text');
-  await page.getByRole('button', { name: 'Hide', exact: true }).click();
-  await expect(page.locator('#siteCreateAdminPassword')).toHaveAttribute('type', 'password');
+  await expect(page.locator('#siteCreateTitle')).toBeHidden();
+  await expect(page.locator('#siteCreateAdminPassword')).toBeHidden();
 
   // Customer WordPress creation must complete domain ownership verification
   // before the provisioning API is called, avoiding a predictable HTTP 409.
@@ -323,18 +306,27 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
       output: { domain: 'newsite.example.org', database: 'newsite', recovery_point: 'backup-1', recovery_verified_at: '2026-11-22T12:00:00Z' },
     }),
   }));
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: async (value) => { window.__copiedText = value; } },
+    });
+  });
   await page.locator('#siteCreateDomain').fill('newsite.example.org');
   await page.locator('#siteCreateName').fill('newsite');
-  await page.locator('#siteCreateTitle').fill('New Site');
-  await page.locator('#siteCreateAdminUser').fill('siteadmin');
-  await page.locator('#siteCreateAdminEmail').fill('owner@example.org');
-  await page.locator('#siteCreateAdminPassword').fill('Generated-E2E-WordPress-Password-123!');
+  await expect(page.locator('#siteCreateTitle')).toBeHidden();
   await page.locator('#siteCreateForm button[type="submit"]').click();
   await expect(page.locator('#siteCreateStatus')).toContainText('Verify control of this domain first');
   expect(createRequests).toBe(0);
   await page.getByRole('button', { name: 'Get DNS verification record' }).click();
   await expect(page.locator('#wordpressCreateFields')).toContainText('_stepanel.newsite.example.org');
   await expect(page.locator('#wordpressCreateFields')).toContainText('e2e-domain-proof-token');
+  await page.getByRole('button', { name: 'Copy record name' }).click();
+  await expect(page.locator('#wordpressCreateFields')).toContainText('TXT record name copied');
+  expect(await page.evaluate(() => window.__copiedText)).toBe('_stepanel.newsite.example.org');
+  await page.getByRole('button', { name: 'Copy TXT value' }).click();
+  await expect(page.locator('#wordpressCreateFields')).toContainText('TXT verification value copied');
+  expect(await page.evaluate(() => window.__copiedText)).toBe('e2e-domain-proof-token');
   await page.getByRole('button', { name: 'Check TXT record' }).click();
   await expect(page.locator('#wordpressCreateFields')).toContainText('Domain ownership verified for newsite.example.org');
   await page.locator('#siteCreateDomain').fill('changed.example.org');
@@ -347,6 +339,22 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await expect(page.locator('#wordpressCreateFields')).toContainText('e2e-domain-proof-token');
   await page.getByRole('button', { name: 'Check TXT record' }).click();
   await expect(page.locator('#wordpressCreateFields')).toContainText('Domain ownership verified for newsite.example.org');
+  await expect(page.locator('#siteCreateTitle')).toBeVisible();
+  await page.locator('#siteCreateTitle').fill('New Site');
+  await page.locator('#siteCreateAdminUser').fill('siteadmin');
+  await page.locator('#siteCreateAdminEmail').fill('owner@example.org');
+  await page.getByRole('button', { name: 'Generate password' }).click();
+  const generatedPassword = await page.locator('#siteCreateAdminPassword').inputValue();
+  expect(generatedPassword).toHaveLength(24);
+  await page.getByRole('button', { name: 'Copy password' }).click();
+  await expect(page.locator('#siteCreateStatus')).toContainText('Password copied');
+  expect(await page.evaluate(() => window.__copiedText)).toBe(generatedPassword);
+  await page.getByRole('button', { name: 'Show', exact: true }).click();
+  await expect(page.locator('#siteCreateAdminPassword')).toHaveAttribute('type', 'text');
+  await page.getByRole('button', { name: 'Hide', exact: true }).click();
+  await page.locator('#siteCreateAdminPassword').fill(generatedPassword);
+  await page.locator('#siteCreateAdminPassword').dispatchEvent('input');
+  await expect(page.locator('#siteCreateAdminPassword')).toHaveAttribute('type', 'password');
   await page.locator('#siteCreateForm button[type="submit"]').click();
   const createConfirmation = page.getByRole('dialog');
   await expect(createConfirmation).toBeVisible();
@@ -431,10 +439,12 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await page.getByRole('button', { name: 'Show setup QR code' }).click();
   await expect(page.locator('#accountMFAQRCode')).toHaveAttribute('src', /^data:image\/png;base64,/);
   await expect(page.locator('#accountTOTPSecretDisplay')).toHaveText(testSetupSecret);
+  await page.locator('#accountMFACurrentPassword').fill('a sufficiently long customer password');
   await page.getByLabel('6-digit code from your authenticator').fill('123456');
-  await page.getByRole('button', { name: 'Verify and enable MFA' }).click();
+  await page.getByRole('button', { name: 'Verify and save MFA' }).click();
   await expect(page.locator('#accountMFAStatus')).toContainText('MFA saved');
   expect(confirmedMfaCode).toBe('123456');
+  expect(confirmedMfaCurrentPassword).toBe('a sufficiently long customer password');
   await expect(page.locator('#accountMFASetup')).toBeHidden();
   hosting.sites = [];
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Websites' }).click();

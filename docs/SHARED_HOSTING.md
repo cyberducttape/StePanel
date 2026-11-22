@@ -103,10 +103,14 @@ For a full recovery, administrators use `POST /api/accounts/{username}/recover`.
 It rotates the temporary password, TOTP seed, and recovery codes, marks both
 `password_reset_required` and `mfa_enrollment_required`, and revokes sessions.
 The customer completes the two steps through `/api/account/password` and
-`/api/account/mfa`. The account page generates a private QR enrollment and
-requires a matching authenticator code before saving the seed. Successful
-changes revoke the current session; `/api/account/mfa/setup` returns a
-no-store QR and setup key that are not persisted until code verification.
+`/api/account/mfa`. Both operations require the current password; an account
+with MFA enabled must also provide an unused code from its existing
+authenticator. MFA enrollment and rotation are distinct audit events. The
+account page generates a private QR enrollment and requires a matching code
+from the proposed authenticator before saving its seed. Successful changes
+revoke the current session; `/api/account/mfa/setup` returns a no-store QR and
+setup key that are not persisted until code verification. Lost-factor recovery
+remains an administrator-mediated flow and cannot use the replacement route.
 
 ## Site environment variables
 

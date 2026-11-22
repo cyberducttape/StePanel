@@ -2493,6 +2493,7 @@
             verifiedDomainKey = identity;
             domainProofOutput.textContent = `Domain ownership verified for ${domain}. Confirm its A/AAAA records point to this server and ports 80 and 443 are reachable before creating the site.`;
             domainClaimButton.textContent = 'Domain verified';
+            updateTemplateFields();
           } catch (error) {
             domainProofOutput.textContent = `DNS verification did not pass: ${error.message} Add the exact TXT record above, wait for DNS to update, then check again.`;
           }
@@ -2514,8 +2515,14 @@
             el('strong', { id: 'siteDomainProofHeading' }, 'Add this DNS TXT record'),
             el('p', {}, 'In your domain DNS settings, create this record. DNS changes can take time to appear.'),
             el('dl', { className: 'site-domain-proof-record' }, [
-              el('dt', {}, 'Record name'), el('dd', {}, el('code', {}, result.txt_name)),
-              el('dt', {}, 'TXT value'), el('dd', {}, el('code', {}, result.txt_value)),
+              el('dt', {}, 'Record name'), el('dd', {}, [el('code', {}, result.txt_name), button('Copy record name', async () => {
+                try { await navigator.clipboard.writeText(result.txt_name); domainProofOutput.textContent = 'TXT record name copied.'; }
+                catch (_) { domainProofOutput.textContent = 'Clipboard access is unavailable. Select and copy the TXT record name.'; }
+              })]),
+              el('dt', {}, 'TXT value'), el('dd', {}, [el('code', {}, result.txt_value), button('Copy TXT value', async () => {
+                try { await navigator.clipboard.writeText(result.txt_value); domainProofOutput.textContent = 'TXT verification value copied.'; }
+                catch (_) { domainProofOutput.textContent = 'Clipboard access is unavailable. Select and copy the TXT verification value.'; }
+              })]),
             ]),
             domainClaimButton,
             domainProofOutput,
@@ -2535,13 +2542,14 @@
         domainClaimButton,
         domainProofOutput,
       ]);
-      wordpressFields.append(domainProof);
+      wordpressFields.insertBefore(domainProof, wordpressInputs[0]?.closest('.field') || null);
       const invalidateDomainProof = () => {
         if (domainClaimKey && domainIdentity() !== domainClaimKey) {
           domainClaim = null;
           domainClaimKey = '';
           verifiedDomainKey = '';
           resetDomainProof('The website name or domain changed. Request and verify a new DNS TXT record.');
+          updateTemplateFields();
         }
       };
       domainInput.addEventListener('input', invalidateDomainProof);
@@ -2551,6 +2559,7 @@
         domainClaimKey = '';
         verifiedDomainKey = '';
         resetDomainProof();
+        updateTemplateFields();
       }, 0));
     }
     const adminPassword = createForm.elements.admin_password;
@@ -2600,7 +2609,13 @@
       const wordpress = templateSelect.value === 'wordpress';
       if (wordpressFields) wordpressFields.hidden = !wordpress;
       domainInput.required = wordpress;
-      wordpressInputs.forEach((input) => { input.required = wordpress; });
+      const collectWordPressCredentials = wordpress && (isAdministrator || verifiedDomainKey === domainIdentity());
+      wordpressInputs.forEach((input) => {
+        input.required = collectWordPressCredentials;
+        const fieldNode = input.closest('.field');
+        if (fieldNode) fieldNode.hidden = wordpress && !isAdministrator && !collectWordPressCredentials;
+      });
+      if (domainProof) domainProof.hidden = !wordpress;
     };
     templateSelect.addEventListener('change', updateTemplateFields);
     updateTemplateFields();

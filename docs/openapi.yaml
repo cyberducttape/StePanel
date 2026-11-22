@@ -354,9 +354,12 @@ paths:
         '204': {description: Customer login removed}
   /api/v1/account/password:
     post:
-      summary: Complete the authenticated customer's required password change
+      summary: Reauthenticate and change the authenticated customer's password
+      description: Requires current_password and the new password. Accounts with MFA enabled must also provide an unused current_totp code.
       responses:
         '204': {description: Password changed and session revoked}
+        '403': {description: Current password or authenticator proof is incorrect}
+        '429': {description: Credential reauthentication rate limit exceeded}
   /api/v1/account/mfa/setup:
     post:
       summary: Generate a temporary authenticator enrollment secret and QR code for the authenticated customer
@@ -365,9 +368,12 @@ paths:
         '403': {description: Customer session and CSRF proof required}
   /api/v1/account/mfa:
     post:
-      summary: Verify an authenticator code and complete the authenticated customer's MFA enrollment
+      summary: Reauthenticate and enroll or replace the customer's authenticator
+      description: Requires current_password, the proposed totp_secret, and a code from that new authenticator. If MFA is already enabled, current_totp must be a fresh code from the existing authenticator.
       responses:
-        '204': {description: Verified TOTP enrollment saved and session revoked}
+        '204': {description: Verified TOTP enrollment or rotation saved and session revoked}
+        '403': {description: Current password or authenticator proof is incorrect}
+        '429': {description: Credential reauthentication rate limit exceeded}
         '422': {description: Authenticator code did not match}
   /api/v1/account/security:
     get:

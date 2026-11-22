@@ -62,9 +62,15 @@
       renderPlanResources(data);
       set('accountMFA', data.mfa_enabled ? 'MFA enabled' : 'MFA setup needed');
       set('accountSecurityNote', data.password_reset_required ? 'Password update required.' : (data.mfa_enrollment_required ? 'MFA enrollment required.' : 'Credentials are scoped to this tenant.'));
+      ['accountPasswordCurrentTOTPField', 'accountMFACurrentTOTPField'].forEach((id) => {
+        const field = document.querySelector(`#${id}`);
+        if (field) {
+          field.hidden = !data.mfa_enabled;
+          const input = field.querySelector('input');
+          if (input) input.required = Boolean(data.mfa_enabled);
+        }
+      });
       if (team && data.role === 'owner') { team.hidden = false; loadMembers(); }
-      const mfaSetup = document.querySelector('#accountMFASetup');
-      if (mfaSetup && data.mfa_enabled && !data.mfa_enrollment_required) mfaSetup.hidden = true;
       if (status) status.textContent = data.suspended ? 'Account suspended' : 'Account active';
     } catch (error) { if (status) status.textContent = error.message; }
   };
@@ -231,8 +237,8 @@
     button.disabled = true;
     if (output) output.textContent = 'Changing password…';
     try {
-      const password = new FormData(passwordForm).get('password');
-      await api.request('/api/account/password', { method: 'POST', json: { password }, errorMessage: 'Could not change password' });
+      const values = Object.fromEntries(new FormData(passwordForm));
+      await api.request('/api/account/password', { method: 'POST', json: values, errorMessage: 'Could not change password' });
       passwordForm.reset();
       if (output) output.textContent = 'Password changed. Sign in again with the new password.';
     } catch (error) { if (output) output.textContent = error.message; }
@@ -279,10 +285,8 @@
     button.disabled = true;
     if (output) output.textContent = 'Saving MFA configuration…';
     try {
-      const formData = new FormData(mfaForm);
-      const totpSecret = formData.get('totp_secret');
-      const code = formData.get('code');
-      await api.request('/api/account/mfa', { method: 'POST', json: { totp_secret: totpSecret, code }, errorMessage: 'Could not configure MFA' });
+      const values = Object.fromEntries(new FormData(mfaForm));
+      await api.request('/api/account/mfa', { method: 'POST', json: values, errorMessage: 'Could not configure MFA' });
       mfaForm.reset();
       mfaEnrollment.hidden = true;
       mfaQRCode.removeAttribute('src');

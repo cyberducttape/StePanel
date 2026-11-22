@@ -11,7 +11,66 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
+
+func TestCustomerPasswordChangeRequiresCurrentCredentials(t *testing.T) {
+	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")
+	t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")
+	t.Setenv("STEPANEL_SESSION_SECRET", "12345678901234567890123456789012")
+	t.Setenv("STEPANEL_AUDIT_KEY", "abcdef0123456789abcdef0123456789")
+	t.Setenv("STEPANEL_ADMIN_TOTP_SECRET", "")
+	dir := t.TempDir()
+	store, err := OpenAccountStore(filepath.Join(dir, "accounts.json"), "account-encryption-key-123456789012")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const oldPassword = "a sufficiently long customer password"
+	if _, err := store.Create("alice", oldPassword, testTOTPSecret, "professional", nil); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := NewAuth(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth.Accounts = store
+	a := &App{Auth: auth, Accounts: store, Config: Config{AuditLog: filepath.Join(dir, "audit.jsonl")}}
+	secret, _ := decodeTOTPSecret(testTOTPSecret)
+	login := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader("username=alice&password=a+sufficiently+long+customer+password&totp="+totpCode(secret, uint64(time.Now().Unix()/30))))
+	login.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginResponse := httptest.NewRecorder()
+	auth.Login(loginResponse, login)
+	if loginResponse.Code != http.StatusSeeOther {
+		t.Fatalf("login status = %d: %s", loginResponse.Code, loginResponse.Body.String())
+	}
+	cookies := loginResponse.Result().Cookies()
+	csrf := csrfCookie(cookies)
+	postPassword := func(body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodPost, "/api/account/password", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-CSRF-Token", csrf)
+		for _, cookie := range cookies {
+			r.AddCookie(cookie)
+		}
+		w := httptest.NewRecorder()
+		auth.Require(http.HandlerFunc(a.customerPassword)).ServeHTTP(w, r)
+		return w
+	}
+	newPassword := "another sufficiently long password"
+	if got := postPassword(`{"password":"` + newPassword + `"}`); got.Code != http.StatusForbidden {
+		t.Fatalf("session-only password change status = %d, want 403: %s", got.Code, got.Body.String())
+	}
+	currentCode := totpCode(secret, uint64(time.Now().Unix()/30)+1)
+	body, _ := json.Marshal(map[string]string{"current_password": oldPassword, "current_totp": currentCode, "password": newPassword})
+	if got := postPassword(string(body)); got.Code != http.StatusNoContent {
+		t.Fatalf("reauthenticated password change status = %d: %s", got.Code, got.Body.String())
+	}
+	account, ok := store.Get("alice")
+	if !ok || bcrypt.CompareHashAndPassword([]byte(account.PasswordHash), []byte(newPassword)) != nil {
+		t.Fatal("reauthenticated password change was not persisted")
+	}
+}
 
 func TestCustomerMFAEnrollmentGeneratesQRCodeAndVerifiesBeforeSaving(t *testing.T) {
 	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")
@@ -85,8 +144,8 @@ func TestCustomerMFAEnrollmentGeneratesQRCodeAndVerifiesBeforeSaving(t *testing.
 		t.Fatalf("setup cache policy = %q", response.Header().Get("Cache-Control"))
 	}
 
-	postEnrollment := func(code string) *httptest.ResponseRecorder {
-		body, _ := json.Marshal(map[string]string{"totp_secret": enrollment.Secret, "code": code})
+	postEnrollment := func(code, currentCode, currentPassword string) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(map[string]string{"current_password": currentPassword, "current_totp": currentCode, "totp_secret": enrollment.Secret, "code": code})
 		r := httptest.NewRequest(http.MethodPost, "/api/account/mfa", strings.NewReader(string(body)))
 		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set("X-CSRF-Token", csrf)
@@ -99,17 +158,17 @@ func TestCustomerMFAEnrollmentGeneratesQRCodeAndVerifiesBeforeSaving(t *testing.
 	}
 	newKey, _ := decodeTOTPSecret(enrollment.Secret)
 	validCode := totpCode(newKey, uint64(time.Now().Unix()/30))
-	invalidCode := "000000"
-	if invalidCode == validCode {
-		invalidCode = "000001"
+	if got := postEnrollment(validCode, "", ""); got.Code != http.StatusForbidden {
+		t.Fatalf("MFA replacement without current credentials status = %d, want 403: %s", got.Code, got.Body.String())
 	}
-	if got := postEnrollment(invalidCode); got.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("invalid enrollment code status = %d, want 422: %s", got.Code, got.Body.String())
+	currentCode := totpCode(key, uint64(time.Now().Unix()/30)+1)
+	if got := postEnrollment(validCode, currentCode, "incorrect current password"); got.Code != http.StatusForbidden {
+		t.Fatalf("MFA replacement with an incorrect current password status = %d, want 403: %s", got.Code, got.Body.String())
 	}
 	if saved, _ := store.Get("alice"); saved.TOTPSecret != testTOTPSecret {
-		t.Fatal("invalid code changed the stored authenticator")
+		t.Fatal("failed reauthentication changed the stored authenticator")
 	}
-	if got := postEnrollment(validCode); got.Code != http.StatusNoContent {
+	if got := postEnrollment(validCode, currentCode, "a sufficiently long customer password"); got.Code != http.StatusNoContent {
 		t.Fatalf("valid enrollment code status = %d: %s", got.Code, got.Body.String())
 	}
 	if saved, _ := store.Get("alice"); saved.TOTPSecret == testTOTPSecret {

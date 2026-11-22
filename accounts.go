@@ -2064,10 +2064,15 @@ func (a *App) customerPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Password string `json:"password"`
+		CurrentPassword string `json:"current_password"`
+		CurrentTOTP     string `json:"current_totp"`
+		Password        string `json:"password"`
 	}
 	if err := decodeJSON(w, r, 4096, &input); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if !a.reauthenticateCustomer(w, r, username, input.CurrentPassword, input.CurrentTOTP) {
 		return
 	}
 	intent, err := BeginSecurityAudit(a.Config.AuditLog, username, "hosting.account.password-changed", username, "customer password change")
@@ -2161,18 +2166,29 @@ func (a *App) customerMFA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		TOTPSecret string `json:"totp_secret"`
-		Code       string `json:"code"`
+		CurrentPassword string `json:"current_password"`
+		CurrentTOTP     string `json:"current_totp"`
+		TOTPSecret      string `json:"totp_secret"`
+		Code            string `json:"code"`
 	}
 	if err := decodeJSON(w, r, 4096, &input); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if !a.reauthenticateCustomer(w, r, username, input.CurrentPassword, input.CurrentTOTP) {
 		return
 	}
 	if !newSetupHost().VerifyTOTP(input.TOTPSecret, strings.TrimSpace(input.Code), time.Now().UTC()) {
 		http.Error(w, "authenticator code did not match; scan the QR code and try the current 6-digit code", http.StatusUnprocessableEntity)
 		return
 	}
-	intent, err := BeginSecurityAudit(a.Config.AuditLog, username, "hosting.account.mfa-enrolled", username, "customer MFA enrollment")
+	action := "hosting.account.mfa-enrolled"
+	detail := "customer MFA enrollment"
+	if existing, ok := a.Accounts.Get(username); ok && existing.MFAConfigured {
+		action = "hosting.account.mfa-rotated"
+		detail = "customer authenticator replacement"
+	}
+	intent, err := BeginSecurityAudit(a.Config.AuditLog, username, action, username, detail)
 	if err != nil {
 		refuseWithoutSecurityAudit(w)
 		return
@@ -2195,6 +2211,31 @@ func (a *App) customerMFA(w http.ResponseWriter, r *http.Request) {
 	}
 	intent.Completed("customer enrolled authenticator MFA; session revoked")
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// reauthenticateCustomer ensures a stolen customer session alone cannot
+// replace the account's password or authenticator. Existing MFA accounts
+// must prove the current factor with a fresh, replay-protected code.
+func (a *App) reauthenticateCustomer(w http.ResponseWriter, r *http.Request, username, password, totp string) bool {
+	key := a.Auth.ClientIP(r) + "\x00" + username
+	if a.Auth.credentialLimiter != nil && !a.Auth.credentialLimiter.Allow(key) {
+		http.Error(w, "too many credential verification attempts; try again later", http.StatusTooManyRequests)
+		return false
+	}
+	account, ok := a.Accounts.Get(username)
+	valid := ok && bcrypt.CompareHashAndPassword([]byte(account.PasswordHash), []byte(password)) == nil
+	if valid && account.MFAConfigured {
+		secret, err := decodeTOTPSecret(account.TOTPSecret)
+		valid = err == nil && a.Auth.consumeTOTPFor(username, secret, strings.TrimSpace(totp), time.Now().UTC())
+	}
+	if !valid {
+		http.Error(w, "current password or authenticator code is incorrect", http.StatusForbidden)
+		return false
+	}
+	if a.Auth.credentialLimiter != nil {
+		a.Auth.credentialLimiter.Reset(key)
+	}
+	return true
 }
 
 // customerSessionsRevoke is the self-service "log out of all other devices"

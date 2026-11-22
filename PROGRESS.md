@@ -1,5 +1,52 @@
 # Production-readiness progress
 
+## Require current credentials for customer credential changes — 2026-11-22
+
+- Customer password changes and authenticator enrollment/replacement now
+  require the current password. Accounts with MFA also require a fresh code
+  from the existing authenticator; verification uses the existing replay
+  protection. Credential verification is rate limited by client and account.
+- Initial enrollment and rotation are identified separately in the audit log.
+  The lost-factor path remains distinct: these endpoints cannot replace an
+  authenticator without the currently enrolled factor.
+- Added regression coverage for session-only password changes, missing or
+  wrong current credentials, and successful password/MFA changes. Focused Go
+  tests passed; frontend unit tests (19/19), JS syntax, and focused customer
+  browser E2E (1/1) passed. `make check` passed, including Go vet and all Go
+  package tests (root package 108.3 seconds). Full browser E2E passed (33,
+  one expected skip). API artifact, release, documentation-link/reference,
+  installer, and diff checks passed.
+- Exact-source hosted CI on parent `0309011f` passed in
+  [run 45083014080](https://github.com/cyberducttape/StePanel/actions/runs/45083014080).
+  Hosted CI for the combined local changes is pending.
+
+## Gate customer WordPress credentials on domain proof — 2026-11-22
+
+- Customer WordPress setup now keeps the application title and credentials
+  hidden until the customer completes required DNS TXT ownership verification.
+  Copy actions are provided for the TXT record name and value; changing the
+  site name or domain invalidates proof and hides the fields again. Backend
+  validation remains mandatory.
+- Browser regression coverage checks that creation is not submitted before
+  proof, copy controls return the expected values, and changed domain details
+  require a fresh claim and verification. Focused Playwright E2E passed (1/1,
+  38.3 seconds); frontend unit tests passed (19/19); JavaScript syntax checks
+  passed.
+- Installer cancellation text now says no system services changed while
+  saved setup settings were secured. A shell contract guards against the old
+  inaccurate “Nothing was changed” message. Guided binary publication now
+  restores the prior pair if the second executable rename fails; an injected
+  failure test confirms the next run publishes both executables with one build
+  identity.
+- Exact-source Go/race/recovery CI for parent `0309011f` remains in
+  [run 45083014080](https://github.com/cyberducttape/StePanel/actions/runs/45083014080).
+  The UI E2E job passed. The newest local UI refinement has not had hosted CI.
+  Installed-host smoke passed on the earlier setup commit in
+  [run 45080767553](https://github.com/cyberducttape/StePanel/actions/runs/45080767553).
+- This completes the customer WordPress UI gate only; credential
+  reauthentication, upload workflow, doctor diagnostics and capacity
+  certification remain open.
+
 ## Prevent a predictable WordPress domain-verification failure — 2026-11-22
 
 - Tenant owners can now request a domain ownership TXT record, see the exact

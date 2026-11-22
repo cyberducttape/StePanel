@@ -12,6 +12,66 @@ successful one-off smoke does not close a host-certification gate.
 
 ## Milestones
 
+### M0au — Gate customer WordPress credentials on verified ownership (P1)
+
+**Status:** Implemented locally; focused browser, frontend-unit, and syntax
+checks pass. Exact-source hosted CI for the latest UI refinement is pending.
+Customers first claim and verify a DNS TXT record; only then are the WordPress
+title and credentials shown. Copy controls are available for the DNS record,
+and editing the site or domain invalidates the proof. The backend continues to
+enforce the claim independently. The installer cancellation message now
+accurately distinguishes securing saved settings from changing host services.
+
+**Acceptance criteria**
+
+- Site creation is never submitted before a customer proves domain control.
+- WordPress credentials remain hidden until the current site/domain claim is
+  verified; changing either requires a fresh proof.
+- Customers can copy the exact TXT name and value and see clear verification
+  status.
+- Browser E2E covers the above flow and installer tests reject the inaccurate
+  cancellation claim. Exact-source UI and integration CI pass.
+
+### M0av — Reauthenticate customer credential mutations (P1)
+
+**Status:** Implemented and locally verified. `make check`, full browser E2E
+(33 passed, one expected skip), API/release/documentation checks pass. Hosted
+CI for this combined source is pending. Password changes and MFA
+enrollment/replacement require the current password and, if an authenticator
+is already configured, a fresh current-factor code. A per-account/client
+limiter bounds guesses; the existing TOTP replay store prevents reusing a
+sign-in code. Audit actions distinguish enrollment from rotation. Lost-factor
+recovery remains a separate recovery flow.
+
+**Acceptance criteria**
+
+- A session without the current password cannot change a password or replace
+  MFA; an MFA-protected account also needs a valid, unused current-factor code.
+- Successful changes revoke existing sessions and are durably audited.
+- Tests cover denied session-only changes, incorrect credentials, valid
+  reauthentication, TOTP replay protection, and the browser forms.
+- Full Go checks and exact-source hosted CI pass.
+
+### M0aw — Keep guided installer binaries from diverging (P2)
+
+**Status:** Implemented locally and covered by the installer contract suite.
+The guided build stages both outputs and saves the previous executable pair;
+if either publication step fails, its exit cleanup restores the prior pair.
+The test injects failure at the second rename, verifies the old pair remains,
+then reruns and verifies both binaries identify the same new build. The earlier
+source commit's hosted integration CI passed; hosted CI for these changes is
+pending.
+
+**Acceptance criteria**
+
+- The installer is never invoked after only one new executable has been
+  published.
+- A failed second publication restores the previous executable pair (or
+  restores the original absence of files).
+- A subsequent build publishes matching artifacts, verified by build
+  identity in the guided-installer regression test.
+- Shell syntax, contract tests, and exact-source hosted CI pass.
+
 ### Release publication safety — verify artifacts before publishing
 
 **Status:** Implemented and verified on `01d4a2d5`. The complete integration
