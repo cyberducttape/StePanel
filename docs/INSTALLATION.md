@@ -51,10 +51,44 @@ equivalent disposable-host coverage. The executable matrix is published in
 `.github/workflows/quota-install-smoke.yml`.
 
 Production installs require user quotas on `/var/www`. Git deployments and
-release pipelines also need project quotas there: mount `/var/www` with
-`usrquota,prjquota` (ext4 additionally needs the `project` and `quota`
-filesystem features). Without project quotas the installer prints a warning
-and completes, but those features refuse to run.
+release pipelines also need project quotas there. The exact mount options
+depend on the filesystem; follow the checklist below before installation.
+Without project quotas the installer prints a warning and completes, but Git
+deployment and release-pipeline features refuse to run.
+
+### Prepare filesystem quotas
+
+The installer checks that user quotas are actively enforced on the filesystems
+containing both `/var/www` and `/home`. This protects sites and restore staging
+from consuming unbounded disk space. Git deployment additionally needs project
+quotas on `/var/www`. The preflight is read-only; it will not rewrite
+`/etc/fstab`, remount filesystems, or change filesystem features.
+
+Inspect the actual mounts first:
+
+```sh
+findmnt -no SOURCE,FSTYPE,TARGET,OPTIONS -T /var/www
+findmnt -no SOURCE,FSTYPE,TARGET,OPTIONS -T /home
+```
+
+For **ext4**, the mount options must enable user quotas (`usrquota`) and, for
+Git deployment, project quotas (`prjquota`). The filesystem also needs the
+ext4 `quota` and `project` features. For **XFS**, use its mount-option names
+`uquota` and, for Git deployment, `pquota`. Record the current mount and
+`/etc/fstab` configuration before changing it. If `/var/www` or `/home` shares
+the root filesystem, quota changes affect that whole filesystem; plan a
+maintenance window and ensure you have console access before remounting or
+rebooting.
+
+Do not run `mkfs`, `tune2fs`, or a quota initialization command copied from a
+generic example against a filesystem containing data. Enabling ext4 quota
+features on an existing filesystem may require unmounting it and can require
+filesystem-specific recovery steps. Follow the [RHEL ext4 quota procedure](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/managing_file_systems/limiting-storage-space-usage-on-ext4-with-quotas_managing-file-systems)
+or [RHEL XFS quota procedure](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/managing_file_systems/assembly_limiting-storage-space-usage-on-xfs-with-quotas_managing-file-systems)
+for the matching filesystem, adapted to your distribution. Then rerun the
+installer preflight. If you cannot enable quotas safely, stop and use a
+loopback-only `make evaluate` preview; it does not install host services or
+manage real websites. Do not bypass production quota checks.
 
 The default is `STEPANEL_WEBSERVER=caddy`. Set `STEPANEL_WEBSERVER=apache` or
 `STEPANEL_WEBSERVER=openlitespeed` to opt into another webserver. OpenLiteSpeed

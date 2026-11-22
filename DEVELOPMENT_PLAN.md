@@ -196,6 +196,9 @@ path is usable, but it is not a production-ready release.
   quotas before invoking the answer wizard, then repeats those checks during
   the full pre-mutation preflight. This avoids collecting credentials on a
   host that cannot run the native installation.
+  Quota failures link directly to a new safe preparation guide with mount
+  inspection commands, separate ext4/XFS option guidance, and explicit
+  warnings against applying filesystem-format or feature commands blindly.
 - The first-login browser journey presents health findings, opens the
   WordPress form from the primary next action, verifies template fields, and
   updates the next task to site backup and restore proof. The website area is

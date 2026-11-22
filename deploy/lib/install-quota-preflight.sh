@@ -14,7 +14,7 @@ install_preflight_user_quotas() {
       printf 'quota mount options are present on %s, but enforcement cannot be inspected until the installer installs quota tools: %s. Enforcement will be checked again before setup continues. ' "$web_root" "$quota_error"
       deferred=1
     else
-      printf 'user quota enforcement is not ready on %s: %s. Enable and verify usrquota, then rerun preflight.' "$web_root" "$quota_error"
+      printf 'user quota enforcement is not ready on %s: %s. Enable and verify user quotas on this filesystem, then rerun preflight. See docs/INSTALLATION.md#prepare-filesystem-quotas.' "$web_root" "$quota_error"
       return 1
     fi
   fi
@@ -27,7 +27,7 @@ install_preflight_user_quotas() {
       printf 'quota mount options are present on %s (%s), but enforcement cannot be inspected until the installer installs quota tools: %s. Enforcement will be checked again before setup continues. ' "$home_path" "$home_mount" "$quota_error"
       deferred=1
     else
-      printf 'user quota enforcement is not ready on the filesystem containing %s (%s): %s. Enable and verify usrquota, then rerun preflight.' "$home_path" "$home_mount" "$quota_error"
+      printf 'user quota enforcement is not ready on the filesystem containing %s (%s): %s. Enable and verify user quotas on this filesystem, then rerun preflight. See docs/INSTALLATION.md#prepare-filesystem-quotas.' "$home_path" "$home_mount" "$quota_error"
       return 1
     fi
   fi

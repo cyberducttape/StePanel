@@ -1,5 +1,16 @@
 # Production-readiness progress
 
+## Make quota preflight failures actionable — 2026-11-22
+
+- Quota blockers now point to a focused installation-guide procedure. It
+  starts with read-only mount inspection, explains the different ext4 and XFS
+  quota options, covers `/var/www` and `/home`, and warns against blindly
+  changing existing filesystem features. Added a contract for the diagnostic
+  link. Technical details are checked against current Red Hat filesystem
+  guidance.
+- Focused quota preflight tests, documentation link/reference checks, and
+  `git diff --check` pass locally. Hosted CI is pending.
+
 ## Fail fast on unsupported native hosts — 2026-11-22
 
 - Integrated `install.sh --guided` checks for a running systemd manager and

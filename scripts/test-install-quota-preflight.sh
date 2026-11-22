@@ -32,7 +32,8 @@ if message=$(install_preflight_user_quotas "$web_root" /home 2>&1); then
   exit 1
 fi
 grep -Fq "$web_root" <<<"$message"
-grep -Fq 'Enable and verify usrquota' <<<"$message"
+grep -Fq 'Enable and verify user quotas on this filesystem' <<<"$message"
+grep -Fq 'docs/INSTALLATION.md#prepare-filesystem-quotas' <<<"$message"
 
 quota_failure=$test_home_mount
 if message=$(install_preflight_user_quotas "$web_root" /home 2>&1); then
@@ -40,7 +41,8 @@ if message=$(install_preflight_user_quotas "$web_root" /home 2>&1); then
   exit 1
 fi
 grep -Fq "$test_home_mount" <<<"$message"
-grep -Fq 'Enable and verify usrquota' <<<"$message"
+grep -Fq 'Enable and verify user quotas on this filesystem' <<<"$message"
+grep -Fq 'docs/INSTALLATION.md#prepare-filesystem-quotas' <<<"$message"
 
 quota_failure=tools
 message=$(install_preflight_user_quotas "$web_root" /home)
