@@ -2,7 +2,7 @@ APP := stepanel
 GO ?= go
 LDFLAGS := -s -w -X github.com/cyberducttape/StePanel.Commit=$${GIT_COMMIT:-dev} -X github.com/cyberducttape/StePanel.BuildDate=$$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-.PHONY: all build test test-race fmt fmt-check vet coverage coverage-check fuzz-smoke api-generate api-check shell-contract-check check recovery-drill mixed-load production-gate audit release-check clean
+.PHONY: all build evaluate test test-race fmt fmt-check vet coverage coverage-check fuzz-smoke api-generate api-check shell-contract-check check recovery-drill mixed-load production-gate audit release-check clean
 
 # The test suite exercises SQLite workers and helper subprocesses. Keep the
 # default local targets within a modest process budget so a developer's host
@@ -18,6 +18,11 @@ all: check build
 
 build:
 	$(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(APP) ./cmd/stepanel
+
+# A no-host-mutation, loopback-only UI evaluation. This mode has no login and
+# must never be used for customer data or exposed beyond the local machine.
+evaluate: build
+	bash scripts/evaluate.sh ./$(APP)
 
 test:
 	GOMAXPROCS=$(TEST_PROCS) $(GO) test -p $(TEST_PARALLELISM) -timeout $(TEST_TIMEOUT) ./...
@@ -60,6 +65,7 @@ shell-contract-check:
 	bash scripts/test-site-package-cgroups.sh
 	bash scripts/test-node-runtime-resolution.sh
 	bash scripts/test-install-support-tier.sh
+	bash scripts/test-evaluation-entrypoint.sh
 
 check: fmt-check api-check shell-contract-check vet test
 

@@ -22,8 +22,10 @@ first-host application proof remain open.
 **Acceptance criteria**
 
 - A newcomer can start a loopback-only, no-host-mutation UI evaluation without
-  configuring offsite storage, and the instructions clearly prohibit network
-  exposure and real customer data in development mode.
+  configuring offsite storage using `make evaluate`; the launcher fixes the
+  listener to loopback, clears inherited StePanel settings, and the
+  instructions clearly prohibit network exposure and real customer data in
+  development mode.
 - Guided setup recommends Ubuntu 24.04 + Caddy + MariaDB while identifying
   which alternatives are outside the current installed-host smoke matrix;
   interactive and unattended installer defaults select that same profile.

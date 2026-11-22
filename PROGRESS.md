@@ -1,5 +1,22 @@
 # Production-readiness progress
 
+## Make local evaluation a single safe command — 2026-11-21
+
+- Added `make evaluate` to build and start the development UI on
+  `127.0.0.1:8080`. Its launcher strips inherited `STEPANEL_*` settings so a
+  production environment cannot redirect the demo or expose it publicly, and
+  it refuses to run as root. It creates a private, persistent development
+  audit key so local restarts do not break the audit chain.
+- The shell contract launches a stub executable with deliberately hostile
+  production environment values, checks loopback/development settings and
+  secret removal, and confirms the audit key remains stable across restarts.
+  `make check` passed, including `go vet ./...` and the full serialized Go
+  suite (root package 113.807s); documentation links and all 93 documentation
+  references passed. A real process smoke returned dashboard HTTP 200 and
+  `/livez` HTTP 204, and startup recovery completed without audit warnings.
+- Evaluation remains unauthenticated and has no host integrations; it is only
+  for local UI review with disposable data.
+
 ## Align installer defaults with the recommended host profile — 2026-11-21
 
 - The direct interactive and unattended installer paths now default to

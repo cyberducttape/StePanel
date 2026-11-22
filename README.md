@@ -143,13 +143,14 @@ development server from a checkout:
 ```sh
 git clone https://github.com/cyberducttape/StePanel.git
 cd StePanel
-STEPANEL_DEVELOPMENT_ADMIN=1 go run ./cmd/stepanel
+make evaluate
 ```
 
-Then open <http://127.0.0.1:8080>. This is a local UI and workflow evaluation
-only: development mode is not production-authenticated, does not install the
-root broker, web server, PHP-FPM, or database service, and does not establish
-backup recoverability. `STEPANEL_DEVELOPMENT_ADMIN=1` opts into a synthetic
+This builds with the repository's pinned Go toolchain and opens
+<http://127.0.0.1:8080>. Stop it with Ctrl-C. This is a local UI and workflow
+evaluation only: development mode is not production-authenticated, does not
+install the root broker, web server, PHP-FPM, or database service, and does not
+establish backup recoverability. The evaluation launcher opts into a synthetic
 administrator with no login barrier, and is accepted only for unauthenticated
 development on the validated loopback listener. Keep that listener at its
 default; do not expose this mode to a network or use it for customer or
