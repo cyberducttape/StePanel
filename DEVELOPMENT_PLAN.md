@@ -103,8 +103,13 @@ path is usable, but it is not a production-ready release.
 - Guided setup recommends Ubuntu 24.04 + Caddy + MariaDB while identifying
   which alternatives are outside the current installed-host smoke matrix;
   interactive and unattended installer defaults select that same profile.
-  Every source push runs the installed-host smoke on this recommended profile;
-  manual runs still default to the complete six-combination host matrix.
+  Pushes that change the installer, privileged integration, or installed-host
+  smoke paths run the recommended-profile installed-host workflow; the workflow
+  uses path filters, so documentation-only and unrelated source pushes do not
+  trigger it. Manual runs still default to the complete six-combination host
+  matrix. The host workflow tests the packaged snapshot, not
+  `scripts/install-guided.sh`; a real installed-host run of that source
+  bootstrap remains unverified.
   The installer labels the recommended profile as Beta and explicitly marks
   the other smoke-tested tuples as one-iteration Beta with repeat acceptance
   still pending, before the user commits to host configuration.

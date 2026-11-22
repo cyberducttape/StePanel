@@ -1,5 +1,18 @@
 # Production-readiness progress
 
+## Correct the installed-host smoke coverage claim — 2026-11-22
+
+- The plan said every source push ran the installed-host smoke. The workflow
+  actually uses path filters, so docs-only and unrelated source pushes do not
+  trigger it. The plan now states the trigger scope and distinguishes the
+  packaged-snapshot host smoke from the source-bootstrap path, which still
+  lacks an installed-host execution.
+- `make release-check` and `git diff --check` pass locally. The change does not
+  treat the active Ubuntu host run
+  [45025566462](https://github.com/cyberducttape/StePanel/actions/runs/45025566462)
+  as evidence for `scripts/install-guided.sh`; that workflow runs the packaged
+  snapshot.
+
 ## Verify the account-owner first-run browser journey — 2026-11-22
 
 - The `ui-e2e` job passed in exact-source integration run
