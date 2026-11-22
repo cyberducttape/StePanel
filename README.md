@@ -307,8 +307,8 @@ stepanelctl jobs watch site-create-<id>
 ```
 
 `doctor --production` checks the production prerequisite report and exits
-nonzero when readiness is critical or not configured. `jobs watch` polls
-durable job state until it reaches a terminal result.
+nonzero when readiness is critical, not configured, or unrecognized. `jobs
+watch` polls durable job state until it reaches a terminal result.
 
 ## Quick workflows
 

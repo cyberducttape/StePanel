@@ -5,7 +5,8 @@
 - `stepanelctl doctor` now prints a concise per-check report with result,
   diagnostic message, and remediation. `--json` preserves machine-readable
   output. Both modes return nonzero for critical/not-ready reports so scripts
-  can gate on the result while operators still receive the report.
+  can gate on the result while operators still receive the report; unknown
+  status values fail closed.
 - Updated README, API guide, and code organization docs to describe the CLI's
   state-changing workflows accurately and explain the doctor output modes.
 - Regression tests exercise the actual SDK HTTP request, human/JSON output,

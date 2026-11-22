@@ -23,7 +23,8 @@ These documentation changes reduce ambiguity but do not remove the checkout
 and Go toolchain requirement or create a supported fresh-install archive.
 The `stepanelctl doctor` command now presents readiness failures as a readable
 checklist by default, includes the diagnostic and suggested next step, retains
-JSON output for automation, and exits nonzero for critical/not-ready status.
+JSON output for automation, and exits nonzero for critical/not-ready or
+unrecognized status.
 Local evaluation guidance and guided-setup
 support labels, pre-mutation platform classification, and release archive
 documentation requirements are in place. A newcomer can run a loopback-only

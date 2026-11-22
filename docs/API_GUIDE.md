@@ -502,8 +502,9 @@ stepanelctl diagnostics collect --output ./stepanel-support.zip
 ```
 
 The doctor command prints an operator-readable checklist by default, including
-each check's result, diagnostic message, and suggested remediation. Use `--json` for automation;
-critical or not-ready results return a nonzero exit status in either mode.
+each check's result, diagnostic message, and suggested remediation. Use `--json`
+for automation; critical, not-ready, or unrecognized results return a nonzero
+exit status in either mode.
 
 For WordPress creation, add `--domain`, `--title`, `--admin-user`, and
 `--admin-email`, then pass the administrator password through stdin with

@@ -573,7 +573,11 @@ func renderReadinessReport(out io.Writer, report readinessReport) error {
 	if report.IsProduction {
 		mode = "production mode"
 	}
-	if _, err := fmt.Fprintf(out, "StePanel readiness: %s (%s)\n", strings.ToUpper(report.OverallStatus), mode); err != nil {
+	status := strings.ToUpper(report.OverallStatus)
+	if status == "" {
+		status = "UNKNOWN"
+	}
+	if _, err := fmt.Fprintf(out, "StePanel readiness: %s (%s)\n", status, mode); err != nil {
 		return err
 	}
 	for _, check := range report.Checks {
@@ -599,7 +603,12 @@ func renderReadinessReport(out io.Writer, report readinessReport) error {
 }
 
 func readinessReportFailed(report readinessReport) bool {
-	return report.OverallStatus == "critical" || report.OverallStatus == "not_ready"
+	switch report.OverallStatus {
+	case "healthy", "degraded":
+		return false
+	default:
+		return true
+	}
 }
 
 func emit(r *stepanel.Response, out io.Writer) error {

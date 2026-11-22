@@ -71,6 +71,8 @@ func TestReadinessReportFailureExitPolicy(t *testing.T) {
 		{status: "degraded", failed: false},
 		{status: "critical", failed: true},
 		{status: "not_ready", failed: true},
+		{status: "unknown", failed: true},
+		{status: "", failed: true},
 	} {
 		if got := readinessReportFailed(readinessReport{OverallStatus: test.status}); got != test.failed {
 			t.Errorf("status %q: failed = %v, want %v", test.status, got, test.failed)
