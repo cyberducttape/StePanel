@@ -101,6 +101,11 @@ production login and must never receive customer data or be exposed to a
 network. The native guided installer below is for a real host and requires
 verified offsite backup storage.
 
+Before the wizard collects storage or administrator credentials, it identifies
+the host OS and prints the evidence tier for the recommended Caddy/MariaDB
+profile. After you choose a web server and database, the installer reports the
+exact host-and-stack tier again in its full preflight, before any host changes.
+
 The guide asks seven questions and checks every answer before moving on:
 
 1. **Panel address**: a full hostname whose DNS points at the server.

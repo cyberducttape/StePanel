@@ -36,6 +36,9 @@ first-host application proof remain open.
 - Guided setup recommends Ubuntu 24.04 + Caddy + MariaDB while identifying
   which alternatives are outside the current installed-host smoke matrix;
   interactive and unattended installer defaults select that same profile.
+  `install.sh --guided` identifies the host OS and prints its recommended
+  profile evidence before it asks for remote-storage or administrator secrets;
+  it reprints the exact stack tier in the full pre-mutation preflight.
   The wizard requires acknowledgement of MySQL, PostgreSQL, or OpenLiteSpeed
   before checking storage or collecting administrator credentials.
 - Guided setup checks for rclone, a configured remote, and its config path

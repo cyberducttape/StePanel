@@ -39,4 +39,23 @@ for tuple in \
   grep -Fq 'needs operator validation' <<<"$result"
 done
 
+fixture=$(mktemp)
+cat >"$fixture" <<'EOF'
+ID=ubuntu
+VERSION_ID=24.04
+PRETTY_NAME="Ubuntu 24.04 LTS"
+EOF
+early=$(install_guided_host_support "$fixture")
+grep -Fq 'HOST DETECTED: Ubuntu 24.04 LTS (ubuntu 24.04)' <<<"$early"
+grep -Fq 'RECOMMENDED PROFILE: Ubuntu 24.04 + Caddy + MariaDB' <<<"$early"
+rm -f "$fixture"
+
+# The current host/profile check must precede setup's questions and secrets.
+host_check_line=$(grep -n 'install_guided_host_support$' "$ROOT_DIR/install.sh" | head -1 | cut -d: -f1)
+setup_line=$(grep -n '"$ROOT_DIR/stepanel" setup --output' "$ROOT_DIR/install.sh" | head -1 | cut -d: -f1)
+[[ -n $host_check_line && -n $setup_line && $host_check_line -lt $setup_line ]] || {
+  echo 'guided host support must be shown before setup collects answers' >&2
+  exit 1
+}
+
 echo 'installer support-tier contract passed'

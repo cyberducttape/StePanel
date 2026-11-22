@@ -54,6 +54,9 @@ if [[ ! -f "$ROOT_DIR/stepanel" || ! -x "$ROOT_DIR/stepanel" ]]; then echo "Buil
 if (( GUIDED == 1 )); then
   [[ -z $CONFIG_FILE ]] || { echo "--guided and --config cannot be combined; --guided writes its own settings file." >&2; exit 64; }
   [[ -t 0 && -t 1 ]] || { echo "--guided needs an interactive terminal; use --config FILE for unattended installs." >&2; exit 64; }
+  # shellcheck source=deploy/lib/install-support-tier.sh
+  . "$ROOT_DIR/deploy/lib/install-support-tier.sh"
+  install_guided_host_support
   if [[ -f "$ENV_FILE" ]]; then
     echo "StePanel is already installed on this server. Run 'sudo ./install.sh' to upgrade; your settings and keys are kept." >&2
     exit 1

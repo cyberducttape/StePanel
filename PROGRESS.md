@@ -3119,3 +3119,8 @@ does not close a current-source or power-loss gate.
   asks for explicit confirmation before checking backup storage or collecting
   passwords/MFA. A regression test declines and verifies no storage probe or
   credential processing occurs; a second test accepts and continues.
+- `install.sh --guided` now identifies the actual OS and prints evidence for
+  the recommended Caddy/MariaDB profile before launching setup. The exact
+  selected OS/web-server/database combination is still shown during the
+  installer preflight before host mutation. The support-tier contract test
+  verifies this ordering with a fixture OS identity.
