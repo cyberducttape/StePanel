@@ -4026,6 +4026,8 @@ does not close a current-source or power-loss gate.
 - Clarified that credentials must stay private and that StePanel probes
   write/read/delete access at the selected destination before requesting
   administrator credentials.
-- Exact-source documentation link/reference checks and CI are pending for this
-  documentation-only change. This is setup guidance; it does not certify a
-  provider, remote policy, or installed host.
+- Local documentation link and source-reference checks passed. Exact-source
+  documentation CI [45058238503](https://github.com/cyberducttape/StePanel/actions/runs/45058238503)
+  and CodeQL [45058238442](https://github.com/cyberducttape/StePanel/actions/runs/45058238442)
+  passed. This is setup guidance; it does not certify a provider, remote
+  policy, or installed host.

@@ -2064,12 +2064,15 @@ Acceptance criteria:
 
 ### M0ao — Make offsite-storage setup understandable before installation (P2)
 
-**Status:** Implemented in the install guide. It now gives root-owned rclone
+**Status:** Implemented and verified on `d9601463`. It now gives root-owned rclone
 configuration commands, explains remote creation without assuming a provider,
 links to the official headless authorization instructions, and shows the
 `remote:path` form used by the wizard. It explains that StePanel tests
 write/read/delete access at the chosen destination before collecting
-administrator credentials.
+administrator credentials. Exact-source documentation CI
+[45058238503](https://github.com/cyberducttape/StePanel/actions/runs/45058238503)
+and CodeQL [45058238442](https://github.com/cyberducttape/StePanel/actions/runs/45058238442)
+passed.
 
 Acceptance criteria:
 
