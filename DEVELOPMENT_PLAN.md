@@ -62,7 +62,9 @@ passed the first-run checklist and WordPress-creation entry point.
   both the administrator first-run journey and a freshly provisioned account
   owner; both passed in the latest run. If site inventory is unavailable, the
   website list explains that sites may still exist and offers an in-place
-  retry; the retry path is browser-tested.
+  retry; the retry path is browser-tested. Optional hosting-account and
+  website-placement settings start collapsed so the first-site form emphasizes
+  the site name, domain, and starting point; both account roles are covered.
 - The install guide reports current-code evidence separately from historical
   runs and never presents smoke coverage as production certification.
 - The next release candidate archive contains the matching guided setup,

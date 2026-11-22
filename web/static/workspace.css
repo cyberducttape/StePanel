@@ -1583,9 +1583,8 @@ button.activity-link { padding: 0; border: 0; background: transparent; text-alig
 /* With a workspace open, the list becomes a narrow rail beside it. */
 .site-overview:has(> .site-detail:not([hidden])) > .site-overview-grid { grid-column: 1; grid-template-columns: minmax(0, 1fr); }
 
-/* Create a site: the name and where the site lives in its hosting account
-   (account, type, domain) flow into as many columns as fit, with the action
-   on its own row, rather than a tall stacked form above the list. */
+/* Create a site: keep essential choices together and collapse optional
+   account/type placement controls so a first-time user sees fewer decisions. */
 .site-overview > .site-create-form {
   max-width: none;
   margin-top: 0;
@@ -1599,6 +1598,10 @@ button.activity-link { padding: 0; border: 0; background: transparent; text-alig
 .site-create-form > h2,
 .site-create-form > h3 { grid-column: 1 / -1; margin: 0; font-size: 15px; letter-spacing: normal; }
 .site-create-form > .field { display: flex; flex-direction: column; gap: 5px; margin: 0; min-width: 0; }
+.site-create-advanced { grid-column: 1 / -1; min-width: 0; padding: 11px 13px; border: 1px solid var(--panel-line, #293544); border-radius: 9px; }
+.site-create-advanced > summary { cursor: pointer; font-size: 12px; font-weight: 650; }
+.site-create-advanced[open] { display: grid; gap: 12px; }
+.site-create-advanced .field { display: flex; flex-direction: column; gap: 5px; margin: 0; min-width: 0; }
 .site-create-form > .primary-action { grid-column: 1 / -1; justify-self: start; white-space: nowrap; }
 .site-create-form > output { grid-column: 1 / -1; }
 .site-create-form > output:empty { display: none; }

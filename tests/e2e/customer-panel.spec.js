@@ -79,15 +79,8 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
     { site: 'e2e-main', verified_at: '2026-11-20T12:00:00Z' },
   ];
   await page.route('**/api/backups?limit=100', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ backups: customerBackups }) }));
-  let overviewRequests = 0;
   let shopRouteConfigured = false;
   await page.route('**/api/sites/overview', (route) => {
-    overviewRequests++;
-    // sites.js loads the Websites grid first; fail the subsequent customer
-    // overview request so this exercises panel.js's unavailable-state UI.
-    if (overviewRequests === 2) {
-      return route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"overview unavailable for test"}' });
-    }
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sites: [
     { site: 'e2e-main', routes: [{ site: 'e2e-main', domain: 'main.example.org' }], database_count: 1, kind: 'main' },
     { site: 'e2e-shop', routes: shopRouteConfigured ? [{ site: 'e2e-shop', domain: 'shop.example.org' }] : [], database_count: 0, kind: 'addon' },
@@ -153,12 +146,38 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await expect(page.locator('#panelOnboardingList')).toContainText('Open your website workspace');
   await expect(page.locator('#panelOnboardingList')).toContainText('No integrity-verified backup is recorded for e2e-shop');
   await expect(page.locator('#panelOnboardingList').getByRole('link', { name: 'Review e2e-shop backups' })).toHaveAttribute('href', '#site=e2e-shop&tab=backups');
+  await expect(page.locator('#panelOnboardingList')).toContainText('e2e-shop has no configured domain route');
+  await expect(page.locator('#panelPrimaryAction')).toHaveAttribute('href', '#site=e2e-shop&tab=domains');
+  // Wait for sites.js's independent inventory request before replacing the
+  // route to inject a panel-only refresh failure below.
+  await expect(page.locator('#siteOverview')).toContainText('e2e-main');
+  await expect(page.locator('#panelSiteList')).toContainText('public_html');
+  await expect(page.locator('#panelSiteList')).not.toContainText(`/home/${testCustomer.username}/public_html`);
+
+  // Exercise a refresh outage deterministically, after both independent site
+  // overview requests have completed, so request ordering cannot decide which
+  // customer view observes the injected failure.
+  await page.unroute('**/api/sites/overview');
+  await page.route('**/api/sites/overview', (route) => route.fulfill({
+    status: 503,
+    contentType: 'application/json',
+    body: JSON.stringify({ error: 'overview unavailable for test' }),
+  }));
+  await page.locator('#panelOnboardingRefresh').click();
   await expect(page.locator('#panelOnboardingList')).toContainText('Domain routes could not be checked');
   await expect(page.locator('#panelOnboardingProgress')).toContainText('1 of 3 essentials complete');
   await expect(page.locator('#panelPrimaryAction')).toHaveAttribute('href', '#websites');
-  await expect(page.locator('#panelSiteList')).toContainText('public_html');
-  await expect(page.locator('#panelSiteList')).not.toContainText(`/home/${testCustomer.username}/public_html`);
   await expect(page.locator('#panelSitesStatus')).toContainText('could not be refreshed');
+
+  await page.unroute('**/api/sites/overview');
+  await page.route('**/api/sites/overview', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ sites: [
+      { site: 'e2e-main', routes: [{ site: 'e2e-main', domain: 'main.example.org' }], database_count: 1, kind: 'main' },
+      { site: 'e2e-shop', routes: shopRouteConfigured ? [{ site: 'e2e-shop', domain: 'shop.example.org' }] : [], database_count: 0, kind: 'addon' },
+    ] }),
+  }));
   await page.locator('#panelSitesStatus').getByRole('button', { name: 'Retry' }).click();
   await expect(page.locator('#panelSitesStatus')).toBeHidden();
   await expect(page.locator('#panelOnboardingList')).toContainText('e2e-shop has no configured domain route');
@@ -196,6 +215,10 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await expect.poll(() => pageErrors).toEqual([]);
   await page.locator('#siteDetail').getByRole('button', { name: 'Close' }).click();
   await expect(page.locator('#siteCreateTemplate option[value="wordpress"]')).toHaveCount(1);
+  await expect(page.locator('#siteCreateAdvanced')).toHaveJSProperty('open', false);
+  await expect(page.locator('#siteCreateKind')).toBeHidden();
+  await page.locator('#siteCreateAdvanced summary').click();
+  await expect(page.locator('#siteCreateKind')).toBeVisible();
   await page.locator('#siteCreateTemplate').selectOption('wordpress');
   await expect(page.locator('#wordpressCreateFields')).toBeVisible();
   await expect(page.locator('#wordpressCreateFields')).toContainText('Before you create this site');

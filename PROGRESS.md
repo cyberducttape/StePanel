@@ -42,6 +42,22 @@
   evaluation path; it does not prove native installer behavior, login
   security, or recovery on a managed host.
 
+## Reduce decisions in first-site creation — 2026-11-21
+
+- Optional hosting-account and site-placement controls now live inside a
+  collapsed “Optional placement settings” disclosure. The first-use form keeps
+  the site name, domain, starting point, and WordPress instructions visible;
+  opening the disclosure retains the automatic/main/addon/subdomain choices
+  and, for administrators, the optional hosting account field.
+- The customer browser journey verifies the disclosure is collapsed by
+  default, opens it, and confirms the placement selector remains usable. The
+  first-run administrator and customer creation forms initialize without
+  JavaScript errors. `npm run test:unit` passed (19 tests); the complete
+  disposable Chromium suite passed (29 passed, 1 skipped), including the
+  customer panel and accessibility checks. The skip is the optional separate
+  customer-session check requiring an externally supplied password. This does
+  not verify real host provisioning or production restore.
+
 ## Preflight packages for selected optional features — 2026-11-21
 
 - Installer package preflight now includes Fail2ban, mail, FTP, ModSecurity,

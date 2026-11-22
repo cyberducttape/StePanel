@@ -2311,6 +2311,15 @@
     const createStatus = createForm.querySelector('#siteCreateStatus');
     const templateSelect = createForm.elements.template;
     const wordpressFields = createForm.querySelector('#wordpressCreateFields');
+    const placementFields = [
+      createForm.querySelector('#siteCreateAccount')?.closest('.field'),
+      createForm.querySelector('#siteCreateKind')?.closest('.field'),
+    ].filter(Boolean);
+    if (placementFields.length) {
+      const advanced = el('details', { id: 'siteCreateAdvanced', className: 'site-create-advanced' });
+      createForm.insertBefore(advanced, placementFields[0]);
+      advanced.append(el('summary', {}, 'Optional placement settings'), ...placementFields);
+    }
     const domainInput = createForm.elements.domain;
     const siteNameInput = createForm.elements.site;
     const siteTitleInput = createForm.elements.title;
