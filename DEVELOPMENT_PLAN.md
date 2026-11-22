@@ -2043,11 +2043,15 @@ Acceptance criteria:
 
 ### M0an — Make first-run health failures understandable (P2)
 
-**Status:** Implemented locally; exact-source CI pending. The first-run
-checklist translates storage readiness failures into named storage areas,
+**Status:** Implemented and verified on `7a271f18`. The first-run checklist
+translates storage readiness failures into named storage areas,
 human-readable free/required sizes, and a concrete refresh/remediation step.
 Other readiness checks retain their provided evidence while receiving
-human-readable labels.
+human-readable labels. Exact-source hosted CI run
+[45054850302](https://github.com/cyberducttape/StePanel/actions/runs/45054850302)
+passed, including Go tests, race tests, recovery and ENOSPC drills, database
+restore checks, static analysis, container checks, and browser accessibility
+and end-to-end tests.
 
 Acceptance criteria:
 

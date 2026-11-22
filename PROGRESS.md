@@ -4000,3 +4000,20 @@ does not close a current-source or power-loss gate.
   the full shell contract suite, `make release-check`, shell syntax checks, and
   `git diff --check` all pass locally. The exact-source hosted run for this new
   installer change has not completed yet.
+
+## Explain first-run readiness failures — 2026-11-22
+
+- The operator's first-run checklist now translates storage-capacity failures
+  into named storage locations, human-readable free and required space, and a
+  safe next step. It no longer presents internal check keys or raw byte counts.
+- Added browser regression coverage for capacity messages while retaining
+  evidence from other readiness checks.
+- Local validation passed: Go build, JavaScript syntax checks, frontend unit
+  tests (19/19), focused browser tests (2/2), and the full seeded browser suite
+  (32 passed, 1 optional customer-context test skipped).
+- Exact-source hosted CI passed for `7a271f18` in
+  [run 45054850302](https://github.com/cyberducttape/StePanel/actions/runs/45054850302).
+  This included formatting, `make release-check`, installer contracts, vet,
+  full Go tests and race tests, disk-exhaustion and recovery drills, database
+  restore checks, static analysis, container checks, and UI E2E/accessibility.
+  The optional browser skip is recorded separately; all required checks passed.
