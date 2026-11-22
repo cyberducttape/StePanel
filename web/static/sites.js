@@ -2454,6 +2454,105 @@
         window.setTimeout(suggestSiteTitle, 0);
       });
     }
+    let domainClaim = null;
+    let domainClaimKey = '';
+    let verifiedDomainKey = '';
+    const domainIdentity = () => `${siteNameInput.value.trim()}\n${domainInput.value.trim().toLowerCase().replace(/\.$/, '')}`;
+    let domainProof;
+    let domainProofOutput;
+    let domainClaimButton;
+    const resetDomainProof = (message = 'Add a DNS TXT record to prove you control this domain. StePanel checks that record before it creates the site.') => {
+      if (!domainProof) return;
+      domainProof.replaceChildren(
+        el('strong', { id: 'siteDomainProofHeading' }, 'Verify this domain before creating WordPress'),
+        el('p', {}, message),
+        domainClaimButton,
+        domainProofOutput,
+      );
+      domainClaimButton.textContent = 'Get DNS verification record';
+      domainProofOutput.textContent = '';
+    };
+    if (!isAdministrator && wordpressFields) {
+      domainProofOutput = statusOutput();
+      domainClaimButton = button('Get DNS verification record', async () => {
+        const identity = domainIdentity();
+        const [site, domain] = identity.split('\n');
+        if (!siteNameInput.checkValidity() || !domainInput.checkValidity() || !domain) {
+          domainProofOutput.textContent = 'Enter a valid domain and website name first.';
+          (domainInput.checkValidity() ? siteNameInput : domainInput).focus();
+          return;
+        }
+        if (domainClaim && domainClaimKey === identity) {
+          domainProofOutput.textContent = 'Checking the DNS TXT record…';
+          try {
+            await postJSON('/api/sites/domains/verify', { site, domain });
+            if (identity !== domainIdentity()) {
+              domainProofOutput.textContent = 'The website name or domain changed during verification. Verify the current domain again.';
+              return;
+            }
+            verifiedDomainKey = identity;
+            domainProofOutput.textContent = `Domain ownership verified for ${domain}. Confirm its A/AAAA records point to this server and ports 80 and 443 are reachable before creating the site.`;
+            domainClaimButton.textContent = 'Domain verified';
+          } catch (error) {
+            domainProofOutput.textContent = `DNS verification did not pass: ${error.message} Add the exact TXT record above, wait for DNS to update, then check again.`;
+          }
+          return;
+        }
+        domainProofOutput.textContent = 'Requesting a verification record…';
+        domainClaim = null;
+        domainClaimKey = '';
+        verifiedDomainKey = '';
+        try {
+          const result = await postJSON('/api/sites/domains/claim', { site, domain });
+          if (identity !== domainIdentity()) {
+            domainProofOutput.textContent = 'The website name or domain changed. Request a new verification record.';
+            return;
+          }
+          domainClaim = result;
+          domainClaimKey = identity;
+          domainProof.replaceChildren(
+            el('strong', { id: 'siteDomainProofHeading' }, 'Add this DNS TXT record'),
+            el('p', {}, 'In your domain DNS settings, create this record. DNS changes can take time to appear.'),
+            el('dl', { className: 'site-domain-proof-record' }, [
+              el('dt', {}, 'Record name'), el('dd', {}, el('code', {}, result.txt_name)),
+              el('dt', {}, 'TXT value'), el('dd', {}, el('code', {}, result.txt_value)),
+            ]),
+            domainClaimButton,
+            domainProofOutput,
+          );
+          domainClaimButton.textContent = 'Check TXT record';
+          domainProofOutput.textContent = 'After adding the record, check it here. The site is not created until ownership is verified.';
+        } catch (error) {
+          domainProofOutput.textContent = `Could not prepare domain verification: ${error.message}`;
+        }
+      });
+      domainProof = el('section', {
+        className: 'import-note site-domain-proof',
+        'aria-labelledby': 'siteDomainProofHeading',
+      }, [
+        el('strong', { id: 'siteDomainProofHeading' }, 'Verify this domain before creating WordPress'),
+        el('p', {}, 'Add a DNS TXT record to prove you control this domain. StePanel checks that record before it creates the site.'),
+        domainClaimButton,
+        domainProofOutput,
+      ]);
+      wordpressFields.append(domainProof);
+      const invalidateDomainProof = () => {
+        if (domainClaimKey && domainIdentity() !== domainClaimKey) {
+          domainClaim = null;
+          domainClaimKey = '';
+          verifiedDomainKey = '';
+          resetDomainProof('The website name or domain changed. Request and verify a new DNS TXT record.');
+        }
+      };
+      domainInput.addEventListener('input', invalidateDomainProof);
+      siteNameInput.addEventListener('input', invalidateDomainProof);
+      createForm.addEventListener('reset', () => window.setTimeout(() => {
+        domainClaim = null;
+        domainClaimKey = '';
+        verifiedDomainKey = '';
+        resetDomainProof();
+      }, 0));
+    }
     const adminPassword = createForm.elements.admin_password;
     const generatePasswordButton = createForm.querySelector('#generateWordPressPassword');
     const togglePasswordButton = createForm.querySelector('#toggleWordPressPassword');
@@ -2519,9 +2618,15 @@
         admin_password: createForm.elements.admin_password.value,
       } : {};
       if (template === 'wordpress') {
+        if (!isAdministrator && verifiedDomainKey !== domainIdentity()) {
+          createStatus.textContent = 'Verify control of this domain first: add the DNS TXT record shown below, then check it before creating WordPress.';
+          domainProof?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          domainClaimButton?.focus();
+          return;
+        }
         const confirmed = await confirmDangerous({
           title: `Create WordPress site ${site}?`,
-          message: `StePanel will create a dedicated PHP-FPM pool and database for ${placement.domain}, publish its route, configure HTTPS, and create the first database-inclusive recovery point. Before continuing, confirm the domain's A record points to this server, any AAAA record points to working IPv6 on this server, and inbound ports 80 and 443 are reachable. This panel cannot verify public DNS or firewall reachability before creation.`,
+          message: `${isAdministrator ? 'StePanel will create' : 'Domain ownership is verified. StePanel will create'} a dedicated PHP-FPM pool and database for ${placement.domain}, publish its route, configure HTTPS, and create the first database-inclusive recovery point. Confirm the domain's A record points to this server, any AAAA record points to working IPv6 on this server, and inbound ports 80 and 443 are reachable. StePanel verifies TXT ownership but cannot verify public routing or firewall reachability from this form.`,
           confirmText: site,
           actionLabel: 'Create WordPress site',
         });

@@ -1,5 +1,20 @@
 # Production-readiness progress
 
+## Prevent a predictable WordPress domain-verification failure — 2026-11-22
+
+- Tenant owners can now request a domain ownership TXT record, see the exact
+  record name and token, and verify it from the WordPress creation form. The
+  site creation API is not called before ownership succeeds. Changing the
+  website name or domain discards the verified state and requires a fresh
+  proof. Administrator-created sites retain the existing operator workflow.
+- The preflight copy now distinguishes TXT ownership verification from public
+  A/AAAA routing and firewall checks, which still require operator validation.
+- Browser coverage passed locally: complete E2E suite (33 passed, one expected
+  skip) and a focused rerun of the customer creation journey. Frontend unit
+  tests (19) and JavaScript syntax checks passed. Hosted CI for this new change
+  has not yet run; the earlier setup change remains in hosted race and
+  installed-host checks. No host was modified and no release was published.
+
 ## Remove the rclone setup round trip — 2026-11-22
 
 - First-time setup no longer requires an operator to exit the wizard, run

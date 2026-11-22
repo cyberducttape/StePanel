@@ -167,7 +167,7 @@ test('first-run primary action follows the next unresolved setup step', async ({
   await expect(page.locator('#wordpressCreateFields')).toContainText('Before you create this site');
   await expect(page.locator('#wordpressCreateFields')).toContainText('Add an AAAA record only if this server accepts public IPv6 traffic');
   await expect(page.locator('#wordpressCreateFields')).toContainText('ports 80 and 443');
-  await expect(page.locator('#wordpressCreateFields')).toContainText('cannot verify public DNS or firewall reachability');
+  await expect(page.locator('#wordpressCreateFields')).toContainText('cannot verify public A/AAAA routing or firewall reachability');
   await page.locator('#siteCreateDomain').fill('www.blog-example.test');
   await expect(page.locator('#siteCreateTitle')).toHaveValue('Blog Example');
   await page.locator('#siteCreateDomain').fill('store.example.test');

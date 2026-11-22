@@ -289,6 +289,12 @@ path is usable, but it is not a production-ready release.
   wizard and README document both paths. Focused setup tests, installer
   preflight contracts, and local `make check` passed; exact-source hosted CI
   has not yet run for this change.
+- Customer WordPress provisioning now requests a DNS TXT claim and verifies it
+  in the create form before sending the site-creation request. The verified
+  state is bound to the current site name/domain pair and is invalidated when
+  either changes. The server continues to recheck ownership; browser state is
+  only an admission aid. Customer E2E covers the rejected-until-verified path,
+  proof display, successful verification, and invalidation after editing.
 
 The release artifact and host certification criteria require a tagged
 candidate and disposable hosts; this milestone does not authorize publishing.

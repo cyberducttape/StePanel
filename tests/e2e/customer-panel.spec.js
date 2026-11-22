@@ -81,10 +81,12 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   ];
   await page.route('**/api/backups?limit=100', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ backups: customerBackups }) }));
   let shopRouteConfigured = false;
+  let createdSite = null;
   await page.route('**/api/sites/overview', (route) => {
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sites: [
     { site: 'e2e-main', routes: [{ site: 'e2e-main', domain: 'main.example.org' }], database_count: 1, kind: 'main' },
     { site: 'e2e-shop', routes: shopRouteConfigured ? [{ site: 'e2e-shop', domain: 'shop.example.org' }] : [], database_count: 0, kind: 'addon' },
+    ...(createdSite ? [{ site: createdSite.site, routes: [{ site: createdSite.site, domain: createdSite.domain }], database_count: 1, kind: 'addon' }] : []),
     ] }) });
   });
   const writes = [];
@@ -255,7 +257,7 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await expect(page.locator('#wordpressCreateFields')).toContainText('Before you create this site');
   await expect(page.locator('#wordpressCreateFields')).toContainText('Point the domain’s DNS A record to this server');
   await expect(page.locator('#wordpressCreateFields')).toContainText('ports 80 and 443');
-  await expect(page.locator('#wordpressCreateFields')).toContainText('cannot verify public DNS or firewall reachability');
+  await expect(page.locator('#wordpressCreateFields')).toContainText('cannot verify public A/AAAA routing or firewall reachability');
   await page.locator('#siteCreateDomain').fill('www.shop.example.org');
   await expect(page.locator('#siteCreateName')).toHaveValue('shop');
   await page.locator('#siteCreateDomain').fill('store.example.org');
@@ -289,6 +291,73 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await expect(page.locator('#siteCreateAdminPassword')).toHaveAttribute('type', 'text');
   await page.getByRole('button', { name: 'Hide', exact: true }).click();
   await expect(page.locator('#siteCreateAdminPassword')).toHaveAttribute('type', 'password');
+
+  // Customer WordPress creation must complete domain ownership verification
+  // before the provisioning API is called, avoiding a predictable HTTP 409.
+  let claimRequests = 0;
+  let verificationRequests = 0;
+  let createRequests = 0;
+  let creationBody;
+  await page.route('**/api/sites/domains/claim', async (route) => {
+    claimRequests += 1;
+    const body = route.request().postDataJSON();
+    await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({
+      site: body.site, domain: body.domain, state: 'pending',
+      txt_name: `_stepanel.${body.domain}`, txt_value: 'e2e-domain-proof-token',
+    }) });
+  });
+  await page.route('**/api/sites/domains/verify', async (route) => {
+    verificationRequests += 1;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ state: 'verified' }) });
+  });
+  await page.route('**/api/sites', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    createRequests += 1;
+    creationBody = route.request().postDataJSON();
+    createdSite = { site: creationBody.site, domain: creationBody.domain };
+    await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ job_id: 'customer-wordpress-create' }) });
+  });
+  await page.route('**/api/jobs/customer-wordpress-create', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({
+      id: 'customer-wordpress-create', kind: 'site.create', state: 'completed',
+      output: { domain: 'newsite.example.org', database: 'newsite', recovery_point: 'backup-1', recovery_verified_at: '2026-11-22T12:00:00Z' },
+    }),
+  }));
+  await page.locator('#siteCreateDomain').fill('newsite.example.org');
+  await page.locator('#siteCreateName').fill('newsite');
+  await page.locator('#siteCreateTitle').fill('New Site');
+  await page.locator('#siteCreateAdminUser').fill('siteadmin');
+  await page.locator('#siteCreateAdminEmail').fill('owner@example.org');
+  await page.locator('#siteCreateAdminPassword').fill('Generated-E2E-WordPress-Password-123!');
+  await page.locator('#siteCreateForm button[type="submit"]').click();
+  await expect(page.locator('#siteCreateStatus')).toContainText('Verify control of this domain first');
+  expect(createRequests).toBe(0);
+  await page.getByRole('button', { name: 'Get DNS verification record' }).click();
+  await expect(page.locator('#wordpressCreateFields')).toContainText('_stepanel.newsite.example.org');
+  await expect(page.locator('#wordpressCreateFields')).toContainText('e2e-domain-proof-token');
+  await page.getByRole('button', { name: 'Check TXT record' }).click();
+  await expect(page.locator('#wordpressCreateFields')).toContainText('Domain ownership verified for newsite.example.org');
+  await page.locator('#siteCreateDomain').fill('changed.example.org');
+  await expect(page.locator('#wordpressCreateFields')).toContainText('The website name or domain changed. Request and verify a new DNS TXT record.');
+  await page.locator('#siteCreateForm button[type="submit"]').click();
+  await expect(page.locator('#siteCreateStatus')).toContainText('Verify control of this domain first');
+  expect(createRequests).toBe(0);
+  await page.locator('#siteCreateDomain').fill('newsite.example.org');
+  await page.getByRole('button', { name: 'Get DNS verification record' }).click();
+  await expect(page.locator('#wordpressCreateFields')).toContainText('e2e-domain-proof-token');
+  await page.getByRole('button', { name: 'Check TXT record' }).click();
+  await expect(page.locator('#wordpressCreateFields')).toContainText('Domain ownership verified for newsite.example.org');
+  await page.locator('#siteCreateForm button[type="submit"]').click();
+  const createConfirmation = page.getByRole('dialog');
+  await expect(createConfirmation).toBeVisible();
+  await createConfirmation.getByLabel('Type newsite to confirm').fill('newsite');
+  await createConfirmation.getByRole('button', { name: 'Create WordPress site' }).click();
+  await expect(page.locator('#siteCreateStatus')).toContainText('newsite is ready at newsite.example.org');
+  expect(claimRequests).toBe(2);
+  expect(verificationRequests).toBe(2);
+  expect(createRequests).toBe(1);
+  expect(creationBody).toMatchObject({ site: 'newsite', domain: 'newsite.example.org', template: 'wordpress' });
+
   await expect.poll(() => pageErrors).toEqual([]);
   await checkA11y(page);
 
