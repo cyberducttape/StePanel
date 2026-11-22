@@ -13,9 +13,27 @@
   explicitly selects `auto` for that case, and the evaluation harness does the
   same. The separate `local` bootstrap case remains covered explicitly.
 - `GOTOOLCHAIN=local GOMAXPROCS=2 GOFLAGS=-p=1 make shell-contract-check`,
-  `make release-check`, and `git diff --check` pass locally. The fix is pushed
-  for a new exact-source CI run; the previous run remains a failure and is not
+  `make release-check`, and `git diff --check` pass locally. On exact source
+  `a6dfa99a`, the installer contract step, `go vet`, full Go tests, ENOSPC
+  drill, benchmark, browser suite, and documentation workflow have passed in
+  [CI run 45027692263](https://github.com/cyberducttape/StePanel/actions/runs/45027692263).
+  Race and recovery checks remain in progress; the earlier failed run is not
   counted as passing evidence.
+
+## Refresh the recommended-profile installed-host evidence — 2026-11-22
+
+- Reviewed the uploaded artifact from the Ubuntu 24.04 + Caddy + MariaDB
+  packaged snapshot smoke on `b901b258`. Installation completed, the
+  database-backed WordPress HTTPS recovery proof measured 4.490 seconds, and
+  one recovery-matrix iteration passed. The source runtime/installer tree is
+  unchanged through `a6dfa99a`.
+- Recorded the result and limits in
+  `docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-b901b25.md` and
+  refreshed the installation matrix and production-gate evidence pointer. This
+  was a disposable container in lab mode: quota enforcement was skipped, HTTPS
+  used local trust, and this is one iteration rather than certification.
+- Documentation links/references, API artifact check, release check, and
+  `git diff --check` pass locally.
 
 ## Correct the installed-host smoke coverage claim — 2026-11-22
 

@@ -40,18 +40,22 @@ checks, and browser workflow
 ([integration run 45012500672](https://github.com/cyberducttape/StePanel/actions/runs/45012500672));
 Documentation and CodeQL also passed. That integration workflow did not run
 the installer/bootstrap contract scripts. The current workflow now runs
-`make shell-contract-check`, which includes those regressions; exact-source CI
-for that wiring is pending. The setup guidance and installer
+`make shell-contract-check`, which includes those regressions. Exact-source CI
+on `a6dfa99a` ([run 45027692263](https://github.com/cyberducttape/StePanel/actions/runs/45027692263))
+has passed the shell contracts, Go vet, full Go tests, browser suite, and
+documentation workflow; race and recovery checks are still running. The setup guidance and installer
 preflight identify Ubuntu 24.04 + Caddy + MariaDB as the recommended Beta
-profile. The latest installed-host smoke on code source `b2e95a3a` passed on
+profile. The latest installed-host smoke on code source `b901b258` passed on
 Ubuntu 24.04 + Caddy + MariaDB ([host run
-45009421543](https://github.com/cyberducttape/StePanel/actions/runs/45009421543));
-matching integration CI [45008851534](https://github.com/cyberducttape/StePanel/actions/runs/45008851534)
-passed. The GoReleaser snapshot was extracted and installed on a disposable
-systemd container, `post_install_status=complete`, and the WordPress
-HTTPS/database recovery proof measured 7.565 seconds; one recovery-matrix
-iteration passed. The exact-source host log and limits are in the [reviewed
-host report](docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-b2e95a3.md).
+45025566462](https://github.com/cyberducttape/StePanel/actions/runs/45025566462));
+the release-evidence workflow passed
+([45025579744](https://github.com/cyberducttape/StePanel/actions/runs/45025579744)).
+The GoReleaser snapshot was installed on a disposable systemd container,
+`post_install_status=complete`, and the WordPress HTTPS/database recovery proof
+measured 4.490 seconds; one recovery-matrix iteration passed. The current
+installer/runtime tree is code-equivalent to that source. Quota enforcement
+was skipped in lab mode. The reviewed report records the limits
+(docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-b901b25.md).
 This host smoke predates the source bootstrap changes in `a3cbb37a`, and the
 GoReleaser archive does not contain or execute `scripts/install-guided.sh`;
 it is not runtime evidence for that bootstrap. A clean temporary checkout at

@@ -16,19 +16,20 @@ record of each gate's status and remaining work.
 
 ### Release evidence
 
-The latest exact-source Ubuntu 24.04 + Caddy + MariaDB packaged installed-host
-smoke passed on source `b2e95a3a` ([host run
-45009421543](https://github.com/cyberducttape/StePanel/actions/runs/45009421543));
-matching integration CI passed ([run
-45008851534](https://github.com/cyberducttape/StePanel/actions/runs/45008851534)).
-The GoReleaser snapshot was extracted and installed on a disposable systemd
-container, `post_install_status=complete`, and database-backed WordPress HTTPS
-recovery proof measured 7.565 seconds; one recovery-matrix iteration passed.
-This is one disposable-host smoke, not repeated certification. Repeated
-recovery, physical-host and power-loss evidence, broad ENOSPC/quota and
-capacity certification, and a clean-host test of the official tagged archive
-remain open. See the
-[`b2e95a3a` host-smoke report](./lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-b2e95a3.md).
+The latest Ubuntu 24.04 + Caddy + MariaDB packaged installed-host smoke passed
+on source `b901b258` ([host run
+45025566462](https://github.com/cyberducttape/StePanel/actions/runs/45025566462));
+the release-evidence workflow passed ([run
+45025579744](https://github.com/cyberducttape/StePanel/actions/runs/45025579744)).
+The GoReleaser snapshot installed on a disposable systemd container,
+`post_install_status=complete`, and database-backed WordPress HTTPS recovery
+measured 4.490 seconds; one recovery-matrix iteration passed. The current
+runtime and installer tree is code-equivalent to the tested source. This is
+one disposable-host smoke, not repeated certification; quota enforcement was
+skipped in lab mode. Repeated recovery, physical-host and power-loss evidence,
+broad ENOSPC/quota and capacity certification, and a clean-host test of the
+official tagged archive remain open. See the
+[`b901b258` host-smoke report](./lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-b901b25.md).
 
 The latest exact-source Ubuntu 24.04 + Caddy + MariaDB snapshot install smoke
 passed on source `e04235f838834f32b6a54d40cc57e50648c00339` ([host run
