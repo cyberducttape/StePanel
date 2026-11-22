@@ -130,6 +130,11 @@ before making that change. The setup wizard checks for rclone and a configured
 offsite remote before collecting credentials and prints the exact command to
 fix either missing prerequisite.
 
+Before the integrated wizard asks for setup answers, the installer also checks
+for a live systemd manager and active user quotas on `/var/www` and `/home`.
+Missing requirements are reported with the next action before you enter
+credentials; the installer repeats these checks before making host changes.
+
 For a manual build and install, use `make build` followed by
 `sudo ./install.sh --guided` from the same checkout.
 

@@ -1,5 +1,15 @@
 # Production-readiness progress
 
+## Fail fast on unsupported native hosts — 2026-11-22
+
+- Integrated `install.sh --guided` checks for a running systemd manager and
+  active user quotas before collecting setup answers, then retains the full
+  pre-mutation recheck. This exposes hard host blockers before credential
+  entry. Added ordering regressions to the systemd and quota preflight tests
+  and documented the behavior.
+- Focused preflight tests and shell syntax checks pass. Full repository checks
+  and hosted CI are pending.
+
 ## Remove avoidable setup retry and correct wizard step guidance — 2026-11-22
 
 - The Ubuntu native-install command sequence now installs and configures rclone

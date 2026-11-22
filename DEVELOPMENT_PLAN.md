@@ -192,6 +192,10 @@ path is usable, but it is not a production-ready release.
   The installation guide places the Ubuntu rclone install/config commands
   before the source build, preventing a predictable build-then-abort restart;
   the written probe step now matches the wizard's Step 3.
+  Integrated `install.sh --guided` now checks for systemd and enforced user
+  quotas before invoking the answer wizard, then repeats those checks during
+  the full pre-mutation preflight. This avoids collecting credentials on a
+  host that cannot run the native installation.
 - The first-login browser journey presents health findings, opens the
   WordPress form from the primary next action, verifies template fields, and
   updates the next task to site backup and restore proof. The website area is

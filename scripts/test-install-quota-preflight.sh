@@ -4,9 +4,10 @@ set -Eeuo pipefail
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=../deploy/lib/install-quota-preflight.sh
 . "$ROOT_DIR/deploy/lib/install-quota-preflight.sh"
-quota_check_line=$(grep -n 'install_preflight_user_quotas /var/www /home' "$ROOT_DIR/install.sh" | cut -d: -f1)
+quota_check_line=$(grep -n 'install_preflight_user_quotas /var/www /home' "$ROOT_DIR/install.sh" | sed -n '1p' | cut -d: -f1)
+guided_setup_line=$(grep -n 'stepanel" setup --output' "$ROOT_DIR/install.sh" | cut -d: -f1)
 package_mutation_line=$(grep -n 'apt-get update; apt-get install' "$ROOT_DIR/install.sh" | cut -d: -f1)
-(( quota_check_line < package_mutation_line ))
+(( quota_check_line < guided_setup_line && quota_check_line < package_mutation_line ))
 web_root=/tmp/stepanel-test-web
 test_home_mount=/tmp/stepanel-test-home
 quota_failure=

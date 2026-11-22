@@ -53,6 +53,9 @@ if [[ ! -f "$ROOT_DIR/stepanel" || ! -x "$ROOT_DIR/stepanel" ]]; then echo "Buil
 . "$ROOT_DIR/deploy/lib/install-host-inventory.sh"
 # shellcheck source=deploy/lib/install-change-plan.sh
 . "$ROOT_DIR/deploy/lib/install-change-plan.sh"
+. "$ROOT_DIR/deploy/lib/install-systemd-preflight.sh"
+. "$ROOT_DIR/deploy/integrations/stepanel-quota-state.sh"
+. "$ROOT_DIR/deploy/lib/install-quota-preflight.sh"
 
 if (( GUIDED == 1 )); then
   [[ -z $CONFIG_FILE ]] || { echo "--guided and --config cannot be combined; --guided writes its own settings file." >&2; exit 64; }
@@ -60,6 +63,23 @@ if (( GUIDED == 1 )); then
   # shellcheck source=deploy/lib/install-support-tier.sh
   . "$ROOT_DIR/deploy/lib/install-support-tier.sh"
   install_guided_host_support
+  echo "Checking native host requirements before asking setup questions."
+  if systemd_preflight=$(install_preflight_systemd); then
+    echo "HOST REQUIREMENT: $systemd_preflight"
+  else
+    echo "BLOCKER: $systemd_preflight" >&2
+    exit 1
+  fi
+  if (( UNSAFE_LAB == 0 )); then
+    if quota_preflight=$(install_preflight_user_quotas /var/www /home); then
+      echo "HOST REQUIREMENT: $quota_preflight"
+    else
+      echo "BLOCKER: $quota_preflight" >&2
+      exit 1
+    fi
+  else
+    echo "LAB OVERRIDE: user quota preflight skipped; hosted-site quota guarantees are disabled."
+  fi
   if [[ -f "$ENV_FILE" ]]; then
     echo "StePanel is already installed on this server. Run 'sudo ./install.sh' to upgrade; your settings and keys are kept." >&2
     exit 1
@@ -316,8 +336,6 @@ preflight_blockers=()
 . "$ROOT_DIR/deploy/lib/install-systemd-preflight.sh"
 . "$ROOT_DIR/deploy/lib/install-package-preflight.sh"
 . "$ROOT_DIR/deploy/lib/install-database-version-preflight.sh"
-. "$ROOT_DIR/deploy/integrations/stepanel-quota-state.sh"
-. "$ROOT_DIR/deploy/lib/install-quota-preflight.sh"
 MAIL_EXIM_SERVICE=$([[ "$PKG" == apt ]] && printf exim4 || printf exim)
 MAIL_SPAM_SERVICE=spamd
 INSTALL_HOST_SERVICES=(apache2 httpd caddy lsws "$MAIL_EXIM_SERVICE" dovecot "$MAIL_SPAM_SERVICE")
