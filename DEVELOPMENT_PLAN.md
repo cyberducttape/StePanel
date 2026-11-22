@@ -28,13 +28,14 @@ unrecognized status.
 Local evaluation guidance and guided-setup
 support labels, pre-mutation platform classification, and release archive
 documentation requirements are in place. A newcomer can run a loopback-only
-evaluation, or use the source bootstrap to build as an unprivileged user and
-then start the guided native installer. The source bootstrap now checks for
-Go 1.21+ before building; when Go is unavailable, too old, unidentified, or
-`GOTOOLCHAIN=local`, it bootstraps the pinned Go 1.26.11 archive into a
-temporary directory and verifies its SHA-256 before extraction. It does not
-install host packages. Contract tests cover missing/old Go, local mode, build
-before privilege elevation, and checksum rejection. Exact-source CI on `a3cbb37a` passed the
+evaluation or use the source bootstrap to build as an unprivileged user and
+then start the guided native installer. Both entry points share a Go
+bootstrap: when Go is unavailable, too old, unidentified, or
+`GOTOOLCHAIN=local`, it downloads the pinned compiler into a temporary
+directory and verifies its SHA-256 before extraction. It does not install host
+packages. Contract tests cover missing/old Go, local mode, build before
+privilege elevation, checksum rejection, and the `make evaluate` entry point.
+Exact-source CI on `a3cbb37a` passed the
 contract, full Go suite, race suite, release checks, and browser workflow
 ([integration run 45012500672](https://github.com/cyberducttape/StePanel/actions/runs/45012500672));
 Documentation and CodeQL also passed. The setup guidance and installer
@@ -57,10 +58,12 @@ archive, built both binaries, removed the temporary toolchain, and reached a
 mocked `sudo` handoff. The bootstrap now reads the version directly from
 `go.mod`; release checks ensure both supported architectures have a checksum
 entry, and its contract test rejects a newly pinned version until that entry
-exists. The fallback now shows the compiler download progress so a first-time
-build does not appear stalled. A repeat clean-checkout smoke against the
-current source diff verified and built both binaries. This verifies compiler
-bootstrap and build behavior, not the native installer on an installed host.
+exists. The fallback shows compiler download progress. A clean temporary
+checkout ran `make evaluate` with Go pointed at a nonexistent path: the
+verified toolchain built the preview, it served HTTP 200 on `127.0.0.1:8080`,
+Ctrl-C stopped it, and its temporary compiler/build directory was removed.
+This verifies local evaluation and compiler/build behavior, not the native
+installer on an installed host.
 This is one disposable-container pass, not repeated host certification. A
 clean-host smoke of the official tagged release archive also remains open:
 no currently published stable archive supports a fresh Ubuntu 24.04 install.
@@ -76,19 +79,22 @@ path is usable, but it is not a production-ready release.
   and real customer data in development mode. Setup users are shown the
   evaluation escape route before storage prerequisites are checked. README's
   quick-start link lands directly on this path and states the compiler and
-  first-download requirements there. A temporary checkout at `c5a2765e`
+  first-download requirements there. A clean current-source checkout without
+  an installed Go command also ran `make evaluate`, served HTTP 200 on loopback
+  only, and removed its temporary compiler after Ctrl-C. A temporary checkout
+  at `c5a2765e`
   completed `make evaluate`, served the dashboard with HTTP 200, and was
   observed listening only on `127.0.0.1:8080`; Ctrl-C stopped it. The exact
   command was repeated from a clean source archive at `5e23f579`, isolated
   from the checkout's existing data; it built successfully, returned HTTP
   200, and listened on `127.0.0.1:8080` before clean shutdown. This is UI
   evaluation evidence only, not a native installation test.
-- Build instructions explain that Go 1.21+ with automatic toolchain selection
-  downloads the exact pinned Go 1.26.11 compiler, or that the guided bootstrap
-  verifies and temporarily extracts the pinned Linux amd64/arm64 toolchain if
-  no usable Go is installed or `GOTOOLCHAIN=local` is set. No system Go package
-  is installed. Contract tests cover missing/old Go, local mode, checksum
-  failure before extraction/build/privilege elevation, and unsupported options.
+- `make evaluate` and the guided native installer can bootstrap the pinned Go
+  toolchain without installing a system Go package. Full development commands
+  (`make check`, `go run`) state that an installed Go 1.21+ with automatic
+  toolchain selection is required. Contract tests cover missing/old Go, local
+  mode, checksum failure before extraction/build/privilege elevation, and
+  unsupported options.
   `scripts/install-guided.sh` builds both binaries as the normal user, then
   invokes the guided host installer through `sudo`. Source-based installation
   remains clearly distinct from a published release archive. The manual

@@ -15,8 +15,21 @@ grep -Fq 'Requirements: Git and either Go 1.21 or later' <<<"$evaluation_docs" |
   echo 'README local evaluation instructions omit the supported compiler/bootstrap prerequisites' >&2
   exit 1
 }
+grep -Fq 'make evaluate` downloads the repository-pinned Go 1.26.11 toolchain' <<<"$evaluation_docs" || {
+  echo 'README local evaluation instructions omit the temporary toolchain bootstrap behavior' >&2
+  exit 1
+}
 grep -Fxq 'make evaluate' <<<"$evaluation_docs" || {
   echo 'README local evaluation instructions omit the one-command launcher' >&2
+  exit 1
+}
+development_docs=$(awk '
+  /^### Local development$/ { in_development = 1 }
+  /^### / && in_development && $0 != "### Local development" { exit }
+  in_development { print }
+' "$ROOT_DIR/README.md")
+grep -Fq "development commands such as \`make check\` and \`go run\` require an installed Go" <<<"$development_docs" || {
+  echo 'README must distinguish the local preview bootstrap from full development toolchain requirements' >&2
   exit 1
 }
 tmp=$(mktemp -d)
@@ -39,7 +52,7 @@ if EVALUATION_TEST_MAKE_MARKER="$tmp/make-invoked" PATH="$tmp/bin:$PATH" \
   exit 1
 fi
 grep -Fq 'binary is not executable' "$tmp/missing-output"
-grep -Fq 'run `make evaluate` from the checkout' "$tmp/missing-output"
+grep -Fq "run \`make evaluate\` from the checkout" "$tmp/missing-output"
 [[ ! -e $tmp/make-invoked ]] || {
   echo 'evaluation error message unexpectedly executed make' >&2
   exit 1

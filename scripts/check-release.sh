@@ -161,9 +161,9 @@ if [ -z "$toolchain" ]; then
   echo "go.mod does not pin a toolchain" >&2
   exit 1
 fi
-if ! grep -Fq "go${toolchain}:amd64)" scripts/install-guided.sh ||
-   ! grep -Fq "go${toolchain}:arm64)" scripts/install-guided.sh; then
-  echo "guided bootstrap does not follow go.mod toolchain $toolchain with verified Linux amd64/arm64 checksums" >&2
+if ! grep -Fq "go${toolchain}:amd64)" scripts/go-toolchain.sh ||
+   ! grep -Fq "go${toolchain}:arm64)" scripts/go-toolchain.sh; then
+  echo "Go bootstrap does not follow go.mod toolchain $toolchain with verified Linux amd64/arm64 checksums" >&2
   exit 1
 fi
 if ! grep -Eq "^FROM golang:$toolchain-" Dockerfile; then

@@ -25,8 +25,8 @@ build-panel:
 
 # A no-host-mutation, loopback-only UI evaluation. This mode has no login and
 # must never be used for customer data or exposed beyond the local machine.
-evaluate: build-panel
-	bash scripts/evaluate.sh ./$(APP)
+evaluate:
+	bash scripts/evaluate-local.sh
 
 test:
 	GOMAXPROCS=$(TEST_PROCS) $(GO) test -p $(TEST_PARALLELISM) -timeout $(TEST_TIMEOUT) ./...
@@ -74,8 +74,9 @@ shell-contract-check:
 	bash scripts/test-install-quota-preflight.sh
 	bash scripts/test-install-package-preflight.sh
 	bash scripts/test-install-database-version-preflight.sh
-	bash -n scripts/install-guided.sh scripts/test-install-guided.sh
+	bash -n scripts/install-guided.sh scripts/test-install-guided.sh scripts/go-toolchain.sh scripts/evaluate-local.sh
 	bash scripts/test-install-guided.sh
+	bash scripts/test-evaluation-bootstrap.sh
 	bash scripts/test-install-env-file.sh
 	bash scripts/test-install-first-login.sh
 	bash scripts/test-evaluation-entrypoint.sh

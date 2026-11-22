@@ -38,6 +38,17 @@
   curl progress while downloading, so the initial compiler fetch has visible
   feedback. The bootstrap contract checks for the progress-bar option; focused
   contract, release, ShellCheck, and diff checks pass.
+- Corrected the local-preview path to use the same shared
+  `scripts/go-toolchain.sh`
+  helper as native setup. `make evaluate` now works with no installed Go
+  command; README distinguishes this from `make check`/`go run`, which still
+  require a Go installation. The end-to-end contract runs the Make target.
+  From a clean checkout with `GO` pointing to a nonexistent path, I ran the
+  real pinned-toolchain download/hash check and preview build, observed HTTP
+  200, confirmed `ss` showed only `127.0.0.1:8080`, stopped it with Ctrl-C,
+  and verified the temporary toolchain/build directory was gone. No host
+  services were installed or changed. This is local evaluation evidence, not
+  native host installation or production evidence.
 
 ## Verify exact-source install and integration after rclone config staging — 2026-11-22
 

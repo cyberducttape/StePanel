@@ -130,11 +130,10 @@ Operational key backup and rotation procedures are documented in
 
 ### Local development
 
-Requirements: Go 1.21 or later with automatic toolchain selection, or the
-bootstrap utilities `curl`/`wget`, `tar`, and `sha256sum`. Without a suitable
-Go command, the first build downloads the pinned Go 1.26.11 toolchain into a
-temporary directory and verifies its SHA-256; no system Go installation is
-needed.
+Requirements: Go 1.21 or later with automatic toolchain selection. Full
+development commands such as `make check` and `go run` require an installed Go
+command. The no-Go bootstrap is available for the guided native installer and
+the one-command local evaluation below.
 
 ```sh
 git clone --depth 1 https://github.com/cyberducttape/StePanel.git
@@ -151,9 +150,10 @@ To look around without installing services or changing a host, use the
 development server from a checkout:
 
 Requirements: Git and either Go 1.21 or later with automatic toolchain
-selection, or `curl`/`wget`, `tar`, and `sha256sum`. If needed, the launcher
-downloads the pinned Go 1.26.11 toolchain to a temporary directory and verifies
-it before building; the initial download requires internet access.
+selection, or `curl`/`wget`, `tar`, and `sha256sum`. If Go is missing or too
+old, `make evaluate` downloads the repository-pinned Go 1.26.11 toolchain to a
+temporary directory, verifies its SHA-256, builds the preview, and removes the
+compiler when you stop it. The initial download requires internet access.
 
 ```sh
 git clone --depth 1 https://github.com/cyberducttape/StePanel.git
