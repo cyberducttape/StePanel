@@ -2,6 +2,23 @@
 set -Eeuo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+grep -Fq '| Preview StePanel locally, no host setup | [Run it locally](#local-evaluation) |' "$ROOT_DIR/README.md" || {
+  echo 'README quick-start does not point local preview users to the evaluation flow' >&2
+  exit 1
+}
+evaluation_docs=$(awk '
+  /^### Local evaluation$/ { in_evaluation = 1 }
+  /^### / && in_evaluation && $0 != "### Local evaluation" { exit }
+  in_evaluation { print }
+' "$ROOT_DIR/README.md")
+grep -Fq 'Requirements: Git and Go 1.21 or later' <<<"$evaluation_docs" || {
+  echo 'README local evaluation instructions omit the Go/toolchain prerequisite' >&2
+  exit 1
+}
+grep -Fxq 'make evaluate' <<<"$evaluation_docs" || {
+  echo 'README local evaluation instructions omit the one-command launcher' >&2
+  exit 1
+}
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/repo/scripts"

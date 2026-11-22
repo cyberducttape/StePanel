@@ -69,7 +69,7 @@ availability is not on the 1.0 roadmap.
 
 | I want to... | Start here |
 | --- | --- |
-| Look around in two minutes, no server needed | [Run it locally](#local-development) |
+| Preview StePanel locally, no host setup | [Run it locally](#local-evaluation) |
 | Install on a fresh server | [Installation guide](docs/INSTALLATION.md) (Ubuntu 24.04, AlmaLinux 9, Rocky Linux 9) |
 | Move a cPanel account | [cPanel migration guide](docs/CPMOVE_IMPORTS.md) |
 | See how it compares | [StePanel vs. cPanel, Plesk, HestiaCP, CloudPanel](docs/COMPARISON.md) |
@@ -141,6 +141,10 @@ Open <http://localhost:8080>. Local development uses `data/imports` and `data/ww
 
 To look around without installing services or changing a host, use the
 development server from a checkout:
+
+Requirements: Git and Go 1.21 or later with automatic toolchain selection
+enabled (the default). The first build downloads the pinned Go 1.26.11
+toolchain; the initial download requires internet access.
 
 ```sh
 git clone https://github.com/cyberducttape/StePanel.git

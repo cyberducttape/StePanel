@@ -30,7 +30,9 @@ remain open.
   listener to loopback, clears inherited StePanel settings, and the
   instructions and native setup greeting clearly prohibit network exposure
   and real customer data in development mode. Setup users are shown the
-  evaluation escape route before storage prerequisites are checked.
+  evaluation escape route before storage prerequisites are checked. README's
+  quick-start link lands directly on this path and states the compiler and
+  first-download requirements there.
 - Build instructions explain that Go 1.21+ with automatic toolchain selection
   downloads the exact pinned Go 1.26.11 compiler, so a manual compiler upgrade
   is not a prerequisite; source-based installation remains clearly distinct

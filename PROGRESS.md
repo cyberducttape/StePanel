@@ -3132,3 +3132,8 @@ does not close a current-source or power-loss gate.
   native packaged `stepanel setup --help` smoke. The evidence and SBOM used
   for this local verifier run were synthetic, so this is packaging evidence,
   not official signed release evidence or host-install certification.
+- The README quick-start now links local preview users directly to the local
+  evaluation section and its `make evaluate` command, instead of the developer
+  workflow (`make check` / `go run`). The destination states Git, Go 1.21+,
+  automatic toolchain download, and first-build internet requirements. The
+  evaluation-entrypoint contract test checks the link and instructions.
