@@ -2153,3 +2153,23 @@ database steps.
 - Transcript tests cover both the default and custom paths; setup package and
   full repository checks pass; exact-source hosted CI passes.
 
+### M0as — Gate tagged packages on a real fresh-host install (P1)
+
+**Status:** Implemented locally; release and workflow contracts are pending.
+The tag-triggered release workflow now calls the packaged Ubuntu 24.04 +
+Caddy + MariaDB install-smoke workflow and waits for its database-backed
+WordPress HTTPS recovery proof before building or publishing release assets.
+The check-release contract prevents removing the prerequisite unnoticed.
+This improves the package onboarding gate but does not certify production or
+replace repeated failure-recovery, quota, power-loss, capacity, and security
+gates.
+
+**Acceptance criteria**
+
+- Every tagged release waits for the exact-tag release archive to complete the
+  recommended fresh-host installation and WordPress recovery smoke.
+- A failed or unavailable smoke prevents all package and container publication.
+- Release contract and full local checks pass; hosted workflow validation
+  confirms the reusable workflow receives the tag source and blocks publication.
+- The installation guide states the guarantee and its limits.
+

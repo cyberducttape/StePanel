@@ -284,7 +284,12 @@ smoke, but it remains an Operator Beta workflow, not a production-certified
 release. Before installing, verify the host against the support matrix at the
 top of this guide. A tagged archive may be recommended for fresh installation
 only after its exact packaged tree passes the repeated release and
-installed-host gates.
+installed-host gates. The release workflow now makes publication depend on a
+fresh-host install of the exact tagged source and a database-backed WordPress
+HTTPS recovery proof on the recommended Ubuntu 24.04 + Caddy + MariaDB profile.
+That single release smoke improves package usability evidence; it does not
+replace the repeated recovery, quota, power-loss, capacity, or other production
+gates.
 
 **IMPORTANT:** Encryption keys must be machine-generated random values. See [**docs/ENCRYPTION_KEYS.md**](ENCRYPTION_KEYS.md) for detailed requirements, generation methods, and security best practices.
 

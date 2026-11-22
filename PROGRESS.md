@@ -1,5 +1,17 @@
 # Production-readiness progress
 
+## Gate release packages on a fresh-host install proof — 2026-11-22
+
+- The tag release workflow now calls the disposable Ubuntu 24.04 + Caddy +
+  MariaDB package smoke. Publishing waits for installation completion and
+  database-backed WordPress HTTPS recovery. Added a release-contract assertion
+  and documented the boundary: one package smoke does not close production
+  certification gates.
+- `make check`, `make release-check`, and `git diff --check` pass locally,
+  including `go vet ./...` and `GOMAXPROCS=2 go test -p 1 -timeout 10m ./...`.
+  Exact-tag hosted workflow execution remains pending; no release tag was
+  created.
+
 ## Reduce first-install stack choices — 2026-11-22
 
 - The native wizard now offers one default **Recommended** profile (Caddy +

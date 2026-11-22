@@ -166,6 +166,16 @@ if ! grep -Fq "'/dev/vdc /mnt/stepanel-enospc ext4 defaults 0 2' >> /etc/fstab" 
   exit 1
 fi
 
+# A tagged archive must pass the same packaged fresh-host install and WordPress
+# recovery smoke as the recommended first-install profile before publication.
+if ! grep -Fqx '  installer-smoke:' .github/workflows/release.yml ||
+   ! grep -Fqx '    uses: ./.github/workflows/install-smoke.yml' .github/workflows/release.yml ||
+   ! grep -Fqx '      host: ubuntu-24.04-caddy-mariadb' .github/workflows/release.yml ||
+   ! grep -Fqx '    needs: installer-smoke' .github/workflows/release.yml; then
+  echo "release publication is not gated on the packaged Ubuntu/Caddy/MariaDB installation and recovery smoke" >&2
+  exit 1
+fi
+
 # Every build pins the same patched Go toolchain: go.mod's toolchain line
 # (source builds), the Docker build image, and each workflow's setup-go.
 toolchain=$(sed -n 's/^toolchain go\([0-9.]*\)$/\1/p' go.mod)
