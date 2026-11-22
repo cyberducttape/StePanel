@@ -11,6 +11,9 @@
 - Corrected the README's native-install guidance: the guided flow stages the
   root rclone config itself; manually setting `RCLONE_CONFIG` is described only
   for unattended installs. This removes contradictory setup instructions.
+- The source bootstrap now labels an existing installation's final handoff as
+  an upgrade and explains that `sudo` covers both read-only checks and the
+  privileged install. Its isolated bootstrap test asserts the upgrade wording.
 - Added a shell contract for preflight ordering and included the new scripts in
   syntax checks. Focused contract and shell syntax checks pass locally; full
   `make shell-contract-check`, documentation-link/reference checks,

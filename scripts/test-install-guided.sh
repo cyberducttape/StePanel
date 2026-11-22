@@ -137,11 +137,12 @@ rm -f -- "$fake_repo/stepanel" "$fake_repo/stepanel-root"
 env GO=go GO_LOG="$tmp/existing-go.log" SUDO_LOG="$tmp/existing-sudo.log" \
   BOOTSTRAP_LOG="$tmp/existing-bootstrap.log" DOWNLOAD_LOG="$tmp/existing-download.log" \
   GOTOOLCHAIN=auto SUDO=sudo EXISTING_INSTALL=1 PATH="$fake_bin:$PATH" \
-  bash "$fake_repo/scripts/install-guided.sh"
+  bash "$fake_repo/scripts/install-guided.sh" >"$tmp/existing.out"
 [[ $(wc -l < "$tmp/existing-sudo.log") == 2 ]]
 grep -Fq 'test -f /etc/ste-panel.env' "$tmp/existing-sudo.log"
 ! grep -Fq 'install-host-preflight.sh' "$tmp/existing-sudo.log"
 [[ $(tail -n 1 "$tmp/existing-sudo.log") == './install.sh' ]]
+grep -Fq 'Starting the native upgrade.' "$tmp/existing.out"
 
 rm -f -- "$fake_repo/stepanel" "$fake_repo/stepanel-root" "$tmp/bad-sudo.log"
 if env GO="$tmp/missing-go" SUDO=sudo SUDO_LOG="$tmp/bad-sudo.log" \

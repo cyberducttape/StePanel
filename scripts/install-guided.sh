@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Build StePanel as the checkout owner, then elevate only for the native host
-# installer. This keeps the Go toolchain and module cache out of the root
-# account while making the supported source-based guided path one command.
+# Build StePanel as the checkout owner, then use sudo for the read-only host
+# preflight and privileged install or upgrade. This keeps the Go toolchain and
+# module cache out of the root account while keeping source setup one command.
 if (( EUID == 0 )); then
-  echo 'Run this command as your normal user; it invokes sudo only for install.sh.' >&2
+  echo 'Run this command as your normal user; it uses sudo for host checks and installation.' >&2
   exit 1
 fi
 
@@ -75,10 +75,11 @@ panel_tmp=
 mv -f -- "$root_tmp" "$repo_root/stepanel-root"
 root_tmp=
 
-echo 'Build complete. Starting the guided native installer.'
 cd "$repo_root"
 if (( existing_install )); then
+  echo 'Build complete. Starting the native upgrade.'
   "$sudo_bin" ./install.sh
 else
+  echo 'Build complete. Starting the guided native installer.'
   "$sudo_bin" ./install.sh --guided "${takeover[@]}"
 fi
