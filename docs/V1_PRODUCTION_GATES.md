@@ -16,6 +16,21 @@ record of each gate's status and remaining work.
 
 ### Release evidence
 
+The exact-source Ubuntu 24.04 + Caddy + MariaDB installed-host smoke passed
+once on source `67b40760e575e0dd2d626b64010c496d9245f0da` ([host run
+44985692207](https://github.com/cyberducttape/StePanel/actions/runs/44985692207));
+the matching integration workflow passed ([run
+44985692286](https://github.com/cyberducttape/StePanel/actions/runs/44985692286)).
+The disposable host completed its WordPress recovery proof with a measured
+RTO of 4.327 seconds and one recovery-matrix iteration. The identity-repair
+drill also killed the broker at the durable SQLite checkpoint, resumed the
+repair, and verified distinct site identities plus cross-site read/write
+denial. This is one disposable-host pass, not repeated certification. Physical
+power-loss, broader ENOSPC, quota and capacity certification, repeated
+recovery, and the clean-host workflow using the official tagged release
+archive remain open. Details and artifact location are recorded in the
+[`67b40760` host-smoke report](lab-results/2026-11-21-ubuntu-first-host-smoke-67b4076.md).
+
 Per-commit release evidence is generated from an exact full source SHA, not
 written by hand. After each tracked workflow completes on `main`, the
 [Release evidence workflow](https://github.com/cyberducttape/StePanel/actions/workflows/evidence.yml)
@@ -151,7 +166,7 @@ that check is considered verified. Production remains **NO-GO**.
 | Requirement | Current status | Evidence / remaining work |
 |-------------|----------------|---------------------------|
 | Encrypted durable payloads for archive DB credentials | ✅ Implemented | Archive restore rejects missing `STEPANEL_ACCOUNT_KEY`; encrypted-payload tests cover acceptance and rejection. |
-| Collision-safe migration of legacy site identities | ⚠️ Installed smoke passed once per supported OS/web-server pair; adversarial and interruption evidence remains open | New site identities are allocated uniquely and persisted. Startup fails closed on unresolved legacy collisions. The journaled repair path snapshots SQLite state, records a root-owned recovery journal, commits all affected mappings atomically, then reconciles ownership/ACL/PHP-FPM, SSH/SFTP policy, resource limits, and quotas. It refuses unsafe preconditions and requires explicit FTPS credential revocation. The exact-source six-host smoke [40433464444](https://github.com/cyberducttape/StePanel/actions/runs/40433464444) repaired the two colliding fixture sites on Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with Apache and Caddy. Remaining: interrupt a real installed repair at database and host checkpoints, validate supported filesystems, and run cross-site read/write denial tests. |
+| Collision-safe migration of legacy site identities | ⚠️ One exact-current Ubuntu interruption pass; repeat and platform evidence open | New site identities are allocated uniquely and persisted. Startup fails closed on unresolved legacy collisions. The journaled repair snapshots SQLite state, records a root-owned recovery journal, commits mappings atomically, then reconciles host ownership and service policy. Exact-source Ubuntu smoke [44985692207](https://github.com/cyberducttape/StePanel/actions/runs/44985692207) killed repair at the durable database checkpoint, resumed it, and verified distinct identities and cross-site read/write denial. This is one disposable Ubuntu 24.04 + Caddy + MariaDB pass. Repeat runs, other supported OS/web-server/filesystem combinations, and broader interruption points remain open; see the [host-smoke report](lab-results/2026-11-21-ubuntu-first-host-smoke-67b4076.md). |
 | Fail-closed archive handling | ✅ Implemented; host evidence open | TAR/ZIP imports reject unsafe paths, links, and unsupported objects. WPress records are now parsed before the external extractor runs; absolute/traversal paths, duplicate output paths, malformed or truncated records, excessive entry counts, and expanded-size overflow are rejected before any extracted file is written (`TestInspectWPressArchiveRejectsTraversalBeforeExtraction`, `TestRestoreWPressRejectsTraversalBeforeStartingExtractor`). Independent host ENOSPC and interruption evidence remains part of the broader recovery gate. |
 | Preserve restrictive imported file modes | ✅ Implemented | TAR/ZIP extraction preserves ordinary permission bits and strips special bits; mode tests pass. |
 | Realistic disk admission and reservations | ✅ Implemented; host evidence open | Known `Content-Length` is admitted at the actual archive size; unknown-length streams reserve progressively ahead of bytes written up to the upload ceiling; local database restore paths hold a shared SQLite reservation against the larger of twice the incoming SQL dump or 1.5 times the live database; WPress restore inspects declared expansion and reserves that amount across the import and site-staging filesystems; off-site restore validates the bounded manifest size, reserves archive bytes in the shared ledger before transfer, enforces the declared size, and holds the reservation through staging cleanup; remote inspection and ZIP-import spools reserve progressively before writing and retain the unused hold until close. These logical reservations still require real-host ENOSPC and competing-writer evidence. |

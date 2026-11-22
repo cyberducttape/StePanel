@@ -1,34 +1,22 @@
 # Production-readiness progress
 
-## Make the installed identity-repair checkpoint interruptible — 2026-11-21
+## Exact-source Ubuntu first-install and recovery smoke passed — 2026-11-21
 
-- The Ubuntu 24.04 + Caddy + MariaDB installed-host run installed StePanel,
-  passed its WordPress recovery proof and one recovery-matrix iteration, then
-  failed in the identity-repair SIGKILL drill. The drill's SQLite write lock
-  caused a deferred read-to-write transaction to return `SQLITE_BUSY` before
-  the process could be killed at the intended checkpoint.
-- Identity repair now opens its control-plane connection with SQLite
-  immediate transaction mode, reserving the writer lock before reading the
-  repair mappings. Other root-broker fencing connections keep their prior
-  transaction mode. Added a WAL-mode regression test showing the repair
-  transaction cannot begin under a competing writer, making the checkpoint
-  reliably interruptible and retryable.
-- Also fixed the exact-source CI `SC1007` lint finding with explicit empty
-  shell assignments. The exact ShellCheck command, focused root-broker tests,
-  and `make shell-contract-check` pass. Full `make check` and `make
-  release-check` passed before the final WAL test-fixture refinement; the
-  focused WAL regression passed afterward. Exact-source hosted rerun is
-  pending. This smoke failure is not counted as a successful host run.
-
-## Fix ShellCheck failure in installer support-tier helper — 2026-11-21
-
-- Exact-source CI `44982304932` passed Go tests, race tests, recovery and ENOSPC
-  drills, load checks, and UI E2E, then failed the shell lint step on
-  `SC1007` for empty local assignments in `install-support-tier.sh`. Changed
-  those assignments to explicit empty strings. The exact CI ShellCheck command
-  and `make shell-contract-check` pass locally. Hosted rerun is pending; this
-  correction is committed locally and will be pushed after the independent
-  Ubuntu install smoke completes.
+- Exact source `67b40760e575e0dd2d626b64010c496d9245f0da` passed integration CI
+  [44985692286](https://github.com/cyberducttape/StePanel/actions/runs/44985692286)
+  and installed-host smoke
+  [44985692207](https://github.com/cyberducttape/StePanel/actions/runs/44985692207)
+  on a disposable Ubuntu 24.04 + Caddy + MariaDB host.
+- The host installed successfully, completed one recovery-matrix iteration,
+  and passed WordPress application recovery proof with measured RTO 4.327 s.
+  Identity repair was killed at the durable SQLite checkpoint, resumed, and
+  verified distinct site identities and cross-site read/write denial. The
+  SQLite immediate-transaction change fixes the earlier `SQLITE_BUSY` race;
+  explicit empty shell assignments fix the earlier `SC1007` lint failure.
+- This is one disposable-host run, not release certification. Repeat runs,
+  broader failure classes, other platform combinations, quota/capacity
+  certification, and a clean-host smoke of the official tagged archive remain
+  open. Artifact and scope: [host-smoke report](docs/lab-results/2026-11-21-ubuntu-first-host-smoke-67b4076.md).
 
 ## Explain support evidence before host configuration — 2026-11-21
 
