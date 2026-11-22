@@ -78,17 +78,16 @@ PostgreSQL restore tests, container checks, and deployment-manifest validation
 the browser suite also passed. Documentation and CodeQL passed on the
 code-equivalent documentation-only descendants. The setup guidance and installer
 preflight identify Ubuntu 24.04 + Caddy + MariaDB as the recommended Beta
-profile. The latest installed-host smoke on code source `b901b258` passed on
+profile. The exact-current-source installed-host smoke on `6af93e88` passed on
 Ubuntu 24.04 + Caddy + MariaDB ([host run
-45025566462](https://github.com/cyberducttape/StePanel/actions/runs/45025566462));
-the release-evidence workflow passed
-([45025579744](https://github.com/cyberducttape/StePanel/actions/runs/45025579744)).
+45037318148](https://github.com/cyberducttape/StePanel/actions/runs/45037318148)).
 The GoReleaser snapshot was installed on a disposable systemd container,
 `post_install_status=complete`, and the WordPress HTTPS/database recovery proof
-measured 4.490 seconds; one recovery-matrix iteration passed. The current
-installer/runtime tree is code-equivalent to that source. Quota enforcement
-was skipped in lab mode. The reviewed report records the limits
-(docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-b901b25.md).
+measured 4.259 seconds; one recovery-matrix iteration passed. Without project
+quotas, Git deployment was refused and the live site remained unchanged; this
+proves fail-closed behavior, not quota enforcement. The report records scope
+and limitations in
+[`2026-11-22-ubuntu-packaged-first-host-smoke-6af93e8.md`](docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-6af93e8.md).
 Although this host smoke postdates the source bootstrap changes in `a3cbb37a`,
 the GoReleaser archive does not contain or execute `scripts/install-guided.sh`;
 it is not runtime evidence for that separate bootstrap path. A clean temporary checkout at

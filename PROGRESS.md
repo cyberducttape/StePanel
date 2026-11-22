@@ -1,5 +1,21 @@
 # Production-readiness progress
 
+## Verify packaged first install and WordPress recovery on current source — 2026-11-22
+
+- Ran the disposable installed-host workflow against exact source
+  `6af93e88`: [run 45037318148](https://github.com/cyberducttape/StePanel/actions/runs/45037318148).
+  The GoReleaser archive was validated and installed on Ubuntu 24.04 + Caddy +
+  MariaDB; installation and cleanup both completed.
+- The installed WordPress HTTPS/database recovery proof passed with measured
+  RTO 4.259 seconds. One full recovery-matrix iteration passed, including
+  interrupted cPanel import, backup, restore, and termination workflows.
+- The container lacked project quotas. Git deployment refused to proceed and
+  the live site remained unchanged. This is fail-closed evidence, not quota
+  enforcement evidence. This single disposable-container run does not establish
+  repeated certification, public DNS/TLS, external offsite restoration, or
+  physical power-loss recovery. See
+  [`lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-6af93e8.md`](docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-6af93e8.md).
+
 ## Show the selected platform's support tier during guided setup — 2026-11-22
 
 - After selecting a web server and database, setup now calls the same
