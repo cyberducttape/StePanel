@@ -260,9 +260,10 @@ before using a host. To explore only the interface without host changes, use
 The installer records the selected database engine/version, creates a restricted `stepanel` service account, writes the requested panel hostname into the selected webserver, and binds the control plane to `127.0.0.1:8090`. Caddy provisions HTTPS automatically; Apache installations must complete TLS termination before signing in.
 
 Native installation requires a working offsite target. For the guided source
-path above, configure a root-owned rclone remote with `sudo rclone config`;
-preflight checks that a remote is configured, and the setup wizard verifies
-the selected destination by writing, reading, and deleting a probe object.
+path above, install rclone before starting setup. After you review the exact
+host and stack support tier, the wizard offers to open `rclone config` if no
+remote exists. It verifies the selected destination by writing, reading, and
+deleting a probe object.
 The installer safely copies the root configuration to the service-readable
 location, so do not create `/etc/stepanel/rclone.conf` by hand. For unattended
 `--config` installs, `RCLONE_CONFIG` may point to an existing absolute rclone

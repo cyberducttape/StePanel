@@ -280,6 +280,15 @@ path is usable, but it is not a production-ready release.
   loader that rejects truncated quotes, trailing data, unsupported escapes,
   non-root ownership, unsafe permissions, and symlinks before accepting any
   setting. The exact parser helper is required in release archives.
+- When rclone is installed but has no remote, setup now offers to launch its
+  interactive configuration on the same terminal after the operator reviews
+  the exact host/stack support tier. It re-reads the remote list and verifies
+  the selected destination with the existing write/read/delete probe. The
+  source preflight accepts this unconfigured state while still failing before
+  build if rclone is absent or an existing configuration is malformed. The
+  wizard and README document both paths. Focused setup tests, installer
+  preflight contracts, and local `make check` passed; exact-source hosted CI
+  has not yet run for this change.
 
 The release artifact and host certification criteria require a tagged
 candidate and disposable hosts; this milestone does not authorize publishing.

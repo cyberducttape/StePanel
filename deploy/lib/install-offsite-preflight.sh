@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-# Guided native setup requires a private rclone configuration and at least
-# one remote. Check these prerequisites before compiling StePanel; the wizard
-# later probes the selected destination for actual write/read/delete access.
+# Guided native setup requires rclone. If no remote exists yet, the setup
+# wizard offers to launch rclone's own interactive configuration after the
+# platform support choice. Existing configurations are checked before build.
 install_preflight_offsite() {
   local rclone_cmd=${1:-rclone} remotes config_output config_path config_bytes
   if ! command -v "$rclone_cmd" >/dev/null 2>&1; then
-    printf '%s' 'rclone is not installed. Install it with `sudo apt-get install -y rclone` (or `sudo dnf install -y rclone`), configure a remote with `sudo rclone config`, then rerun setup. For a local UI preview, use `make evaluate`.'
+    printf '%s' 'rclone is not installed. Install it with `sudo apt-get install -y rclone` (or `sudo dnf install -y rclone`), then rerun setup; the guided wizard can configure the remote. For a local UI preview, use `make evaluate`.'
     return 1
   fi
   if ! remotes=$("$rclone_cmd" listremotes 2>/dev/null); then
@@ -14,8 +14,8 @@ install_preflight_offsite() {
     return 1
   fi
   if ! grep -q '[^[:space:]]' <<<"$remotes"; then
-    printf '%s' 'No rclone remote is configured. Run `sudo rclone config`, then rerun setup. For a local UI preview, use `make evaluate`.'
-    return 1
+    printf '%s' 'rclone is installed with no remote yet; guided setup will offer rclone configuration after the platform support check.'
+    return 0
   fi
   if ! config_output=$("$rclone_cmd" config file 2>/dev/null); then
     printf '%s' 'rclone could not locate its configuration file. Run `sudo rclone config`, then rerun setup.'

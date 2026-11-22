@@ -1,5 +1,24 @@
 # Production-readiness progress
 
+## Remove the rclone setup round trip — 2026-11-22
+
+- First-time setup no longer requires an operator to exit the wizard, run
+  `rclone config`, and restart. When rclone has no configured remote, the
+  wizard offers to launch its interactive terminal UI after the exact host
+  and stack support tier is reviewed, then checks that a remote was created
+  and continues with the existing destination write/read/delete verification.
+  Missing rclone and malformed existing configurations still fail early with
+  repair guidance.
+- The source installer preflight, README, and installation guide now match
+  that behavior. Regression tests cover declining the prompt, configuring a
+  remote only after support review, and accepting an unconfigured-but-installed
+  rclone preflight state.
+- Local validation passed: `go test ./internal/setup -count=1`, setup command
+  tests, installer offsite and guided-preflight contract scripts, and full
+  `make check` (including `go vet ./...` and `go test ./...`). Hosted
+  exact-source CI has not yet run. No host was modified and no release was
+  published.
+
 ## Make customer MFA enrollment self-service — 2026-11-22
 
 - The account page can now generate a TOTP enrollment QR code and a copyable

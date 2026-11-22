@@ -33,6 +33,7 @@ func (scriptedSetupHost) RcloneRemotes() ([]string, error)             { return 
 func (scriptedSetupHost) RcloneConfigFile() (string, error) {
 	return "/root/.config/rclone/rclone.conf", nil
 }
+func (scriptedSetupHost) ConfigureRclone() error    { return nil }
 func (scriptedSetupHost) ProbeOffsite(string) error { return nil }
 func (scriptedSetupHost) SupportTier(webServer, dbEngine string) (string, error) {
 	return "RECOMMENDED BETA PROFILE: Ubuntu 24.04 + " + webServer + " + " + dbEngine, nil

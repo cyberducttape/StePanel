@@ -44,6 +44,9 @@ type Host interface {
 	RcloneRemotes() ([]string, error)
 	// RcloneConfigFile returns the absolute path of the rclone config in use.
 	RcloneConfigFile() (string, error)
+	// ConfigureRclone opens rclone's interactive configuration on the user's
+	// terminal. It is called only after the platform support choice is accepted.
+	ConfigureRclone() error
 	// ProbeOffsite writes, reads back, and deletes a small object at target.
 	ProbeOffsite(target string) error
 	// SSHClientIP suggests a trusted management address; it may be empty.
@@ -281,8 +284,9 @@ func (g *Guide) Run() (Answers, error) {
 	g.say("This wizard is for a native host installation. It will configure system")
 	g.say("services and requires verified offsite backup storage.")
 	g.say("")
-	g.say("After checking backup-storage prerequisites, this walks through %d short", totalSteps)
-	g.say("steps, checks each answer as you go, and generates every key for you.")
+	g.say("This walks through %d short steps, checking answers as you go.", totalSteps)
+	g.say("If rclone is installed without a remote, setup can open its storage")
+	g.say("configuration after you confirm the host and stack support tier.")
 	g.say("Press Enter to accept a [default].")
 	g.say("Nothing on this server changes until you confirm the installation.")
 	g.say("")
@@ -300,6 +304,9 @@ func (g *Guide) Run() (Answers, error) {
 		return Answers{}, err
 	}
 	if err := g.confirmSupportChoice(answers); err != nil {
+		return Answers{}, err
+	}
+	if err := g.ensureOffsiteRemote(); err != nil {
 		return Answers{}, err
 	}
 	if err := g.offsite(&answers); err != nil {
@@ -362,22 +369,48 @@ func (g *Guide) confirmSupportChoice(a Answers) error {
 }
 
 // checkOffsitePrerequisites runs before collecting credentials so operators
-// discover a missing rclone installation or remote before doing setup work.
+// discover a missing rclone installation before doing setup work. Remote
+// creation is offered later, after the platform support choice is accepted.
 func (g *Guide) checkOffsitePrerequisites() error {
 	g.say("")
 	g.say("Checking offsite-backup prerequisites before collecting setup answers.")
 	if !g.host.Rclone() {
-		g.say("  ✗ rclone is not installed. Install it with `sudo apt install rclone` (or `sudo dnf install rclone`), then configure a remote with `sudo rclone config` and run setup again.")
+		g.say("  ✗ rclone is not installed. Install it with `sudo apt install rclone` (or `sudo dnf install rclone`), then run setup again; the wizard can configure the remote.")
 		return fmt.Errorf("rclone is required for offsite backups: %w", ErrCancelled)
 	}
+	return nil
+}
+
+func (g *Guide) ensureOffsiteRemote() error {
 	remotes, err := g.host.RcloneRemotes()
 	if err != nil {
 		g.say("  ✗ Could not read the rclone configuration: %v", err)
 		return fmt.Errorf("list rclone remotes: %w", err)
 	}
 	if len(remotes) == 0 {
-		g.say("  ✗ rclone is installed but no storage remote is configured. Run `sudo rclone config`, then run setup again.")
-		return fmt.Errorf("no rclone remote is configured: %w", ErrCancelled)
+		g.say("")
+		g.say("No offsite storage remote is configured yet. StePanel can open")
+		g.say("rclone's setup now; your provider credentials stay in rclone's private config.")
+		ok, err := g.confirm("Configure a backup remote now?", true)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			g.say("Setup cancelled. Configure storage with `rclone config`, then run setup again.")
+			return ErrCancelled
+		}
+		if err := g.host.ConfigureRclone(); err != nil {
+			g.say("  ✗ rclone configuration did not complete: %v", err)
+			return fmt.Errorf("configure rclone remote: %w", err)
+		}
+		remotes, err = g.host.RcloneRemotes()
+		if err != nil {
+			return fmt.Errorf("read rclone remotes after configuration: %w", err)
+		}
+		if len(remotes) == 0 {
+			g.say("  ✗ No remote was created. Run `rclone config` and retry setup.")
+			return fmt.Errorf("no rclone remote was created: %w", ErrCancelled)
+		}
 	}
 	config, err := g.host.RcloneConfigFile()
 	if err != nil {

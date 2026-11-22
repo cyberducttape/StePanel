@@ -35,17 +35,19 @@ func (s *script) ReadSecret() (string, error) {
 }
 
 type fakeHost struct {
-	validCode   string
-	codeChecks  int
-	rclone      bool
-	remotes     []string
-	probeErrors map[string]error
-	probed      []string
-	hashed      []string
-	events      []string
-	draws       byte
-	supportTier string
-	supportErr  error
+	validCode    string
+	codeChecks   int
+	rclone       bool
+	remotes      []string
+	probeErrors  map[string]error
+	probed       []string
+	hashed       []string
+	events       []string
+	draws        byte
+	supportTier  string
+	supportErr   error
+	configureErr error
+	configures   int
 }
 
 func (h *fakeHost) HashPassword(password string) (string, error) {
@@ -63,6 +65,15 @@ func (h *fakeHost) Hostname() string                  { return "panel.example.or
 func (h *fakeHost) Rclone() bool                      { return h.rclone }
 func (h *fakeHost) RcloneRemotes() ([]string, error)  { return h.remotes, nil }
 func (h *fakeHost) RcloneConfigFile() (string, error) { return "/root/.config/rclone/rclone.conf", nil }
+func (h *fakeHost) ConfigureRclone() error {
+	h.events = append(h.events, "configure-rclone")
+	h.configures++
+	if h.configureErr != nil {
+		return h.configureErr
+	}
+	h.remotes = []string{"b2:"}
+	return nil
+}
 func (h *fakeHost) ProbeOffsite(target string) error {
 	h.events = append(h.events, "probe")
 	h.probed = append(h.probed, target)
@@ -255,7 +266,7 @@ func TestGuideStopsWithInstructionsWithoutRclone(t *testing.T) {
 	host := newHost()
 	host.rclone = false
 	_, out, err := run(t, host, []string{"", "", "", "", "123456"}, []string{password, password})
-	if !errors.Is(err, ErrCancelled) || !strings.Contains(out, "sudo rclone config") {
+	if !errors.Is(err, ErrCancelled) || !strings.Contains(out, "Install it with `sudo apt install rclone`") {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
 	if strings.Contains(out, "Step 1 of") || len(host.hashed) != 0 || host.codeChecks != 0 {
@@ -263,12 +274,41 @@ func TestGuideStopsWithInstructionsWithoutRclone(t *testing.T) {
 	}
 	host = newHost()
 	host.remotes = nil
-	_, out, err = run(t, host, []string{"", "", "", "", "123456"}, []string{password, password})
-	if !errors.Is(err, ErrCancelled) || !strings.Contains(out, "no storage remote is configured") {
+	_, out, err = run(t, host, []string{"", "", "n"}, nil)
+	if !errors.Is(err, ErrCancelled) || !strings.Contains(out, "Configure a backup remote now?") {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
-	if strings.Contains(out, "Step 1 of") || len(host.hashed) != 0 || host.codeChecks != 0 {
-		t.Fatalf("setup collected answers before reporting missing remote:\n%s", out)
+	if strings.Contains(out, "Step 3 of") || strings.Contains(out, "Administrator account") || len(host.hashed) != 0 || host.codeChecks != 0 {
+		t.Fatalf("setup collected credentials after the operator declined rclone configuration:\n%s", out)
+	}
+	if host.configures != 0 {
+		t.Fatal("rclone config launched after the operator declined")
+	}
+}
+
+func TestGuideConfiguresRcloneAfterSupportReview(t *testing.T) {
+	host := newHost()
+	host.remotes = nil
+	_, out, err := run(t, host,
+		[]string{"", "", "y", "", "", "123456", "", ""},
+		[]string{password, password})
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, out)
+	}
+	if host.configures != 1 || len(host.probed) != 1 || host.probed[0] != "b2:stepanel-backups" {
+		t.Fatalf("rclone config/probe = %d/%v", host.configures, host.probed)
+	}
+	var supportAt, configureAt int = -1, -1
+	for index, event := range host.events {
+		switch event {
+		case "support-tier":
+			supportAt = index
+		case "configure-rclone":
+			configureAt = index
+		}
+	}
+	if supportAt < 0 || configureAt <= supportAt {
+		t.Fatalf("rclone credentials were configured before the support choice: %v", host.events)
 	}
 }
 

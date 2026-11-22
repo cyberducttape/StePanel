@@ -190,6 +190,22 @@ func (setupHost) RcloneConfigFile() (string, error) {
 	return path, nil
 }
 
+func (setupHost) ConfigureRclone() error {
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err != nil {
+		return fmt.Errorf("open interactive terminal for rclone config: %w", err)
+	}
+	defer tty.Close()
+	cmd := exec.Command("rclone", "config")
+	cmd.Stdin = tty
+	cmd.Stdout = tty
+	cmd.Stderr = tty
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("rclone config: %w", err)
+	}
+	return nil
+}
+
 func (setupHost) ProbeOffsite(target string) error {
 	if err := validateOffsiteTarget(target); err != nil {
 		return err
