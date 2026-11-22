@@ -36,6 +36,7 @@ SH
 cat > "$fake_bin/curl" <<'SH'
 #!/usr/bin/env bash
 set -Eeuo pipefail
+printf '%s\n' "$*" >> "$DOWNLOAD_LOG"
 while (($#)); do
   if [[ $1 == --output ]]; then : > "$2"; exit 0; fi
   shift
@@ -90,7 +91,8 @@ for compiler_mode in missing old local; do
   rm -f -- "$fake_repo/stepanel" "$fake_repo/stepanel-root"
   : > "$tmp/bootstrap.log"
   env_args=(GO=go GO_LOG="$tmp/$compiler_mode-go.log" SUDO_LOG="$tmp/$compiler_mode-sudo.log"
-    BOOTSTRAP_LOG="$tmp/bootstrap.log" SUDO=sudo PATH="$fake_bin:$PATH")
+    BOOTSTRAP_LOG="$tmp/bootstrap.log" DOWNLOAD_LOG="$tmp/download.log"
+    SUDO=sudo PATH="$fake_bin:$PATH")
   case "$compiler_mode" in
     missing) env_args+=(GO="$tmp/missing-go") ;;
     old) env_args+=(GO_TEST_VERSION=go1.20.14) ;;
@@ -101,11 +103,15 @@ for compiler_mode in missing old local; do
   [[ $(<"$tmp/bootstrap.log") == $'verify:'* && $(tail -n 1 "$tmp/bootstrap.log") == extract ]]
   [[ $(<"$tmp/$compiler_mode-sudo.log") == './install.sh --guided' ]]
   grep -Fq './cmd/stepanel' "$tmp/$compiler_mode-go.log"
+  if [[ $compiler_mode == missing ]]; then
+    grep -Fq -- '--progress-bar' "$tmp/download.log"
+  fi
 done
 
 rm -f -- "$fake_repo/stepanel" "$fake_repo/stepanel-root" "$tmp/bad-sudo.log"
 if env GO="$tmp/missing-go" SUDO=sudo SUDO_LOG="$tmp/bad-sudo.log" \
-  BOOTSTRAP_LOG="$tmp/bad-bootstrap.log" BAD_CHECKSUM=1 PATH="$fake_bin:$PATH" \
+  BOOTSTRAP_LOG="$tmp/bad-bootstrap.log" DOWNLOAD_LOG="$tmp/bad-download.log" \
+  BAD_CHECKSUM=1 PATH="$fake_bin:$PATH" \
   bash "$fake_repo/scripts/install-guided.sh" >"$tmp/bad-checksum.out" 2>&1; then
   echo 'bootstrap accepted an archive with a failed SHA-256 check' >&2
   exit 1

@@ -57,9 +57,10 @@ archive, built both binaries, removed the temporary toolchain, and reached a
 mocked `sudo` handoff. The bootstrap now reads the version directly from
 `go.mod`; release checks ensure both supported architectures have a checksum
 entry, and its contract test rejects a newly pinned version until that entry
-exists. A repeat clean-checkout smoke against the current source diff again
-verified and built both binaries. This verifies compiler bootstrap and build
-behavior, not the native installer on an installed host.
+exists. The fallback now shows the compiler download progress so a first-time
+build does not appear stalled. A repeat clean-checkout smoke against the
+current source diff verified and built both binaries. This verifies compiler
+bootstrap and build behavior, not the native installer on an installed host.
 This is one disposable-container pass, not repeated host certification. A
 clean-host smoke of the official tagged release archive also remains open:
 no currently published stable archive supports a fresh Ubuntu 24.04 install.

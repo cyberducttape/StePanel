@@ -103,8 +103,9 @@ if [[ -z $toolchain_go_version || ${GOTOOLCHAIN:-auto} == local ]]; then
   fi
   go_archive="$build_dir/$toolchain_version.linux-$go_arch.tar.gz"
   go_url="https://go.dev/dl/$toolchain_version.linux-$go_arch.tar.gz"
+  echo "Downloading $toolchain_version for Linux $go_arch (temporary, SHA-256 verified)..."
   if command -v curl >/dev/null 2>&1; then
-    curl --fail --location --silent --show-error --retry 3 --connect-timeout 20 --max-time 600 --output "$go_archive" "$go_url"
+    curl --fail --location --show-error --progress-bar --retry 3 --connect-timeout 20 --max-time 600 --output "$go_archive" "$go_url"
   elif command -v wget >/dev/null 2>&1; then
     wget --tries=3 --timeout=600 --output-document="$go_archive" "$go_url"
   else

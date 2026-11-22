@@ -34,6 +34,10 @@
   clean temporary checkout of the current source diff repeated the real
   download, hash check, both builds, temp cleanup, and mocked installer
   handoff successfully.
+- The real-download fallback now prints its pinned version/architecture and
+  curl progress while downloading, so the initial compiler fetch has visible
+  feedback. The bootstrap contract checks for the progress-bar option; focused
+  contract, release, ShellCheck, and diff checks pass.
 
 ## Verify exact-source install and integration after rclone config staging — 2026-11-22
 
