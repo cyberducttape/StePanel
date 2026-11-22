@@ -103,7 +103,7 @@ func run(t *testing.T, host *fakeHost, lines []string, secrets []string) (Answer
 func TestGuideAcceptsDefaults(t *testing.T) {
 	host := newHost()
 	answers, out, err := run(t, host,
-		[]string{"", "", "", "", "", "123456", "", ""},
+		[]string{"", "", "", "", "123456", "", ""},
 		[]string{password, password})
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, out)
@@ -114,7 +114,8 @@ func TestGuideAcceptsDefaults(t *testing.T) {
 		"This wizard is for a native host installation",
 		"Operator Beta, not production-certified",
 		"Ubuntu 24.04 + Caddy + MariaDB",
-		"not in current installed-host matrix",
+		"Recommended",
+		"Caddy + MariaDB",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("setup transcript missing support guidance %q", want)
@@ -122,6 +123,9 @@ func TestGuideAcceptsDefaults(t *testing.T) {
 	}
 	if answers.PanelHostname != "panel.example.org" || answers.WebServer != "caddy" || answers.DBEngine != "mariadb" || answers.AdminUsername != "admin" {
 		t.Fatalf("answers = %+v", answers)
+	}
+	if strings.Contains(out, "Web server\n") || strings.Contains(out, "Database server\n") || strings.Contains(out, "asks 7 short") {
+		t.Fatalf("recommended profile still asks separate stack questions:\n%s", out)
 	}
 	if answers.AdminPasswordHash != "hash-of-"+password || len(answers.TOTPSecret) != 32 {
 		t.Fatalf("credentials = %q %q", answers.AdminPasswordHash, answers.TOTPSecret)
@@ -154,6 +158,7 @@ func TestGuideRepromptsInvalidAnswers(t *testing.T) {
 	answers, out, err := run(t, host,
 		[]string{
 			"localhost", "not a host", "Panel.Example.COM", // hostname: two rejections
+			"custom",           // choose individual components
 			"9", "apache", "n", // web server: invalid choice, then apache without certificates
 			"3", "y", // PostgreSQL by number, acknowledge matrix warning
 			"s3:x", "b2:bad", "y", "b2:sites", // offsite: unknown remote, failing probe, retry, good
@@ -197,7 +202,7 @@ func TestGuideRepromptsInvalidAnswers(t *testing.T) {
 func TestGuideDeclinesUnverifiedStackBeforeSaving(t *testing.T) {
 	host := newHost()
 	_, out, err := run(t, host,
-		[]string{"", "", "postgresql", "n"},
+		[]string{"", "custom", "", "postgresql", "n"},
 		[]string{password, password})
 	if !errors.Is(err, ErrCancelled) {
 		t.Fatalf("err = %v\n%s", err, out)
@@ -213,7 +218,7 @@ func TestGuideDeclinesUnverifiedStackBeforeSaving(t *testing.T) {
 func TestGuideShowsExactHostTierAndDeclinesBeforeSecrets(t *testing.T) {
 	host := newHost()
 	host.supportTier = "SUPPORT TIER: Debian 13 + Caddy + MariaDB is outside the current six-combination installed-host smoke matrix.\nThis installer may support packages, but this combination needs operator validation."
-	_, out, err := run(t, host, []string{"", "", "", "n"}, nil)
+	_, out, err := run(t, host, []string{"", "custom", "", "", "n"}, nil)
 	if !errors.Is(err, ErrCancelled) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
@@ -231,7 +236,7 @@ func TestGuideShowsExactHostTierAndDeclinesBeforeSecrets(t *testing.T) {
 func TestGuideExplainsClockAfterRepeatedCodeFailures(t *testing.T) {
 	host := newHost()
 	_, out, err := run(t, host,
-		[]string{"", "", "", "", "", "111111", "222222", "333333", "123456", "", ""},
+		[]string{"", "", "", "", "111111", "222222", "333333", "123456", "", ""},
 		[]string{password, password})
 	if err != nil {
 		t.Fatal(err)

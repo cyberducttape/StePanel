@@ -1,5 +1,16 @@
 # Production-readiness progress
 
+## Reduce first-install stack choices — 2026-11-22
+
+- The native wizard now offers one default **Recommended** profile (Caddy +
+  MariaDB, automatic HTTPS) and a **Custom** path for individual component
+  selection. Custom choices retain their exact host/stack support warning.
+- Updated the installation guide to match the six-step wizard. Added transcript
+  assertions for the recommended and custom flows.
+- Verified: `go test ./internal/setup -count=1`, `make fmt-check`, and full
+  `make check` (including shell contracts, `go vet`, and all Go packages).
+  Exact-source hosted CI has not yet run for this change.
+
 ## Remove the extra installer-settings copy step — 2026-11-22
 
 - `stepanel setup` now prints direct dry-run and install commands using the

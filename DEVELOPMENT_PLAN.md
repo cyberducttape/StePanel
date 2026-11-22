@@ -2134,3 +2134,22 @@ secrets. This keeps guided setup and manual setup under one admission rule.
 - Setup unit tests, installer settings contracts, shell-contract checks,
   formatting, and exact-source CI pass.
 
+### M0ar — Shorten the recommended first-install wizard (P2)
+
+**Status:** Implemented locally; `make check` passed, exact-source hosted CI is
+pending. The native wizard presents the tested Caddy + MariaDB combination as
+one recommended profile, accepted with Enter. The Custom path still asks for
+the web server and database separately and retains exact-stack support
+classification before offsite setup or credential collection. The guide and
+installation docs now describe six steps rather than separate server and
+database steps.
+
+**Acceptance criteria**
+
+- The recommended Caddy + MariaDB stack requires one profile choice and is
+  selected by Enter.
+- Custom remains available and preserves all existing component choices,
+  TLS behavior, and support warnings.
+- Transcript tests cover both the default and custom paths; setup package and
+  full repository checks pass; exact-source hosted CI passes.
+

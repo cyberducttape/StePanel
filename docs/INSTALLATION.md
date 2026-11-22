@@ -177,20 +177,21 @@ credentials, so permissions or configuration problems fail early. See
 rclone's [interactive configuration guide](https://rclone.org/commands/rclone_config/)
 for provider-specific options.
 
-The guide asks seven questions and checks every answer before moving on:
+The guide walks through six steps and checks every answer before moving on:
 
 1. **Panel address**: a full hostname whose DNS points at the server.
-2. **Web server**: Caddy (automatic HTTPS), Apache, or OpenLiteSpeed.
-3. **Database**: MariaDB, MySQL, or PostgreSQL.
-4. **Offsite backups**: choose an rclone remote and path; the guide writes,
+2. **Install profile**: press Enter for the recommended Caddy + MariaDB stack
+   with automatic HTTPS, or choose Custom to select a web server and database
+   individually. The exact host and stack evidence appears before continuing.
+3. **Offsite backups**: choose an rclone remote and path; the guide writes,
    reads back, and deletes a small test file there before collecting admin
    credentials.
-5. **Administrator**: username and password (entered twice, never shown or
+4. **Administrator**: username and password (entered twice, never shown or
    stored in plain text).
-6. **Authenticator app**: the guide shows a setup key and an `otpauth://`
+5. **Authenticator app**: the guide shows a setup key and an `otpauth://`
    link, then asks for the current code, so a mistyped key cannot lock you
    out.
-7. **Optional features**: Fail2ban (with your trusted addresses), Node.js,
+6. **Optional features**: Fail2ban (with your trusted addresses), Node.js,
    malware scanning, and a database tool.
 
 Before asking for any settings or credentials, the guide checks that rclone is

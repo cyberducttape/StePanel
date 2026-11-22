@@ -264,7 +264,7 @@ func resolveChoice(value string, options []choice) string {
 
 var adminUsernamePattern = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,64}$`)
 
-const totalSteps = 7
+const totalSteps = 6
 
 // Run walks the operator through setup and returns the answers. Nothing is
 // written; the caller decides where the result goes.
@@ -279,8 +279,8 @@ func (g *Guide) Run() (Answers, error) {
 	g.say("This wizard is for a native host installation. It will configure system")
 	g.say("services and requires verified offsite backup storage.")
 	g.say("")
-	g.say("After checking backup-storage prerequisites, this asks %d short", totalSteps)
-	g.say("questions, checks each answer as you go, and generates every key for you.")
+	g.say("After checking backup-storage prerequisites, this walks through %d short", totalSteps)
+	g.say("steps, checks each answer as you go, and generates every key for you.")
 	g.say("Press Enter to accept a [default].")
 	g.say("Nothing on this server changes until you confirm the installation.")
 	g.say("")
@@ -294,10 +294,7 @@ func (g *Guide) Run() (Answers, error) {
 	if err := g.panelAddress(&answers); err != nil {
 		return Answers{}, err
 	}
-	if err := g.webServer(&answers); err != nil {
-		return Answers{}, err
-	}
-	if err := g.database(&answers); err != nil {
+	if err := g.platform(&answers); err != nil {
 		return Answers{}, err
 	}
 	if err := g.confirmSupportChoice(answers); err != nil {
@@ -418,8 +415,31 @@ var webServers = []choice{
 	{"openlitespeed", "OpenLiteSpeed", "not in host-smoke matrix · operator integration"},
 }
 
+var installProfiles = []choice{
+	{"recommended", "Recommended", "Caddy + MariaDB · automatic HTTPS · most-tested profile"},
+	{"custom", "Custom", "choose a different web server or database"},
+}
+
+func (g *Guide) platform(a *Answers) error {
+	g.step(2, totalSteps, "Web server and database")
+	profile, err := g.choose("Install profile", installProfiles, "recommended")
+	if err != nil {
+		return err
+	}
+	if resolveChoice(profile, installProfiles) == "recommended" {
+		a.WebServer = "caddy"
+		a.DBEngine = "mariadb"
+		g.say("  ✓ Caddy will obtain and renew HTTPS certificates automatically.")
+		return nil
+	}
+	g.say("Choose components individually. Choices outside the smoke-tested matrix need operator validation.")
+	if err := g.webServer(a); err != nil {
+		return err
+	}
+	return g.database(a)
+}
+
 func (g *Guide) webServer(a *Answers) error {
-	g.step(2, totalSteps, "Web server")
 	value, err := g.choose("Web server", webServers, "caddy")
 	if err != nil {
 		return err
@@ -446,7 +466,6 @@ var databases = []choice{
 }
 
 func (g *Guide) database(a *Answers) error {
-	g.step(3, totalSteps, "Database server")
 	value, err := g.choose("Database", databases, "mariadb")
 	if err != nil {
 		return err
@@ -456,7 +475,7 @@ func (g *Guide) database(a *Answers) error {
 }
 
 func (g *Guide) administrator(a *Answers) error {
-	g.step(5, totalSteps, "Administrator account")
+	g.step(4, totalSteps, "Administrator account")
 	username, err := g.ask("Administrator username", "admin", func(value string) error {
 		if !adminUsernamePattern.MatchString(value) {
 			return errors.New("use 1-64 letters, digits, dots, dashes, or underscores")
@@ -507,7 +526,7 @@ func (g *Guide) administrator(a *Answers) error {
 const totpSecretBytes = 20
 
 func (g *Guide) twoFactor(a *Answers) error {
-	g.step(6, totalSteps, "Two-factor sign-in")
+	g.step(5, totalSteps, "Two-factor sign-in")
 	raw, err := g.host.Random(totpSecretBytes)
 	if err != nil {
 		return fmt.Errorf("generate authenticator secret: %w", err)
@@ -554,7 +573,7 @@ func (g *Guide) twoFactor(a *Answers) error {
 }
 
 func (g *Guide) offsite(a *Answers) error {
-	g.step(4, totalSteps, "Offsite backups")
+	g.step(3, totalSteps, "Offsite backups")
 	g.say("StePanel requires a copy of every backup outside this server, so a")
 	g.say("lost disk or server never means lost sites. It uses rclone, which")
 	g.say("supports S3, Backblaze B2, Google Drive, SFTP, and many more.")
@@ -603,7 +622,7 @@ func (g *Guide) offsite(a *Answers) error {
 }
 
 func (g *Guide) extras(a *Answers) error {
-	g.step(7, totalSteps, "Optional features")
+	g.step(6, totalSteps, "Optional features")
 	want, err := g.confirm("Review optional features now? (you can add them later)", false)
 	if err != nil || !want {
 		return err
