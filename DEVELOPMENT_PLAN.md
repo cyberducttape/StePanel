@@ -33,6 +33,10 @@ checklist and WordPress-creation entry point. The earlier Ubuntu host run on
 [host-smoke report](docs/lab-results/2026-11-21-ubuntu-first-host-smoke-67b4076.md).
 The source-based native path now has a single bootstrap command that builds
 both executables as the invoking user before elevating for the installer.
+When setup finds an existing user-owned settings file, its recovery message
+now gives the same safe `sudo install -o root ...` copy path as the successful
+setup transcript; a regression test ensures it never recommends passing that
+untrusted-owner file directly to the installer.
 
 **Acceptance criteria**
 

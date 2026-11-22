@@ -1,5 +1,16 @@
 # Production-readiness progress
 
+## Correct setup retry instructions for an existing settings file — 2026-11-22
+
+- Fixed `stepanel setup` so an existing user-owned settings file is not
+  mistakenly suggested as direct input to the root installer. The error now
+  prints a shell-quoted `sudo install -o root -g root -m 0600` copy command,
+  then uses the installer's canonical root-owned path.
+- Added a regression test for the exact recovery command, shell quoting,
+  `--force` guidance, and preservation of the existing file.
+- Focused setup tests and full `make check` passed, including API artifact,
+  installer contract, `go vet ./...`, and all Go package tests.
+
 ## Exact-source Ubuntu first-install and WordPress recovery passed — 2026-11-22
 
 - The GoReleaser snapshot from source `e04235f838834f32b6a54d40cc57e50648c00339`

@@ -132,6 +132,35 @@ func TestSetupDoesNotReplaceSettingsWithoutForce(t *testing.T) {
 	}
 }
 
+func TestSetupExistingFileShowsRootOwnedRecoveryCommand(t *testing.T) {
+	dir := t.TempDir()
+	output := filepath.Join(dir, "setup answers.env")
+	if err := os.WriteFile(output, []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	err := runSetup([]string{"--output", output}, nil, &bytes.Buffer{}, scriptedSetupHost{}, filepath.Join(dir, "missing.env"))
+	if err == nil {
+		t.Fatal("setup accepted an existing output without --force")
+	}
+	message := err.Error()
+	for _, want := range []string{
+		"already exists",
+		"sudo install -o root -g root -m 0600 -- " + shellQuoteCommandArg(output) + " " + manualInstallConfig,
+		"sudo ./install.sh --config " + manualInstallConfig,
+		"--force to replace it",
+	} {
+		if !strings.Contains(message, want) {
+			t.Errorf("error message missing %q: %s", want, message)
+		}
+	}
+	if strings.Contains(message, "--config "+output) {
+		t.Fatalf("error suggests passing user-owned file directly to installer: %s", message)
+	}
+	if data, err := os.ReadFile(output); err != nil || string(data) != "keep" {
+		t.Fatalf("existing file changed: data=%q err=%v", data, err)
+	}
+}
+
 func TestSetupHostVerifiesTOTPWithOneStepOfDrift(t *testing.T) {
 	raw := bytes.Repeat([]byte{7}, 20)
 	secret := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(raw)

@@ -54,7 +54,8 @@ func runSetup(args []string, in *os.File, out io.Writer, host setupguide.Host, e
 		return fmt.Errorf("StePanel is already installed here (%s). To upgrade, run `sudo ./install.sh`; your settings and keys are kept", existingEnv)
 	}
 	if _, err := os.Lstat(*output); err == nil && !*force {
-		return fmt.Errorf("%s already exists; use it with `sudo ./install.sh --config %s`, or pass --force to replace it (its keys will be lost)", *output, *output)
+		quotedOutput := shellQuoteCommandArg(*output)
+		return fmt.Errorf("%s already exists; copy it to the installer's root-owned settings path with `sudo install -o root -g root -m 0600 -- %s %s`, then run `sudo ./install.sh --config %s` (or pass --force to replace it; its keys will be lost)", *output, quotedOutput, manualInstallConfig, manualInstallConfig)
 	}
 	answers, err := setupguide.NewGuide(newSetupTerminal(in), out, host).Run()
 	if err != nil {
