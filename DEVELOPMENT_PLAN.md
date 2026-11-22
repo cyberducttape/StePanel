@@ -98,8 +98,12 @@ and limitations in
 The administrator's first-run dashboard also keeps the long unavailable-
 capability inventory collapsed behind a disclosure that reports its current
 counts. Infrastructure navigation expands it directly; service inventory
-and security checks remain available. A browser regression covers the default
-and navigation states, pending exact-source browser CI.
+and security checks remain available. The browser regression covers the
+collapsed default and navigation expansion. Exact-source CI on `665f3df4`
+passed the full integration suite and browser accessibility suite
+([run 45049477424](https://github.com/cyberducttape/StePanel/actions/runs/45049477424));
+documentation passed on the code-equivalent parent, and CodeQL passed on
+`665f3df4`.
 Although this host smoke postdates the source bootstrap changes in `a3cbb37a`,
 the GoReleaser archive does not contain or execute `scripts/install-guided.sh`;
 it is not runtime evidence for that separate bootstrap path. A clean temporary checkout at

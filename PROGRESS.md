@@ -8,9 +8,16 @@
   retains the detailed reasons on demand. Infrastructure navigation opens it
   directly; service inventory remains visible.
 - Added a browser regression for collapsed initial state and navigation
-  expansion. `npm run test:unit`, JavaScript syntax checks, and `git diff
-  --check` pass locally. Exact-source browser CI is pending; no hosted E2E
-  result is claimed yet.
+  expansion. `npm run test:unit` (19 tests), JavaScript syntax checks, and
+  `git diff --check` passed locally. A local seeded Chromium run passed both
+  the overview axe audit and the new disclosure/navigation test. Its first
+  hosted run exposed insufficient contrast in the new subtitle; the color was
+  darkened and rechecked.
+- Exact-source CI on `665f3df4` passed the full Go, race, recovery, ENOSPC,
+  database-restore, container, and browser accessibility suites:
+  [run 45049477424](https://github.com/cyberducttape/StePanel/actions/runs/45049477424).
+  Documentation passed on the code-equivalent parent and CodeQL passed on
+  `665f3df4`. The work is committed and pushed to `main`.
 
 ## Verify packaged first install and WordPress recovery on current source — 2026-11-22
 
