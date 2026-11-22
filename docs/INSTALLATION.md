@@ -80,13 +80,15 @@ certificates automatically. Apache `.htaccess` migrations are described in
 ## Guided install from current source
 
 The guided installer is available on current `main`, but is **not included in
-the published v0.7.0 release archive**. This source-based path is for
-evaluation and staging; do not assume the old archive contains current setup
-features. The next release must package and smoke-test this workflow before it
-is advertised as available from a release. The currently published stable
-archive cannot perform a fresh installation on Ubuntu 24.04; see
-[tagged release status](#tagged-release-status). For current-source Beta
-installation, use the guided path below only on a disposable or staging host.
+the published v0.7.0 release archive**. A GoReleaser snapshot built from
+current source has passed one disposable Ubuntu 24.04 + Caddy + MariaDB install
+and WordPress HTTPS/database recovery smoke
+([run 45037318148](lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-6af93e8.md)).
+That is useful Beta evidence, not a supported tagged release or production
+certification. The currently published stable archive cannot perform a fresh
+installation on Ubuntu 24.04; see [tagged release status](#tagged-release-status).
+For current-source Beta installation, use the guided path below only on a
+disposable or staging host.
 
 On Ubuntu 24.04, install Git and the small host utilities used by the
 bootstrap (curl, tar, and coreutils):
@@ -249,10 +251,12 @@ archives remain relevant only to the tested upgrade and rollback procedures
 in [version compatibility](COMPATIBILITY.md#supported-upgrade-paths).
 
 For a disposable host or staging environment, use the current-source guided
-path above. It is an Operator Beta workflow and is not a production-certified
+path above. Its exact-source snapshot has passed one installed-host recovery
+smoke, but it remains an Operator Beta workflow, not a production-certified
 release. Before installing, verify the host against the support matrix at the
 top of this guide. A tagged archive may be recommended for fresh installation
-after its exact packaged tree passes the release and installed-host gates.
+only after its exact packaged tree passes the repeated release and
+installed-host gates.
 
 **IMPORTANT:** Encryption keys must be machine-generated random values. See [**docs/ENCRYPTION_KEYS.md**](ENCRYPTION_KEYS.md) for detailed requirements, generation methods, and security best practices.
 
