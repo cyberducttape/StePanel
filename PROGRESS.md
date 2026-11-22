@@ -1,5 +1,20 @@
 # Production-readiness progress
 
+## Make customer MFA enrollment self-service — 2026-11-22
+
+- The account page can now generate a TOTP enrollment QR code and a copyable
+  manual key for the signed-in customer. It enables MFA only after a valid
+  authenticator code is submitted; the generated secret is not stored before
+  verification. The QR/setup response uses `Cache-Control: no-store, private`.
+- Added a regression proving setup data is a valid PNG/otpauth payload, a wrong
+  code does not change the saved seed, and a valid code completes enrollment.
+  The customer-panel Playwright journey passed, including accessibility checks
+  and successful cleanup of the displayed secret. Frontend unit tests (19),
+  `make fmt-check api-check`, JavaScript syntax checks, and focused Go race
+  tests passed. Full `make check` passed on the final tree, including
+  `go vet ./...` and `GOMAXPROCS=2 go test -p 1 -timeout 10m ./...`.
+- Exact-source hosted CI has not yet run for this feature.
+
 ## Verify the first-install wizard and packaged host path — 2026-11-22
 
 - Exact-source integration CI passed on `220e9cab` ([run

@@ -238,6 +238,39 @@
     } catch (error) { if (output) output.textContent = error.message; }
     finally { button.disabled = false; }
   });
+  const mfaSetupButton = document.querySelector('#beginMFASetup');
+  const mfaEnrollment = document.querySelector('#accountMFAEnrollment');
+  const mfaSecretInput = document.querySelector('#accountTOTPSecret');
+  const mfaSecretDisplay = document.querySelector('#accountTOTPSecretDisplay');
+  const mfaQRCode = document.querySelector('#accountMFAQRCode');
+  const mfaCodeInput = document.querySelector('#accountTOTPCode');
+  if (mfaSetupButton) mfaSetupButton.addEventListener('click', async () => {
+    const output = document.querySelector('#accountMFAStatus');
+    mfaSetupButton.disabled = true;
+    if (output) output.textContent = 'Preparing a private authenticator setup…';
+    try {
+      const enrollment = await api.request('/api/account/mfa/setup', { method: 'POST', json: {}, errorMessage: 'Could not prepare authenticator setup' });
+      if (!enrollment || !enrollment.secret || !enrollment.qr_data_url?.startsWith('data:image/png;base64,')) throw new Error('The authenticator setup response was incomplete. Try again.');
+      mfaSecretInput.value = enrollment.secret;
+      mfaSecretDisplay.textContent = enrollment.secret;
+      mfaQRCode.src = enrollment.qr_data_url;
+      mfaEnrollment.hidden = false;
+      if (output) output.textContent = 'Scan this QR code, then verify a current code to enable MFA.';
+      mfaCodeInput.focus();
+    } catch (error) {
+      if (output) output.textContent = error.message;
+    } finally { mfaSetupButton.disabled = false; }
+  });
+  const copyMFASecret = document.querySelector('#copyAccountTOTPSecret');
+  if (copyMFASecret) copyMFASecret.addEventListener('click', async () => {
+    const output = document.querySelector('#accountMFAStatus');
+    try {
+      await navigator.clipboard.writeText(mfaSecretInput.value);
+      if (output) output.textContent = 'Setup key copied. Keep it private.';
+    } catch (_) {
+      if (output) output.textContent = 'Copy is unavailable. Select the setup key and copy it manually.';
+    }
+  });
   const mfaForm = document.querySelector('#accountMFAForm');
   if (mfaForm) mfaForm.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -246,9 +279,19 @@
     button.disabled = true;
     if (output) output.textContent = 'Saving MFA configuration…';
     try {
-      const totpSecret = new FormData(mfaForm).get('totp_secret');
-      await api.request('/api/account/mfa', { method: 'POST', json: { totp_secret: totpSecret }, errorMessage: 'Could not configure MFA' });
+      const formData = new FormData(mfaForm);
+      const totpSecret = formData.get('totp_secret');
+      const code = formData.get('code');
+      await api.request('/api/account/mfa', { method: 'POST', json: { totp_secret: totpSecret, code }, errorMessage: 'Could not configure MFA' });
       mfaForm.reset();
+      mfaEnrollment.hidden = true;
+      mfaQRCode.removeAttribute('src');
+      mfaSecretDisplay.textContent = '';
+      if (mfaSetupButton) mfaSetupButton.hidden = true;
+      const mfaSetup = document.querySelector('#accountMFASetup');
+      if (mfaSetup) mfaSetup.hidden = true;
+      set('accountMFA', 'MFA enabled');
+      set('accountSecurityNote', 'Authenticator confirmed for this account.');
       if (output) output.textContent = 'MFA saved. Sign in again with an authenticator code.';
     } catch (error) { if (output) output.textContent = error.message; }
     finally { button.disabled = false; }

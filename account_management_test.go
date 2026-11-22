@@ -2,6 +2,7 @@ package stepanel
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,110 @@ import (
 	"testing"
 	"time"
 )
+
+func TestCustomerMFAEnrollmentGeneratesQRCodeAndVerifiesBeforeSaving(t *testing.T) {
+	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")
+	t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")
+	t.Setenv("STEPANEL_SESSION_SECRET", "12345678901234567890123456789012")
+	t.Setenv("STEPANEL_AUDIT_KEY", "abcdef0123456789abcdef0123456789")
+	t.Setenv("STEPANEL_ADMIN_TOTP_SECRET", "")
+	dir := t.TempDir()
+	store, err := OpenAccountStore(filepath.Join(dir, "accounts.json"), "account-encryption-key-123456789012")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create("alice", "a sufficiently long customer password", testTOTPSecret, "professional", nil); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := NewAuth(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth.Accounts = store
+	a := &App{Auth: auth, Accounts: store, Config: Config{AuditLog: filepath.Join(dir, "audit.jsonl")}}
+
+	key, err := decodeTOTPSecret(testTOTPSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	login := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader("username=alice&password=a+sufficiently+long+customer+password&totp="+totpCode(key, uint64(time.Now().Unix()/30))))
+	login.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginResponse := httptest.NewRecorder()
+	auth.Login(loginResponse, login)
+	if loginResponse.Code != http.StatusSeeOther {
+		t.Fatalf("login status = %d: %s", loginResponse.Code, loginResponse.Body.String())
+	}
+	cookies := loginResponse.Result().Cookies()
+	csrf := csrfCookie(cookies)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/account/mfa/setup", strings.NewReader(`{}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-CSRF-Token", csrf)
+	for _, cookie := range cookies {
+		request.AddCookie(cookie)
+	}
+	response := httptest.NewRecorder()
+	auth.Require(http.HandlerFunc(a.customerMFASetup)).ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("setup status = %d: %s", response.Code, response.Body.String())
+	}
+	var enrollment struct {
+		Secret    string `json:"secret"`
+		URI       string `json:"otpauth_uri"`
+		QRDataURL string `json:"qr_data_url"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &enrollment); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeTOTPSecret(enrollment.Secret); err != nil {
+		t.Fatalf("generated secret is invalid: %v", err)
+	}
+	if !strings.Contains(enrollment.URI, "otpauth://totp/") || !strings.Contains(enrollment.URI, "issuer=StePanel") {
+		t.Fatalf("invalid authenticator URI: %q", enrollment.URI)
+	}
+	encoded, ok := strings.CutPrefix(enrollment.QRDataURL, "data:image/png;base64,")
+	if !ok {
+		t.Fatalf("QR response has invalid data URL: %q", enrollment.QRDataURL[:min(len(enrollment.QRDataURL), 40)])
+	}
+	png, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(png) < 8 || string(png[:8]) != "\x89PNG\r\n\x1a\n" {
+		t.Fatalf("invalid QR PNG: %v", err)
+	}
+	if response.Header().Get("Cache-Control") != "no-store, private" {
+		t.Fatalf("setup cache policy = %q", response.Header().Get("Cache-Control"))
+	}
+
+	postEnrollment := func(code string) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(map[string]string{"totp_secret": enrollment.Secret, "code": code})
+		r := httptest.NewRequest(http.MethodPost, "/api/account/mfa", strings.NewReader(string(body)))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-CSRF-Token", csrf)
+		for _, cookie := range cookies {
+			r.AddCookie(cookie)
+		}
+		w := httptest.NewRecorder()
+		auth.Require(http.HandlerFunc(a.customerMFA)).ServeHTTP(w, r)
+		return w
+	}
+	newKey, _ := decodeTOTPSecret(enrollment.Secret)
+	validCode := totpCode(newKey, uint64(time.Now().Unix()/30))
+	invalidCode := "000000"
+	if invalidCode == validCode {
+		invalidCode = "000001"
+	}
+	if got := postEnrollment(invalidCode); got.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid enrollment code status = %d, want 422: %s", got.Code, got.Body.String())
+	}
+	if saved, _ := store.Get("alice"); saved.TOTPSecret != testTOTPSecret {
+		t.Fatal("invalid code changed the stored authenticator")
+	}
+	if got := postEnrollment(validCode); got.Code != http.StatusNoContent {
+		t.Fatalf("valid enrollment code status = %d: %s", got.Code, got.Body.String())
+	}
+	if saved, _ := store.Get("alice"); saved.TOTPSecret == testTOTPSecret {
+		t.Fatal("verified authenticator secret was not saved")
+	}
+}
 
 func TestAccountMeIsTenantScopedAndDoesNotExposeCredentials(t *testing.T) {
 	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")

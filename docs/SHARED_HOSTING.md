@@ -103,7 +103,10 @@ For a full recovery, administrators use `POST /api/accounts/{username}/recover`.
 It rotates the temporary password, TOTP seed, and recovery codes, marks both
 `password_reset_required` and `mfa_enrollment_required`, and revokes sessions.
 The customer completes the two steps through `/api/account/password` and
-`/api/account/mfa`; each endpoint revokes the current session after success.
+`/api/account/mfa`. The account page generates a private QR enrollment and
+requires a matching authenticator code before saving the seed. Successful
+changes revoke the current session; `/api/account/mfa/setup` returns a
+no-store QR and setup key that are not persisted until code verification.
 
 ## Site environment variables
 

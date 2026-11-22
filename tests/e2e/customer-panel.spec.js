@@ -43,6 +43,7 @@ function hostingFor(username) {
 }
 
 test('customer panel: views, file manager and accessibility', async ({ browser }, testInfo) => {
+  test.setTimeout(45_000);
   test.skip(!enabled || !adminPassword, 'Set STEPANEL_E2E_BASE_URL and STEPANEL_E2E_PASSWORD for a disposable seeded instance');
   const baseURL = process.env.STEPANEL_E2E_BASE_URL;
   // Keep repeated/parallel Playwright attempts isolated in the shared test
@@ -88,6 +89,29 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   });
   const writes = [];
   const writeRevisions = [];
+  let accountMfaEnabled = false;
+  const testSetupSecret = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
+  let confirmedMfaCode = '';
+  await page.route('**/api/account/me', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+    username: testCustomer.username, tenant_id: testCustomer.username, role: 'owner', plan: 'professional',
+    created_at: '2026-01-01T00:00:00Z', sites: [], sites_used: 0, site_limit: 5, sites_percent: 0,
+    databases_used: 0, database_limit: 10, databases_percent: 0, warning_threshold_percent: 80,
+    critical_threshold_percent: 95, cpu_percent: 200, memory_mb: 1024, disk_mb: 51200,
+    inodes: 1000000, tasks_max: 256, redis_memory_mb: 1024,
+    mfa_enabled: accountMfaEnabled, mfa_enrollment_required: false,
+    password_reset_required: false, suspended: false,
+  }) }));
+  await page.route('**/api/account/mfa/setup', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+    secret: testSetupSecret,
+    otpauth_uri: `otpauth://totp/StePanel:${testCustomer.username}?secret=${testSetupSecret}&issuer=StePanel`,
+    qr_data_url: 'data:image/png;base64,iVBORw0KGgo=',
+  }) }));
+  await page.route('**/api/account/mfa', async (route) => {
+    const body = route.request().postDataJSON();
+    confirmedMfaCode = body.code;
+    accountMfaEnabled = true;
+    return route.fulfill({ status: 204, body: '' });
+  });
   const revisionA = `"sha256-${'a'.repeat(64)}"`;
   const revisionB = `"sha256-${'b'.repeat(64)}"`;
   let conflictOnMainWrite = true;
@@ -332,6 +356,17 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
     await expect(page.locator(id)).toBeVisible();
     await checkA11y(page);
   }
+  await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Account' }).click();
+  await page.locator('#accountMFASetup summary').click();
+  await expect(page.getByRole('button', { name: 'Show setup QR code' })).toBeVisible();
+  await page.getByRole('button', { name: 'Show setup QR code' }).click();
+  await expect(page.locator('#accountMFAQRCode')).toHaveAttribute('src', /^data:image\/png;base64,/);
+  await expect(page.locator('#accountTOTPSecretDisplay')).toHaveText(testSetupSecret);
+  await page.getByLabel('6-digit code from your authenticator').fill('123456');
+  await page.getByRole('button', { name: 'Verify and enable MFA' }).click();
+  await expect(page.locator('#accountMFAStatus')).toContainText('MFA saved');
+  expect(confirmedMfaCode).toBe('123456');
+  await expect(page.locator('#accountMFASetup')).toBeHidden();
   hosting.sites = [];
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Websites' }).click();
   await page.locator('#siteCreateTemplate').selectOption('php');

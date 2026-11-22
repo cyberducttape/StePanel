@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/secretbox"
+	"github.com/skip2/go-qrcode"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -2093,6 +2095,51 @@ func (a *App) customerPassword(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (a *App) customerMFASetup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost || !a.Auth.CSRF(r) {
+		http.Error(w, "invalid request", http.StatusForbidden)
+		return
+	}
+	username := a.Auth.UsernameForRequest(r)
+	if username == "" || a.Auth.IsAdministrator(r) || a.Auth.IsAPITokenRequest(r) || a.Accounts == nil {
+		http.Error(w, "customer account required", http.StatusForbidden)
+		return
+	}
+	if _, ok := a.Accounts.Get(username); !ok {
+		http.Error(w, "customer account not found", http.StatusNotFound)
+		return
+	}
+	secretBytes := make([]byte, 20)
+	if _, err := io.ReadFull(rand.Reader, secretBytes); err != nil {
+		http.Error(w, "could not generate authenticator setup", http.StatusInternalServerError)
+		return
+	}
+	secret := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(secretBytes)
+	issuer := "StePanel"
+	label := issuer + ":" + username
+	uri := (&url.URL{
+		Scheme: "otpauth",
+		Host:   "totp",
+		Path:   "/" + label,
+		RawQuery: url.Values{
+			"secret": {secret}, "issuer": {issuer}, "algorithm": {"SHA1"},
+			"digits": {"6"}, "period": {"30"},
+		}.Encode(),
+	}).String()
+	qr, err := qrcode.Encode(uri, qrcode.Medium, 256)
+	if err != nil {
+		http.Error(w, "could not create authenticator QR code", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store, private")
+	w.Header().Set("Pragma", "no-cache")
+	writeJSON(w, http.StatusOK, map[string]string{
+		"secret":      secret,
+		"otpauth_uri": uri,
+		"qr_data_url": "data:image/png;base64," + base64.StdEncoding.EncodeToString(qr),
+	})
+}
+
 func (a *App) customerMFA(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost || !a.Auth.CSRF(r) {
 		http.Error(w, "invalid request", http.StatusForbidden)
@@ -2115,9 +2162,14 @@ func (a *App) customerMFA(w http.ResponseWriter, r *http.Request) {
 	}
 	var input struct {
 		TOTPSecret string `json:"totp_secret"`
+		Code       string `json:"code"`
 	}
 	if err := decodeJSON(w, r, 4096, &input); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if !newSetupHost().VerifyTOTP(input.TOTPSecret, strings.TrimSpace(input.Code), time.Now().UTC()) {
+		http.Error(w, "authenticator code did not match; scan the QR code and try the current 6-digit code", http.StatusUnprocessableEntity)
 		return
 	}
 	intent, err := BeginSecurityAudit(a.Config.AuditLog, username, "hosting.account.mfa-enrolled", username, "customer MFA enrollment")
@@ -2141,7 +2193,7 @@ func (a *App) customerMFA(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	intent.Completed("customer completed MFA recovery")
+	intent.Completed("customer enrolled authenticator MFA; session revoked")
 	w.WriteHeader(http.StatusNoContent)
 }
 

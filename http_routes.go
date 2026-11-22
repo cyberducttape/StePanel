@@ -145,6 +145,7 @@ func (a *App) registerRoutes(staticAssets fs.FS) *http.ServeMux {
 	mux.Handle("/api/admin/archive/import", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.archiveImportStart)), http.MethodPost))
 	mux.Handle("/api/admin/archive/import/status", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.archiveImportStatus)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/account/password", allowMethods(a.Auth.Require(http.HandlerFunc(a.customerPassword)), http.MethodPost))
+	mux.Handle("/api/account/mfa/setup", allowMethods(a.Auth.Require(http.HandlerFunc(a.customerMFASetup)), http.MethodPost))
 	mux.Handle("/api/account/mfa", allowMethods(a.Auth.Require(http.HandlerFunc(a.customerMFA)), http.MethodPost))
 	mux.Handle("/api/account/sessions/revoke", allowMethods(a.Auth.Require(http.HandlerFunc(a.customerSessionsRevoke)), http.MethodPost))
 	mux.Handle("/api/account/tokens", allowMethods(a.Auth.Require(http.HandlerFunc(a.apiTokens)), http.MethodGet, http.MethodPost))

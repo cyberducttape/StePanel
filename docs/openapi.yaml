@@ -357,11 +357,18 @@ paths:
       summary: Complete the authenticated customer's required password change
       responses:
         '204': {description: Password changed and session revoked}
+  /api/v1/account/mfa/setup:
+    post:
+      summary: Generate a temporary authenticator enrollment secret and QR code for the authenticated customer
+      responses:
+        '200': {description: No-store setup secret, otpauth URI, and QR image data URL; not persisted until verified}
+        '403': {description: Customer session and CSRF proof required}
   /api/v1/account/mfa:
     post:
-      summary: Complete the authenticated customer's required MFA enrollment
+      summary: Verify an authenticator code and complete the authenticated customer's MFA enrollment
       responses:
-        '204': {description: TOTP enrollment saved and session revoked}
+        '204': {description: Verified TOTP enrollment saved and session revoked}
+        '422': {description: Authenticator code did not match}
   /api/v1/account/security:
     get:
       summary: Customer security center

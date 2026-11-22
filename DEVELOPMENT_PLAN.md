@@ -2202,3 +2202,23 @@ gates.
   confirms the reusable workflow receives the tag source and blocks publication.
 - The installation guide states the guarantee and its limits.
 
+### M0at — Make customer MFA enrollment self-service (P1)
+
+**Status:** Implemented locally; focused backend, API-contract, frontend, and
+customer-browser checks pass. Exact-source hosted CI is pending. The account
+page now requests a one-time QR/setup response, offers a copyable seed if QR
+scanning is unavailable, and enables MFA only after the customer enters a
+matching authenticator code. The setup response is marked `no-store` and the
+seed is not persisted until verification.
+
+**Acceptance criteria**
+
+- A customer can start enrollment from Account without manually inventing or
+  typing a TOTP seed; the UI presents an authenticator QR and a manual-key
+  fallback.
+- The server does not persist the new seed until it verifies a current TOTP
+  code for that seed, and setup data is not cacheable.
+- Browser coverage verifies the setup, code submission, and secret removal
+  after success; backend tests reject an incorrect code and accept a valid one.
+- OpenAPI, documentation references, formatting, and full repository CI pass.
+

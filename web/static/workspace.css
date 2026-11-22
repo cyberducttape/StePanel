@@ -1429,6 +1429,8 @@ textarea[aria-invalid="true"] {
 .account-card { padding: 16px; border: 1px solid var(--line, #d8dee8); border-radius: 12px; background: var(--surface, #f8fafc); }
 .account-card strong, .account-card small { display: block; margin-top: 6px; }
 .account-card small { color: var(--muted, #667085); min-height: 2.2em; }
+.account-security #accountMFAQRCode { display: block; max-width: 100%; height: auto; padding: 8px; background: #fff; border-radius: 8px; }
+.account-security .secret-display { display: block; overflow-wrap: anywhere; margin: 8px 0; padding: 10px; border-radius: 8px; background: var(--surface, #f8fafc); user-select: all; }
 .account-plan-envelope { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line, #d8dee8); }
 .account-resource-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-top: 10px; }
 .account-resource-card { padding: 10px 12px; border: 1px solid var(--line, #d8dee8); border-radius: 9px; background: var(--surface, #f8fafc); }
