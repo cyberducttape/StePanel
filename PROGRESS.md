@@ -1,5 +1,21 @@
 # Production-readiness progress
 
+## Keep WordPress recovery fixture downloads out of the host mutation window — 2026-11-21
+
+- Reviewed the first exact-source archive-based install smoke
+  [44988484953](https://github.com/cyberducttape/StePanel/actions/runs/44988484953).
+  Archive creation/extraction, native install, and lifecycle interruption
+  drills passed; the WordPress recovery proof then failed because its
+  disposable host timed out fetching WordPress/WP-CLI from external sites.
+- Added a bounded, retrying, SHA-256-verifying fixture fetch step on the CI
+  runner, before the host image is started. The verified files are mounted
+  read-only into the disposable host and consumed by the proof. Local KVM
+  runs retain a bounded direct-fetch fallback. The same fixture fetch passed
+  locally with both expected hashes.
+- Shell syntax and ShellCheck passed. Exact-source workflow/release checks and
+  the hosted rerun remain pending; no recovery-proof success is claimed for
+  the failed host run.
+
 ## Make manual native builds installable — 2026-11-21
 
 - Fixed the manual source-build path: `make build` now builds both the

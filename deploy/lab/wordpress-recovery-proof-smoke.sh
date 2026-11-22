@@ -132,12 +132,30 @@ trap cleanup EXIT
 # silently test a different CMS/CLI release after an upstream update.
 wordpress_archive="$work/wordpress-6.8.8.tar.gz"
 wp_cli="$work/wp-cli-2.12.0.phar"
-curl --fail --silent --show-error --location --max-time 120 \
-  https://wordpress.org/wordpress-6.8.8.tar.gz -o "$wordpress_archive"
+if [[ -n ${STEPANEL_WORDPRESS_FIXTURES_DIR:-} ]]; then
+  fixture_dir=$STEPANEL_WORDPRESS_FIXTURES_DIR
+  for fixture in wordpress-6.8.8.tar.gz wp-cli-2.12.0.phar; do
+    [[ -d $fixture_dir && ! -L $fixture_dir && -f $fixture_dir/$fixture && ! -L $fixture_dir/$fixture ]] || {
+      echo "missing or unsafe staged WordPress smoke fixture: $fixture_dir/$fixture" >&2
+      exit 1
+    }
+  done
+  install -m 0600 -- "$fixture_dir/wordpress-6.8.8.tar.gz" "$wordpress_archive"
+  install -m 0600 -- "$fixture_dir/wp-cli-2.12.0.phar" "$wp_cli"
+else
+  # Local KVM certification may fetch fixtures itself. Keep retries bounded;
+  # the GitHub installed-host workflow stages them before host mutation.
+  curl --fail --silent --show-error --location \
+    --retry 5 --retry-all-errors --retry-delay 2 \
+    --connect-timeout 15 --max-time 180 \
+    https://wordpress.org/wordpress-6.8.8.tar.gz -o "$wordpress_archive"
+  curl --fail --silent --show-error --location \
+    --retry 5 --retry-all-errors --retry-delay 2 \
+    --connect-timeout 15 --max-time 180 \
+    https://github.com/wp-cli/wp-cli/releases/download/v2.12.0/wp-cli-2.12.0.phar -o "$wp_cli"
+fi
 printf '%s  %s\n' '5388e7a8fa462c32e41ce5cabb796e2228cd187b6b80d15d069a8d5e6ecd3e05' "$wordpress_archive" \
   | sha256sum --check --status
-curl --fail --silent --show-error --location --max-time 120 \
-  https://github.com/wp-cli/wp-cli/releases/download/v2.12.0/wp-cli-2.12.0.phar -o "$wp_cli"
 printf '%s  %s\n' 'ce34ddd838f7351d6759068d09793f26755463b4a4610a5a5c0a97b68220d85c' "$wp_cli" \
   | sha256sum --check --status
 

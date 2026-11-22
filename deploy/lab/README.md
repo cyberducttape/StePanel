@@ -47,6 +47,13 @@ installed panel, uploads a synthetic cpmove archive, waits for the durable
 restore job, and verifies the imported file under `/var/www/sites/ci-import`.
 Set `CPMOVE_SMOKE_SITE` to use a different disposable site name.
 
+The hosted install workflow downloads the digest-pinned WordPress and WP-CLI
+fixtures on the runner before creating or mutating its disposable systemd
+host, then mounts them read-only into the recovery drill. This keeps external
+download failures out of the installed-host recovery phase. Local KVM runs
+may fetch the same pinned fixtures directly when
+`STEPANEL_WORDPRESS_FIXTURES_DIR` is unset.
+
 The same smoke run exercises worker-kill/restart recovery for cpmove import,
 backup, file restore, and termination, plus panel-kill/restart recovery for
 durable account suspension. The account drill uses the disposable

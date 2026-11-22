@@ -194,6 +194,11 @@ jobs:
           "$release_tree/stepanel" setup --help >/dev/null
           echo "STEPANEL_RELEASE_TREE=$release_tree" >> "$GITHUB_ENV"
           echo "Installed-host smoke will use $(basename "${archives[0]}") from exact source $GITHUB_SHA."
+      - name: Stage pinned WordPress recovery fixtures
+        run: |
+          fixture_dir="$RUNNER_TEMP/stepanel-wordpress-fixtures"
+          bash deploy/lab/fetch-wordpress-smoke-fixtures.sh "$fixture_dir"
+          echo "STEPANEL_WORDPRESS_FIXTURES_DIR=$fixture_dir" >> "$GITHUB_ENV"
       - name: Build disposable systemd host image
         timeout-minutes: 20
         env:
@@ -231,6 +236,7 @@ jobs:
               --cgroupns=host \
               --tmpfs /run --tmpfs /run/lock \
               -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+              -v "$STEPANEL_WORDPRESS_FIXTURES_DIR:/opt/stepanel-wordpress-fixtures:ro" \
               -v "$STEPANEL_RELEASE_TREE:/work" "$HOST_IMAGE" /sbin/init; then
             echo 'Docker did not create the disposable systemd host within 30 seconds' >&2
             docker_diag info >&2 || true
@@ -305,6 +311,7 @@ jobs:
             -e STEPANEL_UNSAFE_LAB=1 \
             -e STEPANEL_RUN_RECOVERY_MATRIX=1 \
             -e STEPANEL_RUN_RECOVERY_MATRIX_FULL=${{ inputs.full_recovery_matrix && '1' || '0' }} \
+            -e STEPANEL_WORDPRESS_FIXTURES_DIR=/opt/stepanel-wordpress-fixtures \
             -e RECOVERY_MATRIX_REPEATS="$RECOVERY_MATRIX_REPEATS" \
             -e RECOVERY_MATRIX_SHARD="$RECOVERY_MATRIX_SHARD" \
             -e RECOVERY_MATRIX_PREFIX="$recovery_prefix" \

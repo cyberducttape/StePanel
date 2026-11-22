@@ -58,6 +58,10 @@ for workflow in "${workflows[@]}"; do
         'goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de' \
         'args: release --snapshot --clean' \
         'archives=(dist/*_linux_amd64.tar.gz)' \
+        'Stage pinned WordPress recovery fixtures' \
+        'fetch-wordpress-smoke-fixtures.sh' \
+        '-v "$STEPANEL_WORDPRESS_FIXTURES_DIR:/opt/stepanel-wordpress-fixtures:ro"' \
+        '-e STEPANEL_WORDPRESS_FIXTURES_DIR=/opt/stepanel-wordpress-fixtures' \
         'deploy/lab/install-smoke.sh' \
         'web/index.html' \
         '-v "$STEPANEL_RELEASE_TREE:/work"'; do
@@ -76,6 +80,10 @@ for workflow in "${workflows[@]}"; do
       }
       grep -Fq 'timeout-minutes: 12' "$workflow" || {
         echo "$workflow is missing the disposable-host boot step deadline" >&2
+        exit 1
+      }
+      grep -Fq 'STEPANEL_WORDPRESS_FIXTURES_DIR:-' deploy/lab/wordpress-recovery-proof-smoke.sh || {
+        echo 'WordPress recovery proof must accept fixtures staged before the host smoke' >&2
         exit 1
       }
       grep -Fq 'timeout-minutes: ${{ inputs.full_recovery_matrix && 360 || 150 }}' "$workflow" || {

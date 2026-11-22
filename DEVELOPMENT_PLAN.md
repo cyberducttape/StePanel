@@ -94,11 +94,15 @@ both executables as the invoking user before elevating for the installer.
   setup command on the native CI architecture. The installed-host workflow now
   builds an exact-source GoReleaser snapshot, validates its packaged setup and
   runtime assets, and runs the disposable host smoke from the extracted
-  archive instead of the checkout. The first hosted run of that path is in
-  progress at [44988484953](https://github.com/cyberducttape/StePanel/actions/runs/44988484953);
-  archive build and extraction checks passed, while host installation and
-  recovery remain pending. This snapshot workflow does not replace a clean-host
-  test of the official tagged archive before release.
+  archive instead of the checkout. The first hosted run of that path
+  [44988484953](https://github.com/cyberducttape/StePanel/actions/runs/44988484953)
+  built and extracted the archive and passed installation plus lifecycle
+  interruption drills, but failed when the disposable host timed out fetching
+  WordPress/WP-CLI fixtures. The workflow now stages and verifies those pinned
+  fixtures on the runner before host mutation and mounts them read-only for
+  recovery. A rerun is required to verify this correction. This snapshot
+  workflow does not replace a clean-host test of the official tagged archive
+  before release.
 - Installer preflight reports OS, web-server, and database support tier and
   actionable failed prerequisites (including availability of required base,
   PHP, database, web-server, and selected optional-feature packages in
