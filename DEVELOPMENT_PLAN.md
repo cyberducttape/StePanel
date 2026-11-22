@@ -1630,10 +1630,12 @@ readable and keyboard accessible.
 
 ### M0ac — Keep the dashboard focused on operator actions (P2)
 
-**Status:** Implemented on `b65f6a7d`. Build, unit tests, and local browser
-suite passed (27 passed, one optional customer-credential test skipped).
-Exact-source UI E2E, documentation CI, and CodeQL passed; exact-source Go CI
-is still running.
+**Status:** Verified on code-identical source `55c1421a`. Integration CI
+[45017173779](https://github.com/cyberducttape/StePanel/actions/runs/45017173779)
+passed the full Go, race, recovery, and browser suites; Documentation
+[45019886848](https://github.com/cyberducttape/StePanel/actions/runs/45019886848)
+and CodeQL [45019886865](https://github.com/cyberducttape/StePanel/actions/runs/45019886865)
+passed on source `e78916ed`.
 
 Remove raw API JSON links from the normal dashboard and ensure server-rendered
 activity rows do not point at job JSON. Keep the API available through its
@@ -1652,9 +1654,11 @@ readable Operations drawer.
 
 ### M0ad — Explain database health in the dashboard (P2)
 
-**Status:** Implemented locally; build, frontend unit tests, docs checks, and
-browser checks for readable measurements and unavailable-to-retry recovery
-passed. Exact-source CI pending.
+**Status:** Verified on code-identical source `55c1421a`. Integration CI
+[45017173779](https://github.com/cyberducttape/StePanel/actions/runs/45017173779)
+passed, including the seeded Chromium suite. Documentation checks passed on
+the preceding source in
+[45019886848](https://github.com/cyberducttape/StePanel/actions/runs/45019886848).
 
 Replace the database diagnostics JSON link with a collapsed, on-demand,
 read-only health snapshot. Show connection counts, blocked sessions, long
@@ -1675,8 +1679,11 @@ measurements unknown, and let the operator retry after an unavailable result.
 
 ### M0ae — Keep customer domain onboarding evidence honest (P2)
 
-**Status:** Implemented locally; build, frontend unit tests, and customer
-Playwright/accessibility regression passed. Exact-source CI pending.
+**Status:** Verified on code-identical source `55c1421a`. Seeded Chromium
+journeys and full integration CI passed in
+[45017173779](https://github.com/cyberducttape/StePanel/actions/runs/45017173779);
+documentation checks passed on the preceding source in
+[45019886848](https://github.com/cyberducttape/StePanel/actions/runs/45019886848).
 
 A configured web-server route does not prove that public DNS resolves or that
 HTTPS works. The customer checklist must keep domain verification unresolved
@@ -1695,9 +1702,12 @@ missing or unavailable route data remains unknown.
 
 ### M0af — Require backup evidence for each active site (P1)
 
-**Status:** Implemented locally; build, frontend unit tests, and focused
-operator/customer browser regressions (including complete coverage) passed.
-Exact-source CI pending.
+**Status:** Verified on code-identical source `55c1421a`. Operator and
+customer coverage journeys passed in the seeded Chromium suite, and full
+integration CI passed in
+[45017173779](https://github.com/cyberducttape/StePanel/actions/runs/45017173779).
+Documentation checks passed on the preceding source in
+[45019886848](https://github.com/cyberducttape/StePanel/actions/runs/45019886848).
 
 The first-run checklist must not imply account-wide recovery coverage when
 only one of several sites has a verified backup. Compare the latest bounded
@@ -1730,10 +1740,12 @@ browser journeys cover both behavior and guidance. The operator checklist now
 also separates archive integrity from application-level restore proof for the
 first active site and links to its rehearsal action. The browser journey now
 covers missing, unavailable, archive-only, failed, and matching application-
-level proof states. Exact-source CI
-[44980349367](https://github.com/cyberducttape/StePanel/actions/runs/44980349367)
-passed on `f59d2c1f`; this included the generated-password copy control and
-the simplified operator workspace.
+level proof states. The complete seeded Chromium suite passed 29 tests with
+one optional skip, and full integration CI passed on code-identical source
+`55c1421a` in
+[45017173779](https://github.com/cyberducttape/StePanel/actions/runs/45017173779).
+Documentation checks passed on the preceding source in
+[45019886848](https://github.com/cyberducttape/StePanel/actions/runs/45019886848).
 
 Make common first-site setup fields easy to fill without taking control away
 from the operator. Suggestions must be valid for their destination, update as
