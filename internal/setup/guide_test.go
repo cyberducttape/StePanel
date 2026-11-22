@@ -44,6 +44,8 @@ type fakeHost struct {
 	hashed      []string
 	events      []string
 	draws       byte
+	supportTier string
+	supportErr  error
 }
 
 func (h *fakeHost) HashPassword(password string) (string, error) {
@@ -67,6 +69,19 @@ func (h *fakeHost) ProbeOffsite(target string) error {
 	return h.probeErrors[target]
 }
 func (h *fakeHost) SSHClientIP() string { return "203.0.113.10" }
+func (h *fakeHost) SupportTier(webServer, dbEngine string) (string, error) {
+	h.events = append(h.events, "support-tier")
+	if h.supportErr != nil {
+		return "", h.supportErr
+	}
+	if h.supportTier != "" {
+		return h.supportTier, nil
+	}
+	if webServer == "caddy" && dbEngine == "mariadb" {
+		return "RECOMMENDED BETA PROFILE: Ubuntu 24.04 + Caddy + MariaDB", nil
+	}
+	return "SUPPORT TIER: selected host and stack is outside the current six-combination installed-host smoke matrix.", nil
+}
 func (h *fakeHost) Random(n int) ([]byte, error) {
 	h.draws++
 	return bytes.Repeat([]byte{h.draws}, n), nil
@@ -114,7 +129,7 @@ func TestGuideAcceptsDefaults(t *testing.T) {
 	if answers.OffsiteTarget != "b2:stepanel-backups" || host.probed[0] != "b2:stepanel-backups" || answers.RcloneConfig == "" {
 		t.Fatalf("offsite = %q probed %v", answers.OffsiteTarget, host.probed)
 	}
-	if len(host.events) < 3 || host.events[0] != "probe" || host.events[1] != "password" || host.events[2] != "totp" {
+	if len(host.events) < 4 || host.events[0] != "support-tier" || host.events[1] != "probe" || host.events[2] != "password" || host.events[3] != "totp" {
 		t.Fatalf("setup side effects ran in unexpected order: %v", host.events)
 	}
 	if len(answers.Keys) != len(generatedKeys) {
@@ -157,7 +172,7 @@ func TestGuideRepromptsInvalidAnswers(t *testing.T) {
 	if answers.OffsiteTarget != "b2:sites" || !answers.Fail2ban || answers.Fail2banIgnoreIP != "198.51.100.0/24 2001:db8::1" || !answers.InstallNode || answers.InstallSecurity || !answers.InstallDBAdmin {
 		t.Fatalf("answers = %+v", answers)
 	}
-	for _, want := range []string{"not one of the configured remotes", "access denied", "do not match", "does not match", "phpPgAdmin", "is not an IP address", "outside the current", "Continue with this less-tested combination?"} {
+	for _, want := range []string{"not one of the configured remotes", "access denied", "do not match", "does not match", "phpPgAdmin", "is not an IP address", "outside the current", "Continue outside the tested host matrix?"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("transcript missing %q", want)
 		}
@@ -192,6 +207,24 @@ func TestGuideDeclinesUnverifiedStackBeforeSaving(t *testing.T) {
 	}
 	if len(host.hashed) != 0 || host.codeChecks != 0 || len(host.probed) != 0 {
 		t.Fatalf("setup continued after declining support warning: hashes=%d totp=%d probes=%v", len(host.hashed), host.codeChecks, host.probed)
+	}
+}
+
+func TestGuideShowsExactHostTierAndDeclinesBeforeSecrets(t *testing.T) {
+	host := newHost()
+	host.supportTier = "SUPPORT TIER: Debian 13 + Caddy + MariaDB is outside the current six-combination installed-host smoke matrix.\nThis installer may support packages, but this combination needs operator validation."
+	_, out, err := run(t, host, []string{"", "", "", "n"}, nil)
+	if !errors.Is(err, ErrCancelled) {
+		t.Fatalf("err = %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Debian 13 + Caddy + MariaDB") || !strings.Contains(out, "Continue outside the tested host matrix?") {
+		t.Fatalf("exact platform support and confirmation were not shown:\n%s", out)
+	}
+	if strings.Contains(out, "Step 4 of") || strings.Contains(out, "Administrator account") || strings.Contains(out, "Settings saved") {
+		t.Fatalf("setup continued past unsupported-tier confirmation:\n%s", out)
+	}
+	if len(host.probed) != 0 || len(host.hashed) != 0 || host.codeChecks != 0 {
+		t.Fatalf("unsupported tier was confirmed after collecting secrets or probing storage: %+v", host)
 	}
 }
 

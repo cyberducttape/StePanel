@@ -46,6 +46,9 @@ type Host interface {
 	ProbeOffsite(target string) error
 	// SSHClientIP suggests a trusted management address; it may be empty.
 	SSHClientIP() string
+	// SupportTier reports installed-host evidence for this exact platform and
+	// the selected web-server/database combination.
+	SupportTier(webServer, dbEngine string) (string, error)
 	Random(n int) ([]byte, error)
 }
 
@@ -331,14 +334,25 @@ func (g *Guide) Run() (Answers, error) {
 }
 
 func (g *Guide) confirmSupportChoice(a Answers) error {
-	if a.DBEngine == "mariadb" && a.WebServer != "openlitespeed" {
+	tier, err := g.host.SupportTier(a.WebServer, a.DBEngine)
+	if err != nil {
+		return fmt.Errorf("check installed-host support tier: %w", err)
+	}
+	tier = strings.TrimSpace(tier)
+	if tier == "" {
+		return errors.New("installed-host support tier was empty")
+	}
+	g.say("")
+	for _, line := range strings.Split(tier, "\n") {
+		g.say("  %s", line)
+	}
+	if !strings.HasPrefix(tier, "SUPPORT TIER:") {
 		return nil
 	}
 	g.say("")
-	g.say("  ! This web-server/database combination is outside the current")
-	g.say("    installed-host smoke matrix. Expect extra operator validation.")
-	g.say("    The installer will show the exact host support tier before changes.")
-	ok, err := g.confirm("Continue with this less-tested combination?", false)
+	g.say("  ! This exact host and stack has no installed-host smoke evidence.")
+	g.say("    Continue only if you can validate and support it yourself.")
+	ok, err := g.confirm("Continue outside the tested host matrix?", false)
 	if err != nil {
 		return err
 	}

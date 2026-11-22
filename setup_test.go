@@ -34,6 +34,9 @@ func (scriptedSetupHost) RcloneConfigFile() (string, error) {
 	return "/root/.config/rclone/rclone.conf", nil
 }
 func (scriptedSetupHost) ProbeOffsite(string) error { return nil }
+func (scriptedSetupHost) SupportTier(webServer, dbEngine string) (string, error) {
+	return "RECOMMENDED BETA PROFILE: Ubuntu 24.04 + " + webServer + " + " + dbEngine, nil
+}
 
 // scriptedInput returns a file with one answer per line; non-terminal input
 // is read line by line, secrets included.
@@ -177,6 +180,17 @@ func TestSetupHostVerifiesTOTPWithOneStepOfDrift(t *testing.T) {
 	}
 	if host.VerifyTOTP("not base32!", "000000", now) {
 		t.Error("invalid secret accepted")
+	}
+}
+
+func TestSetupHostUsesInstallerSupportTierHelper(t *testing.T) {
+	tier, err := (setupHost{}).SupportTier("caddy", "mariadb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(tier, "caddy") || !strings.Contains(tier, "mariadb") ||
+		!(strings.Contains(tier, "BETA PROFILE") || strings.Contains(tier, "SUPPORT TIER:")) {
+		t.Fatalf("unexpected support-tier result: %q", tier)
 	}
 }
 

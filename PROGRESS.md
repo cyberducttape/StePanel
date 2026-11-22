@@ -1,5 +1,24 @@
 # Production-readiness progress
 
+## Show the selected platform's support tier during guided setup — 2026-11-22
+
+- After selecting a web server and database, setup now calls the same
+  `install-support-tier.sh` classifier used by the installer. It displays the
+  exact OS/stack evidence and requires explicit confirmation when the tuple is
+  outside the installed-host smoke matrix. This occurs before offsite storage
+  probing, administrator credentials, or writing the settings file; installer
+  preflight still repeats the classification before host changes.
+- Added regressions for unsupported-platform confirmation ordering and the
+  real wizard's use of the installer classifier. The first root-package run
+  exposed tests inheriting the host's Ubuntu 26.04 support tier; the setup test
+  fake now provides a deterministic Ubuntu 24.04 profile instead.
+- `go test . -timeout 10m` passed (119.565s); `go test ./internal/setup`,
+  `go vet . ./internal/setup`, `make shell-contract-check`, `make release-check`,
+  documentation links/references (93 documents), and `git diff --check` passed.
+- The operator sees the exact support decision earlier; the project still has
+  no published stable fresh-install archive and production host certification
+  remains open.
+
 ## Gate release publication on artifact verification — 2026-11-22
 
 - The tagged-release workflow previously published GoReleaser assets before

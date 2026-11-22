@@ -153,10 +153,12 @@ path is usable, but it is not a production-ready release.
   the other smoke-tested tuples as one-iteration Beta with repeat acceptance
   still pending, before the user commits to host configuration.
   `install.sh --guided` identifies the host OS and prints its recommended
-  profile evidence before it asks for remote-storage or administrator secrets;
-  it reprints the exact stack tier in the full pre-mutation preflight.
-  The wizard requires acknowledgement of MySQL, PostgreSQL, or OpenLiteSpeed
-  before checking storage or collecting administrator credentials.
+  profile evidence before it asks for remote-storage or administrator secrets.
+  After the operator selects a web server and database, the wizard runs the
+  same support-tier classifier as the installer and displays the exact OS and
+  stack evidence. It requires acknowledgement when the tuple is outside the
+  host-smoke matrix, before checking storage, collecting credentials, or
+  writing settings; the full pre-mutation preflight repeats the classification.
 - Guided setup checks for rclone, a configured remote, and its config path
   before asking for hostname or credentials; it tests the selected destination
   before collecting administrator passwords/MFA and before saving installer

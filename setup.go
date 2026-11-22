@@ -203,6 +203,41 @@ func (setupHost) SSHClientIP() string {
 	return fields[0]
 }
 
+func (setupHost) SupportTier(webServer, dbEngine string) (string, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("locate setup executable: %w", err)
+	}
+	if resolved, resolveErr := filepath.EvalSymlinks(executable); resolveErr == nil {
+		executable = resolved
+	}
+	candidates := []string{filepath.Join(filepath.Dir(executable), "deploy", "lib", "install-support-tier.sh")}
+	if workingDirectory, err := os.Getwd(); err == nil {
+		candidates = append(candidates, filepath.Join(workingDirectory, "deploy", "lib", "install-support-tier.sh"))
+	}
+	var helper string
+	for _, candidate := range candidates {
+		info, statErr := os.Lstat(candidate)
+		if statErr == nil && info.Mode().IsRegular() {
+			helper = candidate
+			break
+		}
+	}
+	if helper == "" {
+		return "", errors.New("install-support-tier.sh is missing; run setup from a full StePanel checkout or release archive")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	const classify = `. /etc/os-release
+. "$1"
+install_support_tier "${ID:-unknown}" "${VERSION_ID:-unknown}" "$2" "$3"`
+	output, err := exec.CommandContext(ctx, "/bin/bash", "-c", classify, "stepanel-support-tier", helper, webServer, dbEngine).Output()
+	if err != nil {
+		return "", fmt.Errorf("classify %s/%s on this host: %w", webServer, dbEngine, err)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
 func (setupHost) Random(n int) ([]byte, error) {
 	buf := make([]byte, n)
 	if _, err := rand.Read(buf); err != nil {
