@@ -1,5 +1,18 @@
 # Production-readiness progress
 
+## Align the feature matrix with the customer file manager — 2026-11-22
+
+- Corrected `docs/FEATURES.md`: customer accounts have the bounded beta file
+  manager for browse/edit, file transfer, directory creation, rename, and
+  deletion. The document now names permission editing and bulk transfer as
+  gaps instead of calling the shipped file manager unavailable.
+- Added a release contract that fails if the matrix reintroduces the stale
+  “Customer-facing file manager” unfinished claim or omits the shipped scope.
+  `make release-check` and `git diff --check` pass locally. Exact-source
+  Documentation, CodeQL, and integration workflows for commit `86f17fd6` are
+  pending; see [integration run
+  45025708568](https://github.com/cyberducttape/StePanel/actions/runs/45025708568).
+
 ## Verify production file-manager downloads on an installed host — 2026-11-22
 
 - The disposable Ubuntu installation smoke passed the production
