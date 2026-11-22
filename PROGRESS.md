@@ -7,10 +7,15 @@
   “Create your first website” for an empty account and “Create another
   website” once sites exist. Deleted sites do not count as active inventory.
 - Extended the first-run browser journey to assert both states. The seeded
-  Chromium E2E passed (1 passed); `npm run test:unit` passed (19 tests),
-  `node --check` passed for the edited JavaScript, and `go test ./... -run
-  '^$'` compiled every Go package. No Go behavior changed. This verifies the
-  UI states, not real host provisioning or recovery.
+  Chromium E2E passed (1 passed); the complete disposable browser suite then
+  passed (28 passed, 1 skipped). The skip is the separate session test that
+  requires an externally supplied customer credential; the customer-panel
+  journey itself provisions a fresh account and passed. That journey covers
+  account-owner onboarding, the WordPress form, workspace navigation, and
+  accessibility. `npm run test:unit` passed (19 tests), `node --check` passed
+  for the edited JavaScript, and `go test ./... -run '^$'` compiled every Go
+  package. No Go behavior changed. Browser coverage verifies UI behavior, not
+  real host provisioning or recovery.
 
 ## Preflight packages for selected optional features — 2026-11-21
 

@@ -313,7 +313,7 @@ test('site overview makes backup failures explicit', async ({ page }) => {
   // than waiting for a later tab activation.
   await page.reload();
   await page.getByRole('link', { name: 'Sites', exact: true }).click();
-  await expect(page.locator('#siteOverviewStatus')).toContainText(/managed site|No managed sites/);
+  await expect(page.locator('#siteOverviewStatus')).toContainText(/website|No websites/);
   const manage = page.getByRole('button', { name: /Manage site/ }).first();
   await expect(manage).toBeVisible();
   await manage.click();

@@ -55,7 +55,9 @@ passed the first-run checklist and WordPress-creation entry point.
   updates the next task to site backup and restore proof. The website area is
   labeled for customers, and its create action says “Create your first
   website” when the active inventory is empty and “Create another website”
-  after a site exists.
+  after a site exists. The current complete disposable Chromium suite exercises
+  both the administrator first-run journey and a freshly provisioned account
+  owner; both passed in the latest run.
 - The install guide reports current-code evidence separately from historical
   runs and never presents smoke coverage as production certification.
 - The next release candidate archive contains the matching guided setup,
