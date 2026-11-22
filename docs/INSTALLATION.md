@@ -15,12 +15,12 @@ installation, use **Ubuntu 24.04 + Caddy + MariaDB**:
 
 | Platform combination | Tier | Evidence / policy |
 | --- | --- | --- |
-| Ubuntu 24.04 + Apache + MariaDB | Operator Beta smoke-tested | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
-| Ubuntu 24.04 + Caddy + MariaDB | Operator Beta smoke-tested · recommended | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
-| AlmaLinux 9 + Apache + MariaDB | Operator Beta smoke-tested | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
-| AlmaLinux 9 + Caddy + MariaDB | Operator Beta smoke-tested | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
-| Rocky Linux 9 + Apache + MariaDB | Operator Beta smoke-tested | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
-| Rocky Linux 9 + Caddy + MariaDB | Operator Beta smoke-tested | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
+| Ubuntu 24.04 + Apache + MariaDB | Beta; repeat acceptance pending | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
+| Ubuntu 24.04 + Caddy + MariaDB | Recommended Beta profile | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration; repeat acceptance pending |
+| AlmaLinux 9 + Apache + MariaDB | Beta; repeat acceptance pending | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
+| AlmaLinux 9 + Caddy + MariaDB | Beta; repeat acceptance pending | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
+| Rocky Linux 9 + Apache + MariaDB | Beta; repeat acceptance pending | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
+| Rocky Linux 9 + Caddy + MariaDB | Beta; repeat acceptance pending | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
 | Debian 12 | Experimental | Installer coverage exists; not in the six-combination installed-host matrix |
 | Debian 13 | Unsupported until certified | No current install evidence |
 | AlmaLinux 8, Ubuntu 22.04 | Unsupported | No current release certification |

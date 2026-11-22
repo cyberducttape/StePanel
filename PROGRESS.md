@@ -1,5 +1,17 @@
 # Production-readiness progress
 
+## Explain support evidence before host configuration — 2026-11-21
+
+- Guided setup now distinguishes the recommended Ubuntu 24.04 + Caddy +
+  MariaDB Beta profile from other one-iteration host-smoke combinations. The
+  latter explicitly say repeated acceptance evidence is pending and that they
+  are not yet in the recommended first-install tier. The installation support
+  table uses the same wording; no profile is called production-certified.
+- Updated the support-tier contract to cover Ubuntu, AlmaLinux, and Rocky
+  profiles. `bash scripts/test-install-support-tier.sh`, shell syntax, and
+  `git diff --check` passed. This is evidence-labeling only; repeated host
+  certification remains an open gate.
+
 ## Make the recommended install profile the default host smoke — 2026-11-21
 
 - Source pushes now run the installed-host smoke on Ubuntu 24.04 + Caddy +

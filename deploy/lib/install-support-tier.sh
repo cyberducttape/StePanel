@@ -8,10 +8,10 @@ install_support_tier() {
 
   case "$os_id:$os_version:$web_server:$db_engine" in
     ubuntu:24.04:caddy:mariadb)
-      printf '%s\n' "RECOMMENDED PROFILE: Ubuntu 24.04 + Caddy + MariaDB (current-code host smoke-tested; 1 recovery iteration)."
+      printf '%s\n' "RECOMMENDED BETA PROFILE: Ubuntu 24.04 + Caddy + MariaDB (current-code host smoke-tested; 1 recovery iteration; repeated acceptance evidence is still pending)."
       ;;
     ubuntu:24.04:apache:mariadb|almalinux:9:caddy:mariadb|almalinux:9:apache:mariadb|rocky:9:caddy:mariadb|rocky:9:apache:mariadb)
-      printf '%s\n' "SUPPORT TIER: ${platform} + ${web_server} + MariaDB is in the current-code Operator Beta host-smoke matrix (1 recovery iteration)."
+      printf '%s\n' "BETA PROFILE — REPEATED ACCEPTANCE PENDING: ${platform} + ${web_server} + MariaDB passed 1 current-code host-smoke recovery iteration. This is not yet in the recommended first-install tier; repeat certification evidence is required."
       ;;
     *)
       printf '%s\n' "SUPPORT TIER: ${platform} + ${web_server} + ${db_engine} is outside the current six-combination installed-host smoke matrix."

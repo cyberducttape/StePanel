@@ -10,8 +10,9 @@ grep -Fq 'Database engine [mariadb/mysql/postgresql] (mariadb)' "$ROOT_DIR/insta
 grep -Fq 'DB_ENGINE="${DB_ENGINE:-mariadb}"' "$ROOT_DIR/install.sh"
 
 recommended=$(install_support_tier ubuntu 24.04 caddy mariadb)
-grep -Fq 'RECOMMENDED PROFILE: Ubuntu 24.04 + Caddy + MariaDB' <<<"$recommended"
+grep -Fq 'RECOMMENDED BETA PROFILE: Ubuntu 24.04 + Caddy + MariaDB' <<<"$recommended"
 grep -Fq '1 recovery iteration' <<<"$recommended"
+grep -Fq 'repeated acceptance evidence is still pending' <<<"$recommended"
 grep -Fq 'not production certification' <<<"$recommended"
 
 for os in 'ubuntu 24.04' 'almalinux 9' 'rocky 9'; do
@@ -19,9 +20,10 @@ for os in 'ubuntu 24.04' 'almalinux 9' 'rocky 9'; do
   for web in apache caddy; do
     result=$(install_support_tier "$id" "$version" "$web" mariadb)
     if [[ $id == ubuntu && $version == 24.04 && $web == caddy ]]; then
-      grep -Fq 'RECOMMENDED PROFILE:' <<<"$result"
+      grep -Fq 'RECOMMENDED BETA PROFILE:' <<<"$result"
     else
-      grep -Fq 'current-code Operator Beta host-smoke matrix' <<<"$result"
+      grep -Fq 'BETA PROFILE — REPEATED ACCEPTANCE PENDING:' <<<"$result"
+      grep -Fq 'not yet in the recommended first-install tier' <<<"$result"
     fi || {
       echo "expected smoke-matrix classification for $os + $web + MariaDB" >&2
       exit 1
@@ -47,7 +49,7 @@ PRETTY_NAME="Ubuntu 24.04 LTS"
 EOF
 early=$(install_guided_host_support "$fixture")
 grep -Fq 'HOST DETECTED: Ubuntu 24.04 LTS (ubuntu 24.04)' <<<"$early"
-grep -Fq 'RECOMMENDED PROFILE: Ubuntu 24.04 + Caddy + MariaDB' <<<"$early"
+grep -Fq 'RECOMMENDED BETA PROFILE: Ubuntu 24.04 + Caddy + MariaDB' <<<"$early"
 rm -f "$fixture"
 
 # The current host/profile check must precede setup's questions and secrets.
