@@ -68,7 +68,10 @@ path is usable, but it is not a production-ready release.
   quick-start link lands directly on this path and states the compiler and
   first-download requirements there. A temporary checkout at `c5a2765e`
   completed `make evaluate`, served the dashboard with HTTP 200, and was
-  observed listening only on `127.0.0.1:8080`; Ctrl-C stopped it. This is UI
+  observed listening only on `127.0.0.1:8080`; Ctrl-C stopped it. The exact
+  command was repeated from a clean source archive at `5e23f579`, isolated
+  from the checkout's existing data; it built successfully, returned HTTP
+  200, and listened on `127.0.0.1:8080` before clean shutdown. This is UI
   evaluation evidence only, not a native installation test.
 - Build instructions explain that Go 1.21+ with automatic toolchain selection
   downloads the exact pinned Go 1.26.11 compiler, so a manual compiler upgrade

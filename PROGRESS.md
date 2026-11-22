@@ -10,10 +10,11 @@
   and a missing-binary case. It verifies the recovery instruction is shown
   and the executable is never invoked. `bash -n`, the focused contract test,
   ShellCheck, and `git diff --check` pass.
-- Built the current panel binary and launched the current preview script in an
-  isolated temporary directory, leaving the checkout's existing `data/`
-  untouched. The dashboard returned HTTP 200 and `ss` confirmed the listener
-  was `127.0.0.1:8080`; the process was stopped after the probe.
+- Ran the exact documented `make evaluate` command from a clean source archive
+  of `5e23f579`, isolated under `/tmp` so the checkout's existing `data/`
+  stayed untouched. It built the panel, served HTTP 200, and `ss` confirmed
+  the listener was `127.0.0.1:8080`; the process and temporary state were
+  removed after the probe.
 
 ## Verify first-install settings handoff and parser safety — 2026-11-22
 
