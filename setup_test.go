@@ -52,9 +52,9 @@ func scriptedInput(t *testing.T, lines ...string) *os.File {
 }
 
 var defaultSetupAnswers = []string{
-	"", "", "", "", // hostname, web server, database, username
+	"", "", "", "", "", // hostname, web server, database, backup location, username
 	"correct horse battery staple", "correct horse battery staple", // password twice
-	"123456", "", "", "", // TOTP code, offsite target, skip extras, save
+	"123456", "", "", // TOTP code, skip extras, save
 }
 
 func TestSetupWritesPrivateInstallerSettings(t *testing.T) {

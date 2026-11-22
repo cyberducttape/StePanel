@@ -3084,9 +3084,15 @@ does not close a current-source or power-loss gate.
 
 - The guided wizard now checks for rclone, at least one configured remote, and
   a readable rclone configuration path before asking for a panel hostname,
-  administrator password, or MFA code. The selected backup destination is
-  still tested with a write/read/delete probe before settings are saved.
+  administrator password, or MFA code. It now selects and tests the actual
+  backup destination before collecting admin credentials, using a
+  write/read/delete probe.
 - Regression coverage asserts missing rclone or a missing remote stops before
   the guide consumes any answers, hashes a password, or verifies an MFA code.
-- Focused `go test ./internal/setup` passes. Full checks are running for the
-  final change before commit.
+- The selected remote is probed before administrator password hashing and MFA
+  verification; regression coverage checks that ordering, including retries
+  after failed remote probes. CLI setup tests were updated for the new prompt
+  order.
+- Focused setup tests and exact-source `make check` pass (root package
+  118.495s), along with `make release-check`, documentation links, and
+  `git diff --check`. Hosted CI remains queued; no host installation was run.

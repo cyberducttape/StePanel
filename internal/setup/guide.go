@@ -290,13 +290,13 @@ func (g *Guide) Run() (Answers, error) {
 	if err := g.database(&answers); err != nil {
 		return Answers{}, err
 	}
+	if err := g.offsite(&answers); err != nil {
+		return Answers{}, err
+	}
 	if err := g.administrator(&answers); err != nil {
 		return Answers{}, err
 	}
 	if err := g.twoFactor(&answers); err != nil {
-		return Answers{}, err
-	}
-	if err := g.offsite(&answers); err != nil {
 		return Answers{}, err
 	}
 	if err := g.extras(&answers); err != nil {
@@ -414,7 +414,7 @@ func (g *Guide) database(a *Answers) error {
 }
 
 func (g *Guide) administrator(a *Answers) error {
-	g.step(4, totalSteps, "Administrator account")
+	g.step(5, totalSteps, "Administrator account")
 	username, err := g.ask("Administrator username", "admin", func(value string) error {
 		if !adminUsernamePattern.MatchString(value) {
 			return errors.New("use 1-64 letters, digits, dots, dashes, or underscores")
@@ -465,7 +465,7 @@ func (g *Guide) administrator(a *Answers) error {
 const totpSecretBytes = 20
 
 func (g *Guide) twoFactor(a *Answers) error {
-	g.step(5, totalSteps, "Two-factor sign-in")
+	g.step(6, totalSteps, "Two-factor sign-in")
 	raw, err := g.host.Random(totpSecretBytes)
 	if err != nil {
 		return fmt.Errorf("generate authenticator secret: %w", err)
@@ -512,7 +512,7 @@ func (g *Guide) twoFactor(a *Answers) error {
 }
 
 func (g *Guide) offsite(a *Answers) error {
-	g.step(6, totalSteps, "Offsite backups")
+	g.step(4, totalSteps, "Offsite backups")
 	g.say("StePanel requires a copy of every backup outside this server, so a")
 	g.say("lost disk or server never means lost sites. It uses rclone, which")
 	g.say("supports S3, Backblaze B2, Google Drive, SFTP, and many more.")

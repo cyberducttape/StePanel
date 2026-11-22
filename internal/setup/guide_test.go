@@ -42,14 +42,17 @@ type fakeHost struct {
 	probeErrors map[string]error
 	probed      []string
 	hashed      []string
+	events      []string
 	draws       byte
 }
 
 func (h *fakeHost) HashPassword(password string) (string, error) {
+	h.events = append(h.events, "password")
 	h.hashed = append(h.hashed, password)
 	return "hash-of-" + password, nil
 }
 func (h *fakeHost) VerifyTOTP(secret, code string, now time.Time) bool {
+	h.events = append(h.events, "totp")
 	h.codeChecks++
 	return code == h.validCode && len(secret) == 32
 }
@@ -59,6 +62,7 @@ func (h *fakeHost) Rclone() bool                      { return h.rclone }
 func (h *fakeHost) RcloneRemotes() ([]string, error)  { return h.remotes, nil }
 func (h *fakeHost) RcloneConfigFile() (string, error) { return "/root/.config/rclone/rclone.conf", nil }
 func (h *fakeHost) ProbeOffsite(target string) error {
+	h.events = append(h.events, "probe")
 	h.probed = append(h.probed, target)
 	return h.probeErrors[target]
 }
@@ -84,7 +88,7 @@ func run(t *testing.T, host *fakeHost, lines []string, secrets []string) (Answer
 func TestGuideAcceptsDefaults(t *testing.T) {
 	host := newHost()
 	answers, out, err := run(t, host,
-		[]string{"", "", "", "", "123456", "", "", ""},
+		[]string{"", "", "", "", "", "123456", "", ""},
 		[]string{password, password})
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, out)
@@ -106,6 +110,9 @@ func TestGuideAcceptsDefaults(t *testing.T) {
 	}
 	if answers.OffsiteTarget != "b2:stepanel-backups" || host.probed[0] != "b2:stepanel-backups" || answers.RcloneConfig == "" {
 		t.Fatalf("offsite = %q probed %v", answers.OffsiteTarget, host.probed)
+	}
+	if len(host.events) < 3 || host.events[0] != "probe" || host.events[1] != "password" || host.events[2] != "totp" {
+		t.Fatalf("setup side effects ran in unexpected order: %v", host.events)
 	}
 	if len(answers.Keys) != len(generatedKeys) {
 		t.Fatalf("keys = %d", len(answers.Keys))
@@ -130,10 +137,10 @@ func TestGuideRepromptsInvalidAnswers(t *testing.T) {
 		[]string{
 			"localhost", "not a host", "Panel.Example.COM", // hostname: two rejections
 			"9", "apache", "n", // web server: invalid choice, then apache without certificates
-			"3",                // PostgreSQL by number
+			"3",                               // PostgreSQL by number
+			"s3:x", "b2:bad", "y", "b2:sites", // offsite: unknown remote, failing probe, retry, good
 			"bad user!", "ops", // username
 			"12345", "000000", "123456", // TOTP: malformed, wrong, right
-			"s3:x", "b2:bad", "y", "b2:sites", // offsite: unknown remote, failing probe, retry, good
 			"y", "y", "not-an-ip", "198.51.100.0/24 2001:db8::1", "y", "n", "y", // extras
 			"y", // save
 		},
@@ -155,12 +162,24 @@ func TestGuideRepromptsInvalidAnswers(t *testing.T) {
 	if len(host.hashed) != 1 {
 		t.Fatalf("hashed %d passwords, want only the confirmed one", len(host.hashed))
 	}
+	lastProbe, firstCredential := -1, len(host.events)
+	for i, event := range host.events {
+		if event == "probe" {
+			lastProbe = i
+		}
+		if (event == "password" || event == "totp") && firstCredential == len(host.events) {
+			firstCredential = i
+		}
+	}
+	if lastProbe < 0 || firstCredential <= lastProbe {
+		t.Fatalf("storage probe did not precede credential setup: %v", host.events)
+	}
 }
 
 func TestGuideExplainsClockAfterRepeatedCodeFailures(t *testing.T) {
 	host := newHost()
 	_, out, err := run(t, host,
-		[]string{"", "", "", "", "111111", "222222", "333333", "123456", "", "", ""},
+		[]string{"", "", "", "", "", "111111", "222222", "333333", "123456", "", ""},
 		[]string{password, password})
 	if err != nil {
 		t.Fatal(err)
@@ -192,7 +211,7 @@ func TestGuideStopsWithInstructionsWithoutRclone(t *testing.T) {
 }
 
 func TestGuideCanBeDeclined(t *testing.T) {
-	_, _, err := run(t, newHost(), []string{"", "", "", "", "123456", "", "", "n"}, []string{password, password})
+	_, _, err := run(t, newHost(), []string{"", "", "", "", "", "123456", "", "n"}, []string{password, password})
 	if !errors.Is(err, ErrCancelled) {
 		t.Fatalf("err = %v", err)
 	}
@@ -222,7 +241,7 @@ func TestEncodeEnvFileMatchesInstallerFormat(t *testing.T) {
 }
 
 func TestAnswersEnvIncludesEverythingTheInstallerRequires(t *testing.T) {
-	answers, _, err := run(t, newHost(), []string{"", "", "", "", "123456", "", "", ""}, []string{password, password})
+	answers, _, err := run(t, newHost(), []string{"", "", "", "", "", "123456", "", ""}, []string{password, password})
 	if err != nil {
 		t.Fatal(err)
 	}

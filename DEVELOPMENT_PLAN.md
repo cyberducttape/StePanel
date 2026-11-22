@@ -31,7 +31,8 @@ first-host application proof remain open.
   interactive and unattended installer defaults select that same profile.
 - Guided setup checks for rclone, a configured remote, and its config path
   before asking for hostname or credentials; it tests the selected destination
-  before saving installer settings.
+  before collecting administrator passwords/MFA and before saving installer
+  settings.
 - The install guide reports current-code evidence separately from historical
   runs and never presents smoke coverage as production certification.
 - The next release candidate archive contains the matching guided setup,

@@ -97,21 +97,23 @@ The guide asks seven questions and checks every answer before moving on:
 1. **Panel address**: a full hostname whose DNS points at the server.
 2. **Web server**: Caddy (automatic HTTPS), Apache, or OpenLiteSpeed.
 3. **Database**: MariaDB, MySQL, or PostgreSQL.
-4. **Administrator**: username and password (entered twice, never shown or
+4. **Offsite backups**: choose an rclone remote and path; the guide writes,
+   reads back, and deletes a small test file there before collecting admin
+   credentials.
+5. **Administrator**: username and password (entered twice, never shown or
    stored in plain text).
-5. **Authenticator app**: the guide shows a setup key and an `otpauth://`
+6. **Authenticator app**: the guide shows a setup key and an `otpauth://`
    link, then asks for the current code, so a mistyped key cannot lock you
    out.
-6. **Offsite backups**: choose an rclone remote and path; the guide writes,
-   reads back, and deletes a small test file there.
 7. **Optional features**: Fail2ban (with your trusted addresses), Node.js,
    malware scanning, and a database tool.
 
 Before asking for any settings or credentials, the guide checks that rclone is
 installed, at least one remote is configured, and the configuration file can
 be located. If not, it prints the exact install/configure command and exits
-before setup answers are entered. It then tests the selected backup location
-by writing, reading, and deleting a small object.
+before setup answers are entered. Step 4 tests the selected backup location
+by writing, reading, and deleting a small object before asking for passwords
+or MFA.
 
 It then generates the six keys StePanel needs, saves everything to
 `stepanel-install.env` next to the installer (mode 600), shows the host
