@@ -17,9 +17,12 @@
   `make fmt-check api-check`, JavaScript syntax checks, and focused Go race
   tests passed. Full `make check` passed on the final tree, including
   `go vet ./...` and `GOMAXPROCS=2 go test -p 1 -timeout 10m ./...`.
-- Exact-source hosted integration, browser E2E, docs, CodeQL, and release
-  evidence workflows are running for commit `8c9a2677`; browser E2E, docs,
-  and release evidence have passed so far.
+- Exact-source CI passed on `00969432`: [integration](https://github.com/cyberducttape/StePanel/actions/runs/45077529892)
+  (Go coverage, race detector, ENOSPC and recovery drills, database checks,
+  container and deployment validation), [browser E2E/accessibility](https://github.com/cyberducttape/StePanel/actions/runs/45077529892),
+  [documentation](https://github.com/cyberducttape/StePanel/actions/runs/45077529818),
+  [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/45077529901),
+  and [release evidence](https://github.com/cyberducttape/StePanel/actions/runs/45077701149).
 
 ## Verify the first-install wizard and packaged host path — 2026-11-22
 

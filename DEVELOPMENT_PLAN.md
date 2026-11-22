@@ -2204,14 +2204,19 @@ gates.
 
 ### M0at — Make customer MFA enrollment self-service (P1)
 
-**Status:** Implemented locally; focused backend, API-contract, frontend, and
-customer-browser checks pass. Exact-source hosted CI is pending. The account
+**Status:** Implemented and verified on exact source `00969432`. The account
 page requests a one-time QR/setup response, offers a copyable seed if QR
 scanning is unavailable, and enables MFA only after the customer enters a
-matching authenticator code. The native setup wizard now prints a terminal QR
-for the initial administrator, with the grouped seed and `otpauth://` link as
+matching authenticator code. The native setup wizard prints a terminal QR for
+the initial administrator, with the grouped seed and `otpauth://` link as
 fallbacks. Setup responses are `no-store`; the customer's new seed is not
-persisted until verification.
+persisted until verification. Full local `make check` and the hosted
+[integration](https://github.com/cyberducttape/StePanel/actions/runs/45077529892),
+[browser E2E/accessibility](https://github.com/cyberducttape/StePanel/actions/runs/45077529892),
+[documentation](https://github.com/cyberducttape/StePanel/actions/runs/45077529818),
+[CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/45077529901),
+and [release-evidence](https://github.com/cyberducttape/StePanel/actions/runs/45077701149)
+workflows passed.
 
 **Acceptance criteria**
 
