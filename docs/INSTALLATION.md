@@ -88,11 +88,19 @@ archive cannot perform a fresh installation on Ubuntu 24.04; see
 [tagged release status](#tagged-release-status). For current-source Beta
 installation, use the guided path below only on a disposable or staging host.
 
-On a fresh evaluation server, install Git and Go 1.21 or later. Go's default
-automatic toolchain selection downloads the exact Go 1.26.11 toolchain pinned
-by this checkout on the first build; `GOTOOLCHAIN=local` disables that behavior
-and must be unset. The build and installer must stay together because the
-installer uses helpers and assets from that checkout:
+On Ubuntu 24.04, install the two build prerequisites with the system package
+manager:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y git golang-go
+```
+
+The bootstrap needs Git and Go 1.21 or later. Go's default automatic toolchain
+selection downloads the exact Go 1.26.11 toolchain pinned by this checkout on
+the first build; `GOTOOLCHAIN=local` disables that behavior and must be unset.
+The build and installer must stay together because the installer uses helpers
+and assets from that checkout:
 
 ```sh
 git clone --branch main https://github.com/cyberducttape/StePanel.git

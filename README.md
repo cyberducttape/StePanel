@@ -232,7 +232,11 @@ pre-release snapshot. Do not use either archive to create a new host. See the
 before using an older archive for an existing installation.
 
 For a disposable host or staging environment, the current-source guided
-installer builds both binaries as your user and starts the native installer:
+installer builds both binaries as your user and starts the native installer.
+It requires Git and Go 1.21 or later; the
+[installation guide](docs/INSTALLATION.md#guided-install-from-current-source)
+has copyable Ubuntu 24.04 prerequisite commands and explains the first-build
+toolchain download:
 
 ```sh
 git clone --branch main https://github.com/cyberducttape/StePanel.git
