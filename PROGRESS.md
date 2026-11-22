@@ -1,5 +1,26 @@
 # Production-readiness progress
 
+## Make first-run recovery require application proof — 2026-11-21
+
+- The operator checklist now checks the first active site with a verified
+  backup (or the first active site if none is verified) through the existing
+  per-site recovery endpoint. It adds a separate restore step: only an
+  application-level passing rehearsal for the newest backup completes it.
+  Archive-only proof, proof for an older backup, and failed rehearsal remain
+  incomplete; an unavailable endpoint is shown as unknown.
+- The action links directly to that site's Backups tab, where the existing
+  Rehearse restore workflow can be run. This limits onboarding to one status
+  query per refresh and does not claim every site's recovery is proven.
+- Updated the installation guide to include the full restore rehearsal after
+  backup integrity verification. The focused operator Playwright journey passed
+  and covers no proof, unavailable evidence, archive-only proof, failed proof,
+  and application proof for the newest recovery point. `make check` passed
+  (`go vet ./...` and full Go suite; root package 134.019s), frontend units
+  passed (19/19), docs links/references passed (93 documents), and the isolated
+  customer Playwright journey passed with axe accessibility (1/1, 22s).
+- This is UI and documentation evidence only; it does not certify an installed
+  host or prove public WordPress recovery.
+
 ## Make the first-site action open WordPress setup — 2026-11-21
 
 - When the first-run checklist has no site and site creation is available, its

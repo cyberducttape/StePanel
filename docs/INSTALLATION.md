@@ -137,9 +137,10 @@ with `sudo ./install.sh` instead.
 Open the panel at the hostname you configured and sign in with the administrator
 credentials and authenticator code. The overview's **First-run checklist**
 checks operational health, confirms that site inventory loaded, and looks for
-an integrity-verified backup belonging to an active site. It refreshes while
-the page is open. A failed API request is shown as unavailable, not as an empty
-server or a completed step.
+an integrity-verified backup belonging to an active site. For the first site,
+it separately checks whether the newest recovery point passed application-
+level restore proof. It refreshes while the page is open. A failed API request
+is shown as unavailable, not as an empty server or a completed step.
 
 Work through the checklist in order:
 
@@ -155,6 +156,11 @@ Work through the checklist in order:
    create a backup and confirm its integrity. Integrity verification proves
    the stored archive can be checked; it does not by itself prove that the
    application can be restored and served.
+4. Open that site's **Backups** tab and run **Rehearse restore** on the newest
+   verified backup. Count recovery as application-proven only when the result
+   includes database import and application HTTP proof for that same backup.
+   Archive-only success is useful evidence, but leaves the application restore
+   step incomplete.
 
 The checklist is guidance, not a production certification. Review the
 [release gates](V1_PRODUCTION_GATES.md) before placing customer workloads on a

@@ -1525,8 +1525,11 @@ the WordPress creation form now shows DNS, IPv6, HTTP/HTTPS, and password
 prerequisites before submission in both operator and customer panels. The
 first-run call to action now selects WordPress and opens those fields, while
 the ordinary creation form retains its blank-PHP default. Operator/customer
-browser journeys cover both behavior and guidance. Exact-source hosted CI is
-pending.
+browser journeys cover both behavior and guidance. The operator checklist now
+also separates archive integrity from application-level restore proof for the
+first active site and links to its rehearsal action. The browser journey now
+covers missing, unavailable, archive-only, failed, and matching application-
+level proof states. Exact-source hosted CI is pending.
 
 Make common first-site setup fields easy to fill without taking control away
 from the operator. Suggestions must be valid for their destination, update as
@@ -1547,6 +1550,10 @@ the domain changes, and stop changing after the user customizes them.
 - When an account has no sites, the first-run action selects WordPress and
   reveals its setup fields before navigation; outside the first-run action,
   blank PHP remains the normal form default.
+- The operator first-run checklist treats the latest backup's
+  application-level restore proof as a distinct step. Archive-only proof,
+  stale proof for another backup, failed rehearsal, and unavailable status
+  must not be shown as application recovery success.
 - Operator and customer journeys cover both behaviors and remain accessible.
 - Build, frontend unit tests, focused browser tests, and exact-source CI pass.
 

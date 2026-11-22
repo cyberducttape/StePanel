@@ -38,11 +38,18 @@ test('first-run primary action follows the next unresolved setup step', async ({
   let omitHealthChecks = false;
   let currentSites = [];
   let currentBackups = [];
+  let currentRecovery = {};
+  let recoveryUnavailable = false;
   await page.route('**/api/sites/overview', (route) => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify({ sites: currentSites }),
   }));
   await page.route('**/api/backups?limit=100', (route) => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify({ backups: currentBackups }),
+  }));
+  await page.route('**/api/sites/recovery/**', (route) => route.fulfill({
+    status: recoveryUnavailable ? 503 : 200,
+    contentType: 'application/json',
+    body: JSON.stringify(recoveryUnavailable ? { error: 'recovery status unavailable for test' } : currentRecovery),
   }));
   await page.route('**/api/health/operational', (route) => route.fulfill({
     status: hostNeedsAttention ? 503 : 200,
@@ -92,30 +99,64 @@ test('first-run primary action follows the next unresolved setup step', async ({
 
   currentSites = [{ site: 'setup-a' }, { site: 'setup-b' }];
   currentBackups = [{ site: 'setup-a', verified_at: '2026-11-20T12:00:00Z' }];
+  currentRecovery = {
+    last_backup: { name: 'backup-a' },
+    last_rehearsal: null,
+    last_passed_rehearsal: null,
+  };
   await page.locator('#refreshOnboarding').click();
   await expect(page.locator('#onboardingChecklist')).toContainText('Manage your websites');
   await expect(page.locator('#onboardingChecklist')).not.toContainText('Create or migrate your first site');
   await expect(page.locator('#onboardingChecklist')).toContainText('No integrity-verified backup is recorded for setup-b');
   await expect(page.locator('#onboardingChecklist').getByRole('link', { name: 'Review setup-b backups' })).toHaveAttribute('href', '#site=setup-b&tab=backups');
   await expect(primary).toHaveAttribute('href', '#site=setup-b&tab=backups');
+  const restoreStep = page.locator('#onboardingChecklist .setup-step').filter({ hasText: 'Prove a full restore for setup-a' });
+  await expect(restoreStep).toHaveClass(/setup-step-next/);
+  await expect(restoreStep).toContainText('No application-level restore proof is recorded');
+  await expect(restoreStep.getByRole('link', { name: 'Rehearse setup-a restore' })).toHaveAttribute('href', '#site=setup-a&tab=backups');
+
+  recoveryUnavailable = true;
+  await page.locator('#refreshOnboarding').click();
+  await expect(restoreStep).toHaveClass(/setup-step-unknown/);
+  await expect(restoreStep).toContainText('Restore evidence for setup-a could not be checked');
+  recoveryUnavailable = false;
 
   currentBackups = [
     { site: 'setup-a', verified_at: '2026-11-20T12:00:00Z' },
     ...Array.from({ length: 99 }, (_, index) => ({ site: `historical-${index}`, verified_at: '2026-11-19T12:00:00Z' })),
   ];
+  currentRecovery.last_passed_rehearsal = {
+    backup: 'backup-a', outcome: 'passed', level: 'archive', duration_ms: 73000,
+  };
   await page.locator('#refreshOnboarding').click();
   const recoveryStep = page.locator('#onboardingChecklist .setup-step').filter({ hasText: 'Create a verified recovery point' });
   await expect(recoveryStep).toHaveClass(/setup-step-unknown/);
   await expect(recoveryStep).toContainText('latest 100 results');
   await expect(primary).toHaveAttribute('href', '#site=setup-b&tab=backups');
+  await expect(restoreStep).toHaveClass(/setup-step-next/);
+  await expect(restoreStep).toContainText('database import and application HTTP recovery are not proven');
+
+  currentRecovery.last_rehearsal = {
+    backup: 'backup-a', outcome: 'failed', level: 'application', error: 'database import failed',
+  };
+  await page.locator('#refreshOnboarding').click();
+  await expect(restoreStep).toHaveClass(/setup-step-attention/);
+  await expect(restoreStep).toContainText('database import failed');
+  currentRecovery.last_rehearsal = null;
 
   currentBackups = [
     { site: 'setup-a', verified_at: '2026-11-20T12:00:00Z' },
     { site: 'setup-b', verified_at: '2026-11-20T13:00:00Z' },
   ];
+  currentRecovery.last_passed_rehearsal = {
+    backup: 'backup-a', outcome: 'passed', level: 'application', duration_ms: 42000,
+  };
   await page.locator('#refreshOnboarding').click();
   await expect(recoveryStep).toHaveClass(/setup-step-done/);
   await expect(recoveryStep).toContainText('Every active site has an integrity-verified backup');
+  await expect(restoreStep).toHaveClass(/setup-step-done/);
+  await expect(restoreStep).toContainText('passed application-level restore proof in 42 seconds');
+  await expect(restoreStep.getByRole('link', { name: 'Review restore proof' })).toHaveAttribute('href', '#site=setup-a&tab=backups');
 
   await page.locator('#siteCreateTemplate').selectOption('wordpress');
   await expect(page.locator('#wordpressCreateFields')).toContainText('Before you create this site');

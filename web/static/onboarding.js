@@ -63,6 +63,18 @@
     const backups = backupsResult.status === 'fulfilled' && Array.isArray(backupsResult.value.backups)
       ? backupsResult.value.backups
       : null;
+    let recoverySite = null;
+    let recoveryResult = null;
+    if (isAdmin && sites && sites.length > 0) {
+      const verifiedSiteNames = new Set((backups || [])
+        .filter((backup) => backup.verified_at && Number.isFinite(Date.parse(backup.verified_at)))
+        .map((backup) => backup.site));
+      recoverySite = sites.find((site) => verifiedSiteNames.has(site.site)) || sites[0];
+      [recoveryResult] = await Promise.allSettled([
+        StepanelAPI.get(`/api/sites/recovery/${encodeURIComponent(recoverySite.site)}`, { cache: 'no-store', signal }),
+      ]);
+    }
+    if (generation !== requestGeneration) return;
     const steps = [];
 
     if (isAdmin) {
@@ -150,6 +162,42 @@
         href: firstMissing ? `#site=${encodeURIComponent(firstMissing.site)}&tab=backups` : '#sites',
         label: firstMissing ? `Review ${firstMissing.site} backups` : latest ? 'Review backups' : 'Review site backups',
         state: backupState,
+      });
+    }
+
+    if (isAdmin && recoverySite) {
+      const recovery = recoveryResult?.status === 'fulfilled' ? recoveryResult.value : null;
+      const latestBackup = recovery?.last_backup;
+      const latestPassed = recovery?.last_passed_rehearsal;
+      const latestAttempt = recovery?.last_rehearsal;
+      const applicationProven = Boolean(
+        latestBackup && latestPassed && latestPassed.outcome === 'passed' &&
+        latestPassed.level === 'application' && latestPassed.backup === latestBackup.name,
+      );
+      let state = 'next';
+      let detail = 'No application-level restore proof is recorded. Create a verified backup, then rehearse its restore and require a database-backed HTTP check.';
+      if (!recovery) {
+        state = 'unknown';
+        detail = `Restore evidence for ${recoverySite.site} could not be checked: ${message(recoveryResult?.reason)}.`;
+      } else if (applicationProven) {
+        state = 'done';
+        detail = `The newest recovery point for ${recoverySite.site} passed application-level restore proof in ${Math.max(0, Math.round((latestPassed.duration_ms || 0) / 1000))} seconds. This is measured evidence, not an RTO guarantee.`;
+      } else if (!latestBackup) {
+        detail = `${recoverySite.site} has no recovery point yet. Create and verify a backup before running a restore rehearsal.`;
+      } else if (latestAttempt?.backup === latestBackup.name && latestAttempt.outcome === 'failed') {
+        state = 'attention';
+        detail = `The latest restore rehearsal for ${latestBackup.name} failed: ${latestAttempt.error || 'failure detail unavailable'}. Resolve the reported issue and run the rehearsal again.`;
+      } else if (latestPassed?.backup === latestBackup.name && latestPassed.level !== 'application') {
+        detail = `${latestBackup.name} passed archive-level rehearsal, but database import and application HTTP recovery are not proven. Run the application-level restore rehearsal.`;
+      } else if (latestPassed) {
+        detail = `The newest recovery point ${latestBackup.name} has no matching application-level proof. The last passing proof was for ${latestPassed.backup}; rehearse the newest backup.`;
+      }
+      steps.push({
+        title: `Prove a full restore for ${recoverySite.site}`,
+        detail,
+        href: `#site=${encodeURIComponent(recoverySite.site)}&tab=backups`,
+        label: applicationProven ? 'Review restore proof' : `Rehearse ${recoverySite.site} restore`,
+        state,
       });
     }
 
