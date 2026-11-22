@@ -208,7 +208,10 @@ Before changing anything, the installer prints a host preflight:
 
 - **HOST REQUIREMENT**: confirms that `systemctl` and a running systemd
   manager are present before package or service changes. For a local UI-only
-  evaluation without host integration, use `make evaluate` instead.
+  evaluation without host integration, use `make evaluate` instead. It also
+  checks enforced user quotas on `/var/www` and the filesystem containing
+  `/home` before package changes. Missing project quotas are reported as a
+  limitation for Git deployments rather than a blocker for basic hosting.
 - **SUPPORT TIER**: identifies the recommended Ubuntu 24.04 + Caddy + MariaDB
   profile, the six current-code Operator Beta smoke combinations, or a
   package-compatible combination outside that smoke matrix. This is evidence

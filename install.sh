@@ -335,6 +335,8 @@ preflight_blockers=()
 . "$ROOT_DIR/deploy/lib/install-service-state.sh"
 . "$ROOT_DIR/deploy/lib/install-support-tier.sh"
 . "$ROOT_DIR/deploy/lib/install-systemd-preflight.sh"
+. "$ROOT_DIR/deploy/integrations/stepanel-quota-state.sh"
+. "$ROOT_DIR/deploy/lib/install-quota-preflight.sh"
 MAIL_EXIM_SERVICE=$([[ "$PKG" == apt ]] && printf exim4 || printf exim)
 MAIL_SPAM_SERVICE=$([[ "$PKG" == apt ]] && printf spamassassin || printf spamd)
 INSTALL_HOST_SERVICES=(apache2 httpd caddy lsws "$MAIL_EXIM_SERVICE" dovecot "$MAIL_SPAM_SERVICE")
@@ -344,6 +346,19 @@ if systemd_preflight=$(install_preflight_systemd); then
   echo "HOST REQUIREMENT: $systemd_preflight"
 else
   preflight_blockers+=("$systemd_preflight")
+fi
+if (( UNSAFE_LAB == 0 )); then
+  if quota_preflight=$(install_preflight_user_quotas /var/www /home); then
+    echo "HOST REQUIREMENT: $quota_preflight"
+  else
+    preflight_blockers+=("$quota_preflight")
+  fi
+  if stepanel_project_quota_active /var/www >/dev/null 2>&1; then
+    echo 'OPTIONAL HOST CAPABILITY: project quotas are active; Git deployment quotas can be enforced.'
+  else
+    echo 'OPTIONAL HOST CAPABILITY: project quotas are not active; Git deployments and release pipelines will be unavailable.'
+    echo '  To enable them, mount /var/www with prjquota; ext4 also needs the project and quota filesystem features.'
+  fi
 fi
 echo "DETECTED:"
 [[ -f "$ENV_FILE" ]] && echo "  existing StePanel installation ($ENV_FILE); this run is an upgrade"
