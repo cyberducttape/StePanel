@@ -9,8 +9,18 @@
   reaches build or `sudo`.
 - Extended the bootstrap contract test to cover missing Go and Go 1.20, in
   addition to the successful build-before-sudo and unsupported-flag cases.
-  `bash scripts/test-install-guided.sh`, shell syntax, and ShellCheck pass.
-  Exact-source hosted CI is pending.
+  `bash scripts/test-install-guided.sh`, full `make shell-contract-check`,
+  shell syntax, ShellCheck, and documentation checks pass. Exact-source CI
+  [45012500672](https://github.com/cyberducttape/StePanel/actions/runs/45012500672)
+  passed on `a3cbb37a`, including Go tests, race tests, ENOSPC and database
+  restore drills, and browser E2E; Documentation
+  [45012500720](https://github.com/cyberducttape/StePanel/actions/runs/45012500720)
+  and CodeQL
+  [45012500763](https://github.com/cyberducttape/StePanel/actions/runs/45012500763)
+  passed. Exact-source report
+  [45014390695](https://github.com/cyberducttape/StePanel/actions/runs/45014390695)
+  records three checks passed and six incomplete; the packaged-host smoke is
+  equivalent by code and passed on `b2e95a3a`.
 
 ## Verify the exact-source Ubuntu packaged install — 2026-11-22
 

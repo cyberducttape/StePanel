@@ -32,7 +32,10 @@ evaluation, or use the source bootstrap to build as an unprivileged user and
 then start the guided native installer. The source bootstrap now checks for
 Go 1.21+ before building and prints the recommended Ubuntu 24.04 prerequisite
 command when Go is missing or too old; its contract test verifies it exits
-before building or invoking `sudo`. The setup guidance and installer
+before building or invoking `sudo`. Exact-source CI on `a3cbb37a` passed the
+contract, full Go suite, race suite, release checks, and browser workflow
+([integration run 45012500672](https://github.com/cyberducttape/StePanel/actions/runs/45012500672));
+Documentation and CodeQL also passed. The setup guidance and installer
 preflight identify Ubuntu 24.04 + Caddy + MariaDB as the recommended Beta
 profile. The latest installed-host smoke on code source `b2e95a3a` passed on
 Ubuntu 24.04 + Caddy + MariaDB ([host run
