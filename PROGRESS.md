@@ -1,5 +1,20 @@
 # Production-readiness progress
 
+## Refresh authoritative first-install evidence — 2026-11-22
+
+- Updated `docs/V1_PRODUCTION_GATES.md` to make the latest exact-source Ubuntu
+  24.04 + Caddy + MariaDB installed-host smoke easy to find. Run
+  [45002811271](https://github.com/cyberducttape/StePanel/actions/runs/45002811271)
+  passed on `94fbf293`; the installer completed optional `spamd.service`
+  handling and the database-backed WordPress HTTPS recovery proof measured
+  4.422 seconds. One disposable-host iteration is not repeated certification;
+  the release remains NO-GO with the documented host, power-loss, quota,
+  capacity, and tagged-archive evidence outstanding.
+- Local release metadata, documentation links, source-reference checks, and
+  `git diff --check` passed. Exact-source Documentation and generated release
+  evidence workflows passed on `8a280372`; CodeQL is running on that docs-only
+  commit.
+
 ## Correct Ubuntu's optional SpamAssassin service name — 2026-11-22
 
 - The passing installed-host log for run [44998862460](https://github.com/cyberducttape/StePanel/actions/runs/44998862460) exposed `systemctl disable --now spamassassin` failing because Ubuntu 24.04 ships `spamd.service`. Canonical's [Ubuntu 24.04 package file list](https://packages.ubuntu.com/noble/all/spamd/filelist) confirms the unit path; Debian's [Bookworm `spamd` package](https://packages.debian.org/bookworm/spamd) also provides that daemon as a separate package.
