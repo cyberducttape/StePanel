@@ -3,9 +3,10 @@
 // (including proving the authenticator app and the offsite backup remote
 // work), generates all keys, and produces the settings install.sh needs.
 //
-// The guide performs no installation itself and never prints secrets. Side
-// effects that touch the host (hashing, clock, rclone) go through Host so the
-// flow is testable with scripted input.
+// The guide performs no installation itself. It displays only the one-time
+// authenticator enrollment material; passwords and generated encryption keys
+// are never printed. Host side effects (hashing, clock, rclone) go through
+// Host so the flow is testable with scripted input.
 package setup
 
 import (
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/domainname"
+	"github.com/skip2/go-qrcode"
 )
 
 // ErrCancelled is returned when the operator declines to continue or input
@@ -538,10 +540,17 @@ func (g *Guide) twoFactor(a *Answers) error {
 	}
 	uri := (&url.URL{Scheme: "otpauth", Host: "totp", Path: "/StePanel:" + a.AdminUsername + "@" + a.PanelHostname,
 		RawQuery: url.Values{"secret": {secret}, "issuer": {"StePanel"}}.Encode()}).String()
+	qr, err := qrcode.New(uri, qrcode.Medium)
+	if err != nil {
+		return fmt.Errorf("create authenticator QR code: %w", err)
+	}
 	g.say("Administrators sign in with a password and a 6-digit code from an")
 	g.say("authenticator app (Google Authenticator, 1Password, Bitwarden, Authy, ...).")
 	g.say("")
-	g.say("In the app, choose \"Enter a setup key\" and type:")
+	g.say("Scan this QR code in your authenticator app:")
+	g.say("")
+	g.say("%s", qr.ToSmallString(false))
+	g.say("If scanning is unavailable, choose \"Enter a setup key\" and type:")
 	g.say("")
 	g.say("    %s", strings.Join(grouped, " "))
 	g.say("")

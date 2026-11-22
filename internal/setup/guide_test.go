@@ -116,10 +116,15 @@ func TestGuideAcceptsDefaults(t *testing.T) {
 		"Ubuntu 24.04 + Caddy + MariaDB",
 		"Recommended",
 		"Caddy + MariaDB",
+		"Scan this QR code in your authenticator app",
+		"If scanning is unavailable, choose \"Enter a setup key\"",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("setup transcript missing support guidance %q", want)
 		}
+	}
+	if !strings.ContainsAny(out, "▀▄█") {
+		t.Fatal("setup transcript does not contain a terminal QR code")
 	}
 	if answers.PanelHostname != "panel.example.org" || answers.WebServer != "caddy" || answers.DBEngine != "mariadb" || answers.AdminUsername != "admin" {
 		t.Fatalf("answers = %+v", answers)

@@ -80,7 +80,9 @@ func TestInstallDocsProvideEverySecretTheManifestsRequire(t *testing.T) {
 		t.Fatal(err)
 	}
 	guide := string(installationGuide)
-	if !strings.Contains(guide, "asks for the current code") || !strings.Contains(guide, "generates the six keys StePanel needs") {
+	if !strings.Contains(guide, "QR code printed in the terminal") ||
+		!strings.Contains(guide, "code before setup continues") ||
+		!strings.Contains(guide, "generates the six keys StePanel needs") {
 		t.Error("installation guide must describe guided TOTP verification and secret generation")
 	}
 }

@@ -241,9 +241,9 @@ The guide walks through six steps and checks every answer before moving on:
    credentials.
 4. **Administrator**: username and password (entered twice, never shown or
    stored in plain text).
-5. **Authenticator app**: the guide shows a setup key and an `otpauth://`
-   link, then asks for the current code, so a mistyped key cannot lock you
-   out.
+5. **Authenticator app**: scan the QR code printed in the terminal, or use
+   the grouped setup key or `otpauth://` link as a fallback. Enter the current
+   code before setup continues, so a mistyped key cannot lock you out.
 6. **Optional features**: Fail2ban (with your trusted addresses), Node.js,
    malware scanning, and a database tool.
 

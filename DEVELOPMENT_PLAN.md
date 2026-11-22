@@ -2206,10 +2206,12 @@ gates.
 
 **Status:** Implemented locally; focused backend, API-contract, frontend, and
 customer-browser checks pass. Exact-source hosted CI is pending. The account
-page now requests a one-time QR/setup response, offers a copyable seed if QR
+page requests a one-time QR/setup response, offers a copyable seed if QR
 scanning is unavailable, and enables MFA only after the customer enters a
-matching authenticator code. The setup response is marked `no-store` and the
-seed is not persisted until verification.
+matching authenticator code. The native setup wizard now prints a terminal QR
+for the initial administrator, with the grouped seed and `otpauth://` link as
+fallbacks. Setup responses are `no-store`; the customer's new seed is not
+persisted until verification.
 
 **Acceptance criteria**
 
@@ -2221,4 +2223,6 @@ seed is not persisted until verification.
 - Browser coverage verifies the setup, code submission, and secret removal
   after success; backend tests reject an incorrect code and accept a valid one.
 - OpenAPI, documentation references, formatting, and full repository CI pass.
+- Initial administrator enrollment can scan the terminal QR or use either
+  fallback; the setup guide test confirms these instructions are present.
 

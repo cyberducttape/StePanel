@@ -6,6 +6,10 @@
   manual key for the signed-in customer. It enables MFA only after a valid
   authenticator code is submitted; the generated secret is not stored before
   verification. The QR/setup response uses `Cache-Control: no-store, private`.
+- The native setup wizard now prints a terminal-scannable QR for the
+  administrator's authenticator setup, keeping the grouped key and
+  `otpauth://` link as fallbacks. The installation guide describes all three
+  options. The setup package tests pass.
 - Added a regression proving setup data is a valid PNG/otpauth payload, a wrong
   code does not change the saved seed, and a valid code completes enrollment.
   The customer-panel Playwright journey passed, including accessibility checks
@@ -13,7 +17,9 @@
   `make fmt-check api-check`, JavaScript syntax checks, and focused Go race
   tests passed. Full `make check` passed on the final tree, including
   `go vet ./...` and `GOMAXPROCS=2 go test -p 1 -timeout 10m ./...`.
-- Exact-source hosted CI has not yet run for this feature.
+- Exact-source hosted integration, browser E2E, docs, CodeQL, and release
+  evidence workflows are running for commit `8c9a2677`; browser E2E, docs,
+  and release evidence have passed so far.
 
 ## Verify the first-install wizard and packaged host path — 2026-11-22
 
