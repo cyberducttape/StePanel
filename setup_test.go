@@ -188,8 +188,8 @@ func TestSetupHostUsesEmbeddedInstallerSupportTierClassifier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(tier, "caddy") || !strings.Contains(tier, "mariadb") ||
-		!(strings.Contains(tier, "BETA PROFILE") || strings.Contains(tier, "SUPPORT TIER:")) {
+	if !strings.Contains(strings.ToLower(tier), "caddy") || !strings.Contains(strings.ToLower(tier), "mariadb") ||
+		!strings.Contains(strings.ToLower(tier), "beta") {
 		t.Fatalf("unexpected support-tier result: %q", tier)
 	}
 }
