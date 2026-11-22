@@ -35,8 +35,10 @@ first-host application proof remain open.
   installer, helpers, and assets. The artifact verifier requires the support-
   tier, systemd-, quota-, package-, database-version-, change-plan-, and
   env-file helpers.
-  A clean-host artifact smoke verifies the documented archive workflow before
-  any release advertises it.
+  The artifact verifier checks archive contents and executes the packaged
+  setup command on the native CI architecture. A clean-host artifact smoke
+  verifies the full documented archive workflow before any release advertises
+  it.
 - Installer preflight reports OS, web-server, and database support tier and
   actionable failed prerequisites (including availability of required base,
   PHP, database, web-server, and selected optional-feature packages in

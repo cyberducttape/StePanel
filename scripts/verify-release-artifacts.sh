@@ -33,12 +33,15 @@ if [ "${#archives[@]}" -eq 0 ]; then
     echo "✗ FAIL: no .tar.gz release archives found" >&2
     exit 1
 fi
+verification_tmp=$(mktemp -d)
+trap 'rm -rf "$verification_tmp"' EXIT
 
 # Check for .tar.gz files and verify they are actually gzipped
 echo "Checking tar.gz compression..."
 for archive in "${archives[@]}"; do
+    archive_listing="$verification_tmp/$(basename "$archive").contents"
     # Check file magic number for gzip (1f 8b)
-    if file "$archive" | grep -q "gzip compressed"; then
+    if file "$archive" | grep -F "gzip compressed" >/dev/null; then
         echo "✓ $archive is properly gzipped"
     else
         echo "✗ FAIL: $archive is NOT gzipped (mislabeled)" >&2
@@ -46,7 +49,7 @@ for archive in "${archives[@]}"; do
     fi
 
     # Verify archive can be extracted
-    if tar -tzf "$archive" > /dev/null 2>&1; then
+    if tar -tzf "$archive" > "$archive_listing" 2>/dev/null; then
         echo "✓ $archive can be extracted successfully"
     else
         echo "✗ FAIL: $archive cannot be extracted" >&2
@@ -87,12 +90,13 @@ echo
 echo "Checking for required files in archives..."
 for archive in "${archives[@]}"; do
     ARCHIVE_NAME=$(basename "$archive")
+    archive_listing="$verification_tmp/$ARCHIVE_NAME.contents"
     echo
     echo "Verifying $ARCHIVE_NAME contents..."
 
     # Check for required files
     for required_file in LICENSE README.md SECURITY.md; do
-        if tar -tzf "$archive" | grep -Eq "(^|/)${required_file}$"; then
+        if grep -Eq "(^|/)${required_file}$" "$archive_listing"; then
             echo "  ✓ $required_file present"
         else
             echo "  ✗ FAIL: $required_file missing" >&2
@@ -105,7 +109,7 @@ for archive in "${archives[@]}"; do
         docs/V1_PRODUCTION_GATES.md \
         docs/PRODUCTION_READINESS.md \
         docs/lab-results/2026-11-20-six-host-install-smoke-059ba72.md; do
-        if tar -tzf "$archive" | grep -Fqx "$required_path"; then
+        if grep -Fqx "$required_path" "$archive_listing"; then
             echo "  ✓ $required_path present"
         else
             echo "  ✗ FAIL: $required_path missing" >&2
@@ -113,28 +117,28 @@ for archive in "${archives[@]}"; do
         fi
     done
 
-    if tar -tzf "$archive" | grep -Eq '(^|/)deploy/lib/install-postcommit\.sh$'; then
+    if grep -Eq '(^|/)deploy/lib/install-postcommit\.sh$' "$archive_listing"; then
         echo "  ✓ installer post-commit recovery helper present"
     else
         echo "  ✗ FAIL: deploy/lib/install-postcommit.sh missing" >&2
         exit 1
     fi
 
-    if tar -tzf "$archive" | grep -Eq '(^|/)deploy/lib/install-upgrade-retention\.sh$'; then
+    if grep -Eq '(^|/)deploy/lib/install-upgrade-retention\.sh$' "$archive_listing"; then
         echo "  ✓ installer upgrade-rollback configuration retention present"
     else
         echo "  ✗ FAIL: deploy/lib/install-upgrade-retention.sh missing" >&2
         exit 1
     fi
 
-    if tar -tzf "$archive" | grep -Eq '(^|/)deploy/lib/vsftpd-config-validation\.sh$'; then
+    if grep -Eq '(^|/)deploy/lib/vsftpd-config-validation\.sh$' "$archive_listing"; then
         echo "  ✓ bounded vsftpd configuration validator present"
     else
         echo "  ✗ FAIL: deploy/lib/vsftpd-config-validation.sh missing" >&2
         exit 1
     fi
 
-    if tar -tzf "$archive" | grep -Fqx 'deploy/lib/install-support-tier.sh'; then
+    if grep -Fqx 'deploy/lib/install-support-tier.sh' "$archive_listing"; then
         echo "  ✓ installer support-tier classifier present"
     else
         echo "  ✗ FAIL: deploy/lib/install-support-tier.sh missing" >&2
@@ -148,7 +152,7 @@ for archive in "${archives[@]}"; do
         deploy/lib/install-database-version-preflight.sh \
         deploy/lib/install-change-plan.sh \
         deploy/lib/install-env-file.sh; do
-        if tar -tzf "$archive" | grep -Fqx "$required_helper"; then
+        if grep -Fqx "$required_helper" "$archive_listing"; then
             echo "  ✓ $required_helper present"
         else
             echo "  ✗ FAIL: $required_helper missing" >&2
@@ -157,13 +161,13 @@ for archive in "${archives[@]}"; do
     done
 
     # Verify binary is present
-    if tar -tzf "$archive" | grep -Eq '(^|/)stepanel$'; then
+    if grep -Eq '(^|/)stepanel$' "$archive_listing"; then
         echo "  ✓ stepanel binary present"
     else
         echo "  ✗ FAIL: stepanel binary not found" >&2
         exit 1
     fi
-    if tar -tzf "$archive" | grep -Eq '(^|/)stepanel-root$'; then
+    if grep -Eq '(^|/)stepanel-root$' "$archive_listing"; then
         echo "  ✓ stepanel-root binary present"
     else
         echo "  ✗ FAIL: stepanel-root binary not found" >&2
@@ -191,11 +195,9 @@ if [[ -n $release_arch ]]; then
         echo "✗ FAIL: no linux/$release_arch archive available for setup smoke" >&2
         exit 1
     fi
-    setup_smoke_dir=$(mktemp -d)
-    trap 'rm -rf "$setup_smoke_dir"' EXIT
-    tar -xOf "$host_archive" stepanel > "$setup_smoke_dir/stepanel"
-    chmod 0755 "$setup_smoke_dir/stepanel"
-    setup_help=$("$setup_smoke_dir/stepanel" setup --help 2>&1) || {
+    tar -xOf "$host_archive" stepanel > "$verification_tmp/stepanel"
+    chmod 0755 "$verification_tmp/stepanel"
+    setup_help=$("$verification_tmp/stepanel" setup --help 2>&1) || {
         echo '✗ FAIL: packaged stepanel setup --help did not run' >&2
         printf '%s\n' "$setup_help" >&2
         exit 1

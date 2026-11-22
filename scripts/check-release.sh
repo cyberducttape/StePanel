@@ -48,6 +48,10 @@ if ! grep -Fq 'stepanel" setup --help' scripts/verify-release-artifacts.sh ||
   echo "release artifact verification does not run the packaged setup command" >&2
   exit 1
 fi
+if grep -Eq 'tar -tzf .*\|.*grep' scripts/verify-release-artifacts.sh; then
+  echo "release artifact verification pipes tar listings into early-exit grep" >&2
+  exit 1
+fi
 if grep -Fq 'sudoers_tmp' install.sh; then
   echo "install.sh still provisions a panel sudoers policy" >&2
   exit 1

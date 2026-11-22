@@ -3044,4 +3044,13 @@ does not close a current-source or power-loss gate.
   archive and ran `stepanel setup --help` and `stepanel version`; both
   succeeded and reported the expected source commit. This is a package smoke,
   not a tagged release or installed-host test.
-- Release-artifact CI now extracts the native-architecture binary and checks that the packaged `setup` command starts and exposes its expected options.
+- Release-artifact CI now extracts the native-architecture binary and checks
+  that the packaged `setup` command starts and exposes its expected options.
+- Running the full verifier against the snapshot with synthetic local evidence
+  uncovered a `pipefail` false negative: `tar -tzf | grep -q` caused the
+  verifier to report an existing `LICENSE` as missing because grep closed the
+  pipe early. The verifier now records each archive listing once and searches
+  the file; `check-release.sh` rejects tar-listing/early-grep pipelines. The
+  full archive verifier passes on both snapshot architectures, including the
+  packaged CLI smoke. The fixture uses synthetic evidence/SBOM only to exercise
+  the verifier; it does not constitute signed release evidence.
