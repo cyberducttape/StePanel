@@ -70,6 +70,12 @@ if ! grep -Fq 'There is no currently published stable release archive supported 
   echo "first-install documentation recommends the known-broken v0.7.0 archive instead of the current-source Beta path" >&2
   exit 1
 fi
+if ! grep -Fq 'bounded file manager. Billing remains outside the beta customer boundary.' docs/FEATURES.md ||
+   ! grep -Fq 'supports browsing, text editing, bounded file transfers' docs/FEATURES.md ||
+   grep -Fq 'Customer-facing file manager' docs/FEATURES.md; then
+  echo "feature matrix does not match the shipped customer file-manager scope" >&2
+  exit 1
+fi
 if ! grep -Fq 'StePanel_${release#v}_linux_${arch}.tar.gz' docs/UPGRADE_v0.6.0_to_v0.7.0.md ||
    grep -Fq 'stepanel_${release#v}_linux_${arch}.tar.gz' docs/UPGRADE_v0.6.0_to_v0.7.0.md; then
   echo "v0.7.0 upgrade command does not match the published StePanel archive name" >&2

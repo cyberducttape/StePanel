@@ -257,8 +257,8 @@ Shipped in v0.7.0 and earlier:
   Redis allocations, SSH/deploy keys, PHP settings, workers, scheduled tasks,
   logs, verified backup creation, restore-to-staging, owner-managed
   delegated team roles, owner-initiated blank PHP and WordPress site creation
-  within the plan, and WordPress staging promotion for their own sites. File
-  management and billing remain outside the beta customer boundary.
+  within the plan, WordPress staging promotion for their own sites, and a
+  bounded file manager. Billing remains outside the beta customer boundary.
 - PITR/WAL or binlog management, replication orchestration, configuration
   mutation, and automatic failover remain operator-managed and deliberately
   have no unsafe simulated controls.
@@ -279,13 +279,16 @@ must be implemented before offering untrusted customer access:
   CPU/memory/process/PHP-worker/disk/inode resource envelopes are now shipped;
   bandwidth and provider-specific database, mail, and Redis quotas remain
   unfinished.
-- Customer-facing file manager, Git-provider App/OAuth integrations,
-  notifications, and full self-service production restore remain unfinished.
-  WordPress staging promotion is shipped as a beta; general database promotion
-  for other applications is not. The shipped deploy-key, resource-profile, Security Center,
-  scheduled-task, and restore-to-staging APIs are tenant-enforced on the
-  single host, but remain beta controls until delegated roles, durable
-  multi-host state, and the broader provider lifecycle are complete. Owner,
+- Git-provider App/OAuth integrations, notifications, and full self-service
+  production restore remain unfinished. The customer-facing beta file manager
+  supports browsing, text editing, bounded file transfers, directory creation,
+  rename, and deletion; it does not provide permission editing or bulk-transfer
+  workflows. WordPress staging promotion is shipped as a beta; general database
+  promotion for other applications is not. The shipped deploy-key, resource
+  profile, Security Center, scheduled-task, and restore-to-staging APIs are
+  tenant-enforced on the single host, but remain beta controls until delegated
+  roles, durable multi-host state, and the broader provider lifecycle are
+  complete. Owner,
   manager, developer, and viewer roles are shipped for the customer tenant;
   scoped support and reseller roles remain unfinished.
 
