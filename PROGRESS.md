@@ -1,5 +1,25 @@
 # Production-readiness progress
 
+## Exact-source Ubuntu first-install and WordPress recovery passed — 2026-11-22
+
+- The GoReleaser snapshot from source `e04235f838834f32b6a54d40cc57e50648c00339`
+  installed on a disposable Ubuntu 24.04 systemd container with Caddy and
+  MariaDB. Exact-source integration CI
+  [44990700232](https://github.com/cyberducttape/StePanel/actions/runs/44990700232)
+  and host smoke
+  [44990700250](https://github.com/cyberducttape/StePanel/actions/runs/44990700250)
+  passed.
+- The installed WordPress restore proof served a database-backed canary over
+  HTTPS and measured 4.351 seconds RTO. The host also recovered from MariaDB
+  and broker outages and passed one recovery-matrix iteration, plus the
+  documented import, backup/restore, termination, suspension, deployment, and
+  broker interruption checks.
+- Reviewed evidence and artifact location:
+  [`2026-11-22-ubuntu-first-host-smoke-e04235f.md`](docs/lab-results/2026-11-22-ubuntu-first-host-smoke-e04235f.md).
+  This is one container-host pass, not repeated certification, physical-host
+  or power-loss evidence, broad ENOSPC/quota certification, or a clean-host
+  test of an official tagged archive. Production remains NO-GO.
+
 ## Verify the current local evaluation path end to end — 2026-11-22
 
 - Rebuilt the current panel with `make build-panel`, then launched the
@@ -23,13 +43,9 @@
   runs retain a bounded direct-fetch fallback. The same fixture fetch passed
   locally with both expected hashes.
 - Shell syntax, ShellCheck, and `make release-check` passed. Exact-source CI
-  [44990700232](https://github.com/cyberducttape/StePanel/actions/runs/44990700232)
-  passed on `e04235f8`, including Go/race tests, ENOSPC and database restore
-  drills, and UI E2E. The new host run
-  [44990700250](https://github.com/cyberducttape/StePanel/actions/runs/44990700250)
-  has passed archive extraction, fixture staging, and host startup; native
-  installation and WordPress recovery remain in progress. No recovery-proof
-  success is claimed for the failed earlier run.
+  and host results are summarized in the 2026-11-22 entry above. The earlier
+  fixture-download failure remains documented as a resolved workflow issue;
+  it is not counted as a recovery-proof pass.
 
 ## Make manual native builds installable — 2026-11-21
 
@@ -70,9 +86,10 @@
   action-SHA, release, shell-syntax, and whitespace checks pass.
 - Exact-source hosted run
   [44988484953](https://github.com/cyberducttape/StePanel/actions/runs/44988484953)
-  built and extracted the archive successfully; the disposable host is
-  starting. Installer, recovery, and identity-repair results are pending.
-  This tests a release-shaped snapshot, not an official tagged archive.
+  built and extracted the archive but timed out fetching WordPress/WP-CLI
+  fixtures from the disposable host. The following entry records the fixture
+  staging correction and successful rerun. This tests a release-shaped
+  snapshot, not an official tagged archive.
 
 ## Exact-source Ubuntu first-install and recovery smoke passed — 2026-11-21
 

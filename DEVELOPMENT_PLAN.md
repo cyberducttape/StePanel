@@ -20,9 +20,13 @@ documentation requirements are in place. The setup greeting now separates
 the no-host-change evaluation path from native installation, and build docs
 explain the automatic pinned-toolchain download. A GoReleaser snapshot now
 verifies packaged guided-setup ordering on amd64 and arm64. Exact-source
-Ubuntu 24.04 + Caddy + MariaDB installed-host smoke and WordPress recovery
-proof passed once on `67b40760`; repeated host acceptance and a clean-host
-smoke of the official tagged release archive remain open. On exact source
+Ubuntu 24.04 + Caddy + MariaDB smoke passed once on `e04235f8`: the snapshot
+installed on a disposable systemd container, WordPress HTTPS/database
+recovery proof passed with measured RTO 4.351 s, and one recovery-matrix
+iteration passed. Repeated host acceptance and a clean-host smoke of the
+official tagged release archive remain open. See the
+[`e04235f8` host-smoke report](docs/lab-results/2026-11-22-ubuntu-first-host-smoke-e04235f.md).
+On exact source
 `656f12d2`, the disposable seeded browser journey passed the first-run
 checklist and WordPress-creation entry point. See the
 [`67b40760` host-smoke report](docs/lab-results/2026-11-21-ubuntu-first-host-smoke-67b4076.md).
@@ -102,10 +106,12 @@ both executables as the invoking user before elevating for the installer.
   fixtures on the runner before host mutation and mounts them read-only for
   recovery. On exact source `e04235f8`, full integration CI passed
   ([44990700232](https://github.com/cyberducttape/StePanel/actions/runs/44990700232));
-  the host rerun [44990700250](https://github.com/cyberducttape/StePanel/actions/runs/44990700250)
-  has passed archive extraction, fixture staging, and host startup, while its
-  install/recovery phase remains in progress. This snapshot workflow does not
-  replace a clean-host test of the official tagged archive before release.
+  host run [44990700250](https://github.com/cyberducttape/StePanel/actions/runs/44990700250)
+  passed installation, WordPress HTTPS/database restore proof (4.351 s),
+  database/broker outage recovery, and one recovery-matrix iteration. Matching
+  integration CI [44990700232](https://github.com/cyberducttape/StePanel/actions/runs/44990700232)
+  passed on the same source. This snapshot workflow does not replace a
+  clean-host test of the official tagged archive or repeated certification.
 - Installer preflight reports OS, web-server, and database support tier and
   actionable failed prerequisites (including availability of required base,
   PHP, database, web-server, and selected optional-feature packages in

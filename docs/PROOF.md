@@ -6,13 +6,13 @@ latest result with a link to the CI run or reviewed report, and what that
 result does **not** prove. It is updated as evidence lands; the authoritative
 release decision is in [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md).
 
-Last reviewed: 2026-11-21.
+Last reviewed: 2026-11-22.
 
 ## Tested on real hosts
 
 | Claim | How it is tested | Latest result | Does not prove |
 | --- | --- | --- | --- |
-| It installs and recovers on the supported platforms | Fresh install, PHP sites, a recovery matrix, database and broker outages, and a WordPress restore over HTTP, on Ubuntu 24.04, AlmaLinux 9 and Rocky Linux 9 with Apache and Caddy | Passed once on all six combinations, WordPress recovery in 4.6–6.9 s ([report](./lab-results/2026-11-20-six-host-install-smoke-059ba72.md)) | Repeated runs; other operating systems; physical servers |
+| It installs and recovers on the tested profiles | Fresh install from a release-shaped snapshot, recovery matrix, database and broker outages, and a WordPress restore over HTTPS on Ubuntu 24.04 + Caddy + MariaDB | Latest exact-source run passed once; WordPress recovery 4.351 s ([run 44990700250](https://github.com/cyberducttape/StePanel/actions/runs/44990700250), [reviewed report](./lab-results/2026-11-22-ubuntu-first-host-smoke-e04235f.md)). Earlier-source six-host run passed once per combination ([report](./lab-results/2026-11-20-six-host-install-smoke-059ba72.md)) | Repeated runs; official tagged archive; physical servers; other untested combinations |
 | A server crash mid-operation does not corrupt sites or data | The whole virtual machine is killed (no shutdown, host disk cache bypassed) in the middle of a file restore, database restore, Git deployment, backup retention, and control-plane writes, then booted again | All five recovered correctly ([report](./lab-results/2026-11-20-kvm-abrupt-loss-operations-cache-none-c3e37eb.md)) | Physical power loss; repeated runs |
 | A backup interrupted by a crash leaves earlier backups usable | The virtual machine is killed while a backup is being written, booted again, and the backup set inspected | The interrupted job completed on recovery, both backups verified, the earlier one restored the original files, and a fresh backup completed ([run 44886289678](https://github.com/cyberducttape/StePanel/actions/runs/44886289678)) | Repeated runs; off-site targets |
 | An upgrade interrupted by a crash recovers | v0.6.0 and v0.7.0 hosts are upgraded; the guest is killed while the installer is changing files, booted again, and the upgrade rerun; customer site and database are checked, then rolled back and upgraded again | Passed for both versions ([run 44863673113](https://github.com/cyberducttape/StePanel/actions/runs/44863673113)) | AlmaLinux/Rocky upgrade paths; large installations |
