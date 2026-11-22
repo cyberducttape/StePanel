@@ -14,9 +14,19 @@
   real wizard's use of the installer classifier. The first root-package run
   exposed tests inheriting the host's Ubuntu 26.04 support tier; the setup test
   fake now provides a deterministic Ubuntu 24.04 profile instead.
-- `go test . -timeout 10m` passed (119.565s); `go test ./internal/setup`,
-  `go vet . ./internal/setup`, `make shell-contract-check`, `make release-check`,
-  documentation links/references (93 documents), and `git diff --check` passed.
+- The first hosted integration attempt found one stale test assertion that
+  rejected the classifier's valid “Recommended Beta profile” label. Updated
+  the assertion to require the selected stack and Beta classification; focused
+  and full local Go tests now pass. `go vet ./...`,
+  `make shell-contract-check`, and `make release-check` also pass.
+- Exact-source integration CI on `59bace77` passed, including Go tests,
+  coverage floors, race tests, recovery and ENOSPC drills, MySQL and PostgreSQL
+  restore checks, container validation, and browser E2E
+  ([45035144650](https://github.com/cyberducttape/StePanel/actions/runs/45035144650)).
+  CodeQL [45035144648](https://github.com/cyberducttape/StePanel/actions/runs/45035144648)
+  and release evidence
+  [45035334625](https://github.com/cyberducttape/StePanel/actions/runs/45035334625)
+  also passed on that commit.
 - The operator sees the exact support decision earlier; the project still has
   no published stable fresh-install archive and production host certification
   remains open.
