@@ -14,8 +14,11 @@
   documentation links/references, and `git diff --check` passed. Full
   `make check` passed, including `go vet ./...` and the complete Go suite
   (root package 114.772s). Full-file ShellCheck reports the existing,
-  unrelated `public_root` sourced-variable warning at `install.sh:1461`.
-  Artifact snapshot and hosted host-smoke remain pending.
+  unrelated `public_root` sourced-variable warning at `install.sh:1461`. A
+  GoReleaser v2.17.1 snapshot from source `e498b155` built for amd64 and
+  arm64; both archives contain the database-version helper, checksums pass,
+  and the extracted amd64 setup help runs. Hosted CI and installed-host smoke
+  for `e498b155` are queued/pending, so no hosted pass is claimed.
 
 ## Check required packages before installer mutations — 2026-11-21
 
