@@ -3079,3 +3079,14 @@ does not close a current-source or power-loss gate.
   The packaged binary reports version 0.9.0 and the exact source commit. The
   fixture's evidence and SBOM are synthetic, so this is not signed release
   evidence or publication approval; no clean-host install was run.
+
+## Check backup prerequisites before collecting setup answers — 2026-11-21
+
+- The guided wizard now checks for rclone, at least one configured remote, and
+  a readable rclone configuration path before asking for a panel hostname,
+  administrator password, or MFA code. The selected backup destination is
+  still tested with a write/read/delete probe before settings are saved.
+- Regression coverage asserts missing rclone or a missing remote stops before
+  the guide consumes any answers, hashes a password, or verifies an MFA code.
+- Focused `go test ./internal/setup` passes. Full checks are running for the
+  final change before commit.

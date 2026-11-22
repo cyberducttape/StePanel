@@ -107,6 +107,12 @@ The guide asks seven questions and checks every answer before moving on:
 7. **Optional features**: Fail2ban (with your trusted addresses), Node.js,
    malware scanning, and a database tool.
 
+Before asking for any settings or credentials, the guide checks that rclone is
+installed, at least one remote is configured, and the configuration file can
+be located. If not, it prints the exact install/configure command and exits
+before setup answers are entered. It then tests the selected backup location
+by writing, reading, and deleting a small object.
+
 It then generates the six keys StePanel needs, saves everything to
 `stepanel-install.env` next to the installer (mode 600), shows the host
 preflight, and asks for confirmation before changing anything. If another web

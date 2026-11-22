@@ -151,9 +151,11 @@ func EncodeEnvFile(env [][2]string) ([]byte, error) {
 
 // Guide runs the interactive setup.
 type Guide struct {
-	term Terminal
-	out  io.Writer
-	host Host
+	term          Terminal
+	out           io.Writer
+	host          Host
+	rcloneRemotes []string
+	rcloneConfig  string
 }
 
 func NewGuide(term Terminal, out io.Writer, host Host) *Guide {
@@ -267,13 +269,17 @@ func (g *Guide) Run() (Answers, error) {
 	answers := Answers{Keys: map[string]string{}}
 	g.say("StePanel guided setup")
 	g.say("")
-	g.say("This asks %d short questions, checks each answer as you go, and", totalSteps)
-	g.say("generates every key for you. Press Enter to accept a [default].")
+	g.say("After checking backup-storage prerequisites, this asks %d short", totalSteps)
+	g.say("questions, checks each answer as you go, and generates every key for you.")
+	g.say("Press Enter to accept a [default].")
 	g.say("Nothing on this server changes until you confirm the installation.")
 	g.say("")
 	g.say("Support status: StePanel is Operator Beta, not production-certified.")
 	g.say("Most-tested starting point: Ubuntu 24.04 + Caddy + MariaDB.")
 	g.say("Other choices have less or no installed-host evidence; see the installation support matrix.")
+	if err := g.checkOffsitePrerequisites(); err != nil {
+		return Answers{}, err
+	}
 
 	if err := g.panelAddress(&answers); err != nil {
 		return Answers{}, err
@@ -312,6 +318,35 @@ func (g *Guide) Run() (Answers, error) {
 		return Answers{}, ErrCancelled
 	}
 	return answers, nil
+}
+
+// checkOffsitePrerequisites runs before collecting credentials so operators
+// discover a missing rclone installation or remote before doing setup work.
+func (g *Guide) checkOffsitePrerequisites() error {
+	g.say("")
+	g.say("Checking offsite-backup prerequisites before collecting setup answers.")
+	if !g.host.Rclone() {
+		g.say("  ✗ rclone is not installed. Install it with `sudo apt install rclone` (or `sudo dnf install rclone`), then configure a remote with `sudo rclone config` and run setup again.")
+		return fmt.Errorf("rclone is required for offsite backups: %w", ErrCancelled)
+	}
+	remotes, err := g.host.RcloneRemotes()
+	if err != nil {
+		g.say("  ✗ Could not read the rclone configuration: %v", err)
+		return fmt.Errorf("list rclone remotes: %w", err)
+	}
+	if len(remotes) == 0 {
+		g.say("  ✗ rclone is installed but no storage remote is configured. Run `sudo rclone config`, then run setup again.")
+		return fmt.Errorf("no rclone remote is configured: %w", ErrCancelled)
+	}
+	config, err := g.host.RcloneConfigFile()
+	if err != nil {
+		g.say("  ✗ Could not locate the rclone configuration: %v", err)
+		return fmt.Errorf("locate rclone configuration: %w", err)
+	}
+	g.rcloneRemotes = remotes
+	g.rcloneConfig = config
+	g.say("  ✓ rclone is ready. Configured remotes: %s", strings.Join(remotes, ", "))
+	return nil
 }
 
 func (g *Guide) panelAddress(a *Answers) error {
@@ -481,22 +516,9 @@ func (g *Guide) offsite(a *Answers) error {
 	g.say("StePanel requires a copy of every backup outside this server, so a")
 	g.say("lost disk or server never means lost sites. It uses rclone, which")
 	g.say("supports S3, Backblaze B2, Google Drive, SFTP, and many more.")
-	if !g.host.Rclone() {
-		g.say("")
-		g.say("  ✗ rclone is not installed. To continue:")
-		g.say("      1. Install it:  sudo apt install rclone   (or: sudo dnf install rclone)")
-		g.say("      2. Add a storage remote:  sudo rclone config")
-		g.say("      3. Run this setup again.")
-		return fmt.Errorf("rclone is required for offsite backups: %w", ErrCancelled)
-	}
-	remotes, err := g.host.RcloneRemotes()
-	if err != nil {
-		return fmt.Errorf("list rclone remotes: %w", err)
-	}
+	remotes := g.rcloneRemotes
 	if len(remotes) == 0 {
-		g.say("")
-		g.say("  ✗ rclone has no storage remotes yet. Add one with:  sudo rclone config")
-		g.say("    then run this setup again.")
+		g.say("  ✗ No configured rclone remote is available; rerun setup after configuring storage.")
 		return fmt.Errorf("no rclone remote is configured: %w", ErrCancelled)
 	}
 	g.say("")
@@ -534,11 +556,7 @@ func (g *Guide) offsite(a *Answers) error {
 		a.OffsiteTarget = target
 		break
 	}
-	config, err := g.host.RcloneConfigFile()
-	if err != nil {
-		return fmt.Errorf("locate rclone configuration: %w", err)
-	}
-	a.RcloneConfig = config
+	a.RcloneConfig = g.rcloneConfig
 	return nil
 }
 

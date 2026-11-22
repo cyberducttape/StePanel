@@ -177,11 +177,17 @@ func TestGuideStopsWithInstructionsWithoutRclone(t *testing.T) {
 	if !errors.Is(err, ErrCancelled) || !strings.Contains(out, "sudo rclone config") {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
+	if strings.Contains(out, "Step 1 of") || len(host.hashed) != 0 || host.codeChecks != 0 {
+		t.Fatalf("setup collected answers before reporting missing rclone:\n%s", out)
+	}
 	host = newHost()
 	host.remotes = nil
 	_, out, err = run(t, host, []string{"", "", "", "", "123456"}, []string{password, password})
-	if !errors.Is(err, ErrCancelled) || !strings.Contains(out, "no storage remotes") {
+	if !errors.Is(err, ErrCancelled) || !strings.Contains(out, "no storage remote is configured") {
 		t.Fatalf("err = %v\n%s", err, out)
+	}
+	if strings.Contains(out, "Step 1 of") || len(host.hashed) != 0 || host.codeChecks != 0 {
+		t.Fatalf("setup collected answers before reporting missing remote:\n%s", out)
 	}
 }
 
