@@ -1,6 +1,7 @@
 package rootbroker
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -127,6 +128,164 @@ func (c *Client) SiteCertificateStatus(ctx context.Context, site, domain string)
 		return CertificateStatus{}, errors.New("root broker returned no certificate status")
 	}
 	return *details.Certificate, nil
+}
+
+// FilesOpen asks the privileged broker to open one authorized site file and
+// returns a bounded streaming reader. File bytes travel outside the JSON
+// control response and are never materialized in panel memory.
+func (c *Client) FilesOpen(ctx context.Context, site, tenantID, rel string) (io.ReadCloser, int64, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, 0, err
+	}
+	req := &Request{RequestType: "files", Files: &FilesRequest{
+		Action: "download", Site: site, TenantID: tenantID, Path: rel, StreamResponse: true,
+	}}
+	if socketPath := strings.TrimSpace(os.Getenv("STEPANEL_ROOT_BROKER_SOCKET")); socketPath != "" {
+		return c.openFileSocket(ctx, req, socketPath)
+	}
+	if labDirectBrokerEnabled() {
+		if socketPath := strings.TrimSpace(os.Getenv("STEPANEL_LAB_ROOT_BROKER_SOCKET")); socketPath != "" {
+			return c.openFileSocket(ctx, req, socketPath)
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("STEPANEL_ENV")), "production") {
+		return nil, 0, errors.New("production root broker socket is not configured")
+	}
+	return c.openFileProcess(ctx, req)
+}
+
+type brokerFileStream struct {
+	*io.PipeReader
+	closeTransport func()
+}
+
+func (s *brokerFileStream) Close() error {
+	err := s.PipeReader.Close()
+	if s.closeTransport != nil {
+		s.closeTransport()
+	}
+	return err
+}
+
+func (c *Client) openFileSocket(ctx context.Context, req *Request, socketPath string) (io.ReadCloser, int64, error) {
+	conn, err := dialBrokerSocket(ctx, socketPath)
+	if err != nil {
+		return nil, 0, fmt.Errorf("connect to root broker socket: %w", err)
+	}
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
+		_ = conn.Close()
+		return nil, 0, fmt.Errorf("encode file-download request: %w", err)
+	}
+	if unixConn, ok := conn.(*net.UnixConn); ok {
+		_ = unixConn.CloseWrite()
+	}
+	buffered := bufio.NewReaderSize(conn, 64<<10)
+	response, err := readStreamResponse(buffered)
+	if err != nil {
+		_ = conn.Close()
+		return nil, 0, fmt.Errorf("decode file-download response: %w", err)
+	}
+	size, err := decodeFileDownloadResponse(response)
+	if err != nil {
+		_ = conn.Close()
+		return nil, 0, err
+	}
+	reader, writer := io.Pipe()
+	stream := &brokerFileStream{PipeReader: reader, closeTransport: func() { _ = conn.Close() }}
+	go func() {
+		closed := make(chan struct{})
+		go func() {
+			select {
+			case <-ctx.Done():
+				_ = conn.Close()
+			case <-closed:
+			}
+		}()
+		_, copyErr := io.CopyN(writer, io.MultiReader(buffered, conn), size)
+		close(closed)
+		_ = conn.Close()
+		_ = writer.CloseWithError(copyErr)
+	}()
+	return stream, size, nil
+}
+
+func (c *Client) openFileProcess(ctx context.Context, req *Request) (io.ReadCloser, int64, error) {
+	command, args := "sudo", []string{c.brokerPath, "-webroot", c.webRoot}
+	if labDirectBrokerEnabled() {
+		command, args = c.brokerPath, []string{"-webroot", c.webRoot}
+	}
+	cmd := stepanelhelper.NewCommand(ctx, command, args...)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, 0, fmt.Errorf("create file-download request pipe: %w", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		_ = stdin.Close()
+		return nil, 0, fmt.Errorf("create file-download response pipe: %w", err)
+	}
+	stepanelhelper.PrepareCommand(cmd)
+	if err := cmd.Start(); err != nil {
+		_ = stdin.Close()
+		return nil, 0, fmt.Errorf("start root broker: %w", err)
+	}
+	if err := json.NewEncoder(stdin).Encode(req); err != nil {
+		_ = stdin.Close()
+		_ = cmd.Wait()
+		return nil, 0, fmt.Errorf("encode file-download request: %w", err)
+	}
+	_ = stdin.Close()
+	buffered := bufio.NewReaderSize(stdout, 64<<10)
+	response, err := readStreamResponse(buffered)
+	if err != nil {
+		_ = cmd.Wait()
+		return nil, 0, fmt.Errorf("decode file-download response: %w", err)
+	}
+	size, err := decodeFileDownloadResponse(response)
+	if err != nil {
+		_ = cmd.Wait()
+		return nil, 0, err
+	}
+	reader, writer := io.Pipe()
+	stream := &brokerFileStream{PipeReader: reader, closeTransport: func() { _ = stdout.Close() }}
+	go func() {
+		_, copyErr := io.CopyN(writer, io.MultiReader(buffered, stdout), size)
+		waitErr := cmd.Wait()
+		if copyErr == nil && waitErr != nil {
+			copyErr = fmt.Errorf("root broker failed during file download: %w", waitErr)
+		}
+		_ = writer.CloseWithError(copyErr)
+	}()
+	return stream, size, nil
+}
+
+func readStreamResponse(reader *bufio.Reader) (*Response, error) {
+	line, err := reader.ReadSlice('\n')
+	if err != nil {
+		return nil, err
+	}
+	var response Response
+	if err := json.Unmarshal(line, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+func decodeFileDownloadResponse(response *Response) (int64, error) {
+	if !response.OK {
+		if _, message, found := strings.Cut(response.Error, "files download failed: "); found {
+			return 0, sitefiles.Refused("%s", message)
+		}
+		return 0, fmt.Errorf("root broker rejected file download: %s", response.Error)
+	}
+	var details FilesResponse
+	if err := json.Unmarshal(response.Details, &details); err != nil {
+		return 0, fmt.Errorf("decode file-download metadata: %w", err)
+	}
+	if details.Size < 0 || details.Size > sitefiles.MaxDownloadBytes {
+		return 0, errors.New("root broker returned an invalid file-download size")
+	}
+	return details.Size, nil
 }
 
 func (c *Client) execute(ctx context.Context, req *Request, direct bool) (*Response, error) {

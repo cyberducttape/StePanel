@@ -22,13 +22,47 @@ import (
 
 // Limits shared with deploy/integrations/stepanel-filectl.
 const (
-	MaxReadBytes    = 2 << 20
-	MaxWriteBytes   = 4 << 20
-	MaxEntries      = 5000
-	MaxListingBytes = 2 << 20
-	maxPathBytes    = 4096
-	maxNameBytes    = 255
+	MaxReadBytes = 2 << 20
+	// MaxDownloadBytes bounds customer file-manager transfers while allowing
+	// ordinary media, archives, and database dumps to stream without being
+	// materialized in panel memory.
+	MaxDownloadBytes = 40 << 30
+	MaxWriteBytes    = 4 << 20
+	MaxEntries       = 5000
+	MaxListingBytes  = 2 << 20
+	maxPathBytes     = 4096
+	maxNameBytes     = 255
 )
+
+const (
+	downloadMinBytesPerSecond = 1 << 20
+	downloadDeadlineFloor     = 30 * time.Second
+	downloadDeadlineCeiling   = 12 * time.Hour
+)
+
+// DownloadTimeout permits actively progressing slow transfers while keeping
+// a finite overall lifetime. HTTP and broker write deadlines separately
+// bound a fully stalled connection.
+func DownloadTimeout(size int64) time.Duration {
+	if size <= 0 {
+		return downloadDeadlineFloor
+	}
+	seconds := size / downloadMinBytesPerSecond
+	if size%downloadMinBytesPerSecond != 0 {
+		seconds++
+	}
+	if seconds > int64((downloadDeadlineCeiling-time.Minute)/time.Second) {
+		return downloadDeadlineCeiling
+	}
+	budget := time.Duration(seconds)*time.Second + time.Minute
+	if budget < downloadDeadlineFloor {
+		return downloadDeadlineFloor
+	}
+	if budget > downloadDeadlineCeiling {
+		return downloadDeadlineCeiling
+	}
+	return budget
+}
 
 // ErrNotFound reports a path that does not exist.
 var ErrNotFound = errors.New("path does not exist")
@@ -94,6 +128,7 @@ type SiteAccess interface {
 type Store interface {
 	List(ctx context.Context, site SiteAccess, path string) (Listing, error)
 	Read(ctx context.Context, site SiteAccess, path string) ([]byte, error)
+	Open(ctx context.Context, site SiteAccess, path string) (io.ReadCloser, int64, error)
 	Write(ctx context.Context, site SiteAccess, path string, content io.Reader, expectedRevision string) error
 	Mkdir(ctx context.Context, site SiteAccess, path string) error
 	Rename(ctx context.Context, site SiteAccess, path, destination string) error

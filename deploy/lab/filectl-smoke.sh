@@ -32,6 +32,25 @@ printf 'body{}' | "$filectl" write "$site" "$account" assets/site.css
 [[ $("$filectl" read "$site" "$account" assets/site.css) == 'body{}' ]] || fail 'read returned different bytes'
 "$filectl" list "$site" "$account" assets | grep -Fq $'\tsite.css' || fail 'listing does not show the written file'
 
+# Downloads stream larger files without the editor's 2 MiB read cap.
+runuser -u "$account" -- python3 - "$docroot/large-download.bin" <<'PY'
+import pathlib
+import sys
+pathlib.Path(sys.argv[1]).write_bytes(b"large-download-check-" * 150000)
+PY
+download_output=$(mktemp)
+trap 'rm -f -- "$download_output"; cleanup' EXIT
+"$filectl" download "$site" "$account" large-download.bin >"$download_output" || fail 'large file download failed'
+python3 - "$download_output" "$docroot/large-download.bin" <<'PY'
+import pathlib
+import sys
+wire = pathlib.Path(sys.argv[1]).read_bytes()
+expected = pathlib.Path(sys.argv[2]).read_bytes()
+header, separator, body = wire.partition(b"\n")
+if not separator or int(header) != len(expected) or body != expected:
+    raise SystemExit("streamed download framing or contents differ")
+PY
+
 # Directory enumeration is capped at the source, not after materializing a
 # root-owned temporary listing. A directory twice the advertised limit must
 # produce only the bounded 5,001-record helper response within its deadline.

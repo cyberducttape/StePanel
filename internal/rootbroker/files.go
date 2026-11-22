@@ -1,6 +1,7 @@
 package rootbroker
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	stepanelhelper "github.com/cyberducttape/StePanel/internal/helper"
@@ -23,26 +25,29 @@ import (
 // control-plane placement and stepanel-filectl runs the operation as that
 // user, so a request can only do what the account's own SFTP login can.
 type FilesRequest struct {
-	Action           string    `json:"action"` // list, read, write, mkdir, rename, delete
+	Action           string    `json:"action"` // list, read, download, write, mkdir, rename, delete
 	Site             string    `json:"site"`
 	TenantID         string    `json:"tenant_id"`
 	Path             string    `json:"path,omitempty"`
 	Destination      string    `json:"destination,omitempty"`
 	ExpectedRevision string    `json:"expected_revision,omitempty"`
 	StreamContent    bool      `json:"stream_content,omitempty"`
+	StreamResponse   bool      `json:"stream_response,omitempty"`
 	ContentReader    io.Reader `json:"-"`
 }
 
-// FilesResponse carries a listing or a file's bytes.
+// FilesResponse carries a listing, bounded editor bytes, or streamed-download
+// size metadata. Download bytes use the broker's raw stream channel.
 type FilesResponse struct {
 	Listing *sitefiles.Listing `json:"listing,omitempty"`
 	Content []byte             `json:"content,omitempty"`
+	Size    int64              `json:"size,omitempty"`
 }
 
 const filectlPath = "/usr/local/sbin/stepanel-filectl"
 
 // filesReadOnlyActions do not change the site and need no fencing token.
-var filesReadOnlyActions = map[string]bool{"list": true, "read": true}
+var filesReadOnlyActions = map[string]bool{"list": true, "read": true, "download": true}
 
 func (v *Validator) validateFilesRequest(req *FilesRequest) error {
 	if req == nil {
@@ -59,7 +64,7 @@ func (v *Validator) validateFilesRequest(req *FilesRequest) error {
 		clean = sitefiles.CleanTarget
 	}
 	switch req.Action {
-	case "list", "read", "write", "mkdir", "rename", "delete":
+	case "list", "read", "download", "write", "mkdir", "rename", "delete":
 	default:
 		return fmt.Errorf("unsupported files action %q", req.Action)
 	}
@@ -77,7 +82,13 @@ func (v *Validator) validateFilesRequest(req *FilesRequest) error {
 	} else if req.Destination != "" {
 		return fmt.Errorf("files %s does not take a destination", req.Action)
 	}
-	if req.Action == "write" {
+	if req.Action == "download" {
+		if !req.StreamResponse || req.StreamContent || req.ContentReader != nil || req.ExpectedRevision != "" || req.Destination != "" {
+			return errors.New("file downloads require a streamed response and no request body")
+		}
+	} else if req.StreamResponse {
+		return fmt.Errorf("files %s does not stream a response", req.Action)
+	} else if req.Action == "write" {
 		if !req.StreamContent || req.ContentReader == nil {
 			return errors.New("file writes require a streamed content body")
 		}
@@ -88,6 +99,100 @@ func (v *Validator) validateFilesRequest(req *FilesRequest) error {
 		return fmt.Errorf("files %s does not take content", req.Action)
 	} else if req.ExpectedRevision != "" {
 		return fmt.Errorf("files %s does not take a file revision", req.Action)
+	}
+	return nil
+}
+
+// StreamFileDownload validates and authorizes one file download, publishes
+// its size before any bytes, and streams the descriptor-backed helper output
+// directly to dst. The caller holds broker admission for the whole transfer.
+func (b *Broker) StreamFileDownload(ctx context.Context, req *Request, publish func(*Response) error, dst io.Writer) error {
+	if err := b.validator.ValidateRequest(req); err != nil {
+		return publish(&Response{OK: false, Error: fmt.Sprintf("validation error: %v", err)})
+	}
+	if req.RequestType != "files" || req.Files == nil || req.Files.Action != "download" {
+		return publish(&Response{OK: false, Error: "streamed response is only supported for file downloads"})
+	}
+	if b.fencingDB == nil {
+		return publish(&Response{OK: false, Error: "file operations require durable tenant ownership state"})
+	}
+	var owner string
+	if err := b.fencingDB.QueryRowContext(ctx, `SELECT username FROM tenant_sites WHERE site = ?`, req.Files.Site).Scan(&owner); err != nil {
+		return publish(&Response{OK: false, Error: fmt.Sprintf("resolve tenant owner for site %q: %v", req.Files.Site, err)})
+	}
+	if owner != req.Files.TenantID {
+		return publish(&Response{OK: false, Error: fmt.Sprintf("tenant %q is not authorized for site %q", req.Files.TenantID, req.Files.Site)})
+	}
+	user, placed, err := placedSiteUser(b.fencingDB, req.Files.Site)
+	if err != nil {
+		return publish(&Response{OK: false, Error: err.Error()})
+	}
+	if !placed {
+		return publish(&Response{OK: false, Error: fmt.Sprintf("site %q is not placed in a hosting account", req.Files.Site)})
+	}
+	cmd := stepanelhelper.NewCommand(ctx, b.filectlPath(), "download", req.Files.Site, user, req.Files.Path)
+	pipeReader, pipeWriter := io.Pipe()
+	type commandResult struct {
+		stderr []byte
+		err    error
+	}
+	commandDone := make(chan commandResult, 1)
+	go func() {
+		stderr, commandErr := stepanelhelper.RunCappedWriter(ctx, cmd, pipeWriter, maxBrokerCommandOutput)
+		_ = pipeWriter.CloseWithError(commandErr)
+		commandDone <- commandResult{stderr: stderr, err: commandErr}
+	}()
+	reader := bufio.NewReader(pipeReader)
+	line, readErr := reader.ReadString('\n')
+	if readErr != nil {
+		_ = pipeReader.Close()
+		result := <-commandDone
+		message := filesHelperError(result.err, result.stderr)
+		if errors.Is(result.err, stepanelhelper.ErrOutputLimitExceeded) {
+			message = "file download exceeds the configured size limit"
+		}
+		return publish(&Response{OK: false, Error: "files download failed: " + message})
+	}
+	size, parseErr := strconv.ParseInt(strings.TrimSpace(line), 10, 64)
+	if parseErr != nil || size < 0 || size > sitefiles.MaxDownloadBytes {
+		_ = pipeReader.Close()
+		result := <-commandDone
+		message := "file download returned invalid size metadata"
+		if result.err != nil {
+			message = filesHelperError(result.err, result.stderr)
+		}
+		return publish(&Response{OK: false, Error: "files download failed: " + message})
+	}
+	details, err := json.Marshal(FilesResponse{Size: size})
+	if err != nil {
+		_ = pipeReader.Close()
+		<-commandDone
+		return err
+	}
+	if err := publish(&Response{OK: true, Details: details}); err != nil {
+		_ = pipeReader.Close()
+		<-commandDone
+		return err
+	}
+	if size > 0 {
+		if _, err := io.CopyN(dst, reader, size); err != nil {
+			_ = pipeReader.Close()
+			<-commandDone
+			return fmt.Errorf("stream file download: %w", err)
+		}
+	}
+	if _, err := reader.ReadByte(); !errors.Is(err, io.EOF) {
+		_ = pipeReader.Close()
+		result := <-commandDone
+		if result.err != nil {
+			return fmt.Errorf("file download helper failed: %s", filesHelperError(result.err, result.stderr))
+		}
+		return errors.New("file download exceeded its declared size")
+	}
+	_ = pipeReader.Close()
+	result := <-commandDone
+	if result.err != nil {
+		return fmt.Errorf("file download helper failed: %s", filesHelperError(result.err, result.stderr))
 	}
 	return nil
 }

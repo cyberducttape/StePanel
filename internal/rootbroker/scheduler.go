@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"sync"
 )
@@ -25,6 +26,7 @@ const DefaultMaxConcurrent = 8
 // own flock(1) locks and by Broker.accountMutationMu, not here.
 type Scheduler struct {
 	execute  func(context.Context, *Request) (*Response, error)
+	download func(context.Context, *Request, func(*Response) error, io.Writer) error
 	validate func(*Request) error
 	gate     *admissionGate
 	keys     *keyedLocks
@@ -36,7 +38,42 @@ func NewScheduler(broker *Broker, maxConcurrent int) (*Scheduler, error) {
 	if broker == nil {
 		return nil, errors.New("broker is required")
 	}
-	return newScheduler(broker.Execute, broker.validator.ValidateRequest, maxConcurrent)
+	scheduler, err := newScheduler(broker.Execute, broker.validator.ValidateRequest, maxConcurrent)
+	if err != nil {
+		return nil, err
+	}
+	scheduler.download = broker.StreamFileDownload
+	return scheduler, nil
+}
+
+// StreamFileDownload holds the same tenant-scoped broker admission for the
+// complete response stream, so slow downloads remain bounded by the broker's
+// concurrency and per-tenant read locks.
+func (s *Scheduler) StreamFileDownload(ctx context.Context, req *Request, publish func(*Response) error, dst io.Writer) error {
+	if req == nil || req.Files == nil || req.RequestType != "files" || req.Files.Action != "download" {
+		return publish(&Response{OK: false, Error: "streamed response is only supported for file downloads"})
+	}
+	if s.download == nil {
+		return publish(&Response{OK: false, Error: "broker does not support streamed file downloads"})
+	}
+	if err := s.validate(req); err != nil {
+		return publish(&Response{OK: false, Error: fmt.Sprintf("validation error: %v", err)})
+	}
+	timeout := RequestTimeout(req)
+	waitCtx, cancelWait := context.WithTimeout(ctx, timeout)
+	defer cancelWait()
+	release, err := s.keys.acquire(waitCtx, requestLockKeys(req))
+	if err != nil {
+		return publish(&Response{OK: false, Error: fmt.Sprintf("root broker is busy: %v", err)})
+	}
+	defer release()
+	if err := s.gate.acquire(waitCtx, false); err != nil {
+		return publish(&Response{OK: false, Error: fmt.Sprintf("root broker is busy: %v", err)})
+	}
+	defer s.gate.release(false)
+	streamCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return s.download(streamCtx, req, publish, dst)
 }
 
 func newScheduler(execute func(context.Context, *Request) (*Response, error), validate func(*Request) error, maxConcurrent int) (*Scheduler, error) {

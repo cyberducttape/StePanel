@@ -4,6 +4,7 @@
 #
 #   stepanel-filectl list   SITE USER PATH
 #   stepanel-filectl read   SITE USER PATH          file bytes on stdout
+#   stepanel-filectl download SITE USER PATH        size line, then file bytes
 #   stepanel-filectl write  SITE USER PATH          file bytes on stdin
 #   stepanel-filectl mkdir  SITE USER PATH
 #   stepanel-filectl rename SITE USER PATH NEWPATH
@@ -26,16 +27,17 @@ location_lib=/usr/local/lib/stepanel/site-location.sh
 
 # Limits shared with internal/rootbroker/files.go.
 max_read_bytes=$(( 2 * 1024 * 1024 ))
+max_download_bytes=$(( 40 * 1024 * 1024 * 1024 ))
 max_write_bytes=$(( 4 * 1024 * 1024 ))
 max_entries=5000
 
-usage() { echo 'usage: stepanel-filectl list|read|write|mkdir|rename|delete SITE USER PATH [REVISION|NEWPATH]' >&2; exit 64; }
+usage() { echo 'usage: stepanel-filectl list|read|download|write|mkdir|rename|delete SITE USER PATH [REVISION|NEWPATH]' >&2; exit 64; }
 
 action=${1:-}
 case $action in
   rename) (( $# == 5 )) || usage ;;
   write) (( $# == 4 || $# == 5 )) || usage ;;
-  list|read|mkdir|delete) (( $# == 4 )) || usage ;;
+  list|read|download|mkdir|delete) (( $# == 4 )) || usage ;;
   *) usage ;;
 esac
 site=$2
@@ -224,6 +226,41 @@ def read_file(rootfd, parts, max_bytes):
     finally:
         os.close(parent)
 
+def download_file(rootfd, parts, max_bytes):
+    parent, leaf = parent_and_leaf(rootfd, parts)
+    try:
+        flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+        try:
+            fd = os.open(leaf, flags, dir_fd=parent)
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                raise Refused("refusing to follow a symbolic link") from None
+            raise
+        try:
+            info = os.fstat(fd)
+            require_regular(info)
+            size = info.st_size
+            if size > max_bytes:
+                raise Refused(f"file is larger than {max_bytes} bytes")
+            # The broker reads this bounded header before it commits an HTTP
+            # response. The descriptor stays open for the entire stream.
+            sys.stdout.buffer.write(str(size).encode("ascii") + b"\n")
+            sys.stdout.buffer.flush()
+            remaining = size
+            while remaining:
+                chunk = os.read(fd, min(65536, remaining))
+                if not chunk:
+                    raise Refused("file changed or ended during download")
+                view = memoryview(chunk)
+                while view:
+                    count = sys.stdout.buffer.write(view)
+                    view = view[count:]
+                remaining -= len(chunk)
+        finally:
+            os.close(fd)
+    finally:
+        os.close(parent)
+
 def write_file(rootfd, parts, max_bytes, max_read, expected_revision):
     parent, leaf = parent_and_leaf(rootfd, parts)
     temp = ".stepanel-upload-" + secrets.token_hex(12)
@@ -368,8 +405,8 @@ def rename(rootfd, source, destination):
 
 def main():
     action, root_path, relative, destination = sys.argv[1:5]
-    max_read, max_write, max_entries = map(int, sys.argv[5:8])
-    expected_revision = sys.argv[8]
+    max_read, max_write, max_entries, max_download = map(int, sys.argv[5:9])
+    expected_revision = sys.argv[9]
     parts = components(relative)
     dest_parts = components(destination) if action == "rename" else []
     rootfd = os.open(root_path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
@@ -378,6 +415,8 @@ def main():
             list_directory(rootfd, parts, max_entries)
         elif action == "read":
             read_file(rootfd, parts, max_read)
+        elif action == "download":
+            download_file(rootfd, parts, max_download)
         elif action == "write":
             write_file(rootfd, parts, max_write, max_read, expected_revision)
         elif action == "mkdir":
@@ -408,4 +447,4 @@ except OSError as exc:
     sys.exit(1)
 PY
 )
-as_user python3 -c "$filectl_python" "$action" "$public_root" "$relative" "$destination_relative" "$max_read_bytes" "$max_write_bytes" "$max_entries" "$expected_revision"
+as_user python3 -c "$filectl_python" "$action" "$public_root" "$relative" "$destination_relative" "$max_read_bytes" "$max_write_bytes" "$max_entries" "$max_download_bytes" "$expected_revision"

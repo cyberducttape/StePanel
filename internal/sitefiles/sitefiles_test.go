@@ -8,12 +8,28 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 type testSiteAccess string
 
 func (s testSiteAccess) SiteID() string   { return string(s) }
 func (s testSiteAccess) TenantID() string { return "test-tenant" }
+
+func TestDownloadTimeoutIsFiniteAndSizeAware(t *testing.T) {
+	if got := DownloadTimeout(0); got != 30*time.Second {
+		t.Fatalf("empty download timeout = %s", got)
+	}
+	if got, want := DownloadTimeout(10<<20), 10*time.Second+time.Minute; got != want {
+		t.Fatalf("10 MiB download timeout = %s, want %s", got, want)
+	}
+	if got := DownloadTimeout(MaxDownloadBytes); got <= time.Minute || got > 12*time.Hour {
+		t.Fatalf("maximum download timeout = %s, want a bounded size-aware deadline", got)
+	}
+	if got := DownloadTimeout(1<<63 - 1); got != 12*time.Hour {
+		t.Fatalf("oversized timeout input = %s, want capped deadline", got)
+	}
+}
 
 func TestCleanAcceptsOnlyPlainRelativePaths(t *testing.T) {
 	for input, want := range map[string]string{"": "", ".": "", "/": "", "a": "a", "/a/b.php": "a/b.php", ".well-known/x": ".well-known/x", "x y/z": "x y/z"} {

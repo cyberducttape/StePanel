@@ -297,6 +297,10 @@ type executor interface {
 	Execute(ctx context.Context, req *rootbroker.Request) (*rootbroker.Response, error)
 }
 
+type streamedFileDownloader interface {
+	StreamFileDownload(ctx context.Context, req *rootbroker.Request, publish func(*rootbroker.Response) error, dst io.Writer) error
+}
+
 // connLimits bounds socket I/O. An authorized peer that connects and stalls,
 // or never reads its response, must not hold broker resources indefinitely.
 type connLimits struct {
@@ -423,6 +427,10 @@ func serveRequests(broker executor, reader io.Reader, writer io.Writer, logger *
 			continue
 		}
 		attachFilesStream(&req, decoder, budgeted)
+		if req.Files != nil && req.Files.StreamResponse {
+			serveStreamedFileDownload(broker, &req, func(resp *rootbroker.Response) error { return encoder.Encode(resp) }, writer, logger)
+			return
+		}
 		if err := encoder.Encode(executeRequest(broker, &req, logger)); err != nil {
 			logger.Printf("encode error: %v", err)
 		}
@@ -479,6 +487,16 @@ func serveConn(broker executor, conn net.Conn, limits connLimits, logger *log.Lo
 			return
 		}
 		attachFilesStream(&req, decoder, budgeted)
+		if req.Files != nil && req.Files.StreamResponse {
+			publish := func(resp *rootbroker.Response) error {
+				if !writeSocketResponse(conn, encoder, resp, limits, logger) {
+					return errors.New("write streamed download response metadata")
+				}
+				return nil
+			}
+			serveStreamedFileDownload(broker, &req, publish, deadlineWriter{conn: conn, timeout: limits.write}, logger)
+			return
+		}
 		// Bound a streamed upload independently. Ordinary broker operations
 		// can outlast their initial request read deadline.
 		if req.Files != nil && req.Files.StreamContent {
@@ -498,6 +516,33 @@ func serveConn(broker executor, conn net.Conn, limits connLimits, logger *log.Lo
 		}
 		budgeted.nextRequest()
 	}
+}
+
+func serveStreamedFileDownload(broker executor, req *rootbroker.Request, publish func(*rootbroker.Response) error, dst io.Writer, logger *log.Logger) {
+	downloader, ok := broker.(streamedFileDownloader)
+	if !ok {
+		_ = publish(&rootbroker.Response{OK: false, Error: "broker does not support streamed file downloads"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), rootbroker.RequestTimeout(req))
+	defer cancel()
+	if err := downloader.StreamFileDownload(ctx, req, publish, dst); err != nil {
+		logger.Printf("stream file download failed: %v", err)
+	}
+}
+
+type deadlineWriter struct {
+	conn    net.Conn
+	timeout time.Duration
+}
+
+func (w deadlineWriter) Write(p []byte) (int, error) {
+	if w.timeout > 0 {
+		if err := w.conn.SetWriteDeadline(time.Now().Add(w.timeout)); err != nil {
+			return 0, err
+		}
+	}
+	return w.conn.Write(p)
 }
 
 func attachFilesStream(req *rootbroker.Request, decoder *json.Decoder, reader io.Reader) {

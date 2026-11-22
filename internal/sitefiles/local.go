@@ -158,6 +158,53 @@ func (l Local) Read(_ context.Context, site SiteAccess, rel string) ([]byte, err
 	return readBounded(file, MaxReadBytes)
 }
 
+// Open returns a descriptor-bound regular file for streamed downloads. The
+// open is confined to the document root and rejects symlink components just
+// like the bounded editor read path.
+func (l Local) Open(_ context.Context, site SiteAccess, rel string) (io.ReadCloser, int64, error) {
+	root, err := l.open(site)
+	if err != nil {
+		return nil, 0, err
+	}
+	if err := noLinks(root, rel, true); err != nil {
+		_ = root.Close()
+		return nil, 0, err
+	}
+	file, err := root.Open(name(rel))
+	if err != nil {
+		_ = root.Close()
+		return nil, 0, notFound(err)
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		_ = root.Close()
+		return nil, 0, fmt.Errorf("stat opened file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		_ = file.Close()
+		_ = root.Close()
+		return nil, 0, Refused("not a regular file")
+	}
+	if info.Size() > MaxDownloadBytes {
+		_ = file.Close()
+		_ = root.Close()
+		return nil, 0, Refused("file is larger than %d bytes", MaxDownloadBytes)
+	}
+	return &rootedDownload{ReadCloser: file, root: root}, info.Size(), nil
+}
+
+type rootedDownload struct {
+	io.ReadCloser
+	root *os.Root
+}
+
+func (r *rootedDownload) Close() error {
+	fileErr := r.ReadCloser.Close()
+	rootErr := r.root.Close()
+	return errors.Join(fileErr, rootErr)
+}
+
 // readBounded distinguishes a complete file at the limit from a file that
 // grew after its earlier size check. The extra byte is never returned.
 func readBounded(r io.Reader, limit int64) ([]byte, error) {

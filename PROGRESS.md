@@ -1,5 +1,24 @@
 # Production-readiness progress
 
+## Stream large customer file downloads — 2026-11-22
+
+- Replaced the download path's 2 MiB in-memory JSON read with bounded
+  descriptor-based streaming through the local store and root broker. The
+  privileged helper enforces the 40 GiB cap and streams only from a regular
+  file opened beneath the site root without following symlinks.
+- Added separate two-per-tenant/eight-per-host download admission, a
+  size-aware overall deadline, per-write stall bounds, and safe attachment
+  headers. Text editing remains capped at 2 MiB.
+- Regression evidence: large HTTP download preserves exact bytes and declared
+  length; broker socket framing round-trip passes; download timeout and
+  concurrency bounds pass. `make check` passed, including `go vet ./...`, the
+  full serialized Go suite (root package 119.0 s), and repository contract
+  scripts. `make release-check`, `make build`, helper shell syntax, and
+  `git diff --check` passed. Installed-host file helper smoke and hosted
+  exact-source CI remain pending.
+- Tracked as M0ab in `DEVELOPMENT_PLAN.md`; production readiness remains
+  **NO-GO** pending the documented host certification gates.
+
 ## Retry customer file listings after transient failures — 2026-11-22
 
 - A folder-listing failure now releases the file manager's loaded latch. The

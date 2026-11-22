@@ -353,6 +353,45 @@ func TestSocketRejectsMalformedRequestAndCloses(t *testing.T) {
 
 type fileStreamCaptureExecutor struct{ content chan []byte }
 
+type fileDownloadExecutor struct{}
+
+func (fileDownloadExecutor) Execute(context.Context, *rootbroker.Request) (*rootbroker.Response, error) {
+	return nil, errors.New("ordinary execution should not receive a streamed download")
+}
+
+func (fileDownloadExecutor) StreamFileDownload(_ context.Context, req *rootbroker.Request, publish func(*rootbroker.Response) error, dst io.Writer) error {
+	if req.Files == nil || req.Files.Action != "download" {
+		return errors.New("download request was not preserved")
+	}
+	details, _ := json.Marshal(rootbroker.FilesResponse{Size: int64(len("streamed file"))})
+	if err := publish(&rootbroker.Response{OK: true, Details: details}); err != nil {
+		return err
+	}
+	_, err := io.WriteString(dst, "streamed file")
+	return err
+}
+
+func TestClientStreamsFileDownloadOverBrokerSocket(t *testing.T) {
+	socketPath := startTestSocket(t, fileDownloadExecutor{})
+	t.Setenv("STEPANEL_ROOT_BROKER_SOCKET", socketPath)
+	client, err := rootbroker.NewClient("unused", "/var/www")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, size, err := client.FilesOpen(context.Background(), "alice", "alice", "archive.tar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	content, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if size != int64(len("streamed file")) || string(content) != "streamed file" {
+		t.Fatalf("streamed download = size %d, bytes %q", size, content)
+	}
+}
+
 func (e fileStreamCaptureExecutor) Execute(_ context.Context, req *rootbroker.Request) (*rootbroker.Response, error) {
 	if req.Files == nil || req.Files.ContentReader == nil {
 		return nil, errors.New("stream reader was not attached to the broker request")

@@ -28,6 +28,7 @@ func TestValidatorFilesRequestsAcceptOnlyCanonicalPaths(t *testing.T) {
 		{Action: "list", Site: "alice", TenantID: "alice"},
 		{Action: "list", Site: "alice", TenantID: "alice", Path: "wp-content/themes"},
 		{Action: "read", Site: "alice", TenantID: "alice", Path: "index.php"},
+		{Action: "download", Site: "alice", TenantID: "alice", Path: "archive.tar", StreamResponse: true},
 		{Action: "write", Site: "alice", TenantID: "alice", Path: "index.php", StreamContent: true, ContentReader: strings.NewReader("<?php")},
 		{Action: "write", Site: "alice", TenantID: "alice", Path: "index.php", ExpectedRevision: sitefiles.Revision([]byte("old")), StreamContent: true, ContentReader: strings.NewReader("<?php")},
 		{Action: "mkdir", Site: "alice", TenantID: "alice", Path: "assets"},
@@ -54,6 +55,7 @@ func TestValidatorFilesRequestsAcceptOnlyCanonicalPaths(t *testing.T) {
 		{Action: "write", Site: "alice", Path: "missing-stream"},
 		{Action: "write", Site: "alice", Path: "index.php", ExpectedRevision: "not-a-revision", StreamContent: true, ContentReader: strings.NewReader("x")},
 		{Action: "read", Site: "alice", Path: "index.php", ExpectedRevision: sitefiles.Revision([]byte("old"))},
+		{Action: "download", Site: "alice", Path: "archive.tar"},
 		{Action: "chmod", Site: "alice", Path: "a"},
 	}
 	for _, req := range invalid {
@@ -71,10 +73,37 @@ func TestValidatorFilesRequestRequiresTenantContext(t *testing.T) {
 }
 
 func TestFilesMutationsRequireFencing(t *testing.T) {
-	for action, fenced := range map[string]bool{"list": false, "read": false, "write": true, "mkdir": true, "rename": true, "delete": true} {
+	for action, fenced := range map[string]bool{"list": false, "read": false, "download": false, "write": true, "mkdir": true, "rename": true, "delete": true} {
 		if got := requestRequiresFencing(&Request{RequestType: "files", Files: &FilesRequest{Action: action}}); got != fenced {
 			t.Errorf("files %s requires fencing = %v, want %v", action, got, fenced)
 		}
+	}
+}
+
+func TestBrokerFilesDownloadStreamsOutsideJSONResponse(t *testing.T) {
+	broker, _, _ := newAccountBroker(t)
+	stub := filepath.Join(t.TempDir(), "stepanel-filectl")
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\nprintf '5\\nhello'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	broker.filectl = stub
+	var response *Response
+	var body bytes.Buffer
+	err := broker.StreamFileDownload(context.Background(), &Request{RequestType: "files", Files: &FilesRequest{
+		Action: "download", Site: "alice", TenantID: "alice", Path: "archive.tar", StreamResponse: true,
+	}}, func(value *Response) error { response = value; return nil }, &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response == nil || !response.OK {
+		t.Fatalf("metadata response = %+v", response)
+	}
+	var details FilesResponse
+	if err := json.Unmarshal(response.Details, &details); err != nil || details.Size != 5 {
+		t.Fatalf("download metadata = %+v, %v", details, err)
+	}
+	if body.String() != "hello" {
+		t.Fatalf("streamed bytes = %q, want hello", body.String())
 	}
 }
 

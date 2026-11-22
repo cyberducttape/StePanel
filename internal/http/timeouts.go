@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/sitefiles"
 )
 
 // TimeoutConfiguration defines different timeout classes for different operations
@@ -75,6 +77,12 @@ func IsServiceOperationPath(path string) bool {
 		}
 	}
 	return false
+}
+
+func IsSiteFileDownload(r *http.Request) bool {
+	return r != nil && (r.Method == http.MethodGet || r.Method == http.MethodHead) &&
+		r.URL.Path != "" && strings.HasPrefix(r.URL.Path, "/api/sites/files/") &&
+		strings.HasSuffix(r.URL.Path, "/content") && r.URL.Query().Get("download") == "1"
 }
 
 // DefaultTimeouts provides sensible defaults for all timeout classes
@@ -187,6 +195,7 @@ func (tc TimeoutConfiguration) Middleware() func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Classify the request by path.
 			var timeout time.Duration
+			readTimeout := tc.APIRead
 			switch {
 			case IsStreamPath(r.URL.Path):
 				// Streams manage their own write deadlines and lifetime.
@@ -195,6 +204,13 @@ func (tc TimeoutConfiguration) Middleware() func(http.Handler) http.Handler {
 			case IsUploadPath(r.URL.Path):
 				// Uploads need long timeouts
 				timeout = tc.UploadRead
+			case IsSiteFileDownload(r):
+				// A download context may live for the size-aware transfer budget;
+				// each response write is separately capped by the handler.
+				timeout = sitefiles.DownloadTimeout(sitefiles.MaxDownloadBytes)
+				if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(timeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+					log.Printf("extend write deadline for %s: %v", r.URL.Path, err)
+				}
 			case IsServiceOperationPath(r.URL.Path):
 				// The server-wide write timeout would end the response before
 				// the work finishes; extend it for this request only.
@@ -216,7 +232,7 @@ func (tc TimeoutConfiguration) Middleware() func(http.Handler) http.Handler {
 			// trickled request body cannot hold a handler past its class.
 			// Uploads keep the server read timeout plus their idle guard.
 			if !IsUploadPath(r.URL.Path) {
-				if err := http.NewResponseController(w).SetReadDeadline(time.Now().Add(timeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+				if err := http.NewResponseController(w).SetReadDeadline(time.Now().Add(readTimeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
 					log.Printf("set read deadline for %s: %v", r.URL.Path, err)
 				}
 			}

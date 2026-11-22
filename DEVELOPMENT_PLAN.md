@@ -146,6 +146,29 @@ untrusted-owner file directly to the installer.
 The release artifact and host certification criteria require a tagged
 candidate and disposable hosts; this milestone does not authorize publishing.
 
+### M0ab — Stream customer file downloads within explicit resource limits (P1)
+
+**Status:** Implemented and locally verified. Customer downloads now use a
+descriptor-bound stream through the local store or typed root-broker protocol,
+so files larger than the 2 MiB text-editor limit do not become JSON payloads
+or whole-file panel allocations. Downloads are capped at 40 GiB, limited to
+two concurrent transfers per tenant and eight per host, and receive a
+size-aware overall deadline plus a per-write stall deadline. Installed-host
+helper smoke and exact-source hosted CI remain pending.
+
+**Acceptance criteria**
+
+- A customer can download a regular file larger than 2 MiB with exact bytes,
+  `Content-Length`, attachment disposition, and browser-safe response headers.
+- The editor's JSON read limit remains 2 MiB; download size and concurrency
+  limits are enforced in the panel and privileged helper.
+- The production helper opens the file beneath the site root without following
+  symlinks and streams from that descriptor; the broker bounds metadata and
+  transfer duration without buffering file contents.
+- Tests cover large HTTP downloads, broker socket framing, bounded concurrency,
+  and helper smoke verification. Full Go tests, `go vet`, shell syntax,
+  installed-host smoke, and exact-source CI pass.
+
 ### M0z — Prevent stale customer file edits from overwriting newer content (P1)
 
 **Status:** Implemented and verified locally. Exact-source CI

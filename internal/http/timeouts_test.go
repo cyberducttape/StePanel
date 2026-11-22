@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/sitefiles"
 )
 
 func TestTimeoutMiddlewareUsesRouteClass(t *testing.T) {
@@ -28,6 +30,7 @@ func TestTimeoutMiddlewareUsesRouteClass(t *testing.T) {
 		{name: "wpress preflight", path: "/api/wpress/preflight", want: 30 * time.Second, margin: 2 * time.Second},
 		{name: "upload path prefix", path: "/api/cpmove/inspect/extra", want: 30 * time.Second, margin: 2 * time.Second},
 		{name: "long poll", path: "/api/jobs/123", want: 45 * time.Second, margin: 2 * time.Second},
+		{name: "file download", path: "/api/sites/files/alice/content?path=backup.zip&download=1", want: sitefiles.DownloadTimeout(sitefiles.MaxDownloadBytes), margin: 2 * time.Second},
 		{name: "ordinary api", path: "/api/sites", want: 30 * time.Second, margin: 2 * time.Second},
 	}
 
@@ -53,6 +56,25 @@ func TestTimeoutMiddlewareUsesRouteClass(t *testing.T) {
 				t.Fatalf("context deadline was %s from now, want about %s", got, test.want)
 			}
 		})
+	}
+}
+
+func TestSiteFileDownloadTimeoutClassificationIsNarrow(t *testing.T) {
+	for _, tc := range []struct {
+		method string
+		path   string
+		want   bool
+	}{
+		{http.MethodGet, "/api/sites/files/alice/content?path=a&download=1", true},
+		{http.MethodHead, "/api/sites/files/alice/content?path=a&download=1", true},
+		{http.MethodGet, "/api/sites/files/alice/content?path=a", false},
+		{http.MethodGet, "/api/sites/files/alice?download=1", false},
+		{http.MethodPut, "/api/sites/files/alice/content?path=a&download=1", false},
+	} {
+		r := httptest.NewRequest(tc.method, tc.path, nil)
+		if got := IsSiteFileDownload(r); got != tc.want {
+			t.Errorf("IsSiteFileDownload(%s %s) = %v, want %v", tc.method, tc.path, got, tc.want)
+		}
 	}
 }
 

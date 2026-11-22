@@ -16,6 +16,7 @@ HELPER = match.group(1)
 
 MAX_READ = 2 * 1024 * 1024
 MAX_WRITE = 4 * 1024 * 1024
+MAX_DOWNLOAD = 40 * 1024 * 1024 * 1024
 
 
 def revision(data: bytes) -> str:
@@ -24,7 +25,7 @@ def revision(data: bytes) -> str:
 
 def write(root: pathlib.Path, expected: str, body: bytes) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [sys.executable, "-c", HELPER, "write", str(root), "page.php", ".", str(MAX_READ), str(MAX_WRITE), "5000", expected],
+        [sys.executable, "-c", HELPER, "write", str(root), "page.php", ".", str(MAX_READ), str(MAX_WRITE), "5000", str(MAX_DOWNLOAD), expected],
         input=body,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

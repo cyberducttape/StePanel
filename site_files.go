@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
@@ -33,10 +34,12 @@ import (
 const siteFilesPrefix = "/api/sites/files/"
 
 const (
-	maxConcurrentSiteFileReadsPerTenant  = 4
-	maxConcurrentSiteFileReadsHost       = 32
-	maxConcurrentSiteFileWritesPerTenant = 2
-	maxConcurrentSiteFileWritesHost      = 8
+	maxConcurrentSiteFileReadsPerTenant     = 4
+	maxConcurrentSiteFileReadsHost          = 32
+	maxConcurrentSiteFileDownloadsPerTenant = 2
+	maxConcurrentSiteFileDownloadsHost      = 8
+	maxConcurrentSiteFileWritesPerTenant    = 2
+	maxConcurrentSiteFileWritesHost         = 8
 )
 
 // siteFileAdmissionLimiter bounds file operations per tenant and across the
@@ -97,6 +100,11 @@ var siteFileWrites = newSiteFileAdmissionLimiter(
 	maxConcurrentSiteFileWritesHost,
 )
 
+var siteFileDownloads = newSiteFileAdmissionLimiter(
+	maxConcurrentSiteFileDownloadsPerTenant,
+	maxConcurrentSiteFileDownloadsHost,
+)
+
 // errSiteNotPlaced reports a legacy site, whose tree the file manager does
 // not manage.
 var errSiteNotPlaced = errors.New("the file manager is available for sites in a hosting account")
@@ -148,6 +156,18 @@ func (s brokerFileStore) Read(ctx context.Context, site sitefiles.SiteAccess, re
 	}
 	resp, err := s.run(ctx, rootbroker.FilesRequest{Action: "read", Site: target.site, TenantID: target.tenantID, Path: rel})
 	return resp.Content, err
+}
+
+func (s brokerFileStore) Open(ctx context.Context, site sitefiles.SiteAccess, rel string) (io.ReadCloser, int64, error) {
+	target, err := resolveAuthorizedFileTarget(site)
+	if err != nil {
+		return nil, 0, err
+	}
+	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", s.cfg.WebRoot)
+	if err != nil {
+		return nil, 0, err
+	}
+	return client.FilesOpen(ctx, target.site, target.tenantID, rel)
 }
 
 func (s brokerFileStore) Write(ctx context.Context, site sitefiles.SiteAccess, rel string, content io.Reader, expectedRevision string) error {
@@ -322,6 +342,10 @@ func (a *App) siteFilesRead(w http.ResponseWriter, r *http.Request, store sitefi
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
+	if r.URL.Query().Get("download") == "1" {
+		a.siteFilesDownload(w, r, store, site, rel)
+		return
+	}
 	release, admitted := siteFileReads.acquire(site.TenantID())
 	if !admitted {
 		w.Header().Set("Retry-After", "5")
@@ -334,28 +358,71 @@ func (a *App) siteFilesRead(w http.ResponseWriter, r *http.Request, store sitefi
 		writeSiteFilesError(w, err)
 		return
 	}
-	if r.URL.Query().Get("download") == "1" {
-		// Never rendered by the browser: the panel origin must not serve
-		// customer HTML or scripts.
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'")
-		w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+url.PathEscape(path.Base(rel)))
-		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-		w.WriteHeader(http.StatusOK)
-		if r.Method != http.MethodHead {
-			if _, err := w.Write(data); err != nil {
-				return
-			}
-		}
-		return
-	}
 	text := utf8.Valid(data) && !strings.ContainsRune(string(data), 0)
 	result := map[string]any{"path": rel, "size": len(data), "text": text, "revision": sitefiles.Revision(data)}
 	if text {
 		result["content"] = string(data)
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (a *App) siteFilesDownload(w http.ResponseWriter, r *http.Request, store sitefiles.Store, site sitefiles.SiteAccess, rel string) {
+	if !a.requireCustomerScope(w, r, "files:read") {
+		return
+	}
+	release, admitted := siteFileDownloads.acquire(site.TenantID())
+	if !admitted {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w, "too many file downloads are in progress for this tenant or host; try again shortly", http.StatusTooManyRequests)
+		return
+	}
+	defer release()
+	file, size, err := store.Open(r.Context(), site, rel)
+	if err != nil {
+		writeSiteFilesError(w, err)
+		return
+	}
+	defer file.Close()
+	if size < 0 || size > sitefiles.MaxDownloadBytes {
+		http.Error(w, "file exceeds the download size limit", http.StatusRequestEntityTooLarge)
+		return
+	}
+	// Never render customer content on the panel origin.
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'")
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+url.PathEscape(path.Base(rel)))
+	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+	if r.Method == http.MethodHead {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	controller := http.NewResponseController(w)
+	buffer := make([]byte, 64<<10)
+	remaining := size
+	for remaining > 0 {
+		if err := controller.SetWriteDeadline(time.Now().Add(30 * time.Second)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			log.Printf("set file-download write deadline for %s: %v", site.SiteID(), err)
+		}
+		chunk := int64(len(buffer))
+		if remaining < chunk {
+			chunk = remaining
+		}
+		n, readErr := io.ReadFull(file, buffer[:int(chunk)])
+		if n > 0 {
+			written, writeErr := w.Write(buffer[:n])
+			remaining -= int64(written)
+			if writeErr != nil || written != n {
+				return
+			}
+		}
+		if readErr != nil {
+			log.Printf("file download for %s ended before declared size: %v", site.SiteID(), readErr)
+			return
+		}
+	}
 }
 
 // siteFilesMutate runs one file change under the site's mutation lease (the

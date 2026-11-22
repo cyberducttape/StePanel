@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -124,6 +125,37 @@ func TestSiteFilesLifecycleInAPlacedSite(t *testing.T) {
 	}
 }
 
+func TestSiteFilesDownloadStreamsFilesLargerThanEditorLimit(t *testing.T) {
+	a, docRoot := newSiteFilesApp(t)
+	content := bytes.Repeat([]byte("0123456789abcdef"), (sitefiles.MaxReadBytes/16)+1)
+	filePath := filepath.Join(docRoot, "large-backup.bin")
+	if err := os.WriteFile(filePath, content, 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	download := siteFilesRequest(a, "alice", http.MethodGet,
+		"/api/sites/files/alice/content?path=large-backup.bin&download=1", nil)
+	if download.Code != http.StatusOK {
+		t.Fatalf("download = %d %s", download.Code, download.Body)
+	}
+	if got := download.Header().Get("Content-Length"); got != strconv.Itoa(len(content)) {
+		t.Fatalf("download content length = %q, want %d", got, len(content))
+	}
+	if !bytes.Equal(download.Body.Bytes(), content) {
+		t.Fatalf("download body length/content = %d bytes, want %d", download.Body.Len(), len(content))
+	}
+	if download.Header().Get("X-Content-Type-Options") != "nosniff" || download.Header().Get("Cache-Control") != "private, no-store" {
+		t.Fatalf("unsafe download headers: %v", download.Header())
+	}
+
+	// Text editing remains bounded independently from streamed downloads.
+	read := siteFilesRequest(a, "alice", http.MethodGet,
+		"/api/sites/files/alice/content?path=large-backup.bin", nil)
+	if read.Code != http.StatusRequestEntityTooLarge && read.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("oversized editor read = %d %s", read.Code, read.Body)
+	}
+}
+
 func TestSiteFilesRejectsStaleEditorRevision(t *testing.T) {
 	a, docRoot := newSiteFilesApp(t)
 	file := filepath.Join(docRoot, "index.php")
@@ -216,6 +248,32 @@ func TestSiteFileWriteLimiterPreventsSingleTenantMonopoly(t *testing.T) {
 	}
 	if limiter.total != 0 || len(limiter.active) != 0 {
 		t.Fatalf("write slots leaked: total=%d tenants=%d", limiter.total, len(limiter.active))
+	}
+}
+
+func TestSiteFileDownloadsHaveSeparateTenantAndHostLimits(t *testing.T) {
+	limiter := newSiteFileAdmissionLimiter(maxConcurrentSiteFileDownloadsPerTenant, maxConcurrentSiteFileDownloadsHost)
+	for i := 0; i < maxConcurrentSiteFileDownloadsPerTenant; i++ {
+		release, ok := limiter.acquire("tenant-a")
+		if !ok {
+			t.Fatal("tenant A was rejected before reaching its download limit")
+		}
+		defer release()
+	}
+	if release, ok := limiter.acquire("tenant-a"); ok {
+		release()
+		t.Fatal("tenant A exceeded its download limit")
+	}
+	for i := maxConcurrentSiteFileDownloadsPerTenant; i < maxConcurrentSiteFileDownloadsHost; i++ {
+		release, ok := limiter.acquire(fmt.Sprintf("tenant-%d", i))
+		if !ok {
+			t.Fatal("another tenant was denied available host download capacity")
+		}
+		defer release()
+	}
+	if release, ok := limiter.acquire("tenant-overflow"); ok {
+		release()
+		t.Fatal("host-wide download limit was exceeded")
 	}
 }
 
