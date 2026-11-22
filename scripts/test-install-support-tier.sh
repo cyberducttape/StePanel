@@ -5,6 +5,10 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=../deploy/lib/install-support-tier.sh
 . "$ROOT_DIR/deploy/lib/install-support-tier.sh"
 
+# Every setup entry point must use the same evidence-backed database default.
+grep -Fq 'Database engine [mariadb/mysql/postgresql] (mariadb)' "$ROOT_DIR/install.sh"
+grep -Fq 'DB_ENGINE="${DB_ENGINE:-mariadb}"' "$ROOT_DIR/install.sh"
+
 recommended=$(install_support_tier ubuntu 24.04 caddy mariadb)
 grep -Fq 'RECOMMENDED PROFILE: Ubuntu 24.04 + Caddy + MariaDB' <<<"$recommended"
 grep -Fq '1 recovery iteration' <<<"$recommended"

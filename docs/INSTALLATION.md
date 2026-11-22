@@ -25,7 +25,8 @@ installation, use **Ubuntu 24.04 + Caddy + MariaDB**:
 | Debian 13 | Unsupported until certified | No current install evidence |
 | AlmaLinux 8, Ubuntu 22.04 | Unsupported | No current release certification |
 
-Caddy remains the default web server. The smoke matrix validates distro-default
+Caddy and MariaDB are the installer defaults, matching the recommended
+Ubuntu 24.04 + Caddy + MariaDB profile. The smoke matrix validates distro-default
 PHP-FPM packages with MariaDB; it does not certify PHP minor versions,
 PostgreSQL/MySQL alternatives, OpenLiteSpeed, or every SELinux/filesystem
 configuration. OpenLiteSpeed remains operator-integrated and uncertified until

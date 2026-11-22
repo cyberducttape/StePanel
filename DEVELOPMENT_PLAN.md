@@ -25,7 +25,8 @@ first-host application proof remain open.
   configuring offsite storage, and the instructions clearly prohibit network
   exposure and real customer data in development mode.
 - Guided setup recommends Ubuntu 24.04 + Caddy + MariaDB while identifying
-  which alternatives are outside the current installed-host smoke matrix.
+  which alternatives are outside the current installed-host smoke matrix;
+  interactive and unattended installer defaults select that same profile.
 - The install guide reports current-code evidence separately from historical
   runs and never presents smoke coverage as production certification.
 - The next release candidate archive contains the matching guided setup,

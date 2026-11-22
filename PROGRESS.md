@@ -1,5 +1,15 @@
 # Production-readiness progress
 
+## Align installer defaults with the recommended host profile — 2026-11-21
+
+- The direct interactive and unattended installer paths now default to
+  MariaDB, matching the guided setup and the documented Ubuntu 24.04 + Caddy +
+  MariaDB recommendation. Operators can still explicitly select MySQL or
+  PostgreSQL.
+- The install support-tier shell contract checks both the prompt and the
+  unattended fallback. `bash -n install.sh scripts/test-install-support-tier.sh`,
+  `bash scripts/test-install-support-tier.sh`, and `git diff --check` passed.
+
 ## Make first-run recovery require application proof — 2026-11-21
 
 - The operator checklist now checks the first active site with a verified

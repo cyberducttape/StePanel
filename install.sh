@@ -285,9 +285,9 @@ if command -v apt-get >/dev/null; then PKG="apt"; APACHE_SERVICE="apache2"; elif
 PROCPS_PACKAGE="$([[ "$PKG" == "dnf" ]] && printf procps-ng || printf procps)"
 
 if [[ -z "${STEPANEL_DB_ENGINE:-}" && -t 0 ]]; then
-  read -r -p "Database engine [mysql/mariadb/postgresql] (mysql): " DB_ENGINE
+  read -r -p "Database engine [mariadb/mysql/postgresql] (mariadb): " DB_ENGINE
 fi
-DB_ENGINE="${DB_ENGINE:-mysql}"
+DB_ENGINE="${DB_ENGINE:-mariadb}"
 DB_ENGINE="${DB_ENGINE,,}"
 if [[ "$DB_ENGINE" != "mysql" && "$DB_ENGINE" != "mariadb" && "$DB_ENGINE" != "postgresql" ]]; then echo "STEPANEL_DB_ENGINE must be mysql, mariadb, or postgresql." >&2; exit 1; fi
 if [[ -z "$DB_ADMIN_URL" ]]; then DB_ADMIN_URL="$([[ "$DB_ENGINE" == "postgresql" ]] && echo /phppgadmin || echo /phpmyadmin)"; fi
