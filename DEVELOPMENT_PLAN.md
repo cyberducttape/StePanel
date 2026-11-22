@@ -48,7 +48,9 @@ both executables as the invoking user before elevating for the installer.
   the normal user, then invokes the guided host installer through `sudo`; its
   mocked contract test proves build happens before privilege elevation and
   unsupported installer options are rejected. Source-based installation
-  remains clearly distinct from a published release archive.
+  remains clearly distinct from a published release archive. The manual
+  fallback `make build && sudo ./install.sh --guided` also builds both
+  `stepanel` and `stepanel-root`; `make evaluate` builds only the panel binary.
 - Guided setup recommends Ubuntu 24.04 + Caddy + MariaDB while identifying
   which alternatives are outside the current installed-host smoke matrix;
   interactive and unattended installer defaults select that same profile.

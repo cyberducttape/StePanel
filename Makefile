@@ -2,7 +2,7 @@ APP := stepanel
 GO ?= go
 LDFLAGS := -s -w -X github.com/cyberducttape/StePanel.Commit=$${GIT_COMMIT:-dev} -X github.com/cyberducttape/StePanel.BuildDate=$$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-.PHONY: all build evaluate test test-race fmt fmt-check vet coverage coverage-check fuzz-smoke api-generate api-check shell-contract-check check recovery-drill mixed-load production-gate audit release-check clean
+.PHONY: all build build-panel evaluate test test-race fmt fmt-check vet coverage coverage-check fuzz-smoke api-generate api-check shell-contract-check check recovery-drill mixed-load production-gate audit release-check clean
 
 # The test suite exercises SQLite workers and helper subprocesses. Keep the
 # default local targets within a modest process budget so a developer's host
@@ -17,11 +17,15 @@ RACE_TIMEOUT ?= 15m
 all: check build
 
 build:
+	$(MAKE) build-panel
+	$(GO) build -trimpath -o stepanel-root ./cmd/stepanel-root
+
+build-panel:
 	$(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(APP) ./cmd/stepanel
 
 # A no-host-mutation, loopback-only UI evaluation. This mode has no login and
 # must never be used for customer data or exposed beyond the local machine.
-evaluate: build
+evaluate: build-panel
 	bash scripts/evaluate.sh ./$(APP)
 
 test:
@@ -93,4 +97,4 @@ release-check:
 	./scripts/check-release.sh
 
 clean:
-	rm -f $(APP) coverage.out
+	rm -f $(APP) stepanel-root coverage.out

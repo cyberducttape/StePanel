@@ -1,5 +1,16 @@
 # Production-readiness progress
 
+## Make manual native builds installable — 2026-11-21
+
+- Fixed the manual source-build path: `make build` now builds both the
+  unprivileged `stepanel` process and required privileged `stepanel-root`
+  broker. `make evaluate` still builds only the panel binary for the local
+  demo path, and `make clean` removes both outputs.
+- `make build` passed, and both resulting executables were present. The
+  installer-related `make shell-contract-check` suite and `make release-check`
+  passed. This closes a source-build packaging gap; it is not fresh-host
+  installation evidence.
+
 ## Simplify the source-based guided installation command — 2026-11-21
 
 - Added `scripts/install-guided.sh`: a new operator clones the current-source
