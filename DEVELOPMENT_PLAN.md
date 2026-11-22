@@ -95,6 +95,14 @@ quotas, Git deployment was refused and the live site remained unchanged; this
 proves fail-closed behavior, not quota enforcement. The report records scope
 and limitations in
 [`2026-11-22-ubuntu-packaged-first-host-smoke-6af93e8.md`](docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-6af93e8.md).
+The later exact-source run on `e5fae4ad` also completed installation and its
+one-iteration recovery matrix; the installed WordPress HTTPS/database proof
+measured 4.539 seconds ([run 45040904045](https://github.com/cyberducttape/StePanel/actions/runs/45040904045),
+[report](docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-e5fae4a.md)).
+That artifact revealed a noisy missing-`/var/www/sites` inventory warning on
+fresh hosts. The current installer counts a missing directory as zero and
+adds a shell regression; installed-host verification of that follow-up is
+pending.
 The administrator's first-run dashboard also keeps the long unavailable-
 capability inventory collapsed behind a disclosure that reports its current
 counts. Infrastructure navigation expands it directly; service inventory
@@ -2086,7 +2094,9 @@ Acceptance criteria:
 
 ### M0ap — Preserve site-workspace form entries across tabs (P1)
 
-**Status:** Implemented locally; browser CI pending. When a tab is re-rendered,
+**Status:** Implemented; browser and accessibility CI passed on `59248550`.
+The full integration workflow is still finishing its Go race/recovery stages.
+When a tab is re-rendered,
 ordinary form values are captured and restored in memory for the current site
 workspace. Passwords, tokens, credential-like fields, and selected files are
 never retained; leaving a tab with one of those values prompts first. The

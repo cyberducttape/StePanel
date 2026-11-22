@@ -49,6 +49,8 @@ if [[ ! -f "$ROOT_DIR/stepanel" || ! -x "$ROOT_DIR/stepanel" ]]; then echo "Buil
 
 . "$ROOT_DIR/deploy/lib/install-env-file.sh"
 . "$ROOT_DIR/deploy/lib/install-first-login.sh"
+# shellcheck source=deploy/lib/install-host-inventory.sh
+. "$ROOT_DIR/deploy/lib/install-host-inventory.sh"
 # shellcheck source=deploy/lib/install-change-plan.sh
 . "$ROOT_DIR/deploy/lib/install-change-plan.sh"
 
@@ -389,7 +391,9 @@ if command -v ss >/dev/null 2>&1; then
   done < <(ss -H -ltnp '( sport = :80 or sport = :443 )' 2>/dev/null | awk '{print $4, $6}')
 fi
 if [[ -d /var/www ]]; then
-  echo "  /var/www: $(find /var/www -mindepth 1 -maxdepth 1 2>/dev/null | wc -l) entries; /var/www/sites: $(find /var/www/sites -mindepth 1 -maxdepth 1 2>/dev/null | wc -l) sites"
+  www_entries=$(install_count_directory_entries /var/www)
+  site_entries=$(install_count_directory_entries /var/www/sites)
+  echo "  /var/www: $www_entries entries; /var/www/sites: $site_entries sites"
 fi
 for vhost_dir in /etc/apache2/sites-enabled /etc/httpd/conf.d /etc/caddy /usr/local/lsws/conf/vhosts; do
   [[ -d $vhost_dir ]] && echo "  $vhost_dir: $(find "$vhost_dir" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l) entries"

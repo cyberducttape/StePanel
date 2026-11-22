@@ -31,7 +31,7 @@ installation, use **Ubuntu 24.04 + Caddy + MariaDB**:
 | Platform combination | Tier | Evidence / policy |
 | --- | --- | --- |
 | Ubuntu 24.04 + Apache + MariaDB | Beta; repeat acceptance pending | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
-| Ubuntu 24.04 + Caddy + MariaDB | Recommended Beta profile | Latest packaged snapshot smoke on code-equivalent source `b901b258`: install completed and database-backed WordPress HTTPS recovery measured 4.490 s ([report](lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-b901b25.md)); [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration; repeat acceptance pending |
+| Ubuntu 24.04 + Caddy + MariaDB | Recommended Beta profile | Latest exact-source packaged smoke `e5fae4ad`: install completed and database-backed WordPress HTTPS recovery measured 4.539 s ([report](lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-e5fae4a.md)); [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration; repeat acceptance pending |
 | AlmaLinux 9 + Apache + MariaDB | Beta; repeat acceptance pending | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
 | AlmaLinux 9 + Caddy + MariaDB | Beta; repeat acceptance pending | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
 | Rocky Linux 9 + Apache + MariaDB | Beta; repeat acceptance pending | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |

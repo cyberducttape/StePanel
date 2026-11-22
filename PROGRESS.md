@@ -4044,4 +4044,23 @@ does not close a current-source or power-loss gate.
 - Added a browser regression for a PHP/runtime form round trip and database
   password handling. `node --check` and frontend unit tests (19/19) pass.
   The focused browser run could not execute locally because this environment
-  has no disposable E2E credentials; exact-source hosted browser CI is pending.
+  has no disposable E2E credentials. Exact-source UI and accessibility CI
+  passed on [run 45059366069](https://github.com/cyberducttape/StePanel/actions/runs/45059366069);
+  the full integration job is still running its race and recovery stages.
+
+## Clarify first-host smoke evidence and remove a fresh-install warning — 2026-11-22
+
+- Exact-source installed-host workflow [45040904045](https://github.com/cyberducttape/StePanel/actions/runs/45040904045)
+  passed on Ubuntu 24.04 + Caddy + MariaDB at `e5fae4ad`. The snapshot
+  installation completed, the installed WordPress database/HTTPS recovery
+  proof passed in 4.539 seconds, and one recovery-matrix iteration passed.
+  This is one disposable-container run, not repeated certification; quota
+  enforcement, public DNS/TLS, external offsite recovery, and tagged-release
+  installation remain unproven. See the
+  [run report](docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-e5fae4a.md).
+- Traced the fresh-host `find | wc -l` warning to `/var/www/sites` not existing
+  before the first site is created. Installer inventory now reports zero for
+  an absent directory, with a shell regression. Focused contract, syntax,
+  ShellCheck for the new helper/test, the full shell-contract suite, frontend
+  unit tests (19/19), and `git diff --check` passed. The warning fix still
+  needs exact-source hosted CI and an installed-host check.

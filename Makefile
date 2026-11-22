@@ -69,6 +69,7 @@ shell-contract-check:
 	bash scripts/test-site-package-cgroups.sh
 	bash scripts/test-node-runtime-resolution.sh
 	bash scripts/test-install-support-tier.sh
+	bash scripts/test-install-host-inventory.sh
 	bash scripts/test-install-change-plan.sh
 	bash scripts/test-install-systemd-preflight.sh
 	bash scripts/test-install-quota-preflight.sh
