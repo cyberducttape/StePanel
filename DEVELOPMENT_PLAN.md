@@ -1738,6 +1738,24 @@ and concurrent uploads must not let one tenant monopolize every host slot.
   can still be admitted.
 - Focused regressions, full Go checks, and exact-source hosted CI pass.
 
+### M0ak — Recover from transient customer file-list failures (P2)
+
+**Status:** Implemented locally. A failed folder listing stays visible while
+the customer is in Files, and returning to that view retries the current
+folder automatically. The focused seeded Chromium customer-panel journey
+passed, including a transient 503 followed by successful retry. Exact-source
+hosted CI remains pending. Downloads still use the bounded 2 MiB editor read
+path; larger-file streaming is a separate unfinished usability item.
+
+**Acceptance criteria**
+
+- A failed folder listing clears stale rows and reports the actual error.
+- Returning to Files retries the current folder without requiring the
+  customer to find and press Refresh.
+- A successful retry restores the listing and actions for the current
+  site/path only.
+- The seeded Chromium customer-panel journey and exact-source CI pass.
+
 ### Guided site lifecycle experience (product work; not a release-gate closure)
 
 **Status:** Implemented in the site workspace, with browser regression coverage.

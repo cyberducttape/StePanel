@@ -1,5 +1,15 @@
 # Production-readiness progress
 
+## Retry customer file listings after transient failures — 2026-11-22
+
+- A folder-listing failure now releases the file manager's loaded latch. The
+  error remains visible, and entering Files again retries the current path.
+- Added a seeded customer-panel browser regression: the first listing returns
+  HTTP 503, the customer leaves and returns to Files, and the retry succeeds.
+- `make build-panel` and the focused Chromium customer-panel/accessibility
+  journey passed (1 test). Exact-source hosted CI is pending. File downloads
+  remain limited by the 2 MiB read path and need a separate streaming design.
+
 ## Correct setup retry instructions for an existing settings file — 2026-11-22
 
 - Fixed `stepanel setup` so an existing user-owned settings file is not

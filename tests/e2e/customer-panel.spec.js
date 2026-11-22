@@ -95,6 +95,7 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   const mainReadPending = new Promise((resolve) => { releaseMainRead = resolve; });
   let releaseShopList;
   const shopListPending = new Promise((resolve) => { releaseShopList = resolve; });
+  let failNextMainList = false;
   await page.route('**/api/sites/files/e2e-main**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -110,6 +111,10 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
     if (url.pathname.endsWith('/content')) {
       if (url.searchParams.get('path') === 'index.php' && !releaseMainRead.done) await mainReadPending;
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ path: url.searchParams.get('path'), size: 21, text: true, revision: revisionA, content: '<?php echo "hello";\n' }) });
+    }
+    if (failNextMainList) {
+      failNextMainList = false;
+      return route.fulfill({ status: 503, contentType: 'text/plain', body: 'temporary listing failure' });
     }
     if (url.searchParams.get('path') === 'wp-content' && !releaseShopList.done) await shopListPending;
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ path: url.searchParams.get('path') || '', truncated: false, entries: [
@@ -264,8 +269,12 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await checkA11y(page);
 
   // Files: browse, open, edit and save.
+  failNextMainList = true;
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Files' }).click();
   await expect(page.locator('#files')).toBeVisible();
+  await expect(page.locator('#fileStatus')).toContainText('temporary listing failure');
+  await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Websites' }).click();
+  await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Files' }).click();
   await expect(page.getByRole('button', { name: 'index.php', exact: true })).toBeVisible();
   await checkA11y(page);
   // Navigating clears old rows before the new directory response arrives.

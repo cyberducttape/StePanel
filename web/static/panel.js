@@ -479,10 +479,14 @@
         const entries = listing.entries || [];
         rows.replaceChildren(...entries.map((entry) => row(entry, context)));
         table.hidden = !entries.length;
+        loaded = true;
         if (!entries.length) setStatus('This folder is empty.');
         else setStatus(listing.truncated ? `Showing the first ${entries.length} entries; use SFTP for the rest.` : ui.plural(entries.length, 'item'));
       } catch (error) {
         if (!isCurrent(context)) return;
+        // Keep the error visible in this view, but let the next visit retry
+        // automatically instead of requiring the user to discover Refresh.
+        loaded = false;
         rows.replaceChildren();
         table.hidden = true;
         setStatus(error.message, 'error');
@@ -744,7 +748,7 @@
       activate() {
         if (!sites.length || loaded) return;
         loaded = true;
-        open('');
+        open(path);
       },
       unavailable(message) {
         token++;
