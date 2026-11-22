@@ -7,8 +7,10 @@
   pre-mutation recheck. This exposes hard host blockers before credential
   entry. Added ordering regressions to the systemd and quota preflight tests
   and documented the behavior.
-- Focused preflight tests and shell syntax checks pass. Full repository checks
-  and hosted CI are pending.
+- The already-installed guard still routes to the upgrade command before
+  these checks; a regression protects that ordering. `make check`,
+  `make release-check`, focused preflight tests, and `git diff --check` pass
+  on `8b5e3e24`. The exact-source installed-host smoke is queued.
 
 ## Remove avoidable setup retry and correct wizard step guidance — 2026-11-22
 
