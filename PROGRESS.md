@@ -22,6 +22,10 @@
 
 ## Put the first-install decision and restore status up front — 2026-11-22
 
+- The README start table now separates local preview, disposable/staging
+  native Beta installation, and customer production. It names the recommended
+  Ubuntu 24.04 + Caddy + MariaDB profile and links production readers directly
+  to the release gates instead of presenting Beta as an ordinary fresh install.
 - The installation guide now starts with three direct paths: loopback preview,
   disposable/staging Operator Beta, or stop before customer production. It
   states the preview and source-build prerequisites, the recommended Ubuntu
@@ -30,9 +34,11 @@
 - Corrected the customer restore-to-staging guide and OpenAPI response text:
   HTTP 202 means the durable job was queued. Operators should follow the
   returned `status_url` and use staging only after the job reaches `completed`.
-- `python3 scripts/check-docs-references.py` passed (93 documents).
-  Documentation link checking and `git diff --check` are running; exact-source
-  hosted CI has not yet run for these changes.
+- `python3 scripts/check-docs-references.py` passed (93 documents),
+  `bash scripts/check-docs-links.sh docs` passed, and `git diff --check` passed.
+  The exact-source packaged Ubuntu install and recovery smoke is running at
+  [45009421543](https://github.com/cyberducttape/StePanel/actions/runs/45009421543);
+  its host-install result is still pending.
 - This improves wayfinding, but does not eliminate the source checkout/toolchain
   prerequisite or substitute for a tagged archive passing fresh-host install
   gates. Production remains NO-GO.

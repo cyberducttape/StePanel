@@ -75,7 +75,8 @@ availability is not on the 1.0 roadmap.
 | I want to... | Start here |
 | --- | --- |
 | Preview StePanel locally, no host setup | [Run it locally](#local-evaluation) |
-| Install on a fresh server | [Installation guide](docs/INSTALLATION.md) (Ubuntu 24.04, AlmaLinux 9, Rocky Linux 9) |
+| Try a native install on a disposable/staging server | [Current-source Operator Beta guide](docs/INSTALLATION.md#guided-install-from-current-source) (recommended: Ubuntu 24.04 + Caddy + MariaDB) |
+| Install for customer production | **Not ready yet.** No published stable archive is certified for a fresh install; review the [production gates](docs/V1_PRODUCTION_GATES.md) before planning deployment. |
 | Move a cPanel account | [cPanel migration guide](docs/CPMOVE_IMPORTS.md) |
 | See how it compares | [StePanel vs. cPanel, Plesk, HestiaCP, CloudPanel](docs/COMPARISON.md) |
 
