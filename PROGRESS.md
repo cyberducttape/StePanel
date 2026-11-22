@@ -1,5 +1,15 @@
 # Production-readiness progress
 
+## Verify the current local evaluation path end to end — 2026-11-22
+
+- Rebuilt the current panel with `make build-panel`, then launched the
+  evaluation entrypoint with an isolated temporary data directory so existing
+  checkout data was untouched. The server returned HTTP 200 at
+  `127.0.0.1:8080`; sending Ctrl-C shut it down cleanly.
+- This confirms the local no-host-mutation demo runs from the current source.
+  It is not evidence for native service installation, authentication, backup,
+  or restore behavior.
+
 ## Keep WordPress recovery fixture downloads out of the host mutation window — 2026-11-21
 
 - Reviewed the first exact-source archive-based install smoke
