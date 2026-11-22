@@ -10,20 +10,22 @@ import (
 	setupguide "github.com/cyberducttape/StePanel/internal/setup"
 )
 
-// loadEnvFileHarness runs install.sh's load_env_file against path with stat
-// stubbed to report the given owner and mode, then prints the named
-// variables one per line.
+// loadEnvFileHarness runs the install env-file helper against path with stat
+// stubbed to report the given owner and mode, then prints named variables.
 func loadEnvFileHarness(t *testing.T, path, owner, mode, visibility string, names []string) (string, error) {
 	t.Helper()
-	script, err := os.ReadFile("install.sh")
+	script, err := os.ReadFile("deploy/lib/install-env-file.sh")
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(script)
 	start := strings.Index(text, "load_env_file() {")
+	if start < 0 {
+		t.Fatal("load_env_file not found in deploy/lib/install-env-file.sh")
+	}
 	end := strings.Index(text[start:], "\n}\n")
-	if start < 0 || end < 0 {
-		t.Fatal("load_env_file not found in install.sh")
+	if end < 0 {
+		t.Fatal("load_env_file function is unterminated")
 	}
 	function := text[start : start+end+3]
 	var harness strings.Builder
@@ -123,11 +125,16 @@ func TestInstallerPreservesOperatorRuntimeSettingsAcrossUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(script)
-	loadStart := strings.Index(text, "load_env_file() {")
-	if loadStart < 0 {
-		t.Fatal("load_env_file function not found")
+	loaderSource, err := os.ReadFile("deploy/lib/install-env-file.sh")
+	if err != nil {
+		t.Fatal(err)
 	}
-	loadEnd := strings.Index(text[loadStart:], "\n}\n")
+	loaderText := string(loaderSource)
+	loadStart := strings.Index(loaderText, "load_env_file() {")
+	if loadStart < 0 {
+		t.Fatal("load_env_file function not found in deploy/lib/install-env-file.sh")
+	}
+	loadEnd := strings.Index(loaderText[loadStart:], "\n}\n")
 	arrayStart := strings.Index(text, "PRESERVED_RUNTIME_SETTINGS=(")
 	if arrayStart < 0 {
 		t.Fatal("PRESERVED_RUNTIME_SETTINGS allowlist not found")
@@ -146,7 +153,7 @@ func TestInstallerPreservesOperatorRuntimeSettingsAcrossUpgrade(t *testing.T) {
 	if loadEnd < 0 || arrayEnd < 0 || writerEnd < 0 || preserveEnd < 0 {
 		t.Fatal("installer runtime environment helpers not found")
 	}
-	loader := text[loadStart : loadStart+loadEnd+3]
+	loader := loaderText[loadStart : loadStart+loadEnd+3]
 	allowlist := text[arrayStart : arrayStart+arrayEnd+3]
 	writer := text[writerStart : writerStart+writerEnd+3]
 	preserve := text[preserveStart : preserveStart+preserveEnd+3]

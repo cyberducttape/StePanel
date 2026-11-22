@@ -1,5 +1,22 @@
 # Production-readiness progress
 
+## Cover installer settings-file rejection paths — 2026-11-21
+
+- Extracted the existing root-owned env-file parser into a helper required by
+  release archives. Its regression contract now exercises generated escaped
+  values and environment overrides, plus truncated values, trailing data,
+  invalid escapes, unsupported keys, symlinks, wrong ownership, and
+  world-readable secret files. This specifically prevents the prior silent
+  truncation behavior from returning without an error.
+- Added the exact parser helper to the Go installer-configuration contract
+  tests and a shell contract covering escapes, environment precedence,
+  truncated quotes, trailing data, bad escapes, unsupported keys, symlinks,
+  ownership, and secret-file permissions. `make check` passed, including
+  `go vet ./...` and the complete Go suite (root package 115.792s);
+  `make release-check`, focused ShellCheck, documentation links/references,
+  syntax checks, and `git diff --check` passed. Exact-source release snapshot
+  and hosted install-smoke remain pending.
+
 ## Reject unavailable database versions during read-only preflight — 2026-11-21
 
 - Explicit MariaDB/MySQL versions are now checked against APT/DNF metadata

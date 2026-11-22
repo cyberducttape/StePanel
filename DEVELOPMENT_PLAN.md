@@ -33,18 +33,22 @@ first-host application proof remain open.
   runs and never presents smoke coverage as production certification.
 - The next release candidate archive contains the matching guided setup,
   installer, helpers, and assets. The artifact verifier requires the support-
-  tier, systemd-, quota-, package-, and database-version-preflight helpers. A clean-host artifact
-  smoke verifies the documented archive workflow before any release advertises it.
+  tier, systemd-, quota-, package-, database-version-, and env-file helpers.
+  A clean-host artifact smoke verifies the documented archive workflow before
+  any release advertises it.
 - Installer preflight reports OS, web-server, and database support tier and
   actionable failed prerequisites (including availability of required base,
   PHP, database, and web-server packages in repository metadata, requested
-  database versions/streams, a live systemd
-  manager, user-quota mount settings on `/var/www` and `/home`, and exact
-  explicitly requested database versions) before host mutation;
+  database versions/streams, a live systemd manager, user-quota mount settings
+  on `/var/www` and `/home`) before host mutation;
   it verifies active enforcement immediately if tools are available, otherwise
   reports the deferral and fails before site services if enforcement is absent.
   First-site creation,
   backup, and restore proof are verified on the selected supported profile.
+- Generated/manual installer settings are parsed by a separately tested
+  loader that rejects truncated quotes, trailing data, unsupported escapes,
+  non-root ownership, unsafe permissions, and symlinks before accepting any
+  setting. The exact parser helper is required in release archives.
 
 The release artifact and host certification criteria require a tagged
 candidate and disposable hosts; this milestone does not authorize publishing.

@@ -145,7 +145,8 @@ for archive in "${archives[@]}"; do
         deploy/lib/install-systemd-preflight.sh \
         deploy/lib/install-quota-preflight.sh \
         deploy/lib/install-package-preflight.sh \
-        deploy/lib/install-database-version-preflight.sh; do
+        deploy/lib/install-database-version-preflight.sh \
+        deploy/lib/install-env-file.sh; do
         if tar -tzf "$archive" | grep -Fqx "$required_helper"; then
             echo "  ✓ $required_helper present"
         else
