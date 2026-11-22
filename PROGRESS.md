@@ -11,7 +11,10 @@
   contract passes. `make check` passed, including `go vet ./...` and the full
   Go suite (root package 117.156s); `make release-check`, focused ShellCheck,
   documentation links/references, syntax checks, and `git diff --check` also
-  passed. Exact-source archive and hosted installed-host smoke remain pending.
+  passed. A GoReleaser v2.17.1 snapshot from source `070cf308` built for amd64
+  and arm64; both archives contain the setup/preflight helpers and checksums
+  pass. The extracted amd64 setup help runs. GitHub CI and installed-host
+  smoke for `070cf308` are queued/pending; no hosted pass is claimed.
 
 ## Cover installer settings-file rejection paths — 2026-11-21
 
