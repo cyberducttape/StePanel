@@ -3926,3 +3926,17 @@ does not close a current-source or power-loss gate.
   action switching to WordPress creation, WordPress form initialization, and
   backup/recovery next-step evidence. This exercises the panel UX, not actual
   host-level site provisioning or application restore certification.
+
+## Recheck first-run setup contracts — 2026-11-22
+
+- On current `main` (`e5fae4ad`), `make shell-contract-check`,
+  `make release-check`, and `git diff --check` passed. The setup-focused
+  contract run covered pinned-toolchain bootstrap (including missing and old
+  Go), root-owned installer settings and malformed quoted values, installer
+  support and preflight decisions, local evaluation startup/cleanup, and
+  first-login guidance. It is local contract evidence, not an installed-host
+  or release certification.
+- The full Ubuntu 24.04 + Caddy + MariaDB installed-host interruption run is
+  still active in [workflow 45040904045](https://github.com/cyberducttape/StePanel/actions/runs/45040904045).
+  Packaging, fixture staging, and disposable systemd host startup passed; the
+  install and recovery matrix has no terminal result yet.
