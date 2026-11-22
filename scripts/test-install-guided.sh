@@ -135,7 +135,8 @@ done
 
 rm -f -- "$fake_repo/stepanel" "$fake_repo/stepanel-root"
 env GO=go GO_LOG="$tmp/existing-go.log" SUDO_LOG="$tmp/existing-sudo.log" \
-  SUDO=sudo EXISTING_INSTALL=1 PATH="$fake_bin:$PATH" \
+  BOOTSTRAP_LOG="$tmp/existing-bootstrap.log" DOWNLOAD_LOG="$tmp/existing-download.log" \
+  GOTOOLCHAIN=auto SUDO=sudo EXISTING_INSTALL=1 PATH="$fake_bin:$PATH" \
   bash "$fake_repo/scripts/install-guided.sh"
 [[ $(wc -l < "$tmp/existing-sudo.log") == 2 ]]
 grep -Fq 'test -f /etc/ste-panel.env' "$tmp/existing-sudo.log"

@@ -11,8 +11,11 @@
   syntax checks. Focused contract and shell syntax checks pass locally; full
   `make shell-contract-check`, documentation-link/reference checks,
   `make release-check`, ShellCheck, and `git diff --check` pass locally. Full Go
-  tests were not needed for this shell/documentation-only change. Hosted CI is
-  pending. No host was modified by this change.
+  tests were not needed for this shell/documentation-only change. The first
+  exact-source integration run exposed a missing download-log fixture in the
+  new existing-install bootstrap case; the fixture is corrected and its local
+  contract passes. Hosted CI for the correction is pending. No host was
+  modified by this change.
 
 ## Make quota preflight failures actionable — 2026-11-22
 
