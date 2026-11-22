@@ -3072,3 +3072,10 @@ does not close a current-source or power-loss gate.
   published artifact convention and rejects the old lowercase form.
 - This fixes release installation instructions; it does not make current
   `main` features available in v0.7.0 or substitute for a new tagged release.
+- Rebuilt the GoReleaser snapshot from exact source
+  `27134a9f9d995b133a92f279fd049f57ce18add4` in an isolated worktree. Both
+  architecture archives pass the full local artifact verifier, including
+  helper/document inventory, archive checksums, and native `setup --help`.
+  The packaged binary reports version 0.9.0 and the exact source commit. The
+  fixture's evidence and SBOM are synthetic, so this is not signed release
+  evidence or publication approval; no clean-host install was run.
