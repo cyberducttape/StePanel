@@ -71,14 +71,14 @@ export STEPANEL_GIT_RELEASE_MAX_BYTES=5368709120  # 5GB
 # Extract v0.7.0 release
 release=v0.7.0
 arch=amd64  # or arm64
-curl -fsSLO "https://github.com/cyberducttape/StePanel/releases/download/${release}/stepanel_${release#v}_linux_${arch}.tar.gz"
+curl -fsSLO "https://github.com/cyberducttape/StePanel/releases/download/${release}/StePanel_${release#v}_linux_${arch}.tar.gz"
 curl -fsSLO "https://github.com/cyberducttape/StePanel/releases/download/${release}/SHA256SUMS"
 
 # Verify checksums
-grep "stepanel_${release#v}_linux_${arch}.tar.gz" SHA256SUMS | sha256sum -c -
+grep "StePanel_${release#v}_linux_${arch}.tar.gz" SHA256SUMS | sha256sum -c -
 
 # Extract
-tar -xzf "stepanel_${release#v}_linux_${arch}.tar.gz"
+tar -xzf "StePanel_${release#v}_linux_${arch}.tar.gz"
 
 # Run on staging with copy of production data
 mkdir -p staging-data/{imports,backups,www,mail,nvm,proxy,vhosts,apps,quarantine}

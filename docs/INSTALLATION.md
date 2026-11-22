@@ -174,10 +174,10 @@ For production, use a verified tagged release archive:
 ```sh
 release=v0.7.0
 arch=amd64 # use arm64 on aarch64 hosts
-curl -fsSLO "https://github.com/cyberducttape/StePanel/releases/download/${release}/stepanel_${release#v}_linux_${arch}.tar.gz"
+curl -fsSLO "https://github.com/cyberducttape/StePanel/releases/download/${release}/StePanel_${release#v}_linux_${arch}.tar.gz"
 curl -fsSLO "https://github.com/cyberducttape/StePanel/releases/download/${release}/SHA256SUMS"
-grep "stepanel_${release#v}_linux_${arch}.tar.gz" SHA256SUMS | sha256sum -c -
-tar -xzf "stepanel_${release#v}_linux_${arch}.tar.gz"
+grep "StePanel_${release#v}_linux_${arch}.tar.gz" SHA256SUMS | sha256sum -c -
+tar -xzf "StePanel_${release#v}_linux_${arch}.tar.gz"
 
 # Generate encryption keys (MUST be machine-generated, see docs/ENCRYPTION_KEYS.md)
 ACCOUNT_KEY=$(openssl rand -hex 32)

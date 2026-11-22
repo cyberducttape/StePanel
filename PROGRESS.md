@@ -3059,3 +3059,16 @@ does not close a current-source or power-loss gate.
   `127.0.0.1:8080`, completed startup recovery, returned HTTP 204 from `/livez`
   and HTTP 200 with dashboard HTML from `/`. The disposable process was
   stopped cleanly; no host installation or customer data was involved.
+
+## Correct published archive download commands — 2026-11-21
+
+- Fixed the README, install guide, and v0.6-to-v0.7 upgrade guide: all three
+  used a lowercase archive name that did not exist on the GitHub release.
+  The actual published artifact is `StePanel_0.7.0_linux_amd64.tar.gz`.
+- Executed the corrected download and checksum commands against the actual
+  v0.7.0 GitHub release. The archive downloaded, its SHA256 checksum passed,
+  and its tar listing was readable.
+- `make release-check` now verifies the download filename matches the
+  published artifact convention and rejects the old lowercase form.
+- This fixes release installation instructions; it does not make current
+  `main` features available in v0.7.0 or substitute for a new tagged release.
