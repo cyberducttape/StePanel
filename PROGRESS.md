@@ -4017,3 +4017,15 @@ does not close a current-source or power-loss gate.
   full Go tests and race tests, disk-exhaustion and recovery drills, database
   restore checks, static analysis, container checks, and UI E2E/accessibility.
   The optional browser skip is recorded separately; all required checks passed.
+
+## Explain offsite-storage setup for first installs — 2026-11-22
+
+- Added a short preparation path to the install guide: configure rclone as
+  root, list configured remotes, choose a `remote:path`, and use the official
+  headless authorization guide when the server has no browser.
+- Clarified that credentials must stay private and that StePanel probes
+  write/read/delete access at the selected destination before requesting
+  administrator credentials.
+- Exact-source documentation link/reference checks and CI are pending for this
+  documentation-only change. This is setup guidance; it does not certify a
+  provider, remote policy, or installed host.

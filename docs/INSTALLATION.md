@@ -149,6 +149,34 @@ root ownership and mode `0640`, readable by the `stepanel` service account;
 the original config is left in place. This lets offsite backups work without
 making `/root` or its private config readable to the service.
 
+### Prepare offsite storage once
+
+The native install requires an offsite destination. Configure it as root so
+the wizard and installer use the same private credentials file:
+
+```sh
+sudo rclone config
+sudo rclone listremotes
+```
+
+In the interactive setup, choose **New remote**, give it a short name such as
+`backups`, and select your storage provider. Follow that provider's prompts
+for its bucket/container, region, and credentials. Keep the configuration
+private; do not paste credentials into a shell command or make `/root` or the
+rclone file readable by the `stepanel` service. The installer stages a
+service-readable copy with restricted permissions.
+
+On a headless server, a provider may ask rclone to open a browser. Use rclone's
+[headless setup instructions](https://rclone.org/remote_setup/) for that
+provider's authorization flow, or configure the remote on a trusted machine
+and transfer the private config file securely to the server. The wizard lists
+configured remote names; choose a destination such as
+`backups:stepanel-backups`. It then writes, reads, and deletes a temporary
+probe object at that exact destination before it asks for administrator
+credentials, so permissions or configuration problems fail early. See
+rclone's [interactive configuration guide](https://rclone.org/commands/rclone_config/)
+for provider-specific options.
+
 The guide asks seven questions and checks every answer before moving on:
 
 1. **Panel address**: a full hostname whose DNS points at the server.

@@ -2062,3 +2062,22 @@ Acceptance criteria:
 - Non-capacity readiness evidence remains visible and actionable.
 - Browser regression, frontend unit tests, and exact-source CI pass.
 
+### M0ao — Make offsite-storage setup understandable before installation (P2)
+
+**Status:** Implemented in the install guide. It now gives root-owned rclone
+configuration commands, explains remote creation without assuming a provider,
+links to the official headless authorization instructions, and shows the
+`remote:path` form used by the wizard. It explains that StePanel tests
+write/read/delete access at the chosen destination before collecting
+administrator credentials.
+
+Acceptance criteria:
+
+- A first-time operator can identify the root config identity and configure
+  a remote without exposing credentials through shell arguments or broadening
+  `/root` permissions.
+- The guide describes headless OAuth setup, destination naming, and the
+  installer's write/read/delete probe accurately.
+- Documentation links, source references, and exact-source documentation CI
+  pass.
+
