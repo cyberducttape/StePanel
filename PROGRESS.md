@@ -4031,3 +4031,17 @@ does not close a current-source or power-loss gate.
   and CodeQL [45058238442](https://github.com/cyberducttape/StePanel/actions/runs/45058238442)
   passed. This is setup guidance; it does not certify a provider, remote
   policy, or installed host.
+
+## Preserve site form entries when changing workspace tabs — 2026-11-22
+
+- Site-tab rerenders now preserve ordinary unsaved values in the active
+  workspace, then restore them after the tab reloads. The page clearly says
+  when values were restored and asks the operator to verify current site state
+  before applying them.
+- Passwords, tokens, credential-like fields, and selected files are excluded
+  from the in-memory draft. Leaving while one is present requires confirmation;
+  the operator is told to re-enter it on return.
+- Added a browser regression for a PHP/runtime form round trip and database
+  password handling. `node --check` and frontend unit tests (19/19) pass.
+  The focused browser run could not execute locally because this environment
+  has no disposable E2E credentials; exact-source hosted browser CI is pending.

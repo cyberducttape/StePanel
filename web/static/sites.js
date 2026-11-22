@@ -240,13 +240,74 @@
     const tabButtons = Array(TABS.length);
     const startIndex = Math.max(0, TABS.findIndex((tab) => tab.id === initialTabId));
     let requestToken = 0;
+    let activeIndex = -1;
+    const formDrafts = new Map();
+    const formBaselines = new Map();
+    const captureFormValues = (root) => {
+      let sensitiveValuePresent = false;
+      const forms = [...root.querySelectorAll('form')].map((form) => [...form.elements].flatMap((control, index) => {
+        const type = String(control.type || '').toLowerCase();
+        if (['button', 'submit', 'reset', 'image', 'hidden'].includes(type) || control.disabled) return [];
+        const key = String(control.name || control.id || index);
+        if (type === 'file' || type === 'password' || /password|secret|token|credential|private[_-]?key|api[_-]?key/i.test(key)) {
+          if (type === 'file' ? Boolean(control.files?.length) : Boolean(control.value)) sensitiveValuePresent = true;
+          return [];
+        }
+        let value;
+        if (type === 'checkbox' || type === 'radio') value = control.checked;
+        else if (control instanceof HTMLSelectElement && control.multiple) value = [...control.selectedOptions].map((option) => option.value);
+        else value = control.value;
+        return [{ index, key, type, value }];
+      }));
+      return { forms, sensitiveValuePresent };
+    };
+    const restoreFormValues = (root, draft) => {
+      const forms = [...root.querySelectorAll('form')];
+      if (forms.length !== draft.forms.length) return false;
+      const assignments = [];
+      for (const [formIndex, values] of draft.forms.entries()) {
+        const controls = [...forms[formIndex].elements];
+        for (const saved of values) {
+          const control = controls[saved.index];
+          const key = control && String(control.name || control.id || saved.index);
+          if (!control || key !== saved.key || String(control.type || '').toLowerCase() !== saved.type) return false;
+          assignments.push({ control, saved });
+        }
+      }
+      assignments.forEach(({ control, saved }) => {
+        if (saved.type === 'checkbox' || saved.type === 'radio') control.checked = saved.value;
+        else if (control instanceof HTMLSelectElement && control.multiple) {
+          const selected = new Set(saved.value);
+          [...control.options].forEach((option) => { option.selected = selected.has(option.value); });
+        } else control.value = saved.value;
+      });
+      return true;
+    };
 
     const activate = async (index) => {
+      if (activeIndex >= 0) {
+        const previousID = TABS[activeIndex].id;
+        const baseline = formBaselines.get(previousID);
+        if (baseline) {
+          const current = captureFormValues(panel);
+          if (current.forms.length) {
+            const changed = JSON.stringify(current.forms) !== JSON.stringify(baseline.forms);
+            if (current.sensitiveValuePresent && !window.confirm('This section has a password, token, or selected file. StePanel will not retain those sensitive values when you leave. Continue?')) {
+              tabButtons[activeIndex]?.focus();
+              return false;
+            }
+            if (changed || current.sensitiveValuePresent) {
+              formDrafts.set(previousID, { forms: current.forms, sensitiveValuePresent: current.sensitiveValuePresent });
+            } else formDrafts.delete(previousID);
+          }
+        }
+      }
       tabButtons.forEach((tabButton, i) => {
         const selected = i === index;
         tabButton.setAttribute('aria-selected', String(selected));
         tabButton.tabIndex = selected ? 0 : -1;
       });
+      activeIndex = index;
       if (advancedDetails && advancedTabs.some((tab) => tab.id === TABS[index].id)) advancedDetails.open = true;
       panel.setAttribute('aria-labelledby', `tab-${TABS[index].id}`);
       history.replaceState({ site, tab: TABS[index].id }, '', workspaceHash(site, TABS[index].id));
@@ -256,7 +317,25 @@
       try {
         await TABS[index].render(site, renderPanel, { isAdministrator, accountRole, can, webserver, getJSON, postJSON, runOperation, putJSON, patchJSON, deleteJSON, field, button, badge, formatAge, formatBytes, el, confirmDangerous, statusOutput });
         if (token !== requestToken) return;
+        const tabID = TABS[index].id;
+        const baseline = captureFormValues(renderPanel);
+        formBaselines.set(tabID, baseline);
         panel.replaceChildren(...renderPanel.childNodes);
+        const draft = formDrafts.get(tabID);
+        if (draft) {
+          const restored = restoreFormValues(panel, draft);
+          if (restored) {
+            const afterRestore = captureFormValues(panel);
+            const stillChanged = JSON.stringify(afterRestore.forms) !== JSON.stringify(baseline.forms);
+            if (stillChanged || draft.sensitiveValuePresent) {
+              const reminder = 'Form entries from this browser session were restored. Review them and verify the current site state before applying. Passwords, tokens, and selected files must be entered again.';
+              panel.prepend(el('p', { className: 'import-note', role: 'status' }, reminder));
+            }
+            formDrafts.delete(tabID);
+          } else {
+            panel.prepend(el('p', { className: 'import-note', role: 'status' }, 'This section changed while it was away, so its previous form values could not be restored. Review the current fields before continuing.'));
+          }
+        }
       } catch (error) {
         if (token === requestToken) panel.replaceChildren(el('p', { className: 'import-note' }, error.message));
       }

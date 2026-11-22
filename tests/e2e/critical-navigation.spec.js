@@ -319,6 +319,49 @@ test('navigation highlight and topbar title follow the section in view', async (
   await expect(title).toHaveText(overviewTitle);
 });
 
+test('site workspace restores non-secret form edits after switching tabs', async ({ page }) => {
+  const json = (body) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  const site = { site: 'draft-site', routes: [], applications: [], database_count: 0 };
+  await page.route('**/api/sites/overview', (route) => route.fulfill(json({ sites: [site] })));
+  await page.route('**/api/sites/overview/draft-site', (route) => route.fulfill(json(site)));
+  await page.route('**/api/sites/php/draft-site', (route) => route.fulfill(json({
+    configured: true,
+    versions: ['8.3'],
+    profile: { version: '8.3', memory_limit: '256M', max_execution_time: 30, upload_max_filesize: '64M', post_max_size: '64M', max_input_vars: 3000, opcache: true, display_errors: false, error_reporting: 'E_ALL & ~E_DEPRECATED' },
+  })));
+  await page.route('**/api/databases', (route) => route.fulfill(json({ databases: [] })));
+
+  await page.goto('/#site=draft-site&tab=runtime');
+  const panel = page.locator('#workspace-panel');
+  const entrypoint = panel.getByLabel('Entrypoint (module:app)');
+  await expect(entrypoint).toHaveValue('app:app');
+  await entrypoint.fill('custom:application');
+  await page.getByRole('tab', { name: 'Overview' }).click();
+  await page.getByRole('tab', { name: 'Runtime' }).click();
+
+  await expect(panel.getByLabel('Entrypoint (module:app)')).toHaveValue('custom:application');
+  await expect(panel.locator('p[role="status"]')).toContainText('Form entries from this browser session were restored');
+
+  await page.getByRole('tab', { name: 'Databases' }).click();
+  const secret = panel.locator('input[type="password"]');
+  await expect(secret).toBeVisible();
+  await secret.fill('temporary-secret-value');
+  let prompt = '';
+  page.once('dialog', async (dialog) => {
+    prompt = dialog.message();
+    await dialog.dismiss();
+  });
+  await page.getByRole('tab', { name: 'Overview' }).click();
+  expect(prompt).toContain('StePanel will not retain those sensitive values');
+  await expect(secret).toHaveValue('temporary-secret-value');
+
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('tab', { name: 'Overview' }).click();
+  await page.getByRole('tab', { name: 'Databases' }).click();
+  await expect(panel.locator('input[type="password"]')).toHaveValue('');
+  await expect(panel.locator('p[role="status"]')).toContainText('Passwords, tokens, and selected files must be entered again');
+});
+
 test('site overview makes backup failures explicit', async ({ page }) => {
   // The disposable UI harness intentionally has no host sites. Provide a
   // minimal inventory fixture so this test can exercise the site workspace

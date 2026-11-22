@@ -2084,3 +2084,21 @@ Acceptance criteria:
 - Documentation links, source references, and exact-source documentation CI
   pass.
 
+### M0ap — Preserve site-workspace form entries across tabs (P1)
+
+**Status:** Implemented locally; browser CI pending. When a tab is re-rendered,
+ordinary form values are captured and restored in memory for the current site
+workspace. Passwords, tokens, credential-like fields, and selected files are
+never retained; leaving a tab with one of those values prompts first. The
+workspace announces restored entries and asks the operator to verify current
+site state before applying them.
+
+Acceptance criteria:
+
+- Switching away and back preserves ordinary unsaved form values.
+- A password or selected upload is not copied into the draft; the operator is
+  warned and must re-enter it after returning.
+- Drafts do not cross site workspaces or browser sessions.
+- The browser regression covers a text-field round trip and password warning;
+  frontend syntax, unit, accessibility, and hosted browser checks pass.
+
