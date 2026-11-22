@@ -101,8 +101,11 @@ measured 4.539 seconds ([run 45040904045](https://github.com/cyberducttape/StePa
 [report](docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-e5fae4a.md)).
 That artifact revealed a noisy missing-`/var/www/sites` inventory warning on
 fresh hosts. The current installer counts a missing directory as zero and
-adds a shell regression; installed-host verification of that follow-up is
-pending.
+adds a shell regression. Exact-source host run `d2695cd0` now verifies that
+the warning is gone; installation completed and the WordPress HTTPS/database
+recovery proof measured 4.512 seconds ([run 45060415981](https://github.com/cyberducttape/StePanel/actions/runs/45060415981),
+[report](docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-d2695cd.md)).
+This remains a single disposable-container iteration, not host certification.
 The administrator's first-run dashboard also keeps the long unavailable-
 capability inventory collapsed behind a disclosure that reports its current
 counts. Infrastructure navigation expands it directly; service inventory

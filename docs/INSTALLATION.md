@@ -31,7 +31,7 @@ installation, use **Ubuntu 24.04 + Caddy + MariaDB**:
 | Platform combination | Tier | Evidence / policy |
 | --- | --- | --- |
 | Ubuntu 24.04 + Apache + MariaDB | Beta; repeat acceptance pending | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
-| Ubuntu 24.04 + Caddy + MariaDB | Recommended Beta profile | Latest exact-source packaged smoke `e5fae4ad`: install completed and database-backed WordPress HTTPS recovery measured 4.539 s ([report](lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-e5fae4a.md)); [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration; repeat acceptance pending |
+| Ubuntu 24.04 + Caddy + MariaDB | Recommended Beta profile | Latest exact-source packaged smoke `d2695cd0`: install completed and database-backed WordPress HTTPS recovery measured 4.512 s ([report](lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-d2695cd.md)); [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration; repeat acceptance pending |
 | AlmaLinux 9 + Apache + MariaDB | Beta; repeat acceptance pending | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
 | AlmaLinux 9 + Caddy + MariaDB | Beta; repeat acceptance pending | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
 | Rocky Linux 9 + Apache + MariaDB | Beta; repeat acceptance pending | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
@@ -83,7 +83,7 @@ The guided installer is available on current `main`, but is **not included in
 the published v0.7.0 release archive**. A GoReleaser snapshot built from
 current source has passed one disposable Ubuntu 24.04 + Caddy + MariaDB install
 and WordPress HTTPS/database recovery smoke
-([run 45037318148](lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-6af93e8.md)).
+([run 45060415981](lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-d2695cd.md)).
 That is useful Beta evidence, not a supported tagged release or production
 certification. The currently published stable archive cannot perform a fresh
 installation on Ubuntu 24.04; see [tagged release status](#tagged-release-status).

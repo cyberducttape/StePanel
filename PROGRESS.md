@@ -3988,6 +3988,12 @@ does not close a current-source or power-loss gate.
   was still active. It subsequently passed installation, an HTTPS WordPress
   database restore proof (4.539 s), and one recovery-matrix iteration; see the
   [result report](docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-e5fae4a.md).
+- The exact-source follow-up install smoke [45060415981](https://github.com/cyberducttape/StePanel/actions/runs/45060415981)
+  passed on `d2695cd0`: packaged install and cleanup completed, the WordPress
+  HTTPS/database recovery proof measured 4.512 s, and one recovery-matrix
+  iteration passed. Its artifact has no fresh-host `wc -l` warning. This is
+  one disposable-host pass, not repeated release certification; see the
+  [result report](docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-d2695cd.md).
 
 
 ## Make guided setup reuse saved answers reliably — 2026-11-22
@@ -4067,6 +4073,5 @@ does not close a current-source or power-loss gate.
   an absent directory, with a shell regression. Focused contract, syntax,
   ShellCheck for the new helper/test, the full shell-contract suite, frontend
   unit tests (19/19), and `git diff --check` passed. Exact-source integration,
-  documentation, CodeQL, and release-evidence workflows passed on `d2695cd0`.
-  The exact-source installed-host check is still running in
-  [workflow 45060415981](https://github.com/cyberducttape/StePanel/actions/runs/45060415981).
+  documentation, CodeQL, release-evidence, and installed-host workflows
+  passed on `d2695cd0`.
