@@ -1,5 +1,15 @@
 # Production-readiness progress
 
+## Reject non-systemd installs before host changes — 2026-11-21
+
+- Native installation now checks for `systemctl` and a live systemd runtime
+  directory during preflight. Missing prerequisites produce a blocker before
+  package updates or service changes and point UI evaluators to `make evaluate`.
+- Added a shell contract for both missing-prerequisite cases and verifies the
+  installer check appears before package mutation. Focused shell syntax and
+  preflight contract checks passed. Full `make check` is pending for this
+  source change.
+
 ## Make local evaluation a single safe command — 2026-11-21
 
 - Added `make evaluate` to build and start the development UI on

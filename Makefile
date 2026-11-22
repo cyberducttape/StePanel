@@ -65,6 +65,7 @@ shell-contract-check:
 	bash scripts/test-site-package-cgroups.sh
 	bash scripts/test-node-runtime-resolution.sh
 	bash scripts/test-install-support-tier.sh
+	bash scripts/test-install-systemd-preflight.sh
 	bash scripts/test-evaluation-entrypoint.sh
 
 check: fmt-check api-check shell-contract-check vet test

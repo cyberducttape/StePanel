@@ -334,11 +334,17 @@ PREEXISTING_WEB_SERVICES=()
 preflight_blockers=()
 . "$ROOT_DIR/deploy/lib/install-service-state.sh"
 . "$ROOT_DIR/deploy/lib/install-support-tier.sh"
+. "$ROOT_DIR/deploy/lib/install-systemd-preflight.sh"
 MAIL_EXIM_SERVICE=$([[ "$PKG" == apt ]] && printf exim4 || printf exim)
 MAIL_SPAM_SERVICE=$([[ "$PKG" == apt ]] && printf spamassassin || printf spamd)
 INSTALL_HOST_SERVICES=(apache2 httpd caddy lsws "$MAIL_EXIM_SERVICE" dovecot "$MAIL_SPAM_SERVICE")
 echo "StePanel host preflight"
 install_support_tier "$ID" "$VERSION_ID" "$WEB_SERVER" "$DB_ENGINE"
+if systemd_preflight=$(install_preflight_systemd); then
+  echo "HOST REQUIREMENT: $systemd_preflight"
+else
+  preflight_blockers+=("$systemd_preflight")
+fi
 echo "DETECTED:"
 [[ -f "$ENV_FILE" ]] && echo "  existing StePanel installation ($ENV_FILE); this run is an upgrade"
 for web_service in apache2 httpd caddy lsws; do
