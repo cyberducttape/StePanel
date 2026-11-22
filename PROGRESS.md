@@ -1,5 +1,22 @@
 # Production-readiness progress
 
+## Verify exact-source integration after rclone config staging — 2026-11-22
+
+- Integration CI [45017173779](https://github.com/cyberducttape/StePanel/actions/runs/45017173779)
+  passed on source `55c1421a`. It completed formatting, release checks, vet,
+  full Go tests, race tests, recovery drills, real tmpfs ENOSPC recovery,
+  authenticated startup and mixed-load checks, database restore drills,
+  browser E2E, static analysis, container validation, and deployment manifest
+  checks.
+- The customer-panel browser job passed, including account-owner website
+  creation initialization, uncaught JavaScript error checks, stale-list
+  navigation, and delayed file-read/site-switch protection.
+- This run does not replace the separate exact-source installed-host test.
+  Ubuntu 24.04 + Caddy + MariaDB install and WordPress recovery smoke
+  [45017173718](https://github.com/cyberducttape/StePanel/actions/runs/45017173718)
+  is still running on the same source; the staged root-only rclone config
+  remains unverified on a completed fresh-host run until that job passes.
+
 ## Stage rclone credentials for the service account — 2026-11-22
 
 - The guided installer runs as root and commonly discovers the private config

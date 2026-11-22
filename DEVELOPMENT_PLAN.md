@@ -1855,8 +1855,11 @@ Downloads now stream up to the separately enforced 40 GiB limit; see M0ab.
 
 ### M0al — Make the offsite rclone config readable to the installed service (P1)
 
-**Status:** Implemented locally; disposable installed-host verification is
-pending. The installer now stages the selected root or user rclone config at
+**Status:** Implemented; exact-source integration CI passed on `55c1421a`
+([run 45017173779](https://github.com/cyberducttape/StePanel/actions/runs/45017173779)).
+Disposable installed-host verification is still pending on
+[run 45017173718](https://github.com/cyberducttape/StePanel/actions/runs/45017173718).
+The installer now stages the selected root or user rclone config at
 `/etc/stepanel/rclone.conf` as `root:stepanel` mode `0640`, records it in the
 installer transaction, and points the service environment at the staged file.
 The host smoke now starts from a root-only `0600` config and checks that the
