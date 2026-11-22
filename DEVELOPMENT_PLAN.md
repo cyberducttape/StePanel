@@ -2041,3 +2041,20 @@ Acceptance criteria:
 - Mobile layout, keyboard interaction, and axe accessibility checks pass.
 - The seeded Chromium navigation/accessibility suite and exact-source CI pass.
 
+### M0an — Make first-run health failures understandable (P2)
+
+**Status:** Implemented locally; exact-source CI pending. The first-run
+checklist translates storage readiness failures into named storage areas,
+human-readable free/required sizes, and a concrete refresh/remediation step.
+Other readiness checks retain their provided evidence while receiving
+human-readable labels.
+
+Acceptance criteria:
+
+- Backup, import, job-state, and recovery-journal capacity failures do not
+  expose raw byte counts or internal check keys in the first-run checklist.
+- The checklist identifies the affected storage and says what an operator can
+  do next without implying that deleting customer data is safe.
+- Non-capacity readiness evidence remains visible and actionable.
+- Browser regression, frontend unit tests, and exact-source CI pass.
+

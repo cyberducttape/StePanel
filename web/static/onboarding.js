@@ -18,6 +18,36 @@
     return node;
   };
   const message = (error) => error && error.message ? error.message : 'request failed';
+  const formatBytes = (value) => {
+    const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+    let size = Math.max(0, value);
+    let unit = 0;
+    while (size >= 1024 && unit < units.length - 1) {
+      size /= 1024;
+      unit += 1;
+    }
+    return `${size.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+  };
+  const readinessFailure = (name, check) => {
+    const labels = {
+      backup_capacity: 'Backup storage',
+      import_capacity: 'Import staging storage',
+      job_capacity: 'Job state storage',
+      recovery_capacity: 'Recovery journal storage',
+      root_broker: 'Privileged helper',
+      dead_letter_jobs: 'Jobs needing review',
+      security_audit_outcomes: 'Audit reconciliation',
+      capacity_ledger: 'Resource admission',
+      control_plane_integrity: 'Control-plane database integrity',
+    };
+    const label = labels[name] || name.replace(/_/g, ' ').replace(/^./, (letter) => letter.toUpperCase());
+    const detail = typeof check?.detail === 'string' ? check.detail : '';
+    const capacity = detail.match(/^(\d+) bytes free; minimum is (\d+)$/);
+    if (capacity) {
+      return `${label}: ${formatBytes(Number(capacity[1]))} free; ${formatBytes(Number(capacity[2]))} required. Free space on this filesystem or expand it, then refresh the host checks.`;
+    }
+    return `${label}: ${detail || 'needs attention'}`;
+  };
   const showHealthDetails = (event) => {
     const toggle = document.querySelector('#controlPlaneDetailsToggle');
     const details = document.querySelector('#controlPlaneDetails');
@@ -91,7 +121,7 @@
           : [];
         const failed = checks.filter(([, check]) => !check || !check.ready);
         const ready = readiness.operational === true && checks.length > 0 && failed.length === 0;
-        const details = failed.slice(0, 2).map(([name, check]) => `${name.replace(/_/g, ' ')}: ${check.detail || 'needs attention'}`);
+        const details = failed.slice(0, 2).map(([name, check]) => readinessFailure(name, check));
         steps.push({
           title: 'Check host and job health',
           detail: ready

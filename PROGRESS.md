@@ -1,5 +1,16 @@
 # Production-readiness progress
 
+## Explain first-run host readiness failures — 2026-11-22
+
+- The first-run checklist now names backup, import, job, and recovery storage
+  checks, formats free and required capacity in GiB/MiB, and gives a safe
+  remediation step. Other readiness details keep their original evidence but
+  receive human-readable labels.
+- Added a seeded browser regression using the operational-health response
+  shape. The new case and the existing setup journey passed; frontend unit
+  tests (19), `go build`, JavaScript syntax checks, and `git diff --check` also
+  passed. Full seeded Chromium and exact-source CI are pending.
+
 ## Keep first-run operator view focused — 2026-11-22
 
 - Grouped customer/database administration and migration/application forms into

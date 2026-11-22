@@ -179,6 +179,34 @@ test('first-run primary action follows the next unresolved setup step', async ({
   await expect(page.locator('#siteCreateAdminPassword')).toHaveValue(/^[A-Za-z0-9+/]{24}$/);
 });
 
+test('first-run readiness translates storage checks into readable next steps', async ({ page }) => {
+  await page.route('**/api/sites/overview', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ sites: [] }),
+  }));
+  await page.route('**/api/backups?limit=100', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ backups: [] }),
+  }));
+  await page.route('**/api/health/operational', (route) => route.fulfill({
+    status: 503,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      operational: false,
+      checks: {
+        backup_capacity: { ready: false, detail: '1073741824 bytes free; minimum is 5368709120' },
+        import_capacity: { ready: false, detail: '2147483648 bytes free; minimum is 5368709120' },
+      },
+    }),
+  }));
+
+  await page.reload();
+  const healthStep = page.locator('#onboardingChecklist .setup-step').filter({ hasText: 'Check host and job health' });
+  await expect(healthStep).toContainText('Backup storage: 1.0 GiB free; 5.0 GiB required.');
+  await expect(healthStep).toContainText('Free space on this filesystem or expand it, then refresh the host checks.');
+  await expect(healthStep).toContainText('Import staging storage: 2.0 GiB free; 5.0 GiB required.');
+  await expect(healthStep).not.toContainText('1073741824');
+  await expect(healthStep).not.toContainText('backup_capacity');
+});
+
 test('database health expands into a readable, host-wide snapshot', async ({ page }) => {
   let requests = 0;
   await page.route('**/api/database/diagnostics', async (route) => {
