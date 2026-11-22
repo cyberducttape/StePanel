@@ -21,6 +21,11 @@
   [45014390695](https://github.com/cyberducttape/StePanel/actions/runs/45014390695)
   records three checks passed and six incomplete; the packaged-host smoke is
   equivalent by code and passed on `b2e95a3a`.
+- Copyable README and installation commands now use shallow Git clones for
+  development, local evaluation, and the native source bootstrap. The source
+  reference/link checks (93 documents), `make release-check`, and
+  `git diff --check` pass locally; hosted Documentation and CodeQL for this
+  docs-only update are pending.
 
 ## Verify the exact-source Ubuntu packaged install — 2026-11-22
 

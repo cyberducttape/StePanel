@@ -105,7 +105,7 @@ The build and installer must stay together because the installer uses helpers
 and assets from that checkout:
 
 ```sh
-git clone --branch main https://github.com/cyberducttape/StePanel.git
+git clone --depth 1 --branch main https://github.com/cyberducttape/StePanel.git
 cd StePanel
 ./scripts/install-guided.sh
 ```

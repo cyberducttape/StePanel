@@ -135,7 +135,7 @@ Requirements: Go 1.21 or later with Go's automatic toolchain selection enabled
 toolchain. If `GOTOOLCHAIN=local` is set, unset it before building.
 
 ```sh
-git clone https://github.com/cyberducttape/StePanel.git
+git clone --depth 1 https://github.com/cyberducttape/StePanel.git
 cd StePanel
 make check
 go run ./cmd/stepanel
@@ -153,7 +153,7 @@ enabled (the default). The first build downloads the pinned Go 1.26.11
 toolchain; the initial download requires internet access.
 
 ```sh
-git clone https://github.com/cyberducttape/StePanel.git
+git clone --depth 1 https://github.com/cyberducttape/StePanel.git
 cd StePanel
 make evaluate
 ```
@@ -239,7 +239,7 @@ has copyable Ubuntu 24.04 prerequisite commands and explains the first-build
 toolchain download:
 
 ```sh
-git clone --branch main https://github.com/cyberducttape/StePanel.git
+git clone --depth 1 --branch main https://github.com/cyberducttape/StePanel.git
 cd StePanel
 ./scripts/install-guided.sh
 ```
