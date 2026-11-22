@@ -7,9 +7,15 @@
   `make shell-contract-check`, covering the guided Go bootstrap, loopback
   evaluation, installer settings parser and first-login instructions. The
   release check also requires this CI step to remain present.
-- Locally, `make shell-contract-check`, `make release-check`, and
-  `git diff --check` pass. The new CI wiring has not passed remotely yet; its
-  exact-source workflow will start after this commit is pushed.
+- The first exact-source run failed before Go tests because its global
+  `GOTOOLCHAIN=local` setting leaked into two harness cases that intended to
+  exercise an already-installed compiler. The guided-bootstrap harness now
+  explicitly selects `auto` for that case, and the evaluation harness does the
+  same. The separate `local` bootstrap case remains covered explicitly.
+- `GOTOOLCHAIN=local GOMAXPROCS=2 GOFLAGS=-p=1 make shell-contract-check`,
+  `make release-check`, and `git diff --check` pass locally. The fix is pushed
+  for a new exact-source CI run; the previous run remains a failure and is not
+  counted as passing evidence.
 
 ## Correct the installed-host smoke coverage claim — 2026-11-22
 

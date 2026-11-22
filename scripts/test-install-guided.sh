@@ -77,7 +77,8 @@ chmod 0755 "$dest/go/bin/go"
 SH
 chmod 0755 "$fake_bin"/*
 
-GO_LOG="$tmp/go.log" SUDO_LOG="$tmp/sudo.log" GO=go SUDO=sudo PATH="$fake_bin:$PATH" \
+GO_LOG="$tmp/go.log" SUDO_LOG="$tmp/sudo.log" GO=go SUDO=sudo \
+  GOTOOLCHAIN=auto PATH="$fake_bin:$PATH" \
   bash "$fake_repo/scripts/install-guided.sh" --take-over-host
 [[ -x $fake_repo/stepanel && -x $fake_repo/stepanel-root ]]
 grep -Fq './cmd/stepanel' "$tmp/go.log"

@@ -34,6 +34,7 @@ GO
 chmod 0755 "$tmp/bin/go"
 
 output=$(cd "$repo" && EVALUATION_GO_LOG="$tmp/go.log" TMPDIR="$tmp/build" \
+  GOTOOLCHAIN=auto \
   make evaluate GO="$tmp/bin/go" 2>&1)
 grep -Fq 'evaluation binary started' <<<"$output"
 grep -Fq './cmd/stepanel' "$tmp/go.log"
