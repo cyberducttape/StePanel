@@ -38,7 +38,8 @@ first-host application proof remain open.
   any release advertises it.
 - Installer preflight reports OS, web-server, and database support tier and
   actionable failed prerequisites (including availability of required base,
-  PHP, database, and web-server packages in repository metadata, requested
+  PHP, database, web-server, and selected optional-feature packages in
+  repository metadata, requested
   database versions/streams, a live systemd manager, user-quota mount settings
   on `/var/www` and `/home`) before host mutation;
   it verifies active enforcement immediately if tools are available, otherwise

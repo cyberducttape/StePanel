@@ -1,5 +1,18 @@
 # Production-readiness progress
 
+## Preflight packages for selected optional features — 2026-11-21
+
+- Installer package preflight now includes Fail2ban, mail, FTP, ModSecurity,
+  database admin, malware scanning, and Apache TLS dependencies when those
+  options are enabled. The preflight plan prints the selected optional package
+  names, and unavailable packages join the same before-mutation blocker list.
+- Added APT/DNF package-list contracts for both supported database choices,
+  all optional packages selected, and no optional packages. The focused
+  contract passes. `make check` passed, including `go vet ./...` and the full
+  Go suite (root package 117.156s); `make release-check`, focused ShellCheck,
+  documentation links/references, syntax checks, and `git diff --check` also
+  passed. Exact-source archive and hosted installed-host smoke remain pending.
+
 ## Cover installer settings-file rejection paths — 2026-11-21
 
 - Extracted the existing root-owned env-file parser into a helper required by

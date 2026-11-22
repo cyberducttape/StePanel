@@ -246,10 +246,12 @@ and disabling that server is intended. Web servers pulled in by the
 installer's own package installation are stopped without the flag, because
 they were not serving anything before the run.
 
-The installer also checks that the selected web server package is available
-from a configured repository before installing it, and reports a missing
-Caddy or OpenLiteSpeed repository instead of failing inside the package
-manager.
+Before installing packages or stopping host services, the installer checks
+that the required base/PHP/database/web-server packages and the packages for
+selected optional features are available in current repository metadata.
+Missing packages are reported together with repository or metadata refresh
+guidance. Explicit database versions are checked at the same stage. Refresh
+package indexes before `--dry-run` when the host metadata is stale.
 
 Building from source is for contributors and development hosts; release
 archives include the binary, installer, helpers, service files, and web assets.

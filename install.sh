@@ -338,6 +338,12 @@ else
     preflight_packages+=(policycoreutils-python-utils)
   fi
 fi
+mapfile -d '' -t preflight_optional_packages < <(
+  install_preflight_optional_packages "$PKG" "$DB_ENGINE" "$WEB_SERVER" \
+    "$INSTALL_FAIL2BAN" "$INSTALL_MODSEC" "$INSTALL_MAIL" "$INSTALL_FTP" \
+    "$INSTALL_DB_ADMIN" "$INSTALL_SECURITY" "$INSTALL_TLS"
+)
+preflight_packages+=("${preflight_optional_packages[@]}")
 preflight_packages+=("$preflight_db_package" "$WEB_PACKAGE")
 if package_preflight=$(install_preflight_packages web_package_available "${preflight_packages[@]}"); then
   echo "HOST REQUIREMENT: $package_preflight"
@@ -377,7 +383,7 @@ for db_service in mysql mariadb postgresql; do
 done
 echo "  unix login accounts (uid >= 1000): $(awk -F: '$3 >= 1000 && $3 < 65534' /etc/passwd | wc -l)"
 echo "PROPOSED CHANGES:"
-echo "  INSTALL packages: php php-cli php-fpm $DB_PHP_PACKAGE php-curl php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl git util-linux sudo logrotate $PROCPS_PACKAGE $WEB_PACKAGE $DB_PACKAGE"
+echo "  INSTALL packages: php php-cli php-fpm $DB_PHP_PACKAGE php-curl php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl git util-linux sudo logrotate $PROCPS_PACKAGE $WEB_PACKAGE $DB_PACKAGE ${preflight_optional_packages[*]}"
 db_installed_version=not-installed
 db_candidate_version=unknown
 db_plan_package=$DB_PACKAGE
