@@ -99,6 +99,8 @@ sudo apt-get install -y git golang-go
 The bootstrap needs Git and Go 1.21 or later. Go's default automatic toolchain
 selection downloads the exact Go 1.26.11 toolchain pinned by this checkout on
 the first build; `GOTOOLCHAIN=local` disables that behavior and must be unset.
+The bootstrap checks the Go version first and prints these Ubuntu commands if
+the compiler is missing or too old; it exits before building or invoking sudo.
 The build and installer must stay together because the installer uses helpers
 and assets from that checkout:
 

@@ -29,7 +29,10 @@ Local evaluation guidance and guided-setup
 support labels, pre-mutation platform classification, and release archive
 documentation requirements are in place. A newcomer can run a loopback-only
 evaluation, or use the source bootstrap to build as an unprivileged user and
-then start the guided native installer. The setup guidance and installer
+then start the guided native installer. The source bootstrap now checks for
+Go 1.21+ before building and prints the recommended Ubuntu 24.04 prerequisite
+command when Go is missing or too old; its contract test verifies it exits
+before building or invoking `sudo`. The setup guidance and installer
 preflight identify Ubuntu 24.04 + Caddy + MariaDB as the recommended Beta
 profile. The latest installed-host smoke on code source `b2e95a3a` passed on
 Ubuntu 24.04 + Caddy + MariaDB ([host run

@@ -30,9 +30,29 @@ if [[ ${GOTOOLCHAIN:-auto} == local ]]; then
   exit 1
 fi
 command -v -- "$go_bin" >/dev/null 2>&1 || {
-  echo 'Go is not installed. Install Go 1.21 or later; Go will download the pinned toolchain automatically.' >&2
+  echo 'Go is not installed. The bootstrap needs Go 1.21 or later; it will download the pinned Go 1.26.11 toolchain automatically.' >&2
+  echo 'On the recommended Ubuntu 24.04 profile, install the prerequisites with:' >&2
+  echo '  sudo apt-get update && sudo apt-get install -y git golang-go' >&2
+  echo 'For other systems, see the prerequisites in docs/INSTALLATION.md.' >&2
   exit 1
 }
+go_version=$("$go_bin" version 2>/dev/null || true)
+if [[ $go_version =~ go([0-9]+)\.([0-9]+) ]]; then
+  go_version_found=${BASH_REMATCH[0]}
+  go_major=${BASH_REMATCH[1]}
+  go_minor=${BASH_REMATCH[2]}
+  if (( go_major < 1 || (go_major == 1 && go_minor < 21) )); then
+    echo "Go 1.21 or later is required for automatic toolchain selection; found $go_version_found" >&2
+    echo 'On the recommended Ubuntu 24.04 profile, install the prerequisites with:' >&2
+    echo '  sudo apt-get update && sudo apt-get install -y git golang-go' >&2
+    echo 'For other systems, see the prerequisites in docs/INSTALLATION.md.' >&2
+    exit 1
+  fi
+else
+  echo "Could not determine the installed Go version from: ${go_version:-<no output>}" >&2
+  echo 'Install Go 1.21 or later, then retry the guided install.' >&2
+  exit 1
+fi
 command -v -- "$sudo_bin" >/dev/null 2>&1 || {
   echo 'sudo is required to configure host services.' >&2
   exit 1

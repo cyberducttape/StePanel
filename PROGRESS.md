@@ -1,5 +1,17 @@
 # Production-readiness progress
 
+## Explain source-install compiler failures before building — 2026-11-22
+
+- `scripts/install-guided.sh` now checks that the installed Go command reports
+  version 1.21 or newer before starting either build. Missing and too-old
+  compiler errors include the exact recommended Ubuntu 24.04 Git/Go install
+  command and link to the supported platform/prerequisite guide; neither case
+  reaches build or `sudo`.
+- Extended the bootstrap contract test to cover missing Go and Go 1.20, in
+  addition to the successful build-before-sudo and unsupported-flag cases.
+  `bash scripts/test-install-guided.sh`, shell syntax, and ShellCheck pass.
+  Exact-source hosted CI is pending.
+
 ## Verify the exact-source Ubuntu packaged install — 2026-11-22
 
 - Installation smoke [45009421543](https://github.com/cyberducttape/StePanel/actions/runs/45009421543)
