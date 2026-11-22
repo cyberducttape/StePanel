@@ -1,5 +1,18 @@
 # Production-readiness progress
 
+## Make readiness diagnostics readable from the CLI — 2026-11-22
+
+- `stepanelctl doctor` now prints a concise per-check report with result,
+  diagnostic message, and remediation. `--json` preserves machine-readable
+  output. Both modes return nonzero for critical/not-ready reports so scripts
+  can gate on the result while operators still receive the report.
+- Updated README, API guide, and code organization docs to describe the CLI's
+  state-changing workflows accurately and explain the doctor output modes.
+- Regression tests exercise the actual SDK HTTP request, human/JSON output,
+  readiness exit policy, and check rendering. `go test ./cmd/stepanelctl`,
+  `go vet ./cmd/stepanelctl`, and `git diff --check` pass. Full repository CI
+  has not yet run for this source change.
+
 ## Put the first-install decision and restore status up front — 2026-11-22
 
 - The installation guide now starts with three direct paths: loopback preview,

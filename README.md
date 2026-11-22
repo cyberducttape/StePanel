@@ -293,18 +293,22 @@ to validate a candidate before the guarded maintenance-window restore:
 For API automation, build or install `stepanelctl` and set `STEPANEL_URL` and
 `STEPANEL_TOKEN`. `stepanelctl` supports both read-only inspection and
 state-changing workflows such as site creation, backup/restore, migration,
-and provisioning. Its output is machine-readable JSON:
+and provisioning. `doctor` prints a readable checklist with each check's
+result, diagnostic message, and next step; add `--json` for scripts. Other inspection
+commands return JSON:
 
 ```sh
 stepanelctl doctor --production
+stepanelctl doctor --json
 stepanelctl sites list
 stepanelctl site inspect example
 stepanelctl jobs list
 stepanelctl jobs watch site-create-<id>
 ```
 
-`doctor --production` checks the production prerequisite report, while
-`jobs watch` polls durable job state until it reaches a terminal result.
+`doctor --production` checks the production prerequisite report and exits
+nonzero when readiness is critical or not configured. `jobs watch` polls
+durable job state until it reaches a terminal result.
 
 ## Quick workflows
 

@@ -21,6 +21,9 @@ the platform matrix. The API workflow guide also clarifies that restore-to-
 staging returns a queued job and that the operator must wait for completion.
 These documentation changes reduce ambiguity but do not remove the checkout
 and Go toolchain requirement or create a supported fresh-install archive.
+The `stepanelctl doctor` command now presents readiness failures as a readable
+checklist by default, includes the diagnostic and suggested next step, retains
+JSON output for automation, and exits nonzero for critical/not-ready status.
 Local evaluation guidance and guided-setup
 support labels, pre-mutation platform classification, and release archive
 documentation requirements are in place. A newcomer can run a loopback-only

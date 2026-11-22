@@ -482,6 +482,8 @@ same API operations as the dashboard; the server remains authoritative for
 permissions, capacity admission, confirmation, and durable job state.
 
 ```sh
+stepanelctl doctor --production
+stepanelctl doctor --json
 stepanelctl sites list
 stepanelctl site create --site example --template php --wait
 stepanelctl backup create --site example --include-databases --wait
@@ -498,6 +500,10 @@ stepanelctl migration import --upload-id UPLOAD_ID --username example \
   --confirm IMPORT --restore-databases --preview-token TOKEN --wait
 stepanelctl diagnostics collect --output ./stepanel-support.zip
 ```
+
+The doctor command prints an operator-readable checklist by default, including
+each check's result, diagnostic message, and suggested remediation. Use `--json` for automation;
+critical or not-ready results return a nonzero exit status in either mode.
 
 For WordPress creation, add `--domain`, `--title`, `--admin-user`, and
 `--admin-email`, then pass the administrator password through stdin with

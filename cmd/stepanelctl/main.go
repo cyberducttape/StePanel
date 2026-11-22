@@ -1,5 +1,5 @@
 // Command stepanelctl automates the same documented durable API workflows as
-// the StePanel dashboard.
+// the StePanel dashboard, including both inspection and state-changing jobs.
 package main
 
 import (
@@ -36,7 +36,7 @@ func usage() {
 Environment: STEPANEL_URL (default http://127.0.0.1:8080), STEPANEL_TOKEN
 
 Commands:
-  status | doctor [--production] | capabilities
+  status | doctor [--production] [--json] | capabilities
   sites list | site inspect NAME | site create --site NAME [--template php|wordpress]
   backup list [--site NAME] | backup create --site NAME [--include-databases] [--wait]
   restore files|database|staging ... (live restores require exact confirmation)
@@ -66,6 +66,10 @@ func commandPath(args []string) (string, bool) {
 	case len(args) == 1 && args[0] == "doctor":
 		return "/api/v1/admin/production-readiness", true
 	case len(args) == 2 && args[0] == "doctor" && args[1] == "--production":
+		return "/api/v1/admin/production-readiness", true
+	case len(args) == 2 && args[0] == "doctor" && args[1] == "--json":
+		return "/api/v1/admin/production-readiness", true
+	case len(args) == 3 && args[0] == "doctor" && ((args[1] == "--production" && args[2] == "--json") || (args[1] == "--json" && args[2] == "--production")):
 		return "/api/v1/admin/production-readiness", true
 	case len(args) == 1 && args[0] == "capabilities":
 		return "/api/v1/capabilities", true
@@ -101,7 +105,7 @@ func run(base, token string, args []string, stdin io.Reader, stdout, stderr io.W
 	case "capabilities":
 		return getOperation(c, ctx, "getCapabilities", stdout)
 	case "doctor":
-		return getOperation(c, ctx, "checkProductionReadiness", stdout)
+		return doctor(c, ctx, args[1:], stdout, stderr)
 	case "sites":
 		if len(args) == 2 && args[1] == "list" {
 			return getOperation(c, ctx, "listSites", stdout)
@@ -502,6 +506,102 @@ func getOperation(c *stepanel.Client, ctx context.Context, operationID string, o
 	}
 	return emit(r, out)
 }
+
+type readinessReport struct {
+	IsProduction  bool             `json:"is_production"`
+	OverallStatus string           `json:"overall_status"`
+	Checks        []readinessCheck `json:"checks"`
+}
+
+type readinessCheck struct {
+	Name        string `json:"name"`
+	Status      string `json:"status"`
+	Severity    string `json:"severity"`
+	Message     string `json:"message,omitempty"`
+	Remediation string `json:"remediation,omitempty"`
+}
+
+func doctor(c *stepanel.Client, ctx context.Context, args []string, out, errOut io.Writer) error {
+	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	fs.SetOutput(errOut)
+	jsonOutput := fs.Bool("json", false, "write the readiness report as JSON")
+	_ = fs.Bool("production", false, "check production readiness (the default)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return errors.New("usage: stepanelctl doctor [--production] [--json]")
+	}
+
+	response, err := c.DoOperation(ctx, "checkProductionReadiness", nil, "", nil)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.Status < 200 || response.Status >= 300 {
+		return responseError(response)
+	}
+	const maxDoctorResponse = 1 << 20
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxDoctorResponse+1))
+	if err != nil {
+		return fmt.Errorf("read readiness report: %w", err)
+	}
+	if len(body) > maxDoctorResponse {
+		return errors.New("readiness report exceeds 1 MiB limit")
+	}
+	var report readinessReport
+	if err := json.Unmarshal(body, &report); err != nil {
+		return fmt.Errorf("decode readiness report: %w", err)
+	}
+	if *jsonOutput {
+		if _, err := out.Write(append(body, '\n')); err != nil {
+			return err
+		}
+	} else {
+		if err := renderReadinessReport(out, report); err != nil {
+			return err
+		}
+	}
+	if readinessReportFailed(report) {
+		return fmt.Errorf("readiness is %s", report.OverallStatus)
+	}
+	return nil
+}
+
+func renderReadinessReport(out io.Writer, report readinessReport) error {
+	mode := "development mode"
+	if report.IsProduction {
+		mode = "production mode"
+	}
+	if _, err := fmt.Fprintf(out, "StePanel readiness: %s (%s)\n", strings.ToUpper(report.OverallStatus), mode); err != nil {
+		return err
+	}
+	for _, check := range report.Checks {
+		label := strings.ToUpper(check.Status)
+		if label == "" {
+			label = "UNKNOWN"
+		}
+		if _, err := fmt.Fprintf(out, "\n[%s] %s\n", label, check.Name); err != nil {
+			return err
+		}
+		if check.Message != "" {
+			if _, err := fmt.Fprintf(out, "  %s\n", check.Message); err != nil {
+				return err
+			}
+		}
+		if check.Remediation != "" {
+			if _, err := fmt.Fprintf(out, "  Next: %s\n", check.Remediation); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func readinessReportFailed(report readinessReport) bool {
+	return report.OverallStatus == "critical" || report.OverallStatus == "not_ready"
+}
+
 func emit(r *stepanel.Response, out io.Writer) error {
 	defer r.Body.Close()
 	if r.Status < 200 || r.Status >= 300 {

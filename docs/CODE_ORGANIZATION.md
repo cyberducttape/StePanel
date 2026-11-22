@@ -8,7 +8,8 @@ Verified against the tree on 2026-10-10. Three binaries are built from
 - `cmd/stepanel` — the panel and worker; a thin `main` that calls into the
   root package
 - `cmd/stepanel-root` — the root broker
-- `cmd/stepanelctl` — the read-only operator CLI for the authenticated API
+- `cmd/stepanelctl` — the operator and automation CLI for the authenticated
+  API, including state-changing workflows that create durable jobs
 
 ### Root package (`package stepanel`, 111 non-test files)
 
