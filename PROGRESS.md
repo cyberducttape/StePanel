@@ -3124,3 +3124,11 @@ does not close a current-source or power-loss gate.
   selected OS/web-server/database combination is still shown during the
   installer preflight before host mutation. The support-tier contract test
   verifies this ordering with a fixture OS identity.
+- The release artifact verifier now extracts each packaged `install.sh` and
+  support-tier helper and checks that OS support is printed before the setup
+  wizard runs. `check-release.sh` requires that contract. A non-publishing
+  GoReleaser v2.17.1 snapshot built both amd64 and arm64 archives from source
+  `d73f9f1f`; the artifact verifier passed on both archives, including the
+  native packaged `stepanel setup --help` smoke. The evidence and SBOM used
+  for this local verifier run were synthetic, so this is packaging evidence,
+  not official signed release evidence or host-install certification.

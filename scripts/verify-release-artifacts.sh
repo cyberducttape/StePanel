@@ -145,6 +145,26 @@ for archive in "${archives[@]}"; do
         exit 1
     fi
 
+    # The packaged guided path must identify its host before prompting for
+    # secrets, and include the helper it sources to do so.
+    packaged_installer="$verification_tmp/$ARCHIVE_NAME.install.sh"
+    packaged_support="$verification_tmp/$ARCHIVE_NAME.install-support-tier.sh"
+    tar -xOf "$archive" install.sh > "$packaged_installer"
+    tar -xOf "$archive" deploy/lib/install-support-tier.sh > "$packaged_support"
+    if ! grep -Fq 'install_guided_host_support()' "$packaged_support"; then
+        echo "  ✗ FAIL: packaged support-tier helper lacks guided host detection" >&2
+        exit 1
+    fi
+    source_line=$(grep -nF ". \"\$ROOT_DIR/deploy/lib/install-support-tier.sh\"" "$packaged_installer" | head -1 | cut -d: -f1 || true)
+    host_check_line=$(grep -nF 'install_guided_host_support' "$packaged_installer" | head -1 | cut -d: -f1 || true)
+    setup_line=$(grep -nF "\"\$ROOT_DIR/stepanel\" setup --output" "$packaged_installer" | head -1 | cut -d: -f1 || true)
+    if [[ -z $source_line || -z $host_check_line || -z $setup_line ]] ||
+       (( source_line >= host_check_line || host_check_line >= setup_line )); then
+        echo "  ✗ FAIL: packaged guided installer does not show host support before setup prompts" >&2
+        exit 1
+    fi
+    echo "  ✓ packaged guided installer reports host support before collecting setup answers"
+
     for required_helper in \
         deploy/lib/install-systemd-preflight.sh \
         deploy/lib/install-quota-preflight.sh \

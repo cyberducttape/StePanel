@@ -18,8 +18,10 @@ successful one-off smoke does not close a host-certification gate.
 support labels, pre-mutation platform classification, and release archive
 documentation requirements are in place. The setup greeting now separates
 the no-host-change evaluation path from native installation, and build docs
-explain the automatic pinned-toolchain download. Exact GoReleaser output and
-first-host application proof remain open.
+explain the automatic pinned-toolchain download. A GoReleaser snapshot now
+verifies packaged guided-setup ordering on amd64 and arm64. Official signed
+release evidence, clean-host installation, and first-host application proof
+remain open.
 
 **Acceptance criteria**
 
@@ -54,7 +56,8 @@ first-host application proof remain open.
   The artifact verifier checks archive contents and executes the packaged
   setup command on the native CI architecture. A clean-host artifact smoke
   verifies the full documented archive workflow before any release advertises
-  it.
+  it. A current-source snapshot confirmed the two release archives and setup
+  command, but the synthetic evidence/SBOM are not official release evidence.
 - Installer preflight reports OS, web-server, and database support tier and
   actionable failed prerequisites (including availability of required base,
   PHP, database, web-server, and selected optional-feature packages in

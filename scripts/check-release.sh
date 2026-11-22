@@ -44,8 +44,9 @@ if ! grep -Fq 'docs/INSTALLATION.md' scripts/verify-release-artifacts.sh ||
   exit 1
 fi
 if ! grep -Fq 'stepanel" setup --help' scripts/verify-release-artifacts.sh ||
-   ! grep -Fq 'where to write the installer settings' scripts/verify-release-artifacts.sh; then
-  echo "release artifact verification does not run the packaged setup command" >&2
+   ! grep -Fq 'where to write the installer settings' scripts/verify-release-artifacts.sh ||
+   ! grep -Fq 'packaged guided installer reports host support before collecting setup answers' scripts/verify-release-artifacts.sh; then
+  echo "release artifact verification is missing the packaged setup or guided-install contract" >&2
   exit 1
 fi
 if grep -Eq 'tar -tzf .*\|.*grep' scripts/verify-release-artifacts.sh; then
