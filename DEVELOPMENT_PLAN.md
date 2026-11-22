@@ -21,7 +21,8 @@ the no-host-change evaluation path from native installation, and build docs
 explain the automatic pinned-toolchain download. A GoReleaser snapshot now
 verifies packaged guided-setup ordering on amd64 and arm64. Official signed
 release evidence, clean-host installation, and first-host application proof
-remain open.
+remain open. On exact source `656f12d2`, the disposable seeded browser journey
+passed the first-run checklist and WordPress-creation entry point.
 
 **Acceptance criteria**
 
@@ -49,6 +50,9 @@ remain open.
   before asking for hostname or credentials; it tests the selected destination
   before collecting administrator passwords/MFA and before saving installer
   settings.
+- The first-login browser journey presents health findings, opens the
+  WordPress form from the primary next action, verifies template fields, and
+  updates the next task to site backup and restore proof.
 - The install guide reports current-code evidence separately from historical
   runs and never presents smoke coverage as production certification.
 - The next release candidate archive contains the matching guided setup,

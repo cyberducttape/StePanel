@@ -3137,3 +3137,10 @@ does not close a current-source or power-loss gate.
   workflow (`make check` / `go run`). The destination states Git, Go 1.21+,
   automatic toolchain download, and first-build internet requirements. The
   evaluation-entrypoint contract test checks the link and instructions.
+- Ran the disposable browser suite against a fresh binary built from exact
+  source `656f12d2`: 28 passed, 1 skipped, 0 failed. The skip is the separate
+  customer-session test, which requires a second customer credential. The
+  passing first-run journey verified health degradation details, the primary
+  action switching to WordPress creation, WordPress form initialization, and
+  backup/recovery next-step evidence. This exercises the panel UX, not actual
+  host-level site provisioning or application restore certification.
