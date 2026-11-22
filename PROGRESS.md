@@ -1,5 +1,12 @@
 # Production-readiness progress
 
+## Correct Ubuntu's optional SpamAssassin service name — 2026-11-22
+
+- The passing installed-host log for run [44998862460](https://github.com/cyberducttape/StePanel/actions/runs/44998862460) exposed `systemctl disable --now spamassassin` failing because Ubuntu 24.04 ships `spamd.service`. Canonical's [Ubuntu 24.04 package file list](https://packages.ubuntu.com/noble/all/spamd/filelist) confirms the unit path; Debian's [Bookworm `spamd` package](https://packages.debian.org/bookworm/spamd) also provides that daemon as a separate package.
+- Changed the installer to select and manage `spamd` consistently, and changed Debian/Ubuntu optional-mail preflight and installation to require the `spamd` daemon package. Updated the package-preflight regression contract.
+- `bash scripts/test-install-package-preflight.sh`, shell syntax checks, and `git diff --check` pass. Full `make check` and exact-source hosted CI remain to be run. The latest install smoke is still the prior source, so installed-host confirmation of a clean post-install journal remains outstanding.
+- Tracked as M0ad in `DEVELOPMENT_PLAN.md`.
+
 ## Repeat the current packaged Ubuntu first-install evidence — 2026-11-22
 
 - Installed-host run [44998862460](https://github.com/cyberducttape/StePanel/actions/runs/44998862460) passed on exact source `5d87e6e86c098f467ee92b9e9992231c07121216`. It built and extracted a GoReleaser snapshot, installed it on disposable Ubuntu 24.04 + Caddy + MariaDB, and completed WordPress creation, HTTPS/database application recovery proof, database and broker outage recovery, and one recovery-matrix iteration.

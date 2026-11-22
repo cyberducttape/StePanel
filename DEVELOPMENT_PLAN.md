@@ -195,6 +195,26 @@ download command is not restored.
   install recipe is reintroduced. Internal links and documentation checks
   pass.
 
+### M0ad — Match the optional SpamAssassin service to supported packages (P2)
+
+**Status:** Corrected locally after the Ubuntu 24.04 installed-host log showed
+that the installer tried to disable nonexistent `spamassassin.service`. Debian
+and Ubuntu split the daemon into the `spamd` package, which provides
+`spamd.service`; the installer now preflights, installs, and manages that
+service name. The focused package-preflight contract and shell syntax checks
+pass. An installed-host rerun is required to prove the post-install journal no
+longer reports the action as pending.
+
+**Acceptance criteria**
+
+- Debian/Ubuntu optional-mail preflight and installation include the `spamd`
+  package, and service state capture, restoration, activation, and deactivation
+  use `spamd.service`.
+- The supported-profile installed-host smoke that installs optional mail
+  without activation completes without a false pending SpamAssassin action.
+- The focused package contract, full local checks, and exact-source hosted CI
+  pass. The smoke result is recorded with its source commit and limits.
+
 ### M0z — Prevent stale customer file edits from overwriting newer content (P1)
 
 **Status:** Implemented and verified locally. Exact-source CI

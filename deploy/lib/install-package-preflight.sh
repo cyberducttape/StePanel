@@ -40,7 +40,7 @@ install_preflight_optional_packages() {
     else packages+=(mod_security mod_security_crs); fi
   fi
   if [[ $mail == 1 ]]; then
-    if [[ $package_manager == apt ]]; then packages+=(exim4 dovecot-core dovecot-imapd spamassassin)
+    if [[ $package_manager == apt ]]; then packages+=(exim4 dovecot-core dovecot-imapd spamd)
     else packages+=(exim dovecot spamassassin); fi
   fi
   if [[ $ftp == 1 ]]; then packages+=(vsftpd); fi

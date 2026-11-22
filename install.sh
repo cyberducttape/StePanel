@@ -306,7 +306,7 @@ preflight_blockers=()
 . "$ROOT_DIR/deploy/integrations/stepanel-quota-state.sh"
 . "$ROOT_DIR/deploy/lib/install-quota-preflight.sh"
 MAIL_EXIM_SERVICE=$([[ "$PKG" == apt ]] && printf exim4 || printf exim)
-MAIL_SPAM_SERVICE=$([[ "$PKG" == apt ]] && printf spamassassin || printf spamd)
+MAIL_SPAM_SERVICE=spamd
 INSTALL_HOST_SERVICES=(apache2 httpd caddy lsws "$MAIL_EXIM_SERVICE" dovecot "$MAIL_SPAM_SERVICE")
 echo "StePanel host preflight"
 install_support_tier "$ID" "$VERSION_ID" "$WEB_SERVER" "$DB_ENGINE"
@@ -689,11 +689,9 @@ install_mail_stack() {
   local service
   if [[ "$PKG" == "apt" ]]; then
     export DEBIAN_FRONTEND=noninteractive
-    apt-get install -y exim4 dovecot-core dovecot-imapd spamassassin
-    MAIL_SPAM_SERVICE="spamassassin"
+    apt-get install -y exim4 dovecot-core dovecot-imapd spamd
   else
     dnf install -y exim dovecot spamassassin
-    MAIL_SPAM_SERVICE="spamd"
   fi
   install -d -m 0750 "$DATA_DIR/mail"
   # Package scripts can start partially installed services even when the

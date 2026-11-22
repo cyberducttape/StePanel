@@ -27,11 +27,19 @@ grep -Fq 'Refresh package indexes or enable the repository' <<<"$message"
 mapfile -d '' -t apt_optional < <(
   install_preflight_optional_packages apt mariadb apache 1 1 1 1 1 1 1
 )
-[[ ${apt_optional[*]} == 'fail2ban libapache2-mod-security2 modsecurity-crs exim4 dovecot-core dovecot-imapd spamassassin vsftpd phpmyadmin clamav clamav-daemon inotify-tools certbot python3-certbot-apache' ]]
+[[ ${apt_optional[*]} == 'fail2ban libapache2-mod-security2 modsecurity-crs exim4 dovecot-core dovecot-imapd spamd vsftpd phpmyadmin clamav clamav-daemon inotify-tools certbot python3-certbot-apache' ]]
 mapfile -d '' -t dnf_optional < <(
   install_preflight_optional_packages dnf postgresql apache 1 1 1 1 1 1 1
 )
 [[ ${dnf_optional[*]} == 'fail2ban mod_security mod_security_crs exim dovecot spamassassin vsftpd phppgadmin clamav clamav-update inotify-tools certbot python3-certbot-apache' ]]
+
+# Debian/Ubuntu split the SpamAssassin daemon into the `spamd` package and
+# provide spamd.service. The installer must preflight/install/manage that
+# actual unit rather than leave a false post-install action for
+# spamassassin.service.
+grep -Fq 'MAIL_SPAM_SERVICE=spamd' "$ROOT_DIR/install.sh"
+grep -Fq 'apt-get install -y exim4 dovecot-core dovecot-imapd spamd' "$ROOT_DIR/install.sh"
+! grep -Fq 'MAIL_SPAM_SERVICE="spamassassin"' "$ROOT_DIR/install.sh"
 mapfile -d '' -t no_optional < <(
   install_preflight_optional_packages apt mariadb caddy 0 0 0 0 0 0 0
 )
