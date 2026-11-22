@@ -1,5 +1,16 @@
 # Production-readiness progress
 
+## Ask for the domain before its generated site name — 2026-11-21
+
+- Reordered the operator and customer website forms so the domain comes
+  first, followed by the suggested site name. The name stays editable, and
+  existing logic preserves a manually customized name when the domain changes.
+- Added browser assertions for the field order in both roles. `make check`
+  passed, including `go vet ./...` and all Go tests; the full disposable UI
+  suite passed 29 tests with one optional customer-context test skipped.
+  `make build`, JavaScript syntax checks, and all 19 frontend unit tests
+  passed. Fresh-host site provisioning was not exercised.
+
 ## Reduce operator site-workspace clutter — 2026-11-21
 
 - Operators now see four common workspace tabs first: Overview, Guided

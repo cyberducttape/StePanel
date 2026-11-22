@@ -199,6 +199,8 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await expect(page.locator('#panelOnboardingProgress')).toContainText('2 of 3 essentials complete');
   await expect(page.getByRole('link', { name: 'Customers' })).toHaveCount(0);
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Websites' }).click();
+  await expect(page.locator('#siteCreateForm > .field input').nth(0)).toHaveAttribute('name', 'domain');
+  await expect(page.locator('#siteCreateForm > .field input').nth(1)).toHaveAttribute('name', 'site');
   await expect(page.locator('#siteOverview')).toContainText('e2e-main');
   await page.locator('#siteOverview').getByRole('button', { name: 'Manage site' }).first().click();
   await expect(page.locator('#siteDetail')).toBeVisible();

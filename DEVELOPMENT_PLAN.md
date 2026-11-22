@@ -1613,6 +1613,9 @@ the domain changes, and stop changing after the user customizes them.
 
 - A valid domain suggests a site identifier; `www` is ignored and invalid or
   overlong labels are not submitted as identifiers.
+- The domain field appears before the suggested site-name field in both the
+  operator and customer forms, so users supply the source value before
+  reviewing its generated name.
 - WordPress titles receive a readable domain-derived suggestion.
 - Users can edit either suggestion, and subsequent domain changes preserve
   their custom value.

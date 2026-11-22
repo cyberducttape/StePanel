@@ -84,6 +84,8 @@ test('first-run primary action follows the next unresolved setup step', async ({
   await expect(page.locator('#onboardingChecklist')).toContainText('Create or migrate your first site');
   await expect(page.locator('#site-create-heading')).toHaveText('Create your first website');
   await expect(page.locator('#sites-heading')).toHaveText('Your websites');
+  await expect(page.locator('#siteCreateForm > .field input').nth(0)).toHaveAttribute('name', 'domain');
+  await expect(page.locator('#siteCreateForm > .field input').nth(1)).toHaveAttribute('name', 'site');
   await primary.click();
   await expect(page.locator('#siteCreateTemplate')).toHaveValue('wordpress');
   await expect(page.locator('#wordpressCreateFields')).toBeVisible();
