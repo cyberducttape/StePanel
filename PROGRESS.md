@@ -1,5 +1,19 @@
 # Production-readiness progress
 
+## Verify the account-owner first-run browser journey — 2026-11-22
+
+- The `ui-e2e` job passed in exact-source integration run
+  [45025708568](https://github.com/cyberducttape/StePanel/actions/runs/45025708568)
+  on `86f17fd6`. Its account-owner journey checks first-login onboarding,
+  unavailable-versus-empty inventory, retry, WordPress form initialization,
+  suggested site names, and captures uncaught page errors. It also exercises
+  delayed file reads and listings while switching site/folder context, then
+  verifies that stale content is not written to another site.
+- This verifies the browser behavior on that source; the Go race suite for
+  the same run remains in progress, and the installed-host smoke
+  [45025566462](https://github.com/cyberducttape/StePanel/actions/runs/45025566462)
+  has not completed yet.
+
 ## Align the feature matrix with the customer file manager — 2026-11-22
 
 - Corrected `docs/FEATURES.md`: customer accounts have the bounded beta file
