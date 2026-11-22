@@ -66,13 +66,14 @@ else
 fi
 
 # The post-install readiness probe now verifies offsite write/read/delete, so
-# provide the harmless local rclone remote before the installer starts the
-# panel. RCLONE_CONFIG is explicitly preserved by install.sh into the systemd
-# environment; provider configuration remains operator-managed in production.
+# provide a harmless local remote as a normal private root rclone config. The
+# installer must stage it into its service-readable configuration path.
 install -d -m 0755 -o root -g root /etc/stepanel
-printf '[local]\ntype = local\n' > /etc/stepanel/rclone.conf
-chmod 0644 /etc/stepanel/rclone.conf
-export RCLONE_CONFIG=/etc/stepanel/rclone.conf
+install -d -m 0700 -o root -g root /root/.config/rclone
+printf '[local]\ntype = local\n' > /root/.config/rclone/rclone.conf
+chmod 0600 /root/.config/rclone/rclone.conf
+source_rclone_config_sha=$(sha256sum /root/.config/rclone/rclone.conf | cut -d' ' -f1)
+unset RCLONE_CONFIG
 
 install_args=(--unsafe-lab)
 if [[ ${STEPANEL_INSTALLER_PREEXISTING_APACHE_SMOKE:-0} == 1 ]]; then
@@ -149,10 +150,31 @@ if [[ ${STEPANEL_INSTALLER_PREEXISTING_APACHE_SMOKE:-0} == 1 ]]; then
   takeover_journal=$(grep -l 'taking over pre-existing web service apache2' /var/lib/stepanel/install-journal/*.tsv | tail -n 1)
   [[ -n $takeover_journal ]]
 fi
-if ! runuser -u stepanel -- test -r "$RCLONE_CONFIG"; then
-  echo 'StePanel service account cannot read the configured rclone file' >&2
+managed_rclone_config=/etc/stepanel/rclone.conf
+if ! runuser -u stepanel -- test -r "$managed_rclone_config"; then
+  echo 'StePanel service account cannot read the staged rclone configuration' >&2
   exit 1
 fi
+[[ $(stat -c '%U:%G:%a' "$managed_rclone_config") == 'root:stepanel:640' ]] || {
+  echo 'Staged rclone configuration has unexpected ownership or permissions' >&2
+  exit 1
+}
+[[ $(stat -c '%U:%G:%a' /root/.config/rclone/rclone.conf) == 'root:root:600' ]] || {
+  echo 'Installer changed the original private rclone configuration' >&2
+  exit 1
+}
+[[ $(sha256sum /root/.config/rclone/rclone.conf | cut -d' ' -f1) == "$source_rclone_config_sha" ]] || {
+  echo 'Installer modified the original private rclone configuration' >&2
+  exit 1
+}
+if runuser -u stepanel -- test -r /root/.config/rclone/rclone.conf; then
+  echo 'Root-only source rclone configuration became readable to stepanel' >&2
+  exit 1
+fi
+runuser -u stepanel -- env RCLONE_CONFIG="$managed_rclone_config" rclone listremotes | grep -Fxq 'local:' || {
+  echo 'StePanel service account cannot load the staged rclone remote' >&2
+  exit 1
+}
 if [[ -e /etc/sudoers.d/stepanel ]]; then
   echo 'installer left a panel sudoers policy after installing the root broker service' >&2
   exit 1

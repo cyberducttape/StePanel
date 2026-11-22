@@ -179,3 +179,23 @@ func TestSetupHostVerifiesTOTPWithOneStepOfDrift(t *testing.T) {
 		t.Error("invalid secret accepted")
 	}
 }
+
+func TestSetupHostPreservesSpacesInRcloneConfigPath(t *testing.T) {
+	binDir := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "rclone config", "rclone.conf")
+	rclone := filepath.Join(binDir, "rclone")
+	script := "#!/bin/sh\nprintf 'Configuration file is stored at:\\n%s\\n' \"$RCLONE_TEST_CONFIG\"\n"
+	if err := os.WriteFile(rclone, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir)
+	t.Setenv("RCLONE_TEST_CONFIG", configPath)
+
+	got, err := (setupHost{}).RcloneConfigFile()
+	if err != nil {
+		t.Fatalf("RcloneConfigFile() error = %v", err)
+	}
+	if got != configPath {
+		t.Fatalf("RcloneConfigFile() = %q, want %q", got, configPath)
+	}
+}

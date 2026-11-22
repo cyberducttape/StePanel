@@ -214,8 +214,20 @@ if [[ "$INSTALL_FAIL2BAN" == "1" && -z "$FAIL2BAN_IGNORE_IP" && -t 0 ]]; then re
 if [[ "$INSTALL_FAIL2BAN" == "1" && -z "$FAIL2BAN_IGNORE_IP" ]]; then echo "Set STEPANEL_FAIL2BAN_IGNORE_IP before enabling Fail2ban; refusing an unattended lockout risk." >&2; exit 1; fi
 if [[ "$FAIL2BAN_IGNORE_IP" == *$'\n'* || "$FAIL2BAN_IGNORE_IP" == *$'\r'* ]]; then echo "STEPANEL_FAIL2BAN_IGNORE_IP may not contain newlines." >&2; exit 1; fi
 if [[ -n "$FPM_LENS_BINARY" && ! -x "$FPM_LENS_BINARY" ]]; then echo "STEPANEL_FPM_LENS_BINARY must point to an executable fpm-lens binary." >&2; exit 1; fi
+if [[ "$REQUIRE_OFFSITE_BACKUP" == "1" ]] && ! command -v rclone >/dev/null 2>&1; then
+  echo 'rclone is required before installing production StePanel with offsite backups enabled; install and configure it first.' >&2
+  exit 1
+fi
 RCLONE_CONFIG=${RCLONE_CONFIG:-}
 if [[ -n "$RCLONE_CONFIG" && "$RCLONE_CONFIG" != /* ]]; then echo 'RCLONE_CONFIG must be an absolute path.' >&2; exit 1; fi
+if [[ -z "$RCLONE_CONFIG" ]] && command -v rclone >/dev/null 2>&1; then
+  RCLONE_CONFIG=$(rclone config file 2>/dev/null | awk 'NF { path=$0 } END { sub(/^[[:space:]]+/, "", path); sub(/[[:space:]]+$/, "", path); print path }') || RCLONE_CONFIG=
+fi
+if [[ "$REQUIRE_OFFSITE_BACKUP" == "1" ]]; then
+  [[ -n "$RCLONE_CONFIG" && "$RCLONE_CONFIG" == /* ]] || { echo 'Could not locate an absolute rclone configuration path. Run `sudo rclone config`, then retry.' >&2; exit 1; }
+  [[ -f "$RCLONE_CONFIG" && ! -L "$RCLONE_CONFIG" ]] || { echo "RCLONE_CONFIG must be an existing regular, non-symlink file: $RCLONE_CONFIG" >&2; exit 1; }
+  [[ $(stat -c %s "$RCLONE_CONFIG") -le 1048576 ]] || { echo 'RCLONE_CONFIG exceeds the 1 MiB installer limit.' >&2; exit 1; }
+fi
 if [[ "$INSTALL_MODSEC" != "0" && "$INSTALL_MODSEC" != "1" ]]; then echo "STEPANEL_INSTALL_MODSEC must be 0 or 1." >&2; exit 1; fi
 if [[ "$MODSEC_MODE" != "Off" && "$MODSEC_MODE" != "DetectionOnly" && "$MODSEC_MODE" != "On" ]]; then echo "STEPANEL_MODSEC_MODE must be Off, DetectionOnly, or On." >&2; exit 1; fi
 if [[ "$INSTALL_MAIL" != "0" && "$INSTALL_MAIL" != "1" ]]; then echo "STEPANEL_INSTALL_MAIL must be 0 or 1." >&2; exit 1; fi
@@ -238,10 +250,6 @@ if [[ ! $MAX_CONCURRENT_JOBS =~ ^[1-9][0-9]*$ ]] || (( MAX_CONCURRENT_JOBS > 32 
 if [[ "$REQUIRE_OFFSITE_BACKUP" != "0" && "$REQUIRE_OFFSITE_BACKUP" != "1" ]]; then echo 'STEPANEL_REQUIRE_OFFSITE_BACKUP must be 0 or 1.' >&2; exit 1; fi
 if [[ "$REQUIRE_OFFSITE_BACKUP" != "1" ]]; then echo 'Production installations require STEPANEL_REQUIRE_OFFSITE_BACKUP=1.' >&2; exit 1; fi
 if [[ "$REQUIRE_OFFSITE_BACKUP" == "1" && -z "${STEPANEL_OFFSITE_TARGET:-}" ]]; then echo 'STEPANEL_REQUIRE_OFFSITE_BACKUP=1 requires STEPANEL_OFFSITE_TARGET.' >&2; exit 1; fi
-if [[ "$REQUIRE_OFFSITE_BACKUP" == "1" ]] && ! command -v rclone >/dev/null 2>&1; then
-  echo 'rclone is required before installing production StePanel with offsite backups enabled; install and configure it first.' >&2
-  exit 1
-fi
 if [[ "$INSTALL_DB_ADMIN" != "0" && "$INSTALL_DB_ADMIN" != "1" ]]; then echo 'STEPANEL_INSTALL_DB_ADMIN must be 0 or 1.' >&2; exit 1; fi
 [[ "$NODE_VERSIONS" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(,v?[0-9]+\.[0-9]+\.[0-9]+)*$ ]] || { echo "Invalid STEPANEL_NODE_VERSIONS." >&2; exit 1; }
 
@@ -1023,6 +1031,7 @@ managed_targets=(
   /usr/local/sbin/stepanel-nosymfollow
   /etc/stepanel-dbctl.conf
   /etc/stepanel-db.password
+  /etc/stepanel/rclone.conf
   "$ENV_FILE"
   /etc/systemd/system/stepanel.service
   /etc/systemd/system/stepanel-worker.service
@@ -1239,6 +1248,18 @@ install -d -m 0700 -o "$APP_USER" -g "$APP_USER" /var/www/sites/.stepanel-recove
 # activation stays one rename.
 getent group stepanel-users >/dev/null || groupadd --system stepanel-users
 install -d -m 0755 -o root -g root /etc/stepanel /etc/stepanel/sites
+if [[ -n "$RCLONE_CONFIG" ]]; then
+  rclone_config_stage=$(mktemp /etc/stepanel/.rclone.conf.XXXXXX)
+  TXN_TEMPS+=("$rclone_config_stage")
+  install -o root -g "$APP_USER" -m 0640 -- "$RCLONE_CONFIG" "$rclone_config_stage"
+  if ! runuser -u "$APP_USER" -- env RCLONE_CONFIG="$rclone_config_stage" rclone listremotes >/dev/null; then
+    echo 'The staged rclone configuration is not usable by the StePanel service account; check its remote credentials and configuration.' >&2
+    exit 1
+  fi
+  mv -f -- "$rclone_config_stage" /etc/stepanel/rclone.conf
+  RCLONE_CONFIG=/etc/stepanel/rclone.conf
+  install_journal_record configuration complete retained 'rclone configuration staged root-owned and readable by the stepanel service account'
+fi
 install -d -m 0755 -o root -g root /home
 install -d -m 0711 -o "$APP_USER" -g "$APP_USER" /home/.stepanel-manager-staging
 install -d -m 0711 -o "$APP_USER" -g "$APP_USER" /home/.stepanel-recovery

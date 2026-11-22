@@ -1,5 +1,24 @@
 # Production-readiness progress
 
+## Stage rclone credentials for the service account — 2026-11-22
+
+- The guided installer runs as root and commonly discovers the private config
+  under `/root/.config/rclone`. That file is not readable by the unprivileged
+  StePanel service. The installer now resolves and validates the source before
+  host mutation, snapshots `/etc/stepanel/rclone.conf` in its rollback
+  transaction, and stages the config as `root:stepanel` mode `0640` before
+  writing the runtime environment. The original config remains untouched.
+- The installer checks the staged config with `rclone listremotes` as the
+  service account. The installed-host regression fixture now starts from a
+  realistic root-owned `0600` config and checks readability, mode, ownership,
+  remote loading, and source preservation. `setupHost.RcloneConfigFile()` and
+  the installer fallback now preserve config paths containing spaces.
+- Focused setup Go tests, settings/bootstrap contracts, shell syntax,
+  ShellCheck, 93-document source-reference checks, documentation links, and
+  `git diff --check` pass locally. The exact installed-host run for this change
+  has not yet run; the existing Ubuntu smoke is still validating its earlier
+  source. Production install claims remain gated on the new host result.
+
 ## Keep local-evaluation failure guidance literal — 2026-11-22
 
 - Fixed `scripts/evaluate.sh` so its advice to run `make evaluate` is printed

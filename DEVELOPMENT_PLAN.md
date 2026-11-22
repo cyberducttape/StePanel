@@ -1853,6 +1853,34 @@ Downloads now stream up to the separately enforced 40 GiB limit; see M0ab.
   site/path only.
 - The seeded Chromium customer-panel journey and exact-source CI pass.
 
+### M0al — Make the offsite rclone config readable to the installed service (P1)
+
+**Status:** Implemented locally; disposable installed-host verification is
+pending. The installer now stages the selected root or user rclone config at
+`/etc/stepanel/rclone.conf` as `root:stepanel` mode `0640`, records it in the
+installer transaction, and points the service environment at the staged file.
+The host smoke now starts from a root-only `0600` config and checks that the
+original stays private while the service account can load the copied remote.
+
+The guided installer runs as root to configure the host, so `rclone config`
+normally selects a file under `/root` that the unprivileged panel cannot read.
+Do not make `/root` or the original credentials file broadly readable. Copy
+the config into the service's dedicated group-readable location and verify it
+as the service account before activation.
+
+**Acceptance criteria**
+
+- The installer resolves the configured/default root rclone config before
+  mutation and rejects missing, symlinked, non-regular, or oversized input
+  with a direct diagnostic.
+- The staged file is a transaction-managed target, root-owned, mode `0640`,
+  group-readable by `stepanel`, and used as `RCLONE_CONFIG` by both services.
+- The original root-only config remains unchanged and unreadable to `stepanel`.
+- The service account can list the configured remote, and installed-host
+  offsite readiness succeeds using the staged config.
+- Shell syntax, ShellCheck, focused installer contracts, and exact-source
+  installed-host CI pass.
+
 ### Guided site lifecycle experience (product work; not a release-gate closure)
 
 **Status:** Implemented in the site workspace, with browser regression coverage.

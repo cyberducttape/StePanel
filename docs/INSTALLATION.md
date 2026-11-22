@@ -136,6 +136,11 @@ Before the wizard collects storage or administrator credentials, it identifies
 the host OS and prints the evidence tier for the recommended Caddy/MariaDB
 profile. After you choose a web server and database, the installer reports the
 exact host-and-stack tier again in its full preflight, before any host changes.
+The wizard can use the root user's private rclone configuration. During the
+install transaction, StePanel copies it to `/etc/stepanel/rclone.conf` with
+root ownership and mode `0640`, readable by the `stepanel` service account;
+the original config is left in place. This lets offsite backups work without
+making `/root` or its private config readable to the service.
 
 The guide asks seven questions and checks every answer before moving on:
 

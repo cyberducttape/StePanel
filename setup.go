@@ -177,11 +177,11 @@ func (setupHost) RcloneConfigFile() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	lines := strings.Fields(output)
-	if len(lines) == 0 {
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[len(lines)-1]) == "" {
 		return "", errors.New("rclone did not report its configuration file")
 	}
-	path := lines[len(lines)-1]
+	path := strings.TrimSpace(lines[len(lines)-1])
 	if !filepath.IsAbs(path) {
 		return "", fmt.Errorf("rclone configuration path %q is not absolute", path)
 	}
