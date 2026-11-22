@@ -8,10 +8,15 @@
   gaps instead of calling the shipped file manager unavailable.
 - Added a release contract that fails if the matrix reintroduces the stale
   “Customer-facing file manager” unfinished claim or omits the shipped scope.
-  `make release-check` and `git diff --check` pass locally. Exact-source
-  Documentation, CodeQL, and integration workflows for commit `86f17fd6` are
-  pending; see [integration run
-  45025708568](https://github.com/cyberducttape/StePanel/actions/runs/45025708568).
+  `make release-check` and `git diff --check` pass locally. Documentation CI
+  [45025742840](https://github.com/cyberducttape/StePanel/actions/runs/45025742840),
+  CodeQL [45025742944](https://github.com/cyberducttape/StePanel/actions/runs/45025742944),
+  and release-evidence checks passed on `4488c80d`. Integration CI
+  [45025708568](https://github.com/cyberducttape/StePanel/actions/runs/45025708568)
+  is still running on `86f17fd6`; the only later change is this progress
+  record. The current-source Ubuntu installed-host run
+  [45025566462](https://github.com/cyberducttape/StePanel/actions/runs/45025566462)
+  is also still running its install-and-recovery smoke on `b901b258`.
 
 ## Verify production file-manager downloads on an installed host — 2026-11-22
 
