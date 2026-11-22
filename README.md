@@ -239,10 +239,11 @@ installer builds both binaries as your user and starts the native installer.
 It requires Git and either Go 1.21 or later, or curl/wget, tar, and sha256sum; the
 [installation guide](docs/INSTALLATION.md#guided-install-from-current-source)
 has copyable Ubuntu 24.04 prerequisite commands and explains the first-build
-toolchain download. An exact-source GoReleaser snapshot has passed one
-Ubuntu 24.04 + Caddy + MariaDB install and WordPress recovery smoke
-([evidence](docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-6af93e8.md));
-this does not certify a published release or production deployment:
+toolchain download. The latest packaged Ubuntu 24.04 + Caddy + MariaDB smoke
+completed installation and a database-backed WordPress HTTPS recovery proof
+([evidence](docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-a309055d.md));
+this is a single disposable-host run, not certification of a published release
+or production deployment:
 
 ```sh
 git clone --depth 1 --branch main https://github.com/cyberducttape/StePanel.git

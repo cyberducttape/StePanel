@@ -115,9 +115,9 @@ certificates automatically. Apache `.htaccess` migrations are described in
 
 The guided installer is available on current `main`, but is **not included in
 the published v0.7.0 release archive**. A GoReleaser snapshot built from
-current source has passed one disposable Ubuntu 24.04 + Caddy + MariaDB install
+current source passed one disposable Ubuntu 24.04 + Caddy + MariaDB install
 and WordPress HTTPS/database recovery smoke
-([run 45060415981](lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-d2695cd.md)).
+([run 45069529493](lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-a309055d.md)).
 That is useful Beta evidence, not a supported tagged release or production
 certification. The currently published stable archive cannot perform a fresh
 installation on Ubuntu 24.04; see [tagged release status](#tagged-release-status).
