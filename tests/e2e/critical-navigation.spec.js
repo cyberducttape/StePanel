@@ -483,6 +483,9 @@ test('site settings expose measured PHP-FPM demand and quota evidence', async ({
   await page.reload();
   await page.getByRole('link', { name: 'Sites', exact: true }).click();
   await page.getByRole('button', { name: /Manage site/ }).first().click();
+  await expect(page.locator('#siteDetail').getByRole('tab', { name: 'Overview' })).toBeVisible();
+  await expect(page.locator('#siteDetail').getByRole('tab', { name: 'Settings' })).toBeHidden();
+  await page.locator('#siteDetail .workspace-advanced summary').click();
   await page.getByRole('tab', { name: 'Settings' }).click();
   const panel = page.locator('#workspace-panel');
   await expect(panel).toContainText('Filesystem quota headroom');
@@ -505,7 +508,12 @@ async function scanSiteWorkspaceTabs(page, siteName) {
   await page.reload();
   await page.getByRole('link', { name: 'Sites', exact: true }).click();
   await page.getByRole('button', { name: /Manage site/ }).first().click();
-  const tabs = page.getByRole('tablist', { name: `${siteName} sections` }).getByRole('tab');
+  const everyday = page.getByRole('tablist', { name: `${siteName} sections` });
+  await expect(everyday.getByRole('tab')).toHaveCount(4);
+  await expect(everyday.getByRole('tab', { name: 'Overview' })).toBeVisible();
+  await expect(page.locator('#siteDetail').getByRole('tab', { name: 'Settings' })).toBeHidden();
+  await page.locator('#siteDetail .workspace-advanced summary').click();
+  const tabs = page.locator('#siteDetail [role="tab"]');
   const panel = page.locator('#workspace-panel');
   const count = await tabs.count();
   expect(count).toBeGreaterThanOrEqual(12);

@@ -65,6 +65,10 @@ passed the first-run checklist and WordPress-creation entry point.
   retry; the retry path is browser-tested. Optional hosting-account and
   website-placement settings start collapsed so the first-site form emphasizes
   the site name, domain, and starting point; both account roles are covered.
+  The operator site workspace keeps Overview, Guided workflow, Domains, and
+  Backups in the primary tab row; specialist Runtime, Deployments, Databases,
+  Logs, Workers, Tasks, Security, and Settings remain available under
+  Advanced administration. Direct links open the matching advanced tab.
 - The install guide reports current-code evidence separately from historical
   runs and never presents smoke coverage as production certification.
 - The next release candidate archive contains the matching guided setup,

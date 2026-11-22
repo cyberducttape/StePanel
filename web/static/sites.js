@@ -224,8 +224,8 @@
     const headingRow = el('div', { className: 'section-heading' }, [heading, closeButton]);
 
     const primaryTabIDs = new Set(['overview', 'journey', 'domains', 'backups']);
-    const primaryTabs = isAdministrator ? TABS : TABS.filter((tab) => primaryTabIDs.has(tab.id));
-    const advancedTabs = isAdministrator ? [] : TABS.filter((tab) => !primaryTabIDs.has(tab.id));
+    const primaryTabs = TABS.filter((tab) => primaryTabIDs.has(tab.id));
+    const advancedTabs = TABS.filter((tab) => !primaryTabIDs.has(tab.id));
     const tablist = el('div', { className: 'workspace-tablist', role: 'tablist', 'aria-label': isAdministrator ? `${site} sections` : `${site} everyday sections` });
     const advancedTablist = advancedTabs.length
       ? el('div', { className: 'workspace-tablist', role: 'tablist', 'aria-label': `${site} advanced sections` })

@@ -1,5 +1,19 @@
 # Production-readiness progress
 
+## Reduce operator site-workspace clutter — 2026-11-21
+
+- Operators now see four common workspace tabs first: Overview, Guided
+  workflow, Domains, and Backups. Runtime, Deployments, Databases, Logs,
+  Workers, Tasks, Security, and Settings stay available under Advanced
+  administration. Opening an advanced tab from a bookmark/hash opens that
+  section automatically.
+- Updated browser coverage to assert the concise default tab row, advanced
+  access, deep-link selection, and accessibility for all twelve tabs. `make
+  check` passed (including `go vet ./...` and all Go tests); the disposable UI
+  harness passed 29 browser tests with one optional customer-context test
+  skipped. `make build` and `make release-check` passed. This is UI evidence,
+  not fresh-host installation evidence.
+
 ## Make WordPress setup passwords easier to save — 2026-11-21
 
 - Added a Copy password control beside Generate and Show in both operator and
