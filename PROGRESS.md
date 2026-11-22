@@ -5,7 +5,7 @@
 - Release verification now fails if either the systemd or quota preflight
   helper is absent from a platform archive. The source release check requires
   those artifact checks to remain in place.
-- Built GoReleaser v2.17.1 snapshot archives from source `5c57d25f` for amd64
+- Built GoReleaser v2.17.1 snapshot archives from source `0f209ded` for amd64
   and arm64 in an isolated clone, without publishing. Both contained
   `stepanel`, `install.sh`, the installation guide, and all support-tier,
   systemd, and quota preflight helpers. The extracted amd64 binary's
