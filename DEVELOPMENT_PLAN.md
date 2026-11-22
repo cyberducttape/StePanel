@@ -188,15 +188,19 @@ candidate and disposable hosts; this milestone does not authorize publishing.
 
 ### M0ab — Stream customer file downloads within explicit resource limits (P1)
 
-**Status:** Implemented and locally verified. Customer downloads now use a
+**Status:** Implemented and verified on a disposable installed host. Customer downloads now use a
 descriptor-bound stream through the local store or typed root-broker protocol,
 so files larger than the 2 MiB text-editor limit do not become JSON payloads
 or whole-file panel allocations. Downloads are capped at 40 GiB, limited to
 two concurrent transfers per tenant and eight per host, and receive a
 size-aware overall deadline plus a per-write stall deadline. The customer file
 manager and workflow guide now distinguish editor, upload, and download limits
-before a transfer begins. The full local Chromium suite passes; installed-host
-helper smoke remains pending.
+before a transfer begins. The full local Chromium suite passes. The installed-
+host file-manager smoke passed in run
+[45017173718](https://github.com/cyberducttape/StePanel/actions/runs/45017173718)
+on source `55c1421a`; the file manager, broker, privileged helper, and smoke
+script are unchanged through current `main` (`d9456c58`). This is one
+disposable-host pass, not repeated certification.
 
 **Acceptance criteria**
 
@@ -208,8 +212,10 @@ helper smoke remains pending.
   symlinks and streams from that descriptor; the broker bounds metadata and
   transfer duration without buffering file contents.
 - Tests cover large HTTP downloads, broker socket framing, bounded concurrency,
-  and helper smoke verification. Full Go tests, `go vet`, shell syntax,
-  installed-host smoke, and exact-source CI pass.
+  and helper smoke verification. The installed helper smoke and full local
+  Chromium suite pass. Exact-source CI for current `main` is tracked separately
+  in `PROGRESS.md`; host smoke evidence is tied to the unchanged file-transfer
+  source, not represented as an exact-current-commit full installation run.
 
 ### M0ac — Keep first-install instructions aligned with viable releases (P1)
 

@@ -1,5 +1,21 @@
 # Production-readiness progress
 
+## Verify production file-manager downloads on an installed host — 2026-11-22
+
+- The disposable Ubuntu installation smoke passed the production
+  `stepanel-filectl` download path on source `55c1421a` in
+  [run 45017173718](https://github.com/cyberducttape/StePanel/actions/runs/45017173718).
+  It streamed a file larger than 2 MiB and compared the framed output byte for
+  byte; it also checked the listing cap under a 10,000-entry directory,
+  conditional writes, traversal rejection, and symlink-swap resistance.
+- `git diff 55c1421a..d9456c58 -- site_files.go internal/rootbroker/files.go
+  deploy/integrations/stepanel-filectl deploy/lab/filectl-smoke.sh` is empty,
+  so this installed-host evidence applies to the current implementation of
+  those components. This is one disposable-host run, not repeated
+  certification. Current-source integration CI run
+  [45024690451](https://github.com/cyberducttape/StePanel/actions/runs/45024690451)
+  is still in progress; do not count it as passed yet.
+
 ## Bootstrap the pinned Go compiler for first-time source setup — 2026-11-22
 
 - `scripts/install-guided.sh` no longer stops and asks a new operator to
