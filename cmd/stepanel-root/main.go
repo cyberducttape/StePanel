@@ -99,6 +99,21 @@ func main() {
 // Opening with mode=rw prevents the privileged broker from creating a root-
 // owned file ahead of the stepanel service on fresh installations.
 func openFencingDatabase(path string) (*sql.DB, error) {
+	return openFencingDatabaseWithTransactionMode(path, false)
+}
+
+// openIdentityRepairDatabase starts SQLite transactions with an immediate
+// write reservation. The repair applies a mapping plan after reading the
+// current identities; in WAL mode a deferred read-then-write transaction can
+// fail with SQLITE_BUSY_SNAPSHOT when another writer holds the reservation.
+// Acquiring the write reservation before the reads gives the busy handler a
+// chance to wait, and lets the interruption drill stop the operation at the
+// durable pre-commit checkpoint.
+func openIdentityRepairDatabase(path string) (*sql.DB, error) {
+	return openFencingDatabaseWithTransactionMode(path, true)
+}
+
+func openFencingDatabaseWithTransactionMode(path string, immediate bool) (*sql.DB, error) {
 	if !filepath.IsAbs(path) || strings.ContainsAny(path, "\x00\r\n") {
 		return nil, fmt.Errorf("fencing database path must be absolute")
 	}
@@ -106,6 +121,9 @@ func openFencingDatabase(path string) (*sql.DB, error) {
 	query := url.Values{}
 	query.Set("mode", "rw")
 	query.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", rootbroker.FencingDatabaseBusyTimeout.Milliseconds()))
+	if immediate {
+		query.Set("_txlock", "immediate")
+	}
 	u.RawQuery = query.Encode()
 	db, err := sql.Open("sqlite", u.String())
 	if err != nil {

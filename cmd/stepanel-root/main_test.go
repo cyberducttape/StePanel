@@ -38,6 +38,10 @@ func TestOpenFencingDatabaseOpensInitializedDatabaseReadWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := seed.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		_ = seed.Close()
+		t.Fatal(err)
+	}
 	if err := createFencingSchemaForTest(seed); err != nil {
 		_ = seed.Close()
 		t.Fatal(err)
@@ -52,6 +56,51 @@ func TestOpenFencingDatabaseOpensInitializedDatabaseReadWrite(t *testing.T) {
 	defer db.Close()
 	if _, err := db.Exec(`INSERT INTO resource_locks(resource_key,owner_id,lease_until,generation,acquired_at) VALUES ('test','broker-write',1,1,1)`); err != nil {
 		t.Fatalf("broker could not write initialized database: %v", err)
+	}
+}
+
+func TestOpenIdentityRepairDatabaseReservesWriteLockAtTransactionStart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "control-plane.db")
+	seed, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := seed.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		_ = seed.Close()
+		t.Fatal(err)
+	}
+	if err := createFencingSchemaForTest(seed); err != nil {
+		_ = seed.Close()
+		t.Fatal(err)
+	}
+	if err := seed.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	lockDB, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lockDB.Close()
+	lockConn, err := lockDB.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lockConn.Close()
+	if _, err := lockConn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		t.Fatal(err)
+	}
+	defer lockConn.ExecContext(context.Background(), "ROLLBACK")
+
+	db, err := openIdentityRepairDatabase(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.BeginTx(context.Background(), nil); err == nil {
+		t.Fatal("identity repair began a deferred transaction while another writer held SQLite")
+	} else if !strings.Contains(strings.ToLower(err.Error()), "locked") {
+		t.Fatalf("identity repair transaction failed for an unexpected reason: %v", err)
 	}
 }
 

@@ -1,5 +1,25 @@
 # Production-readiness progress
 
+## Make the installed identity-repair checkpoint interruptible — 2026-11-21
+
+- The Ubuntu 24.04 + Caddy + MariaDB installed-host run installed StePanel,
+  passed its WordPress recovery proof and one recovery-matrix iteration, then
+  failed in the identity-repair SIGKILL drill. The drill's SQLite write lock
+  caused a deferred read-to-write transaction to return `SQLITE_BUSY` before
+  the process could be killed at the intended checkpoint.
+- Identity repair now opens its control-plane connection with SQLite
+  immediate transaction mode, reserving the writer lock before reading the
+  repair mappings. Other root-broker fencing connections keep their prior
+  transaction mode. Added a WAL-mode regression test showing the repair
+  transaction cannot begin under a competing writer, making the checkpoint
+  reliably interruptible and retryable.
+- Also fixed the exact-source CI `SC1007` lint finding with explicit empty
+  shell assignments. The exact ShellCheck command, focused root-broker tests,
+  and `make shell-contract-check` pass. Full `make check` and `make
+  release-check` passed before the final WAL test-fixture refinement; the
+  focused WAL regression passed afterward. Exact-source hosted rerun is
+  pending. This smoke failure is not counted as a successful host run.
+
 ## Fix ShellCheck failure in installer support-tier helper — 2026-11-21
 
 - Exact-source CI `44982304932` passed Go tests, race tests, recovery and ENOSPC

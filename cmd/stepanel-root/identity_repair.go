@@ -104,7 +104,7 @@ func runIdentityRepair(args []string) int {
 			return 1
 		}
 	}
-	db, err := openFencingDatabase(*database)
+	db, err := openIdentityRepairDatabase(*database)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "open control-plane database: %v\n", err)
 		return 1
