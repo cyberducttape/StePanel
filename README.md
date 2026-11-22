@@ -258,12 +258,15 @@ before using a host. To explore only the interface without host changes, use
 
 The installer records the selected database engine/version, creates a restricted `stepanel` service account, writes the requested panel hostname into the selected webserver, and binds the control plane to `127.0.0.1:8090`. Caddy provisions HTTPS automatically; Apache installations must complete TLS termination before signing in.
 
-Production installation requires a working offsite target. Set `RCLONE_CONFIG`
-to an absolute path readable by the `stepanel` service account before running
-the installer, for example with `sudo env RCLONE_CONFIG=/etc/stepanel/rclone.conf
-./install.sh`. The installer preserves this explicitly supported child-process
-setting in `/etc/ste-panel.env`, and its post-install readiness probe verifies
-that the configured target can write, read, and delete a health object.
+Native installation requires a working offsite target. For the guided source
+path above, configure a root-owned rclone remote with `sudo rclone config`;
+preflight checks that a remote is configured, and the setup wizard verifies
+the selected destination by writing, reading, and deleting a probe object.
+The installer safely copies the root configuration to the service-readable
+location, so do not create `/etc/stepanel/rclone.conf` by hand. For unattended
+`--config` installs, `RCLONE_CONFIG` may point to an existing absolute rclone
+configuration file; the installer stages it for the service and verifies the
+destination during post-install readiness.
 
 Safety-invariant bypasses (`STEPANEL_SKIP_QUOTA_CHECK`,
 `STEPANEL_SKIP_STARTUP_DB_RECONCILE`, `STEPANEL_SKIP_STARTUP_HOST_RECONCILE`,

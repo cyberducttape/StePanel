@@ -8,6 +8,9 @@
   installer repeats host checks before mutation; the setup wizard then probes
   the selected offsite destination. Existing installs use the standard
   upgrade path. These checks avoid a wasted build on common first-run blockers.
+- Corrected the README's native-install guidance: the guided flow stages the
+  root rclone config itself; manually setting `RCLONE_CONFIG` is described only
+  for unattended installs. This removes contradictory setup instructions.
 - Added a shell contract for preflight ordering and included the new scripts in
   syntax checks. Focused contract and shell syntax checks pass locally; full
   `make shell-contract-check`, documentation-link/reference checks,
