@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -eu
 
+bash scripts/test-release-publication-order.sh
+
 version=$(sed -n 's/^const Version = "\([^"]*\)"$/\1/p' version.go)
 if [ -z "$version" ]; then
   echo "version.go does not declare Version" >&2

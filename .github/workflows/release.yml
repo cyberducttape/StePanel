@@ -43,6 +43,34 @@ jobs:
           ! grep -Eq 'goreleaser/goreleaser-action@(v|main|master)' .github/workflows/release.yml
           grep -Eq "version: '[v]?[0-9]+\.[0-9]+\.[0-9]+'" .github/workflows/release.yml
           ! grep -Eq "version: '[^']*~>" .github/workflows/release.yml
+      - name: Build and verify release artifacts before publishing
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          distribution: goreleaser
+          version: 'v2.17.1'
+          args: release --skip=publish --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate exact-source release evidence for preflight
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p dist
+          go run ./cmd/stepanel-evidence --commit "$GITHUB_SHA" > dist/RELEASE_EVIDENCE.md
+          grep -Fq "Source commit: [\`$GITHUB_SHA\`]" dist/RELEASE_EVIDENCE.md || {
+            echo 'release evidence does not match the tagged source commit' >&2
+            exit 1
+          }
+      - name: Generate preflight SBOM
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          path: .
+          format: spdx-json
+          output-file: dist/SBOM.spdx.json
+      - name: Verify release artifacts before publishing
+        env:
+          EXPECTED_RELEASE_SHA: ${{ github.sha }}
+        run: bash scripts/verify-release-artifacts.sh dist/
       - name: Build and publish release artifacts with GoReleaser
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:

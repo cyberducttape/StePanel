@@ -1,5 +1,23 @@
 # Production-readiness progress
 
+## Gate release publication on artifact verification — 2026-11-22
+
+- The tagged-release workflow previously published GoReleaser assets before
+  generating exact-source evidence and an SBOM or validating the archives.
+  Added a `release --skip=publish` preflight that builds the archives, creates
+  source-bound evidence and an SBOM, and verifies all artifacts before any
+  release, container, or provenance publication step. The final published
+  distribution is still checked afterward.
+- Added a release-order contract to `make release-check` so later workflow
+  edits cannot silently move verification behind publication.
+- `bash -n` on the changed shell scripts, the new publication-order contract,
+  `make release-check`, and `git diff --check` all pass locally. Exact-source
+  release-workflow CI is still pending because this change has not yet been
+  pushed.
+- No tag or release was created. The broader first-install production gates
+  remain open, including a supported fresh-install release and repeated host
+  certification.
+
 ## Run first-install contracts in push integration CI — 2026-11-22
 
 - The push integration workflow previously syntax-checked the guided installer

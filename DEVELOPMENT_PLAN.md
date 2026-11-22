@@ -12,6 +12,30 @@ successful one-off smoke does not close a host-certification gate.
 
 ## Milestones
 
+### Release publication safety — verify artifacts before publishing
+
+**Status:** Implemented; exact-source CI pending.
+
+The tag workflow now builds a nonpublishing GoReleaser distribution, generates
+the exact-source evidence and SBOM, and runs the release archive verifier
+before GoReleaser, container, provenance, or release-attachment publication.
+It repeats artifact verification against the final distribution after the
+publish build. `make release-check` enforces this ordering. This prevents
+known packaging and evidence failures from first appearing after a release is
+already public; it does not certify the host installation or recovery gates.
+
+**Acceptance criteria**
+
+- A tag build produces GoReleaser archives with `release --skip=publish`.
+- Exact-source evidence, SBOM generation, and artifact verification complete
+  before the first publishing action.
+- The ordinary release build still verifies the final distribution and
+  attaches evidence and SBOM.
+- `make release-check` fails if the pre-publication ordering is removed or
+  reordered.
+- Exact-source release workflow CI passes. No release is published as part of
+  this change.
+
 ### M0aa — Make first-time evaluation and support tiers clear (P1)
 
 **Status:** Partially implemented. The installation guide now opens with a

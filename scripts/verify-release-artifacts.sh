@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Verify release artifacts meet packaging standards
-# Run after GoReleaser publishes artifacts
+# Run on the GoReleaser preflight output before publication and again on the
+# final distribution directory after publication.
 
 set -Eeuo pipefail
 shopt -s nullglob
