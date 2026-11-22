@@ -1,5 +1,24 @@
 # Production-readiness progress
 
+## Verify first-site ownership and file-operation recovery — 2026-11-22
+
+- Confirmed the setup-file ownership and malformed-quote findings are already
+  fixed: guided setup promotes its generated config to root:root mode 0600,
+  while the manual path prints the safe private-copy command. The installer
+  rejects unterminated quotes, trailing characters, unsupported escapes, and
+  dangling escapes. `scripts/test-install-env-file.sh` and
+  `scripts/test-install-guided.sh` pass.
+- Verified that expired domain claims cannot be revived by another tenant's
+  site creation: durable claim updates require the captured tenant and token
+  generation; pruning is bounded and preserves confirmed claims. Focused
+  domain-claim tests pass.
+- Verified local file rename preserves a destination created at publication
+  time, returning a conflict while leaving source and destination intact. The
+  focused `internal/sitefiles` race regression passes.
+- Hosted integration CI [45002811283](https://github.com/cyberducttape/StePanel/actions/runs/45002811283)
+  passed on `94fbf293`, including Go, race, recovery, and browser checks. The
+  corresponding M0ah–M0ak plan statuses now cite that evidence.
+
 ## Refresh authoritative first-install evidence — 2026-11-22
 
 - Updated `docs/V1_PRODUCTION_GATES.md` to make the latest exact-source Ubuntu

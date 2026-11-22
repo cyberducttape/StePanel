@@ -1765,8 +1765,10 @@ settings rather than silently changing values.
 
 ### M0ai — Bind domain claims to current tenant ownership (P1)
 
-**Status:** Implemented locally; focused regressions and exact-source
-`make check` pass. Exact-source hosted CI remains pending.
+**Status:** Implemented and verified on code source `94fbf293`. Hosted
+integration CI [45002811283](https://github.com/cyberducttape/StePanel/actions/runs/45002811283)
+passed, including the full Go checks. Focused reservation-generation,
+expiration-pruning, tenant binding, and failed-persistence regressions pass.
 
 Domain verification must follow the durable tenant that owns a site, not a
 reusable site-name string. Reservation confirmation and failure recovery must
@@ -1790,8 +1792,10 @@ history.
 
 ### M0aj — Keep file operations race-safe and tenant-fair (P2)
 
-**Status:** Implemented locally; focused tests, exact-source `make check`, and
-targeted race tests pass. Hosted CI for this source remains pending.
+**Status:** Implemented and verified on code source `94fbf293`. Hosted
+integration CI [45002811283](https://github.com/cyberducttape/StePanel/actions/runs/45002811283)
+passed, including the full Go checks. The focused no-replace race regression
+also passes on the current checkout.
 
 The local file manager must keep the production no-overwrite rename contract,
 and concurrent uploads must not let one tenant monopolize every host slot.
@@ -1810,12 +1814,12 @@ and concurrent uploads must not let one tenant monopolize every host slot.
 
 ### M0ak — Recover from transient customer file-list failures (P2)
 
-**Status:** Implemented locally. A failed folder listing stays visible while
-the customer is in Files, and returning to that view retries the current
-folder automatically. The focused seeded Chromium customer-panel journey
-passed, including a transient 503 followed by successful retry. Exact-source
-hosted CI remains pending. Downloads still use the bounded 2 MiB editor read
-path; larger-file streaming is a separate unfinished usability item.
+**Status:** Implemented and verified on code source `94fbf293`. Hosted
+integration CI [45002811283](https://github.com/cyberducttape/StePanel/actions/runs/45002811283)
+passed, including the seeded Chromium customer-panel journey with transient
+503 and successful retry. A failed folder listing stays visible while the
+customer is in Files, and returning to that view retries automatically.
+Downloads now stream up to the separately enforced 40 GiB limit; see M0ab.
 
 **Acceptance criteria**
 
