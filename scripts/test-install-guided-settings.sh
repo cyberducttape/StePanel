@@ -10,12 +10,14 @@ cat >"$tmp/bin/chown" <<'SH'
 set -Eeuo pipefail
 [[ $1 == root:root && $2 == -- && -f $3 && ! -L $3 ]]
 printf 'chown:%s\n' "$3" >> "$CALL_LOG"
+[[ ${FAIL_CHOWN:-0} != 1 ]]
 SH
 cat >"$tmp/bin/chmod" <<'SH'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 [[ $1 == 0600 && $2 == -- && -f $3 && ! -L $3 ]]
 printf 'chmod:%s\n' "$3" >> "$CALL_LOG"
+[[ ${FAIL_CHMOD:-0} != 1 ]]
 SH
 cat >"$tmp/bin/stat" <<'SH'
 #!/usr/bin/env bash
@@ -37,15 +39,20 @@ source "$repo/deploy/lib/install-env-file.sh"
 for origin in direct-setup guided-setup; do
   file="$tmp/$origin.env"
   printf 'STEPANEL_PANEL_HOSTNAME="example.test"\n' > "$file"
-  CALL_LOG="$tmp/calls.log" SUDO_UID=1000 PATH="$tmp/bin:$PATH" secure_install_settings_file "$file"
+  (
+    export CALL_LOG="$tmp/calls.log" SUDO_UID=1000 PATH="$tmp/bin:$PATH"
+    secure_install_settings_file "$file"
+  )
   [[ $(tail -n 2 "$tmp/calls.log") == "$(printf 'chown:%s\nchmod:%s' "$file" "$file")" ]]
 done
 
 # A symlink must be rejected before either privileged metadata operation.
 ln -s "$tmp/direct-setup.env" "$tmp/linked.env"
 : > "$tmp/symlink-calls.log"
-if CALL_LOG="$tmp/symlink-calls.log" PATH="$tmp/bin:$PATH" \
-  secure_install_settings_file "$tmp/linked.env" 2>/dev/null; then
+if (
+  export CALL_LOG="$tmp/symlink-calls.log" SUDO_UID=1000 PATH="$tmp/bin:$PATH"
+  secure_install_settings_file "$tmp/linked.env"
+) 2>/dev/null; then
   echo 'guided setup accepted a symlink settings file' >&2
   exit 1
 fi
@@ -59,12 +66,35 @@ for invalid in owner mode links; do
     mode) args+=(FILE_MODE=640) ;;
     links) args+=(FILE_LINKS=2) ;;
   esac
-  if env "${args[@]}" secure_install_settings_file "$tmp/direct-setup.env" 2>/dev/null; then
+  if (
+    export "${args[@]}"
+    secure_install_settings_file "$tmp/direct-setup.env"
+  ) 2>/dev/null; then
     echo "guided setup accepted settings with invalid $invalid" >&2
     exit 1
   fi
   [[ ! -s "$tmp/invalid-calls.log" ]]
 done
+
+: > "$tmp/failure-calls.log"
+if (
+  export CALL_LOG="$tmp/failure-calls.log" SUDO_UID=1000 FAIL_CHOWN=1 PATH="$tmp/bin:$PATH"
+  secure_install_settings_file "$tmp/direct-setup.env"
+) 2>/dev/null; then
+  echo 'guided setup hid a failed ownership change' >&2
+  exit 1
+fi
+[[ $(<"$tmp/failure-calls.log") == "chown:$tmp/direct-setup.env" ]]
+
+: > "$tmp/failure-calls.log"
+if (
+  export CALL_LOG="$tmp/failure-calls.log" SUDO_UID=1000 FAIL_CHMOD=1 PATH="$tmp/bin:$PATH"
+  secure_install_settings_file "$tmp/direct-setup.env"
+) 2>/dev/null; then
+  echo 'guided setup hid a failed permissions change' >&2
+  exit 1
+fi
+[[ $(<"$tmp/failure-calls.log") == "$(printf 'chown:%s\nchmod:%s' "$tmp/direct-setup.env" "$tmp/direct-setup.env")" ]]
 
 # Keep the promotion outside the branch that generates new answers, so reuse
 # and freshly generated settings both receive the same treatment.

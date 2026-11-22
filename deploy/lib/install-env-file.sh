@@ -20,8 +20,8 @@ secure_install_settings_file() {
     echo "$file must be owned by root or the sudo user, private (mode 0600), and have one link." >&2
     return 1
   }
-  chown root:root -- "$file"
-  chmod 0600 -- "$file"
+  chown root:root -- "$file" || return $?
+  chmod 0600 -- "$file" || return $?
 }
 
 load_env_file() {
