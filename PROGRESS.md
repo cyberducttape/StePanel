@@ -12,8 +12,10 @@
   edits cannot silently move verification behind publication.
 - `bash -n` on the changed shell scripts, the new publication-order contract,
   `make release-check`, and `git diff --check` all pass locally. Exact-source
-  release-workflow CI is still pending because this change has not yet been
-  pushed.
+  integration CI [45030061090](https://github.com/cyberducttape/StePanel/actions/runs/45030061090), documentation [45030061075](https://github.com/cyberducttape/StePanel/actions/runs/45030061075), CodeQL [45030061024](https://github.com/cyberducttape/StePanel/actions/runs/45030061024), and release-evidence workflows passed for `01d4a2d5`.
+- Ran the pinned GoReleaser v2.17.1 preflight command in an isolated checkout
+  with a local-only test tag; both Linux archives and checksums were built
+  successfully with publication skipped.
 - No tag or release was created. The broader first-install production gates
   remain open, including a supported fresh-install release and repeated host
   certification.

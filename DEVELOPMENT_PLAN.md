@@ -14,7 +14,8 @@ successful one-off smoke does not close a host-certification gate.
 
 ### Release publication safety — verify artifacts before publishing
 
-**Status:** Implemented; exact-source CI pending.
+**Status:** Implemented and verified on `01d4a2d5`. The complete integration
+workflow [45030061090](https://github.com/cyberducttape/StePanel/actions/runs/45030061090), documentation [45030061075](https://github.com/cyberducttape/StePanel/actions/runs/45030061075), CodeQL [45030061024](https://github.com/cyberducttape/StePanel/actions/runs/45030061024), and release-evidence workflows passed.
 
 The tag workflow now builds a nonpublishing GoReleaser distribution, generates
 the exact-source evidence and SBOM, and runs the release archive verifier
@@ -35,6 +36,11 @@ already public; it does not certify the host installation or recovery gates.
   reordered.
 - Exact-source release workflow CI passes. No release is published as part of
   this change.
+
+The pinned GoReleaser v2.17.1 command was also run in an isolated temporary
+checkout with a local-only test tag. `release --skip=publish --clean` built
+both Linux architecture archives and `SHA256SUMS` without publishing. The
+local tag was not pushed and no release was created.
 
 ### M0aa — Make first-time evaluation and support tiers clear (P1)
 
