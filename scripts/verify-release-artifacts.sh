@@ -171,7 +171,8 @@ for archive in "${archives[@]}"; do
         deploy/lib/install-package-preflight.sh \
         deploy/lib/install-database-version-preflight.sh \
         deploy/lib/install-change-plan.sh \
-        deploy/lib/install-env-file.sh; do
+        deploy/lib/install-env-file.sh \
+        deploy/lib/install-first-login.sh; do
         if grep -Fqx "$required_helper" "$archive_listing"; then
             echo "  ✓ $required_helper present"
         else

@@ -157,8 +157,17 @@ with `sudo ./install.sh` instead.
 
 ## After installation: first sign-in
 
-Open the panel at the hostname you configured and sign in with the administrator
-credentials and authenticator code. The overview's **First-run checklist**
+The installer prints the exact sign-in URL and next steps for the selected web
+server. Before opening it, point the hostname's A record at this host, publish
+an AAAA record only if public IPv6 reaches it, and allow inbound ports 80 and
+443. Caddy obtains HTTPS automatically after public DNS resolves. For Apache,
+if Certbot integration was installed, issue the first certificate with
+`sudo stepanel-certbot panel.example.com you@example.com`; otherwise configure
+trusted TLS termination before signing in. OpenLiteSpeed needs its TLS
+termination configured before login. Secure cookies are mandatory.
+
+Sign in with the administrator credentials and authenticator code. The
+overview's **First-run checklist**
 checks operational health, confirms that site inventory loaded, and looks for
 an integrity-verified backup belonging to an active site. For the first site,
 it separately checks whether the newest recovery point passed application-

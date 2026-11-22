@@ -91,6 +91,12 @@ passed the first-run checklist and WordPress-creation entry point.
   integration.
   First-site creation,
   backup, and restore proof are verified on the selected supported profile.
+- After successful installation, the console prints the exact HTTPS URL and
+  stack-specific first-login steps. It explains DNS/firewall prerequisites,
+  Caddy automatic certificate issuance, the Apache Certbot command when
+  installed, and the TLS setup required for Apache without Certbot or
+  OpenLiteSpeed. It points administrators to the live first-run checklist and
+  the services to inspect when startup is unavailable.
 - Generated/manual installer settings are parsed by a separately tested
   loader that rejects truncated quotes, trailing data, unsupported escapes,
   non-root ownership, unsafe permissions, and symlinks before accepting any

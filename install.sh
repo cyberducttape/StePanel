@@ -48,6 +48,7 @@ APP_USER="stepanel"; APP_DIR="/opt/stepanel"; DATA_DIR="/var/lib/ste-panel"; ENV
 if [[ ! -f "$ROOT_DIR/stepanel" || ! -x "$ROOT_DIR/stepanel" ]]; then echo "Build an executable stepanel binary before installing." >&2; exit 1; fi
 
 . "$ROOT_DIR/deploy/lib/install-env-file.sh"
+. "$ROOT_DIR/deploy/lib/install-first-login.sh"
 # shellcheck source=deploy/lib/install-change-plan.sh
 . "$ROOT_DIR/deploy/lib/install-change-plan.sh"
 
@@ -1637,6 +1638,6 @@ fi
 install_journal_record verification complete partial "core readiness passed; inspect post_install_status for optional integrations" || echo 'Could not append installer verification record.' >&2
 install_journal_record recovery contract manual "automatic rollback covers registered files, control-plane database and core service activation; see docs/INSTALLER_RECOVERY.md" || echo 'Could not append installer recovery-contract record.' >&2
 echo "StePanel installed with $WEB_SERVER and $DB_ENGINE ($DB_VERSION). Verify services with: systemctl status $APACHE_SERVICE $DB_SERVICE"
-echo "Panel hostname: $PANEL_HOSTNAME. Complete TLS termination before signing in; Secure cookies are mandatory in production."
+install_print_first_login_steps "$PANEL_HOSTNAME" "$WEB_SERVER" "$([[ -x /usr/local/sbin/stepanel-certbot ]] && echo 1 || echo 0)" "$APACHE_SERVICE" "$DB_SERVICE"
 if [[ "$INSTALL_MAIL" == "1" ]]; then echo "Mail stack installed. Mailbox data is staged under $DATA_DIR/mail; services are active only when STEPANEL_ACTIVATE_MAIL=1."; fi
 if [[ "$INSTALL_FTP" == "1" ]]; then echo "vsftpd installed with local-user chroot and passive ports $FTP_PASSIVE_MIN-$FTP_PASSIVE_MAX; it is active only when STEPANEL_ACTIVATE_FTP=1 with FTPS certificates."; fi

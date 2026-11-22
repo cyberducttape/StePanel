@@ -58,6 +58,23 @@
   customer-session check requiring an externally supplied password. This does
   not verify real host provisioning or production restore.
 
+## Make the installer hand off clearly to first sign-in — 2026-11-21
+
+- Successful native installation now prints concrete next steps: DNS and
+  firewall prerequisites, the exact HTTPS URL, and the TLS action for the
+  selected server. Caddy instructions explain automatic certificate issuance;
+  Apache prints the Certbot command when its helper is installed; Apache
+  without it and OpenLiteSpeed are told to configure TLS before login. The
+  output then points to administrator credentials, the First-run checklist,
+  service status, and secure backup of installer settings.
+- Updated the installation guide to match the console output. Added a
+  functional contract covering Caddy, Apache with/without Certbot, and
+  OpenLiteSpeed, and required the helper in release archives. The focused
+  contract, shell syntax, `make release-check`, `make shell-contract-check`,
+  and full `make check` all passed. `make check` includes `go vet ./...` and
+  the complete Go suite (root package 118.527s). This verifies guidance and
+  packaging contracts, not installation on a fresh host.
+
 ## Preflight packages for selected optional features — 2026-11-21
 
 - Installer package preflight now includes Fail2ban, mail, FTP, ModSecurity,

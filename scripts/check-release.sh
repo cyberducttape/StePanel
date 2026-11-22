@@ -39,8 +39,15 @@ if ! grep -Fq 'docs/INSTALLATION.md' scripts/verify-release-artifacts.sh ||
    ! grep -Fq 'deploy/lib/install-package-preflight.sh' scripts/verify-release-artifacts.sh ||
    ! grep -Fq 'deploy/lib/install-database-version-preflight.sh' scripts/verify-release-artifacts.sh ||
    ! grep -Fq 'deploy/lib/install-change-plan.sh' scripts/verify-release-artifacts.sh ||
-   ! grep -Fq 'deploy/lib/install-env-file.sh' scripts/verify-release-artifacts.sh; then
+   ! grep -Fq 'deploy/lib/install-env-file.sh' scripts/verify-release-artifacts.sh ||
+   ! grep -Fq 'deploy/lib/install-first-login.sh' scripts/verify-release-artifacts.sh; then
   echo "release artifact verification does not require the current installer support materials" >&2
+  exit 1
+fi
+if ! grep -Fq '. "$ROOT_DIR/deploy/lib/install-first-login.sh"' install.sh ||
+   ! grep -Fq 'install_print_first_login_steps "$PANEL_HOSTNAME"' install.sh ||
+   ! grep -Fq 'scripts/test-install-first-login.sh' Makefile; then
+  echo "installer does not provide tested post-install sign-in guidance" >&2
   exit 1
 fi
 if ! grep -Fq 'stepanel" setup --help' scripts/verify-release-artifacts.sh ||
