@@ -31,6 +31,7 @@ On exact source
 checklist and WordPress-creation entry point. The earlier Ubuntu host run on
 `67b40760` is documented in its
 [host-smoke report](docs/lab-results/2026-11-21-ubuntu-first-host-smoke-67b4076.md).
+The latest installed-host workflow, run [44998862460](https://github.com/cyberducttape/StePanel/actions/runs/44998862460), passed on source `5d87e6e8`: its extracted exact-source snapshot installed on Ubuntu 24.04 + Caddy + MariaDB, and a WordPress backup restored with HTTPS/application proof in 4.627 seconds. One recovery-matrix iteration passed. The full log is retained as the workflow artifact and summarized in the [packaged first-host report](docs/lab-results/2026-11-22-ubuntu-package-first-host-smoke-5d87e6e.md). The disposable fixture left one non-blocking optional `spamassassin.service` disable action pending because that unit was absent. This remains one container run, not repeated certification.
 The source-based native path now has a single bootstrap command that builds
 both executables as the invoking user before elevating for the installer.
 When setup finds an existing user-owned settings file, its recovery message

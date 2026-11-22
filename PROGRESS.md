@@ -1,5 +1,12 @@
 # Production-readiness progress
 
+## Repeat the current packaged Ubuntu first-install evidence — 2026-11-22
+
+- Installed-host run [44998862460](https://github.com/cyberducttape/StePanel/actions/runs/44998862460) passed on exact source `5d87e6e86c098f467ee92b9e9992231c07121216`. It built and extracted a GoReleaser snapshot, installed it on disposable Ubuntu 24.04 + Caddy + MariaDB, and completed WordPress creation, HTTPS/database application recovery proof, database and broker outage recovery, and one recovery-matrix iteration.
+- WordPress restore proof measured 4,627 ms. The diagnostic log is retained in the workflow artifact; a reproducible summary and limits are recorded in `docs/lab-results/2026-11-22-ubuntu-package-first-host-smoke-5d87e6e.md` and linked from the support matrix.
+- The host fixture reported a non-blocking pending attempt to disable absent `spamassassin.service`; the installation completed and core configured services were verified.
+- This was one disposable container run from a snapshot archive. It does not satisfy repeated certification, test the published tagged archive, or prove physical power-loss, broad ENOSPC, quota, or capacity guarantees.
+
 ## Remove the known-broken fresh-install release recipe — 2026-11-22
 
 - Checked the current GitHub release list: `v0.7.0` is the latest stable tag
