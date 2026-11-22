@@ -36,6 +36,8 @@ first-host application proof remain open.
 - Guided setup recommends Ubuntu 24.04 + Caddy + MariaDB while identifying
   which alternatives are outside the current installed-host smoke matrix;
   interactive and unattended installer defaults select that same profile.
+  The wizard requires acknowledgement of MySQL, PostgreSQL, or OpenLiteSpeed
+  before checking storage or collecting administrator credentials.
 - Guided setup checks for rclone, a configured remote, and its config path
   before asking for hostname or credentials; it tests the selected destination
   before collecting administrator passwords/MFA and before saving installer

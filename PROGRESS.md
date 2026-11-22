@@ -3114,3 +3114,8 @@ does not close a current-source or power-loss gate.
   `make check`, `make release-check`, documentation links, and `git diff
   --check` pass on this source. This does not provide the unpublished guided
   installer in the v0.7.0 archive or certify a host installation.
+- The setup wizard now pauses immediately after stack selection when MySQL,
+  PostgreSQL, or OpenLiteSpeed is selected. It names the smoke-matrix gap and
+  asks for explicit confirmation before checking backup storage or collecting
+  passwords/MFA. A regression test declines and verifies no storage probe or
+  credential processing occurs; a second test accepts and continues.

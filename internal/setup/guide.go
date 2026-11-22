@@ -297,6 +297,9 @@ func (g *Guide) Run() (Answers, error) {
 	if err := g.database(&answers); err != nil {
 		return Answers{}, err
 	}
+	if err := g.confirmSupportChoice(answers); err != nil {
+		return Answers{}, err
+	}
 	if err := g.offsite(&answers); err != nil {
 		return Answers{}, err
 	}
@@ -325,6 +328,24 @@ func (g *Guide) Run() (Answers, error) {
 		return Answers{}, ErrCancelled
 	}
 	return answers, nil
+}
+
+func (g *Guide) confirmSupportChoice(a Answers) error {
+	if a.DBEngine == "mariadb" && a.WebServer != "openlitespeed" {
+		return nil
+	}
+	g.say("")
+	g.say("  ! This web-server/database combination is outside the current")
+	g.say("    installed-host smoke matrix. Expect extra operator validation.")
+	g.say("    The installer will show the exact host support tier before changes.")
+	ok, err := g.confirm("Continue with this less-tested combination?", false)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("unverified platform choice declined: %w", ErrCancelled)
+	}
+	return nil
 }
 
 // checkOffsitePrerequisites runs before collecting credentials so operators

@@ -140,7 +140,7 @@ func TestGuideRepromptsInvalidAnswers(t *testing.T) {
 		[]string{
 			"localhost", "not a host", "Panel.Example.COM", // hostname: two rejections
 			"9", "apache", "n", // web server: invalid choice, then apache without certificates
-			"3",                               // PostgreSQL by number
+			"3", "y", // PostgreSQL by number, acknowledge matrix warning
 			"s3:x", "b2:bad", "y", "b2:sites", // offsite: unknown remote, failing probe, retry, good
 			"bad user!", "ops", // username
 			"12345", "000000", "123456", // TOTP: malformed, wrong, right
@@ -157,7 +157,7 @@ func TestGuideRepromptsInvalidAnswers(t *testing.T) {
 	if answers.OffsiteTarget != "b2:sites" || !answers.Fail2ban || answers.Fail2banIgnoreIP != "198.51.100.0/24 2001:db8::1" || !answers.InstallNode || answers.InstallSecurity || !answers.InstallDBAdmin {
 		t.Fatalf("answers = %+v", answers)
 	}
-	for _, want := range []string{"not one of the configured remotes", "access denied", "do not match", "does not match", "phpPgAdmin", "is not an IP address"} {
+	for _, want := range []string{"not one of the configured remotes", "access denied", "do not match", "does not match", "phpPgAdmin", "is not an IP address", "outside the current", "Continue with this less-tested combination?"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("transcript missing %q", want)
 		}
@@ -176,6 +176,22 @@ func TestGuideRepromptsInvalidAnswers(t *testing.T) {
 	}
 	if lastProbe < 0 || firstCredential <= lastProbe {
 		t.Fatalf("storage probe did not precede credential setup: %v", host.events)
+	}
+}
+
+func TestGuideDeclinesUnverifiedStackBeforeSaving(t *testing.T) {
+	host := newHost()
+	_, out, err := run(t, host,
+		[]string{"", "", "postgresql", "n"},
+		[]string{password, password})
+	if !errors.Is(err, ErrCancelled) {
+		t.Fatalf("err = %v\n%s", err, out)
+	}
+	if strings.Contains(out, "Settings saved") {
+		t.Fatalf("settings were reported saved after declining support warning:\n%s", out)
+	}
+	if len(host.hashed) != 0 || host.codeChecks != 0 || len(host.probed) != 0 {
+		t.Fatalf("setup continued after declining support warning: hashes=%d totp=%d probes=%v", len(host.hashed), host.codeChecks, host.probed)
 	}
 }
 
