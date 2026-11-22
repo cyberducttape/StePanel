@@ -28,8 +28,9 @@ official tagged release archive remain open. See the
 [`e04235f8` host-smoke report](docs/lab-results/2026-11-22-ubuntu-first-host-smoke-e04235f.md).
 On exact source
 `656f12d2`, the disposable seeded browser journey passed the first-run
-checklist and WordPress-creation entry point. See the
-[`67b40760` host-smoke report](docs/lab-results/2026-11-21-ubuntu-first-host-smoke-67b4076.md).
+checklist and WordPress-creation entry point. The earlier Ubuntu host run on
+`67b40760` is documented in its
+[host-smoke report](docs/lab-results/2026-11-21-ubuntu-first-host-smoke-67b4076.md).
 The source-based native path now has a single bootstrap command that builds
 both executables as the invoking user before elevating for the installer.
 
