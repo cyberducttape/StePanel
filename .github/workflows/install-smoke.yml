@@ -164,10 +164,36 @@ jobs:
           cache: true
       - name: Validate recovery matrix repeat count
         run: bash scripts/validate-recovery-matrix-inputs.sh
-      - name: Build release-shaped installer tree
+      - name: Build exact-source release archive
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          distribution: goreleaser
+          version: 'v2.17.1'
+          args: release --snapshot --clean
+      - name: Extract and validate packaged installer tree
         run: |
-          go build -trimpath -ldflags='-s -w' -o stepanel ./cmd/stepanel
-          go build -trimpath -ldflags='-s -w' -o stepanel-root ./cmd/stepanel-root
+          set -eu
+          shopt -s nullglob
+          archives=(dist/*_linux_amd64.tar.gz)
+          if [[ ${#archives[@]} -ne 1 ]]; then
+            printf 'expected one linux/amd64 release archive, found %s\n' "${#archives[@]}" >&2
+            printf '%s\n' dist/* >&2
+            exit 1
+          fi
+          release_tree="$RUNNER_TEMP/stepanel-release-archive"
+          rm -rf -- "$release_tree"
+          install -d -m 0755 "$release_tree"
+          tar -xzf "${archives[0]}" -C "$release_tree"
+          for required in stepanel stepanel-root install.sh deploy/lab/install-smoke.sh deploy/lib/install-support-tier.sh web/index.html; do
+            if [[ ! -f "$release_tree/$required" ]]; then
+              echo "release archive is missing $required" >&2
+              exit 1
+            fi
+          done
+          [[ -x "$release_tree/stepanel" && -x "$release_tree/stepanel-root" ]]
+          "$release_tree/stepanel" setup --help >/dev/null
+          echo "STEPANEL_RELEASE_TREE=$release_tree" >> "$GITHUB_ENV"
+          echo "Installed-host smoke will use $(basename "${archives[0]}") from exact source $GITHUB_SHA."
       - name: Build disposable systemd host image
         timeout-minutes: 20
         env:
@@ -205,7 +231,7 @@ jobs:
               --cgroupns=host \
               --tmpfs /run --tmpfs /run/lock \
               -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
-              -v "$PWD:/work" "$HOST_IMAGE" /sbin/init; then
+              -v "$STEPANEL_RELEASE_TREE:/work" "$HOST_IMAGE" /sbin/init; then
             echo 'Docker did not create the disposable systemd host within 30 seconds' >&2
             docker_diag info >&2 || true
             docker_diag ps -a >&2 || true

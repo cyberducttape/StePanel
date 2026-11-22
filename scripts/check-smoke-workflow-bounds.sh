@@ -54,6 +54,18 @@ for workflow in "${workflows[@]}"; do
   done
   case "$workflow" in
     .github/workflows/install-smoke.yml)
+      for contract in \
+        'goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de' \
+        'args: release --snapshot --clean' \
+        'archives=(dist/*_linux_amd64.tar.gz)' \
+        'deploy/lab/install-smoke.sh' \
+        'web/index.html' \
+        '-v "$STEPANEL_RELEASE_TREE:/work"'; do
+        grep -Fq -- "$contract" "$workflow" || {
+          echo "$workflow must install the exact-source packaged archive in its host smoke (missing: $contract)" >&2
+          exit 1
+        }
+      done
       grep -Fq "github.event_name == 'push' && 'ubuntu-24.04-caddy-mariadb'" "$workflow" || {
         echo "$workflow must smoke-test the recommended Ubuntu/Caddy/MariaDB profile on source pushes" >&2
         exit 1
