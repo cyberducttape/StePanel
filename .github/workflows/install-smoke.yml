@@ -108,7 +108,9 @@ jobs:
     steps:
       - id: select
         env:
-          REQUESTED_HOST: ${{ inputs.host || (github.event_name == 'push' && 'almalinux-9-caddy-mariadb') || 'all' }}
+          # Make the recommended first-install profile the default source-push
+          # smoke. The complete six-host matrix remains available on demand.
+          REQUESTED_HOST: ${{ inputs.host || (github.event_name == 'push' && 'ubuntu-24.04-caddy-mariadb') || 'all' }}
         run: |
           case "$REQUESTED_HOST" in
             all)

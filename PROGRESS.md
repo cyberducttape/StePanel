@@ -1,5 +1,16 @@
 # Production-readiness progress
 
+## Make the recommended install profile the default host smoke — 2026-11-21
+
+- Source pushes now run the installed-host smoke on Ubuntu 24.04 + Caddy +
+  MariaDB, matching the recommended first-install path. Manual dispatch still
+  selects the complete six-host matrix by default, and can target one host.
+- Added a workflow contract check to prevent the push default from drifting
+  and to preserve the full manual matrix. `bash
+  scripts/check-smoke-workflow-bounds.sh` and `git diff --check` passed. This
+  validates workflow selection and bounded-run contracts; hosted installation
+  evidence for this workflow edit must come from the exact-source CI run.
+
 ## Ask for the domain before its generated site name — 2026-11-21
 
 - Reordered the operator and customer website forms so the domain comes

@@ -44,6 +44,8 @@ passed the first-run checklist and WordPress-creation entry point.
 - Guided setup recommends Ubuntu 24.04 + Caddy + MariaDB while identifying
   which alternatives are outside the current installed-host smoke matrix;
   interactive and unattended installer defaults select that same profile.
+  Every source push runs the installed-host smoke on this recommended profile;
+  manual runs still default to the complete six-combination host matrix.
   `install.sh --guided` identifies the host OS and prints its recommended
   profile evidence before it asks for remote-storage or administrator secrets;
   it reprints the exact stack tier in the full pre-mutation preflight.

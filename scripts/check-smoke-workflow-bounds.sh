@@ -54,6 +54,14 @@ for workflow in "${workflows[@]}"; do
   done
   case "$workflow" in
     .github/workflows/install-smoke.yml)
+      grep -Fq "github.event_name == 'push' && 'ubuntu-24.04-caddy-mariadb'" "$workflow" || {
+        echo "$workflow must smoke-test the recommended Ubuntu/Caddy/MariaDB profile on source pushes" >&2
+        exit 1
+      }
+      grep -Fq 'default: all' "$workflow" || {
+        echo "$workflow manual dispatch must retain the complete host matrix by default" >&2
+        exit 1
+      }
       grep -Fq 'timeout-minutes: 12' "$workflow" || {
         echo "$workflow is missing the disposable-host boot step deadline" >&2
         exit 1
