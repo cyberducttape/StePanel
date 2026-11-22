@@ -881,6 +881,8 @@ body[data-theme] .brief-card { background: var(--appearance-raised) !important; 
 body[data-theme] .metric,
 body[data-theme] .onboarding,
 body[data-theme] .import-panel,
+body[data-theme] .platform-operations,
+body[data-theme] .admin-tools,
 body[data-theme] .database-admin,
 body[data-theme] .activity-card,
 body[data-theme] .security-card,
@@ -890,6 +892,9 @@ body[data-theme] .site-card { background: var(--appearance-surface) !important; 
 body[data-theme] .setup-step { background: var(--appearance-raised); border-color: var(--appearance-line); }
 body[data-theme] .setup-step-copy strong,
 body[data-theme] .setup-step-action { color: var(--appearance-text); }
+body[data-theme] .platform-operations>summary:after,
+body[data-theme] .admin-tools>summary:after { color: var(--appearance-link); }
+body[data-theme] .admin-tools>summary:focus-visible { outline-color: var(--appearance-accent); }
 body[data-theme] .setup-step-copy p { color: var(--appearance-muted); }
 body[data-theme] .site-card button,
 body[data-theme] .site-detail .site-detail-actions button,

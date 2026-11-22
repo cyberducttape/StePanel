@@ -2020,3 +2020,24 @@ Acceptance criteria:
 - This UI does not close the independent installed-host, application recovery,
   or capacity certification gates above.
 
+### M0am — Keep the operator landing page focused on the next action (P2)
+
+**Status:** Implemented locally; exact-source CI pending. The overview keeps the
+first-run checklist, host status, site creation, and recent jobs directly
+available. Customer/account/database controls and migration/application forms
+are grouped into two collapsed disclosures. Existing navigation and direct
+hash links expand the owning disclosure before scrolling to the requested
+section. The details use the selected appearance theme and remain keyboard
+operable.
+
+Acceptance criteria:
+
+- The first-run operator view emphasizes health, first site creation, and
+  recovery without presenting every optional administration form at once.
+- Customer/database and migration/application tools remain in the document,
+  but start collapsed for the operator; the customer page remains unchanged.
+- Sidebar, footer, and direct URL navigation into a collapsed group reveal the
+  requested section and scroll it into view.
+- Mobile layout, keyboard interaction, and axe accessibility checks pass.
+- The seeded Chromium navigation/accessibility suite and exact-source CI pass.
+

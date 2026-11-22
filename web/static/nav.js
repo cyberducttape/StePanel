@@ -39,10 +39,9 @@
     .map((node) => node.textContent).join('').trim();
   const setActive = (hash) => {
     const target = hash || '#main';
-    if (target === '#operations') {
-      const operations = document.querySelector('#operations');
-      if (operations instanceof HTMLDetailsElement) operations.open = true;
-    }
+    const destination = document.getElementById(target.slice(1));
+    const disclosure = destination?.closest('details');
+    if (disclosure instanceof HTMLDetailsElement) disclosure.open = true;
     links.forEach((link) => {
       const active = link.getAttribute('href') === target;
       link.classList.toggle('is-active', active);
@@ -85,7 +84,17 @@
     window.addEventListener('scroll', () => { if (!spyFrame) spyFrame = requestAnimationFrame(spy); }, { passive: true });
     window.addEventListener('scrollend', () => { spyLockedUntil = 0; spy(); });
     setActive(window.location.hash);
-    window.addEventListener('hashchange', () => setActive(window.location.hash));
+    const revealCurrentTarget = () => {
+      const destination = document.getElementById(window.location.hash.slice(1));
+      if (destination?.closest('details')) {
+        requestAnimationFrame(() => destination.scrollIntoView({ behavior: 'instant', block: 'start' }));
+      }
+    };
+    revealCurrentTarget();
+    window.addEventListener('hashchange', () => {
+      setActive(window.location.hash);
+      revealCurrentTarget();
+    });
   }
 
   toggle.addEventListener('click', () => {
@@ -100,21 +109,24 @@
       close();
       return;
     }
-    const target = document.querySelector(link.getAttribute('href'));
+    const hash = link.getAttribute('href');
+    const target = document.getElementById(hash.slice(1));
+    const disclosure = target?.closest('details');
+    if (disclosure instanceof HTMLDetailsElement) disclosure.open = true;
     if (target) {
       // A native smooth-scroll across the full dashboard can take several
       // seconds, leaving a deep-linked workspace looking unresponsive. Keep
       // the polish for nearby sections, but make long sidebar jumps direct.
       const distance = Math.abs(target.getBoundingClientRect().top);
-      if (distance > window.innerHeight * 1.5) {
+      if (disclosure || distance > window.innerHeight * 1.5) {
         event.preventDefault();
-        history.pushState(null, '', link.getAttribute('href'));
-        target.scrollIntoView({ behavior: 'instant', block: 'start' });
+        history.pushState(null, '', hash);
+        requestAnimationFrame(() => target.scrollIntoView({ behavior: 'instant', block: 'start' }));
       }
     }
     // Hold the clicked section while smooth scrolling passes over others.
     spyLockedUntil = Date.now() + 1200;
-    setActive(link.getAttribute('href'));
+    setActive(hash);
     close();
   }));
   document.addEventListener('keydown', (event) => {

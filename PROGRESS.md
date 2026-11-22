@@ -1,5 +1,22 @@
 # Production-readiness progress
 
+## Keep first-run operator view focused — 2026-11-22
+
+- Grouped customer/database administration and migration/application forms into
+  two initially collapsed, keyboard-accessible sections. The overview keeps
+  readiness, the first-run checklist, site creation, host checks, and recent
+  jobs in view; optional controls remain available from the sidebar and footer.
+- Sidebar and direct hash navigation now open a collapsed section before
+  scrolling to its requested destination. Theme colors and focus styling are
+  applied to the new disclosures. Updated database-health browser tests to
+  enter through the visible Databases navigation.
+- Verification: full seeded Chromium suite passed (31 passed, 1 expected
+  customer-context skip); `npm run test:unit` passed (19 tests); `go build`
+  passed; JavaScript syntax checks and `git diff --check` passed. Captured and
+  reviewed desktop and mobile overview screenshots. Exact-source hosted CI is
+  pending; no broader installer or production-readiness gate is implied by
+  this UI change.
+
 ## Simplify first-run administrator dashboard — 2026-11-22
 
 - The administrator first-run dashboard no longer expands a long list of

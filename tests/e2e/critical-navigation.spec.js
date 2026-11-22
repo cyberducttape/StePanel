@@ -196,6 +196,7 @@ test('database health expands into a readable, host-wide snapshot', async ({ pag
     });
   });
 
+  await page.getByRole('link', { name: 'Databases', exact: true }).click();
   const disclosure = page.locator('#databaseDiagnostics');
   await expect(disclosure).toBeVisible();
   await expect(disclosure).toContainText('Open this section to run a short, read-only health check.');
@@ -232,6 +233,7 @@ test('database health distinguishes unavailable evidence and can retry', async (
     });
   });
 
+  await page.getByRole('link', { name: 'Databases', exact: true }).click();
   const disclosure = page.locator('#databaseDiagnostics');
   await disclosure.locator('summary').click();
   await expect(disclosure).toContainText('The database socket could not be opened. Verify the service and configured socket path.');
@@ -732,6 +734,37 @@ test('platform capability details stay out of the first-run view and open from n
   await page.getByRole('link', { name: 'Infrastructure', exact: true }).click();
   await expect(operations).toHaveAttribute('open', '');
   await expect(operations.locator('summary')).toContainText(/unavailable|available|report unavailable|View details/i);
+});
+
+test('secondary administrator workspaces are collapsed but direct navigation opens them', async ({ page }) => {
+  const customerTools = page.locator('#customer-admin-tools');
+  const migrationTools = page.locator('#migration-admin-tools');
+  await expect(customerTools).not.toHaveAttribute('open', '');
+  await expect(migrationTools).not.toHaveAttribute('open', '');
+  await expect(page.locator('#accounts')).toBeHidden();
+  await expect(page.locator('#migrations')).toBeHidden();
+
+  const customerSummary = customerTools.locator(':scope > summary');
+  await customerSummary.focus();
+  await customerSummary.press('Enter');
+  await expect(customerTools).toHaveAttribute('open', '');
+  await customerSummary.press('Enter');
+  await expect(customerTools).not.toHaveAttribute('open', '');
+
+  await page.getByRole('link', { name: 'Customers', exact: true }).click();
+  await expect(customerTools).toHaveAttribute('open', '');
+  await expect(page.locator('#accounts')).toBeInViewport();
+
+  await page.getByRole('link', { name: 'Databases', exact: true }).click();
+  await expect(page.locator('#database')).toBeInViewport();
+
+  await page.getByRole('link', { name: 'Migrations', exact: true }).click();
+  await expect(migrationTools).toHaveAttribute('open', '');
+  await expect(page.locator('#migrations')).toBeInViewport();
+
+  await page.goto('/#migrations');
+  await expect(migrationTools).toHaveAttribute('open', '');
+  await expect(page.locator('#migrations')).toBeInViewport();
 });
 
 test('customer session hides administrator navigation', async ({ page }) => {
