@@ -169,6 +169,31 @@ helper smoke and exact-source hosted CI remain pending.
   and helper smoke verification. Full Go tests, `go vet`, shell syntax,
   installed-host smoke, and exact-source CI pass.
 
+### M0ac — Keep first-install instructions aligned with viable releases (P1)
+
+**Status:** Corrected locally. The README and installation guide no longer
+recommend a fresh install from v0.7.0, which the compatibility record says
+cannot complete on current Ubuntu 24.04. They identify `0.8` as an unsupported
+pre-release, direct fresh users to local evaluation or current-source Beta
+staging, and link older archives only to tested upgrade procedures. The
+README also links each stack choice to its evidence tier rather than describing
+all implemented adapters as equally supported. The release contract now checks
+that these first-install warnings remain present and that the legacy v0.7
+download command is not restored.
+
+**Acceptance criteria**
+
+- The first-install entry points distinguish no-host-change local evaluation,
+  current-source staging, tested legacy upgrade paths, and the absence of a
+  supported tagged fresh-install archive.
+- The first-screen stack summary states the recommended profile and links to
+  the exact Beta, experimental, and unsupported platform combinations.
+- README and installation guide do not provide a v0.7.0 fresh-install command
+  or imply that the v0.8 prerelease is supported.
+- The documentation/release contract fails if the known-broken v0.7.0 fresh
+  install recipe is reintroduced. Internal links and documentation checks
+  pass.
+
 ### M0z — Prevent stale customer file edits from overwriting newer content (P1)
 
 **Status:** Implemented and verified locally. Exact-source CI

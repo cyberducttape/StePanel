@@ -62,8 +62,13 @@ availability is not on the 1.0 roadmap.
   helpers, systemd services, and plain documentation.
 - **An audit trail you can trust.** Security-relevant actions are recorded in
   a tamper-evident chain, with optional signed checkpoints off the host.
-- **Your choice of stack.** Caddy (default), Apache, or OpenLiteSpeed; PHP;
-  MySQL, MariaDB, or PostgreSQL.
+- **Stack choices with explicit evidence.** Ubuntu 24.04, AlmaLinux 9, and
+  Rocky Linux 9 with Caddy or Apache and MariaDB have one-iteration Beta
+  install evidence; Ubuntu 24.04 + Caddy + MariaDB is the recommended profile.
+  Debian 12 is experimental. PostgreSQL, alternate MySQL configurations, and
+  OpenLiteSpeed are outside the current installed-host matrix. Check the
+  [platform evidence](docs/INSTALLATION.md#supported-operating-systems) before
+  choosing a host or database.
 
 ## Get started
 
@@ -78,7 +83,7 @@ availability is not on the 1.0 roadmap.
 
 | Area | Included today |
 | --- | --- |
-| Installation | Caddy by default, or Apache/OpenLiteSpeed, PHP, MySQL/MariaDB/PostgreSQL, optional phpMyAdmin/phpPgAdmin, Exim/Dovecot/SpamAssassin/vsftpd, systemd, Debian/Ubuntu and RHEL-family systems |
+| Installation | Current-source Beta path; recommended Ubuntu 24.04 + Caddy + MariaDB. Other OS, web-server, and database combinations have different evidence tiers; check the [platform matrix](docs/INSTALLATION.md#supported-operating-systems). |
 | Migration | cPanel `.tar.gz` inspection, safe staging, website, SQL, staged mailbox restore, and fail-closed `.htaccess` conversion for Caddy |
 | Operations | Dashboard, health endpoint, metrics endpoint, audit log, asynchronous restore jobs |
 | Control plane | Durable SQLite state, independently supervised worker, leases/retries/cancellation, dead-letter readiness gate, desired-state reconciliation, and recovery inventory |
@@ -216,32 +221,29 @@ addresses; never publish the HTTP port directly to an untrusted network. Mount
 provider credentials through your secret manager; do not bake them into the
 image.
 
-### Server installation from a release
+### Native installation status
 
-Use a tagged release artifact for production installation. The archive
-contains the binary, installer, helpers, service files, and web assets needed
-by `install.sh`:
+There is no currently published stable release archive supported for a fresh
+installation on Ubuntu 24.04. The latest stable archive, v0.7.0, has known
+fresh-install defects on that platform; the `0.8` tag is an unsupported
+pre-release snapshot. Do not use either archive to create a new host. See the
+[version compatibility record](docs/COMPATIBILITY.md#supported-upgrade-paths)
+before using an older archive for an existing installation.
+
+For a disposable host or staging environment, the current-source guided
+installer builds both binaries as your user and starts the native installer:
 
 ```sh
-release=v0.7.0
-arch=amd64 # use arm64 on aarch64 hosts
-curl -fsSLO "https://github.com/cyberducttape/StePanel/releases/download/${release}/StePanel_${release#v}_linux_${arch}.tar.gz"
-curl -fsSLO "https://github.com/cyberducttape/StePanel/releases/download/${release}/SHA256SUMS"
-grep "StePanel_${release#v}_linux_${arch}.tar.gz" SHA256SUMS | sha256sum -c -
-tar -xzf "StePanel_${release#v}_linux_${arch}.tar.gz"
-# Continue with the environment-variable installation command in
-# docs/INSTALLATION.md#build-and-install.
+git clone --branch main https://github.com/cyberducttape/StePanel.git
+cd StePanel
+./scripts/install-guided.sh
 ```
 
-The v0.7.0 installer takes its settings from environment variables; use the
-complete [release installation example](docs/INSTALLATION.md#build-and-install)
-for the required keys, offsite target, and rclone configuration. The guided
-installer is available from `main` and is documented separately; do not pass
-`--guided` to the v0.7.0 release installer. Before starting, install rclone
-and add a storage remote with `sudo rclone config`; the installer tests that
-remote before continuing. For a current-source Beta installation, the
-[guided source installer](docs/INSTALLATION.md#guided-install-from-current-source)
-builds both binaries as your user and then starts the native installer.
+This is an Operator Beta path, not a production-certified release. Its
+recommended profile is Ubuntu 24.04 + Caddy + MariaDB; review the current
+[platform evidence and prerequisites](docs/INSTALLATION.md#supported-operating-systems)
+before using a host. To explore only the interface without host changes, use
+[`make evaluate`](#local-evaluation) instead.
 
 The installer records the selected database engine/version, creates a restricted `stepanel` service account, writes the requested panel hostname into the selected webserver, and binds the control plane to `127.0.0.1:8090`. Caddy provisions HTTPS automatically; Apache installations must complete TLS termination before signing in.
 

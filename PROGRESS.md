@@ -1,5 +1,30 @@
 # Production-readiness progress
 
+## Remove the known-broken fresh-install release recipe — 2026-11-22
+
+- Checked the current GitHub release list: `v0.7.0` is the latest stable tag
+  and `0.8` is an unsupported prerelease. The compatibility record documents
+  that v0.7.0 cannot fresh-install on current Ubuntu 24.04.
+- Removed the v0.7.0 fresh-install commands from README and the installation
+  guide. New users now see separate paths for loopback evaluation, current-
+  source Beta staging, and legacy upgrade/rollback procedures, plus an
+  explicit statement that no published stable archive currently supports
+  fresh installation on Ubuntu 24.04.
+- Changed the README's stack summary to state the recommended profile and link
+  to the Beta/experimental/unsupported platform matrix, instead of implying
+  that every implemented adapter has equal certification.
+- Updated the release contract to reject a return of the known-broken fresh
+  install recipe while retaining the actual v0.7 archive command in its
+  upgrade guide. Updated the installation-doc contract test to require the
+  guided wizard's verified MFA and generated-key explanation. `make check`,
+  `make release-check`, the documentation-link check, and the 93-document
+  reference check pass locally.
+- Exact-source hosted CI is pending. Installed-host smoke remains in progress
+  for the prior code commit; these current changes affect documentation,
+  release-contract checks, and their documentation test only.
+- Tracked as M0ac in `DEVELOPMENT_PLAN.md`; it does not make StePanel
+  production-ready or authorize a release.
+
 ## Stream large customer file downloads — 2026-11-22
 
 - Replaced the download path's 2 MiB in-memory JSON read with bounded
@@ -27,7 +52,7 @@
   HTTP 503, the customer leaves and returns to Files, and the retry succeeds.
 - `make build-panel` and the focused Chromium customer-panel/accessibility
   journey passed (1 test). Exact-source hosted CI is pending. File downloads
-  remain limited by the 2 MiB read path and need a separate streaming design.
+  now stream above the editor's 2 MiB read limit; see M0ab above.
 
 ## Correct setup retry instructions for an existing settings file — 2026-11-22
 

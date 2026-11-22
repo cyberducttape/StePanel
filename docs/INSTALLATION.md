@@ -68,8 +68,10 @@ The guided installer is available on current `main`, but is **not included in
 the published v0.7.0 release archive**. This source-based path is for
 evaluation and staging; do not assume the old archive contains current setup
 features. The next release must package and smoke-test this workflow before it
-is advertised as available from a release. For host-level installs, use a
-verified tagged release and follow [Build and install](#build-and-install).
+is advertised as available from a release. The currently published stable
+archive cannot perform a fresh installation on Ubuntu 24.04; see
+[tagged release status](#tagged-release-status). For current-source Beta
+installation, use the guided path below only on a disposable or staging host.
 
 On a fresh evaluation server, install Git and Go 1.21 or later. Go's default
 automatic toolchain selection downloads the exact Go 1.26.11 toolchain pinned
@@ -202,38 +204,20 @@ The checklist is guidance, not a production certification. Review the
 [release gates](V1_PRODUCTION_GATES.md) before placing customer workloads on a
 host.
 
-## Build and install
+## Tagged release status
 
-For production, use a verified tagged release archive:
+**No currently published stable release archive supports a fresh installation
+on Ubuntu 24.04.** The latest stable release, v0.7.0, has known defects that
+prevent a fresh install on that platform. The `0.8` tag is an unsupported
+pre-release snapshot. Do not use these archives for a new host. The older
+archives remain relevant only to the tested upgrade and rollback procedures
+in [version compatibility](COMPATIBILITY.md#supported-upgrade-paths).
 
-```sh
-release=v0.7.0
-arch=amd64 # use arm64 on aarch64 hosts
-curl -fsSLO "https://github.com/cyberducttape/StePanel/releases/download/${release}/StePanel_${release#v}_linux_${arch}.tar.gz"
-curl -fsSLO "https://github.com/cyberducttape/StePanel/releases/download/${release}/SHA256SUMS"
-grep "StePanel_${release#v}_linux_${arch}.tar.gz" SHA256SUMS | sha256sum -c -
-tar -xzf "StePanel_${release#v}_linux_${arch}.tar.gz"
-
-# Generate encryption keys (MUST be machine-generated, see docs/ENCRYPTION_KEYS.md)
-ACCOUNT_KEY=$(openssl rand -hex 32)
-ENVIRONMENT_KEY=$(openssl rand -hex 32)
-BACKUP_SIGNING_KEY=$(openssl rand -hex 32)
-BACKUP_ENCRYPTION_KEY=$(openssl rand -hex 32)
-ADMIN_TOTP_SECRET="$(openssl rand 20 | base32 | tr -d '=\n')"
-printf 'Save and enroll this administrator TOTP secret before continuing: %s\n' "$ADMIN_TOTP_SECRET"
-
-sudo STEPANEL_ADMIN_PASSWORD='use-a-password-manager' \
-  STEPANEL_ADMIN_TOTP_SECRET="$ADMIN_TOTP_SECRET" \
-  STEPANEL_ACCOUNT_KEY="$ACCOUNT_KEY" \
-  STEPANEL_ENVIRONMENT_KEY="$ENVIRONMENT_KEY" \
-  STEPANEL_BACKUP_SIGNING_KEY="$BACKUP_SIGNING_KEY" \
-  STEPANEL_BACKUP_ENCRYPTION_KEY="$BACKUP_ENCRYPTION_KEY" \
-  STEPANEL_REQUIRE_OFFSITE_BACKUP=1 \
-  STEPANEL_OFFSITE_TARGET='s3:bucket/stepanel' \
-  STEPANEL_PANEL_HOSTNAME=panel.example.com \
-  STEPANEL_DB_ENGINE=mariadb \
-  STEPANEL_DB_VERSION=default ./install.sh
-```
+For a disposable host or staging environment, use the current-source guided
+path above. It is an Operator Beta workflow and is not a production-certified
+release. Before installing, verify the host against the support matrix at the
+top of this guide. A tagged archive may be recommended for fresh installation
+after its exact packaged tree passes the release and installed-host gates.
 
 **IMPORTANT:** Encryption keys must be machine-generated random values. See [**docs/ENCRYPTION_KEYS.md**](ENCRYPTION_KEYS.md) for detailed requirements, generation methods, and security best practices.
 

@@ -61,7 +61,6 @@ func TestInstallDocsProvideEverySecretTheManifestsRequire(t *testing.T) {
 		value string
 	}{
 		{path: "README.md", value: "-e STEPANEL_ADMIN_TOTP_SECRET=\"$ADMIN_TOTP_SECRET\""},
-		{path: "docs/INSTALLATION.md", value: "STEPANEL_ADMIN_TOTP_SECRET=\"$ADMIN_TOTP_SECRET\""},
 		{path: "deploy/kubernetes/README.md", value: "--from-literal=admin-totp-secret=\"$ADMIN_TOTP_SECRET\""},
 		{path: "deploy/helm/stepanel/README.md", value: "--from-literal=admin-totp-secret=\"$ADMIN_TOTP_SECRET\""},
 	} {
@@ -75,5 +74,13 @@ func TestInstallDocsProvideEverySecretTheManifestsRequire(t *testing.T) {
 		if strings.Contains(string(data), "BASE32_SECRET") {
 			t.Errorf("%s must not use the invalid BASE32_SECRET placeholder", example.path)
 		}
+	}
+	installationGuide, err := os.ReadFile("docs/INSTALLATION.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	guide := string(installationGuide)
+	if !strings.Contains(guide, "asks for the current code") || !strings.Contains(guide, "generates the six keys StePanel needs") {
+		t.Error("installation guide must describe guided TOTP verification and secret generation")
 	}
 }

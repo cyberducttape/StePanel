@@ -64,13 +64,17 @@ if grep -Fq 'sudoers_tmp' install.sh; then
   echo "install.sh still provisions a panel sudoers policy" >&2
   exit 1
 fi
-for install_doc in README.md docs/INSTALLATION.md docs/UPGRADE_v0.6.0_to_v0.7.0.md; do
-  if ! grep -Fq 'StePanel_${release#v}_linux_${arch}.tar.gz' "$install_doc" ||
-     grep -Fq 'stepanel_${release#v}_linux_${arch}.tar.gz' "$install_doc"; then
-    echo "$install_doc download command does not match the published StePanel archive name" >&2
-    exit 1
-  fi
-done
+if ! grep -Fq 'There is no currently published stable release archive supported for a fresh' README.md ||
+   ! grep -Fq 'No currently published stable release archive supports a fresh installation' docs/INSTALLATION.md ||
+   grep -Eq '^release=v0\.7\.0$' README.md docs/INSTALLATION.md; then
+  echo "first-install documentation recommends the known-broken v0.7.0 archive instead of the current-source Beta path" >&2
+  exit 1
+fi
+if ! grep -Fq 'StePanel_${release#v}_linux_${arch}.tar.gz' docs/UPGRADE_v0.6.0_to_v0.7.0.md ||
+   grep -Fq 'stepanel_${release#v}_linux_${arch}.tar.gz' docs/UPGRADE_v0.6.0_to_v0.7.0.md; then
+  echo "v0.7.0 upgrade command does not match the published StePanel archive name" >&2
+  exit 1
+fi
 bash scripts/check-smoke-workflow-bounds.sh
 if ! grep -Fq 'install_journal_record post_install planned retained "actions=$POST_INSTALL_PLAN_TEXT"' install.sh ||
    ! grep -Fq 'install_journal_record post_install started partial' deploy/lib/install-postcommit.sh ||
