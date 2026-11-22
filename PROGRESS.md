@@ -1,5 +1,16 @@
 # Production-readiness progress
 
+## Run first-install contracts in push integration CI — 2026-11-22
+
+- The push integration workflow previously syntax-checked the guided installer
+  scripts but did not execute their contract tests. It now runs
+  `make shell-contract-check`, covering the guided Go bootstrap, loopback
+  evaluation, installer settings parser and first-login instructions. The
+  release check also requires this CI step to remain present.
+- Locally, `make shell-contract-check`, `make release-check`, and
+  `git diff --check` pass. The new CI wiring has not passed remotely yet; its
+  exact-source workflow will start after this commit is pushed.
+
 ## Correct the installed-host smoke coverage claim — 2026-11-22
 
 - The plan said every source push ran the installed-host smoke. The workflow

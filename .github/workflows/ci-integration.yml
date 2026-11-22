@@ -40,6 +40,8 @@ jobs:
           cache: true
       - run: test -z "$(gofmt -l .)"
       - run: make release-check
+      - name: Installer, setup and local-evaluation contracts
+        run: make shell-contract-check
       - run: go vet ./...
       - run: go test -p 1 -timeout 10m ./... -coverprofile=coverage.out -covermode=atomic
       - name: Disk exhaustion drills (real ENOSPC on an 8 MiB tmpfs)

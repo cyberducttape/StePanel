@@ -81,6 +81,10 @@ if ! grep -Fq 'StePanel_${release#v}_linux_${arch}.tar.gz' docs/UPGRADE_v0.6.0_t
   echo "v0.7.0 upgrade command does not match the published StePanel archive name" >&2
   exit 1
 fi
+if ! grep -Fqx '        run: make shell-contract-check' .github/workflows/ci-integration.yml; then
+  echo "push integration CI does not execute installer and first-run shell contracts" >&2
+  exit 1
+fi
 bash scripts/check-smoke-workflow-bounds.sh
 if ! grep -Fq 'install_journal_record post_install planned retained "actions=$POST_INSTALL_PLAN_TEXT"' install.sh ||
    ! grep -Fq 'install_journal_record post_install started partial' deploy/lib/install-postcommit.sh ||

@@ -35,10 +35,13 @@ bootstrap: when Go is unavailable, too old, unidentified, or
 directory and verifies its SHA-256 before extraction. It does not install host
 packages. Contract tests cover missing/old Go, local mode, build before
 privilege elevation, checksum rejection, and the `make evaluate` entry point.
-Exact-source CI on `a3cbb37a` passed the
-contract, full Go suite, race suite, release checks, and browser workflow
+Exact-source CI on `a3cbb37a` passed the full Go suite, race suite, release
+checks, and browser workflow
 ([integration run 45012500672](https://github.com/cyberducttape/StePanel/actions/runs/45012500672));
-Documentation and CodeQL also passed. The setup guidance and installer
+Documentation and CodeQL also passed. That integration workflow did not run
+the installer/bootstrap contract scripts. The current workflow now runs
+`make shell-contract-check`, which includes those regressions; exact-source CI
+for that wiring is pending. The setup guidance and installer
 preflight identify Ubuntu 24.04 + Caddy + MariaDB as the recommended Beta
 profile. The latest installed-host smoke on code source `b2e95a3a` passed on
 Ubuntu 24.04 + Caddy + MariaDB ([host run
@@ -51,8 +54,7 @@ iteration passed. The exact-source host log and limits are in the [reviewed
 host report](docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-b2e95a3.md).
 This host smoke predates the source bootstrap changes in `a3cbb37a`, and the
 GoReleaser archive does not contain or execute `scripts/install-guided.sh`;
-it is not runtime evidence for that bootstrap. The bootstrap contract test
-passed in exact-source integration CI. A clean temporary checkout at
+it is not runtime evidence for that bootstrap. A clean temporary checkout at
 `7e1d88df` subsequently downloaded and SHA-256-verified the real Go 1.26.11
 archive, built both binaries, removed the temporary toolchain, and reached a
 mocked `sudo` handoff. The bootstrap now reads the version directly from
