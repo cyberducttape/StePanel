@@ -108,7 +108,15 @@ adds a shell regression. Exact-source host run `d2695cd0` now verifies that
 the warning is gone; installation completed and the WordPress HTTPS/database
 recovery proof measured 4.512 seconds ([run 45060415981](https://github.com/cyberducttape/StePanel/actions/runs/45060415981),
 [report](docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-d2695cd.md)).
-This remains a single disposable-container iteration, not host certification.
+The subsequent packaged install/recovery smoke on `a309055d` also passed:
+installation completed, the WordPress HTTPS/database recovery proof measured
+6.996 seconds, and one recovery-matrix iteration passed ([run
+45069529493](https://github.com/cyberducttape/StePanel/actions/runs/45069529493),
+[report](docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-a309055d.md)).
+The disposable host lacked project quotas, so Git deployment was refused and
+the live site stayed unchanged; this proves fail-closed behavior, not quota
+enforcement. This remains a single disposable-host iteration, not host
+certification.
 The administrator's first-run dashboard also keeps the long unavailable-
 capability inventory collapsed behind a disclosure that reports its current
 counts. Infrastructure navigation expands it directly; service inventory

@@ -28,10 +28,16 @@
   and CodeQL passed on the code-equivalent `8050f805` commit ([docs
   run](https://github.com/cyberducttape/StePanel/actions/runs/45070146909),
   [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/45070146987)).
-  The exact-source Ubuntu 24.04 + Caddy + MariaDB install/recovery smoke
+  The packaged Ubuntu 24.04 + Caddy + MariaDB install/recovery smoke
   ([run 45069529493](https://github.com/cyberducttape/StePanel/actions/runs/45069529493))
-  remains in progress; it is a disposable-host test and would not close
-  production certification. No host was modified locally.
+  passed on source `a309055d`: installation completed, installed WordPress
+  HTTPS/database recovery measured 6.996 seconds, and one recovery-matrix
+  iteration passed. The smoke host lacked project quotas; Git deployment was
+  refused and the live site remained unchanged, proving fail-closed behavior
+  but not quota enforcement. Evidence and limits are in
+  [`2026-11-22-ubuntu-packaged-first-host-smoke-a309055d.md`](docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-a309055d.md).
+  This is one disposable-host smoke, not production certification. No host was
+  modified locally.
 
 ## Make quota preflight failures actionable — 2026-11-22
 
