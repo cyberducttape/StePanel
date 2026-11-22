@@ -212,17 +212,16 @@ run setup from the built checkout:
 
 ```sh
 ./stepanel setup --output stepanel-install.env      # answer the questions
-sudo install -o root -g root -m 0600 -- stepanel-install.env /etc/ste-panel-install.env
-sudo ./install.sh --config /etc/ste-panel-install.env --dry-run
-sudo ./install.sh --config /etc/ste-panel-install.env
+sudo ./install.sh --config stepanel-install.env --dry-run
+sudo ./install.sh --config stepanel-install.env
 ```
 
-The setup command creates a private file owned by the user who ran it. Copy it
-to a root-owned private file before invoking the installer; the installer
-requires root ownership because the settings contain secrets. The setup
-command prints these copyable commands with the output path quoted. The
-integrated `sudo ./install.sh --guided` workflow saves its settings as root
-automatically. The guide refuses to run on a server where StePanel is already
+The setup command creates a private file owned by the user who ran it. The
+installer checks that it is a regular, non-symlink file with one link and
+private permissions, then makes it root-owned before reading any secrets.
+The setup command prints the preview and install commands with the output path
+quoted. The integrated `sudo ./install.sh --guided` workflow uses the same
+validation. The guide refuses to run on a server where StePanel is already
 installed, because new keys would make existing backups unreadable; upgrade
 with `sudo ./install.sh` instead.
 

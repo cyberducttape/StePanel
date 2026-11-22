@@ -1,5 +1,19 @@
 # Production-readiness progress
 
+## Remove the extra installer-settings copy step — 2026-11-22
+
+- `stepanel setup` now prints direct dry-run and install commands using the
+  generated file path. The installer applies the same ownership, file-type,
+  link-count, and privacy checks to every `--config` entry point, promotes an
+  eligible invoking-user file to root ownership, then parses secrets.
+- Updated manual setup documentation and the existing-file guidance. Added a
+  contract asserting security promotion happens before parsing.
+- Verified: setup Go tests; installer settings parser and ownership contracts;
+  full `make shell-contract-check`; Bash syntax; ShellCheck at warning level
+  (excluding pre-existing SC2154 in unrelated cleanup code); `git diff
+  --check`; and `make check` (including `go vet ./...` and all Go packages).
+  Exact-source hosted CI has not yet run for this change.
+
 ## Explain first-run host readiness failures — 2026-11-22
 
 - The first-run checklist now names backup, import, job, and recovery storage

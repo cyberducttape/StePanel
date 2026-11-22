@@ -99,11 +99,13 @@ fi
 # Keep the promotion outside the branch that generates new answers, so reuse
 # and freshly generated settings both receive the same treatment.
 reuse_line=$(grep -n 'if \[\[ \$reuse_answers != y \]\]' "$repo/install.sh" | head -1 | cut -d: -f1)
+config_branch_line=$(grep -n 'if \[\[ -n \$CONFIG_FILE \]\]; then' "$repo/install.sh" | head -1 | cut -d: -f1)
 secure_line=$(grep -n 'secure_install_settings_file "\$CONFIG_FILE"' "$repo/install.sh" | head -1 | cut -d: -f1)
 load_line=$(grep -n 'load_env_file "\$CONFIG_FILE" private' "$repo/install.sh" | head -1 | cut -d: -f1)
-[[ -n $reuse_line && -n $secure_line && -n $load_line && \
-  $reuse_line -lt $secure_line && $secure_line -lt $load_line ]] || {
-  echo 'guided setup must secure reused and generated answers before loading them' >&2
+[[ -n $reuse_line && -n $config_branch_line && -n $secure_line && -n $load_line && \
+  $reuse_line -lt $config_branch_line && $config_branch_line -lt $secure_line &&
+  $secure_line -lt $load_line ]] || {
+  echo 'every installer settings file must be secured before loading it' >&2
   exit 1
 }
 

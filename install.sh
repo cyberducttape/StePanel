@@ -75,13 +75,14 @@ if (( GUIDED == 1 )); then
     [[ -f $CONFIG_FILE ]] && force_setup=(--force)
     "$ROOT_DIR/stepanel" setup --output "$CONFIG_FILE" --from-installer "${force_setup[@]}" || exit $?
   fi
-  # setup run directly by an unprivileged user leaves a reusable settings
-  # file owned by that user. Secure it whether answers were reused or newly
-  # generated before the strict private-file loader checks ownership.
-  secure_install_settings_file "$CONFIG_FILE" || exit $?
   echo
 fi
 if [[ -n $CONFIG_FILE ]]; then
+  # Both `setup --output` and an operator-prepared config normally belong to
+  # the invoking user. Validate its owner, privacy, link count, and file type,
+  # then make it root-owned before parsing secrets. This also handles guided
+  # settings, so there is one config admission rule for every install path.
+  secure_install_settings_file "$CONFIG_FILE" || exit $?
   load_env_file "$CONFIG_FILE" private
 fi
 

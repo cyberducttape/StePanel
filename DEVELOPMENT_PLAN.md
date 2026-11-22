@@ -2115,3 +2115,22 @@ Acceptance criteria:
 - The browser regression covers a text-field round trip and password warning;
   frontend syntax, unit, accessibility, and hosted browser checks pass.
 
+### M0aq — Remove the extra installer-settings copy step (P1)
+
+**Status:** Implemented locally; `make check` passed, exact-source hosted CI is
+pending. `stepanel setup`
+now prints a dry-run and install command that use its generated path directly.
+For every `--config` install path, the installer validates that the input is a
+regular non-symlink file, has one link, is private, and is owned by root or the
+invoking sudo user; it then promotes the file to root ownership before parsing
+secrets. This keeps guided setup and manual setup under one admission rule.
+
+**Acceptance criteria**
+
+- A normal setup-generated private file can be passed directly to the
+  installer without a separate `sudo install` command.
+- Unsafe owners, modes, links, and symlinks remain rejected before parsing.
+- CLI instructions and installation documentation show the same direct flow.
+- Setup unit tests, installer settings contracts, shell-contract checks,
+  formatting, and exact-source CI pass.
+

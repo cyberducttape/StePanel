@@ -22,7 +22,6 @@ import (
 
 // existingInstallEnv is the configuration an installed StePanel runs with.
 const existingInstallEnv = "/etc/ste-panel.env"
-const manualInstallConfig = "/etc/ste-panel-install.env"
 
 // runSetupCommand implements `stepanel setup`: the guided first-time setup
 // that writes the installer settings file. `stepanel init` is an alias.
@@ -56,7 +55,7 @@ func runSetup(args []string, in *os.File, out io.Writer, host setupguide.Host, e
 	}
 	if _, err := os.Lstat(*output); err == nil && !*force {
 		quotedOutput := shellQuoteCommandArg(*output)
-		return fmt.Errorf("%s already exists; copy it to the installer's root-owned settings path with `sudo install -o root -g root -m 0600 -- %s %s`, then run `sudo ./install.sh --config %s` (or pass --force to replace it; its keys will be lost)", *output, quotedOutput, manualInstallConfig, manualInstallConfig)
+		return fmt.Errorf("%s already exists; run `sudo ./install.sh --config %s` to use it (or pass --force to replace it; its keys will be lost)", *output, quotedOutput)
 	}
 	answers, err := setupguide.NewGuide(newSetupTerminal(in), out, host).Run()
 	if err != nil {
@@ -79,9 +78,8 @@ func runSetup(args []string, in *os.File, out io.Writer, host setupguide.Host, e
 	if !*fromInstaller {
 		fmt.Fprintln(out, "\nNext:")
 		quotedPath := shellQuoteCommandArg(path)
-		fmt.Fprintf(out, "  1. Copy settings to a root-only file: sudo install -o root -g root -m 0600 -- %s %s\n", quotedPath, manualInstallConfig)
-		fmt.Fprintf(out, "  2. Preview the changes:              sudo ./install.sh --config %s --dry-run\n", manualInstallConfig)
-		fmt.Fprintf(out, "  3. Install:                          sudo ./install.sh --config %s\n", manualInstallConfig)
+		fmt.Fprintf(out, "  1. Preview the changes: sudo ./install.sh --config %s --dry-run\n", quotedPath)
+		fmt.Fprintf(out, "  2. Install:             sudo ./install.sh --config %s\n", quotedPath)
 	}
 	return nil
 }
