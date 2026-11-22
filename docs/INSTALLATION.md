@@ -197,9 +197,9 @@ The guide walks through six steps and checks every answer before moving on:
 Before asking for any settings or credentials, the guide checks that rclone is
 installed, at least one remote is configured, and the configuration file can
 be located. If not, it prints the exact install/configure command and exits
-before setup answers are entered. Step 4 tests the selected backup location
-by writing, reading, and deleting a small object before asking for passwords
-or MFA.
+before setup answers are entered. During Step 3, the wizard tests the selected
+backup location by writing, reading, and deleting a small object before it
+asks for the administrator password or MFA setup.
 
 It then generates the six keys StePanel needs, saves everything to
 `stepanel-install.env` next to the installer (mode 600), shows the host
