@@ -3096,3 +3096,21 @@ does not close a current-source or power-loss gate.
 - Focused setup tests and exact-source `make check` pass (root package
   118.495s), along with `make release-check`, documentation links, and
   `git diff --check`. Hosted CI remains queued; no host installation was run.
+
+## Separate first-run evaluation from native installation — 2026-11-21
+
+- The guided setup greeting now directs people who only want to explore to
+  `make evaluate` before it checks for rclone or asks any installation
+  questions. It states that evaluation stays on loopback, changes no host
+  services, has no production login, and must not receive customer data.
+- README and install instructions now explain that Go 1.21+ can bootstrap the
+  exact Go 1.26.11 toolchain pinned by `go.mod` through Go's default automatic
+  toolchain selection. This removes a manual toolchain-install step while
+  retaining the project's pinned build compiler.
+- Verified the bootstrap experimentally with Go 1.21 and Go 1.23 launchers
+  against a temporary module declaring `go 1.26.0` and `toolchain go1.26.11`;
+  both selected Go 1.26.11. No system Go installation was changed.
+- Added a guided-setup transcript assertion for the evaluation instructions.
+  `make check`, `make release-check`, documentation links, and `git diff
+  --check` pass on this source. This does not provide the unpublished guided
+  installer in the v0.7.0 archive or certify a host installation.

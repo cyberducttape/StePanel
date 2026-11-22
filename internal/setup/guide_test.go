@@ -94,6 +94,9 @@ func TestGuideAcceptsDefaults(t *testing.T) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
 	for _, want := range []string{
+		"Only exploring? Stop here and run `make evaluate`",
+		"loopback-only demo without installing services or changing",
+		"This wizard is for a native host installation",
 		"Operator Beta, not production-certified",
 		"Ubuntu 24.04 + Caddy + MariaDB",
 		"not in current installed-host matrix",

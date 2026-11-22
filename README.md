@@ -124,7 +124,9 @@ Operational key backup and rotation procedures are documented in
 
 ### Local development
 
-Requirements: Go 1.26+.
+Requirements: Go 1.21 or later with Go's automatic toolchain selection enabled
+(the default). The first build downloads the repository-pinned Go 1.26.11
+toolchain. If `GOTOOLCHAIN=local` is set, unset it before building.
 
 ```sh
 git clone https://github.com/cyberducttape/StePanel.git

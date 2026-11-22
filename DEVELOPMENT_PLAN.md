@@ -16,7 +16,9 @@ successful one-off smoke does not close a host-certification gate.
 
 **Status:** Partially implemented. Local evaluation guidance and guided-setup
 support labels, pre-mutation platform classification, and release archive
-documentation requirements are in place. Exact GoReleaser output and
+documentation requirements are in place. The setup greeting now separates
+the no-host-change evaluation path from native installation, and build docs
+explain the automatic pinned-toolchain download. Exact GoReleaser output and
 first-host application proof remain open.
 
 **Acceptance criteria**
@@ -24,8 +26,13 @@ first-host application proof remain open.
 - A newcomer can start a loopback-only, no-host-mutation UI evaluation without
   configuring offsite storage using `make evaluate`; the launcher fixes the
   listener to loopback, clears inherited StePanel settings, and the
-  instructions clearly prohibit network exposure and real customer data in
-  development mode.
+  instructions and native setup greeting clearly prohibit network exposure
+  and real customer data in development mode. Setup users are shown the
+  evaluation escape route before storage prerequisites are checked.
+- Build instructions explain that Go 1.21+ with automatic toolchain selection
+  downloads the exact pinned Go 1.26.11 compiler, so a manual compiler upgrade
+  is not a prerequisite; source-based installation remains clearly distinct
+  from a published release archive.
 - Guided setup recommends Ubuntu 24.04 + Caddy + MariaDB while identifying
   which alternatives are outside the current installed-host smoke matrix;
   interactive and unattended installer defaults select that same profile.

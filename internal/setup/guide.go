@@ -269,6 +269,13 @@ func (g *Guide) Run() (Answers, error) {
 	answers := Answers{Keys: map[string]string{}}
 	g.say("StePanel guided setup")
 	g.say("")
+	g.say("Only exploring? Stop here and run `make evaluate` from the checkout.")
+	g.say("That opens a loopback-only demo without installing services or changing")
+	g.say("this host. Do not use it for customer data or expose it to a network.")
+	g.say("")
+	g.say("This wizard is for a native host installation. It will configure system")
+	g.say("services and requires verified offsite backup storage.")
+	g.say("")
 	g.say("After checking backup-storage prerequisites, this asks %d short", totalSteps)
 	g.say("questions, checks each answer as you go, and generates every key for you.")
 	g.say("Press Enter to accept a [default].")

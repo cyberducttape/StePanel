@@ -71,8 +71,10 @@ features. The next release must package and smoke-test this workflow before it
 is advertised as available from a release. For host-level installs, use a
 verified tagged release and follow [Build and install](#build-and-install).
 
-On a fresh evaluation server, install Go 1.26.11 and Git, then build the
-current source tree. The build and installer must stay together because the
+On a fresh evaluation server, install Git and Go 1.21 or later. Go's default
+automatic toolchain selection downloads the exact Go 1.26.11 toolchain pinned
+by this checkout on the first build; `GOTOOLCHAIN=local` disables that behavior
+and must be unset. The build and installer must stay together because the
 installer uses helpers and assets from that checkout:
 
 ```sh
@@ -91,6 +93,13 @@ sudo ./install.sh --guided
 Do not run this on a host already serving websites unless you intend to hand
 ports 80 and 443 to StePanel. The preflight lists services and files it will
 change, and the installer asks before taking over an existing web server.
+
+If you only want to explore the interface, stop before this step and run
+`make evaluate` from the checkout. It is a loopback-only demo and does not
+install host services, require offsite storage, or change the server. It has no
+production login and must never receive customer data or be exposed to a
+network. The native guided installer below is for a real host and requires
+verified offsite backup storage.
 
 The guide asks seven questions and checks every answer before moving on:
 
