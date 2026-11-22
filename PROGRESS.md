@@ -1,5 +1,22 @@
 # Production-readiness progress
 
+## Put the first-install decision and restore status up front — 2026-11-22
+
+- The installation guide now starts with three direct paths: loopback preview,
+  disposable/staging Operator Beta, or stop before customer production. It
+  states the preview and source-build prerequisites, the recommended Ubuntu
+  24.04 + Caddy + MariaDB profile, and the lack of a supported fresh-install
+  stable archive before the lengthy platform matrix.
+- Corrected the customer restore-to-staging guide and OpenAPI response text:
+  HTTP 202 means the durable job was queued. Operators should follow the
+  returned `status_url` and use staging only after the job reaches `completed`.
+- `python3 scripts/check-docs-references.py` passed (93 documents).
+  Documentation link checking and `git diff --check` are running; exact-source
+  hosted CI has not yet run for these changes.
+- This improves wayfinding, but does not eliminate the source checkout/toolchain
+  prerequisite or substitute for a tagged archive passing fresh-host install
+  gates. Production remains NO-GO.
+
 ## Explain customer file-transfer limits before use — 2026-11-22
 
 - The customer Files view now states the separate limits: 2 MiB for editing,

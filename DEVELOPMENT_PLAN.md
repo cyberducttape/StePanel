@@ -14,7 +14,14 @@ successful one-off smoke does not close a host-certification gate.
 
 ### M0aa — Make first-time evaluation and support tiers clear (P1)
 
-**Status:** Partially implemented. Local evaluation guidance and guided-setup
+**Status:** Partially implemented. The installation guide now opens with a
+three-way choice (local preview, disposable/staging Beta, or stop before
+production) and states the real prerequisites and release limitation before
+the platform matrix. The API workflow guide also clarifies that restore-to-
+staging returns a queued job and that the operator must wait for completion.
+These documentation changes reduce ambiguity but do not remove the checkout
+and Go toolchain requirement or create a supported fresh-install archive.
+Local evaluation guidance and guided-setup
 support labels, pre-mutation platform classification, and release archive
 documentation requirements are in place. A newcomer can run a loopback-only
 evaluation, or use the source bootstrap to build as an unprivileged user and

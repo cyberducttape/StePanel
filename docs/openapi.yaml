@@ -729,7 +729,7 @@ paths:
                 target_database: {type: string}
                 target_user: {type: string}
                 target_password: {type: string, writeOnly: true}
-      responses: {'202': {description: Files restored and staging route activated}}
+      responses: {'202': {description: Restore job queued; response includes job_id and status_url. Follow the job until completed before using the staging route.}}
   /api/v1/backups/verify:
     post:
       summary: Verify a backup archive and optional authenticated manifest

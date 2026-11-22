@@ -189,9 +189,21 @@ curl -X POST "https://panel.example.com/api/backups/restore-to-staging" \
 - `target_user` — New database user to create
 - `target_password` — Password for the new user
 
-#### 3. Verify the Restore Completed
+#### 3. Follow the Restore Job
 
-The request completes after the verified files have been restored and the staging route has been activated. The response includes the staging domain. If the request fails, no staging route is published.
+The request returns `202 Accepted` with a `job_id` and `status_url`; this means
+the restore was queued, not that it has finished. Follow the job in **Activity**
+or request the exact `status_url` returned by the API:
+
+```bash
+curl "https://panel.example.com${STATUS_URL}" \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+```
+
+Set `STATUS_URL` to the response's `status_url` value. Wait for the job's
+`state` to become `completed` before visiting the staging domain. If it becomes
+`failed`, read the job's `error` and resolve that issue before retrying. The
+staging route is activated only after the restore finishes successfully.
 
 #### 4. Test Your Site
 

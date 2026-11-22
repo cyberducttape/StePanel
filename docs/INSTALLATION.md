@@ -1,5 +1,20 @@
 # Installation guide
 
+## Choose the right first step
+
+| If you want to… | Start here |
+| --- | --- |
+| Preview the interface without changing a host | [Local evaluation](../README.md#local-evaluation). It needs Git and Go 1.21+ with automatic toolchain selection; the pinned toolchain downloads on the first build. |
+| Try real host integration | Use the [current-source Operator Beta path](#guided-install-from-current-source) on a disposable or staging server. Recommended profile: Ubuntu 24.04 + Caddy + MariaDB. |
+| Install customer production workloads | **Stop here for now.** No published stable archive is certified for a fresh install; production remains NO-GO pending the gates below. |
+
+The local preview has no production login and must stay on loopback. The native
+installer changes host services and requires verified offsite backup storage;
+it is not needed just to look around. The source-based Beta installer builds
+the matching binaries before requesting root access, but still requires a
+checkout and a first-build toolchain download. See the evidence matrix below
+before choosing a host or stack.
+
 ## Supported operating systems
 
 The installer supports systems with `apt-get` (Debian/Ubuntu) or `dnf` (Fedora, Rocky, Alma, and compatible RHEL-family systems). It installs Caddy, Apache, or OpenLiteSpeed, MySQL/MariaDB/PostgreSQL, PHP-FPM, ACL and archive utilities, and StePanel.
