@@ -335,6 +335,7 @@ preflight_blockers=()
 . "$ROOT_DIR/deploy/lib/install-service-state.sh"
 . "$ROOT_DIR/deploy/lib/install-support-tier.sh"
 . "$ROOT_DIR/deploy/lib/install-systemd-preflight.sh"
+. "$ROOT_DIR/deploy/lib/install-package-preflight.sh"
 . "$ROOT_DIR/deploy/integrations/stepanel-quota-state.sh"
 . "$ROOT_DIR/deploy/lib/install-quota-preflight.sh"
 MAIL_EXIM_SERVICE=$([[ "$PKG" == apt ]] && printf exim4 || printf exim)
@@ -359,6 +360,28 @@ if (( UNSAFE_LAB == 0 )); then
     echo 'OPTIONAL HOST CAPABILITY: project quotas are not active; Git deployments and release pipelines will be unavailable.'
     echo '  To enable them, mount /var/www with prjquota; ext4 also needs the project and quota filesystem features.'
   fi
+fi
+preflight_db_package=$DB_PACKAGE
+preflight_packages=(php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl git util-linux sudo logrotate "$PROCPS_PACKAGE")
+if [[ "$PKG" == apt ]]; then
+  preflight_packages+=(curl)
+  if [[ "$DB_ENGINE" == postgresql ]]; then
+    preflight_db_package=postgresql
+    preflight_packages+=(postgresql-contrib)
+  fi
+else
+  if ! rpm -q curl >/dev/null 2>&1 && ! rpm -q curl-minimal >/dev/null 2>&1; then
+    preflight_packages+=(curl-minimal)
+  fi
+  if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
+    preflight_packages+=(policycoreutils-python-utils)
+  fi
+fi
+preflight_packages+=("$preflight_db_package" "$WEB_PACKAGE")
+if package_preflight=$(install_preflight_packages web_package_available "${preflight_packages[@]}"); then
+  echo "HOST REQUIREMENT: $package_preflight"
+else
+  preflight_blockers+=("$package_preflight")
 fi
 echo "DETECTED:"
 [[ -f "$ENV_FILE" ]] && echo "  existing StePanel installation ($ENV_FILE); this run is an upgrade"
@@ -415,14 +438,6 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 if [[ "$PKG" == "dnf" ]] && command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
   echo '  INSTALL SELinux policy tools: policycoreutils-python-utils'
-fi
-if web_package_available "$WEB_PACKAGE"; then
-  echo "  web server package $WEB_PACKAGE: available"
-elif [[ "$PKG" == "apt" ]]; then
-  echo "  web server package $WEB_PACKAGE: not in the current package index; rechecked after apt-get update"
-else
-  echo "  web server package $WEB_PACKAGE: NOT AVAILABLE"
-  preflight_blockers+=("configure a repository that provides $WEB_PACKAGE")
 fi
 for web_service in "${PREEXISTING_WEB_SERVICES[@]}"; do
   echo "  STOP and DISABLE $web_service"

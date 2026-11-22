@@ -1,5 +1,20 @@
 # Production-readiness progress
 
+## Check required packages before installer mutations — 2026-11-21
+
+- Native installer preflight now checks required base utilities, PHP runtime
+  and extensions, selected database packages, and the selected web server as
+  one set before package installation. Missing packages are listed together
+  with a repository/index refresh remedy. This checks current package metadata;
+  it does not certify every package version or optional service combination.
+- Added passing/missing-package shell contracts and a source-order assertion.
+  Release archive verification now requires the new helper. `make check`
+  passed (including `go vet ./...` and the full Go suite; root package
+  119.795s), `make release-check`, all installer shell contracts, syntax
+  checks, documentation links, all 93 documentation references, and
+  `git diff --check` passed. Exact-source GoReleaser snapshot verification and
+  hosted CI are pending for this change.
+
 ## Require current preflight helpers in release archives — 2026-11-21
 
 - Release verification now fails if either the systemd or quota preflight
