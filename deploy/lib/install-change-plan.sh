@@ -22,14 +22,14 @@ install_print_optional_change_plan() {
     if [[ $activate_mail == 1 ]]; then
       printf '  INSTALL and ACTIVATE Exim, Dovecot, and spam filtering after core commit\n'
     else
-      printf '  INSTALL and configure Exim, Dovecot, and spam filtering; leave newly installed services stopped after core commit\n'
+      printf '  INSTALL and configure Exim, Dovecot, and spam filtering; leave new services stopped and preserve pre-existing service state\n'
     fi
   fi
   if [[ $ftp == 1 ]]; then
     if [[ $activate_ftp == 1 ]]; then
       printf '  INSTALL and ACTIVATE vsftpd with FTPS after core commit\n'
     else
-      printf '  INSTALL and configure vsftpd; leave it stopped after core commit\n'
+      printf '  INSTALL and configure vsftpd; leave a new service stopped and preserve pre-existing service state\n'
     fi
   fi
   if [[ $security == 1 ]]; then

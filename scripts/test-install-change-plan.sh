@@ -8,8 +8,8 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 all=$(install_print_optional_change_plan apache 1 1 On 1 0 1 0 1 1 1 1 '20.18.0,22.14.0')
 grep -Fq 'CONFIGURE Apache ModSecurity and OWASP CRS (mode: On)' <<<"$all"
 grep -Fq 'expose it through an Apache route restricted to configured IP/CIDR addresses' <<<"$all"
-grep -Fq 'leave newly installed services stopped' <<<"$all"
-grep -Fq 'leave it stopped after core commit' <<<"$all"
+grep -Fq 'leave new services stopped and preserve pre-existing service state' <<<"$all"
+grep -Fq 'leave a new service stopped and preserve pre-existing service state' <<<"$all"
 grep -Fq 'activate stepanel-malware-guard after core commit' <<<"$all"
 grep -Fq 'trusted-address allowlist' <<<"$all"
 grep -Fq 'activate certbot.timer after core commit' <<<"$all"

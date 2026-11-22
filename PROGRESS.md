@@ -3026,7 +3026,8 @@ does not close a current-source or power-loss gate.
   routing, mail/FTP service activation choices, malware scanning, Fail2ban,
   Certbot timer activation, and Node.js versions.
 - It explicitly distinguishes installing/configuring an optional service from
-  activating it after the core commit. For database-admin on Caddy or
+  activating it after the core commit, and says pre-existing mail/FTP service
+  state is preserved when activation is off. For database-admin on Caddy or
   OpenLiteSpeed it reports package-only installation, since this installer
   does not configure a web route for those servers.
 - Added a shell contract test covering all optional selections, activation
