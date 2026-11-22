@@ -2162,13 +2162,16 @@ secrets. This keeps guided setup and manual setup under one admission rule.
 
 ### M0ar — Shorten the recommended first-install wizard (P2)
 
-**Status:** Implemented locally; `make check` passed, exact-source hosted CI is
-pending. The native wizard presents the tested Caddy + MariaDB combination as
-one recommended profile, accepted with Enter. The Custom path still asks for
-the web server and database separately and retains exact-stack support
-classification before offsite setup or credential collection. The guide and
-installation docs now describe six steps rather than separate server and
-database steps.
+**Status:** Implemented and verified. The native wizard presents the tested
+Caddy + MariaDB combination as one recommended profile, accepted with Enter.
+The Custom path still asks for the web server and database separately and
+retains exact-stack support classification before offsite setup or credential
+collection. The guide and installation docs now describe six steps rather than
+separate server and database steps. Exact-source integration CI on `220e9cab`
+passed ([run 45071930248](https://github.com/cyberducttape/StePanel/actions/runs/45071930248));
+the documentation and CodeQL workflows passed on documentation-only descendant
+`fedc617a` ([docs](https://github.com/cyberducttape/StePanel/actions/runs/45072808070),
+[CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/45072808111)).
 
 **Acceptance criteria**
 

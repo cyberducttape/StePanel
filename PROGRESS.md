@@ -1,5 +1,20 @@
 # Production-readiness progress
 
+## Verify the first-install wizard and packaged host path — 2026-11-22
+
+- Exact-source integration CI passed on `220e9cab` ([run
+  45071930248](https://github.com/cyberducttape/StePanel/actions/runs/45071930248)),
+  including Go tests, race tests, real ENOSPC recovery, database restore
+  interruption tests, static/security checks, container validation, and UI
+  E2E. Documentation and CodeQL passed on documentation-only descendant
+  `fedc617a` ([docs](https://github.com/cyberducttape/StePanel/actions/runs/45072808070),
+  [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/45072808111)).
+- The Ubuntu 24.04 + Caddy + MariaDB packaged install smoke passed separately
+  on `a309055d`; its one-iteration host evidence is recorded in
+  [`2026-11-22-ubuntu-packaged-first-host-smoke-a309055d.md`](docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-a309055d.md).
+- This verifies the recommended Beta setup workflow, not a published stable
+  install archive, repeated host certification, or production readiness.
+
 ## Check native-host blockers before building — 2026-11-22
 
 - The one-command source installer now checks the detected support tier,
