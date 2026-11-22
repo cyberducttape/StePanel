@@ -48,6 +48,8 @@ APP_USER="stepanel"; APP_DIR="/opt/stepanel"; DATA_DIR="/var/lib/ste-panel"; ENV
 if [[ ! -f "$ROOT_DIR/stepanel" || ! -x "$ROOT_DIR/stepanel" ]]; then echo "Build an executable stepanel binary before installing." >&2; exit 1; fi
 
 . "$ROOT_DIR/deploy/lib/install-env-file.sh"
+# shellcheck source=deploy/lib/install-change-plan.sh
+. "$ROOT_DIR/deploy/lib/install-change-plan.sh"
 
 if (( GUIDED == 1 )); then
   [[ -z $CONFIG_FILE ]] || { echo "--guided and --config cannot be combined; --guided writes its own settings file." >&2; exit 64; }
@@ -416,6 +418,11 @@ for web_service in "${PREEXISTING_WEB_SERVICES[@]}"; do
 done
 echo "  ENABLE and START $SELECTED_WEB_SERVICE, $DB_SERVICE, php-fpm, stepanel, stepanel-root-broker"
 echo "  CREATE or UPDATE $APP_DIR, $DATA_DIR, /var/www/sites, $ENV_FILE, /usr/local/sbin/stepanel-*, systemd units"
+install_print_optional_change_plan \
+  "$WEB_SERVER" "$INSTALL_DB_ADMIN" "$INSTALL_MODSEC" "$MODSEC_MODE" \
+  "$INSTALL_MAIL" "$ACTIVATE_MAIL" "$INSTALL_FTP" "$ACTIVATE_FTP" \
+  "$INSTALL_SECURITY" "$INSTALL_FAIL2BAN" "$INSTALL_TLS" \
+  "$INSTALL_NODE" "$NODE_VERSIONS"
 # Upgrading a host StePanel already manages with the same web server: the
 # operator consented to the takeover when StePanel was first installed, and
 # any other web server present (for example Apache pulled in as a PHP package

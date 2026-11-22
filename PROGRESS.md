@@ -3018,3 +3018,20 @@ does not close a current-source or power-loss gate.
   pending. Production helper behavior was
   already using no-replace semantics; this change aligns the development
   implementation and API admission policy.
+
+## Installer change preview — 2026-11-21
+
+- The installer dry-run now lists each selected optional integration and its
+  actual effects, including Apache ModSecurity mode, restricted database-admin
+  routing, mail/FTP service activation choices, malware scanning, Fail2ban,
+  Certbot timer activation, and Node.js versions.
+- It explicitly distinguishes installing/configuring an optional service from
+  activating it after the core commit. For database-admin on Caddy or
+  OpenLiteSpeed it reports package-only installation, since this installer
+  does not configure a web route for those servers.
+- Added a shell contract test covering all optional selections, activation
+  variants, unsupported web-route behavior, and placement in the pre-mutation
+  preview. `make shell-contract-check` and exact-source `make check` pass;
+  `git diff --check` passes. No host installation was performed.
+- This improves first-run transparency but does not close the clean-host
+  installation, first-site, backup/restore, or production-certification gates.

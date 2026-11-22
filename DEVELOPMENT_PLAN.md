@@ -44,6 +44,11 @@ first-host application proof remain open.
   on `/var/www` and `/home`) before host mutation;
   it verifies active enforcement immediately if tools are available, otherwise
   reports the deferral and fails before site services if enforcement is absent.
+  Before confirmation, the change plan lists selected optional integrations,
+  their host/configuration effects, post-commit activation, and services that
+  will intentionally remain stopped. It distinguishes package installation
+  from web-route configuration when the selected server does not support that
+  integration.
   First-site creation,
   backup, and restore proof are verified on the selected supported profile.
 - Generated/manual installer settings are parsed by a separately tested
