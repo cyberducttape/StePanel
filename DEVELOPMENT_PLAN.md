@@ -52,7 +52,10 @@ passed the first-run checklist and WordPress-creation entry point.
   settings.
 - The first-login browser journey presents health findings, opens the
   WordPress form from the primary next action, verifies template fields, and
-  updates the next task to site backup and restore proof.
+  updates the next task to site backup and restore proof. The website area is
+  labeled for customers, and its create action says “Create your first
+  website” when the active inventory is empty and “Create another website”
+  after a site exists.
 - The install guide reports current-code evidence separately from historical
   runs and never presents smoke coverage as production certification.
 - The next release candidate archive contains the matching guided setup,

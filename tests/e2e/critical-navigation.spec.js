@@ -82,6 +82,8 @@ test('first-run primary action follows the next unresolved setup step', async ({
   await expect(primary).toHaveAttribute('href', '#sites');
   await expect(primary).toHaveText('Create WordPress site');
   await expect(page.locator('#onboardingChecklist')).toContainText('Create or migrate your first site');
+  await expect(page.locator('#site-create-heading')).toHaveText('Create your first website');
+  await expect(page.locator('#sites-heading')).toHaveText('Your websites');
   await primary.click();
   await expect(page.locator('#siteCreateTemplate')).toHaveValue('wordpress');
   await expect(page.locator('#wordpressCreateFields')).toBeVisible();
@@ -104,8 +106,9 @@ test('first-run primary action follows the next unresolved setup step', async ({
     last_rehearsal: null,
     last_passed_rehearsal: null,
   };
-  await page.locator('#refreshOnboarding').click();
+  await page.reload();
   await expect(page.locator('#onboardingChecklist')).toContainText('Manage your websites');
+  await expect(page.locator('#site-create-heading')).toHaveText('Create another website');
   await expect(page.locator('#onboardingChecklist')).not.toContainText('Create or migrate your first site');
   await expect(page.locator('#onboardingChecklist')).toContainText('No integrity-verified backup is recorded for setup-b');
   await expect(page.locator('#onboardingChecklist').getByRole('link', { name: 'Review setup-b backups' })).toHaveAttribute('href', '#site=setup-b&tab=backups');

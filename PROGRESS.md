@@ -1,5 +1,17 @@
 # Production-readiness progress
 
+## Make first site creation clearer — 2026-11-21
+
+- The customer-facing website section now uses direct language (“Your
+  websites”), and the creation form adapts to the account's active inventory:
+  “Create your first website” for an empty account and “Create another
+  website” once sites exist. Deleted sites do not count as active inventory.
+- Extended the first-run browser journey to assert both states. The seeded
+  Chromium E2E passed (1 passed); `npm run test:unit` passed (19 tests),
+  `node --check` passed for the edited JavaScript, and `go test ./... -run
+  '^$'` compiled every Go package. No Go behavior changed. This verifies the
+  UI states, not real host provisioning or recovery.
+
 ## Preflight packages for selected optional features — 2026-11-21
 
 - Installer package preflight now includes Fail2ban, mail, FTP, ModSecurity,

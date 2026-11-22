@@ -2246,10 +2246,15 @@
       // Administrators only; other roles simply see no suspension badges.
       getJSON('/api/sites/suspensions').catch(() => ({ suspensions: [] })),
     ]);
+    const activeSites = (siteData.sites || []).filter((site) => !site.deleted);
+    const createHeading = document.querySelector('#site-create-heading');
+    if (createHeading) {
+      createHeading.textContent = activeSites.length ? 'Create another website' : 'Create your first website';
+    }
     const suspended = new Map((suspensionData.suspensions || []).map((item) => [item.site, item.state]));
     grid.replaceChildren();
     let domains = 0;
-    for (const site of siteData.sites || []) {
+    for (const site of activeSites) {
       domains += (site.routes || []).length;
       const backup = latestBackup(backupData.backups, site.site);
       const backupLabel = backupData.__error ? 'Backup status unavailable' : backup ? `Last backup ${formatAge(backup.verified_at).toLowerCase()}` : 'No backup yet';
@@ -2266,13 +2271,13 @@
       grid.append(card);
     }
     const setCount = (id, value) => { const node = document.querySelector(id); if (node) node.textContent = String(value); };
-    setCount('#siteCount', (siteData.sites || []).length);
+    setCount('#siteCount', activeSites.length);
     setCount('#domainCount', domains);
     const latest = latestBackup(backupData.backups);
     setCount('#backupFreshness', backupData.__error ? 'Unavailable' : latest ? formatAge(latest.verified_at) : 'Never');
-    gridStatus.textContent = siteData.sites && siteData.sites.length
-      ? `${plural(siteData.sites.length, 'managed site')}. Select one to open its workspace.`
-      : isAdministrator ? 'No managed sites yet. Create a site above, or migrate a cPanel backup.' : 'No sites are assigned to this account yet.';
+    gridStatus.textContent = activeSites.length
+      ? `${plural(activeSites.length, 'website')}. Select one to manage it.`
+      : isAdministrator ? 'No websites yet. Create one above, or import a cPanel backup.' : 'No websites are assigned to this account yet.';
   }
 
   // Authorized administrators and tenant owners create sites through a
