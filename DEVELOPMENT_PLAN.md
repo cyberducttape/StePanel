@@ -56,9 +56,9 @@ measured 4.490 seconds; one recovery-matrix iteration passed. The current
 installer/runtime tree is code-equivalent to that source. Quota enforcement
 was skipped in lab mode. The reviewed report records the limits
 (docs/lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-b901b25.md).
-This host smoke predates the source bootstrap changes in `a3cbb37a`, and the
-GoReleaser archive does not contain or execute `scripts/install-guided.sh`;
-it is not runtime evidence for that bootstrap. A clean temporary checkout at
+Although this host smoke postdates the source bootstrap changes in `a3cbb37a`,
+the GoReleaser archive does not contain or execute `scripts/install-guided.sh`;
+it is not runtime evidence for that separate bootstrap path. A clean temporary checkout at
 `7e1d88df` subsequently downloaded and SHA-256-verified the real Go 1.26.11
 archive, built both binaries, removed the temporary toolchain, and reached a
 mocked `sudo` handoff. The bootstrap now reads the version directly from
