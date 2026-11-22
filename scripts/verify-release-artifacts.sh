@@ -172,5 +172,45 @@ for archive in "${archives[@]}"; do
 done
 
 echo
+echo "Checking the packaged setup command runs on $(uname -m)..."
+host_arch=$(uname -m)
+case $host_arch in
+    x86_64) release_arch=amd64 ;;
+    aarch64|arm64) release_arch=arm64 ;;
+    *) release_arch= ;;
+esac
+if [[ -n $release_arch ]]; then
+    host_archive=
+    for archive in "${archives[@]}"; do
+        if [[ $archive == *_linux_${release_arch}.tar.gz ]]; then
+            host_archive=$archive
+            break
+        fi
+    done
+    if [[ -z $host_archive ]]; then
+        echo "✗ FAIL: no linux/$release_arch archive available for setup smoke" >&2
+        exit 1
+    fi
+    setup_smoke_dir=$(mktemp -d)
+    trap 'rm -rf "$setup_smoke_dir"' EXIT
+    tar -xOf "$host_archive" stepanel > "$setup_smoke_dir/stepanel"
+    chmod 0755 "$setup_smoke_dir/stepanel"
+    setup_help=$("$setup_smoke_dir/stepanel" setup --help 2>&1) || {
+        echo '✗ FAIL: packaged stepanel setup --help did not run' >&2
+        printf '%s\n' "$setup_help" >&2
+        exit 1
+    }
+    if ! grep -Fq 'Usage of setup:' <<<"$setup_help" ||
+       ! grep -Fq 'where to write the installer settings' <<<"$setup_help"; then
+        echo '✗ FAIL: packaged setup command did not expose its expected options' >&2
+        printf '%s\n' "$setup_help" >&2
+        exit 1
+    fi
+    echo '✓ packaged setup command starts and exposes installer settings options'
+else
+    echo "- skipped native setup execution for unsupported verifier architecture: $host_arch"
+fi
+
+echo
 echo "=== All packaging checks passed ==="
 exit 0

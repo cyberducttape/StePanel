@@ -3037,3 +3037,11 @@ does not close a current-source or power-loss gate.
   installation, first-site, backup/restore, or production-certification gates.
 - The release-artifact verifier now requires this helper in packaged archives,
   so setup cannot silently lose the pre-install feature plan in a release.
+- Built a GoReleaser snapshot from exact source
+  `52a2f936b1c6838117e170e3380349aaf3b503db` in an isolated worktree. Both
+  amd64 and arm64 archives contain the guided CLI, installer, and all required
+  preflight/change-plan helpers; SHA256 checks pass. Extracted the amd64
+  archive and ran `stepanel setup --help` and `stepanel version`; both
+  succeeded and reported the expected source commit. This is a package smoke,
+  not a tagged release or installed-host test.
+- Release-artifact CI now extracts the native-architecture binary and checks that the packaged `setup` command starts and exposes its expected options.

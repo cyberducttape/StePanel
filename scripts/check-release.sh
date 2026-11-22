@@ -43,6 +43,11 @@ if ! grep -Fq 'docs/INSTALLATION.md' scripts/verify-release-artifacts.sh ||
   echo "release artifact verification does not require the current installer support materials" >&2
   exit 1
 fi
+if ! grep -Fq 'stepanel" setup --help' scripts/verify-release-artifacts.sh ||
+   ! grep -Fq 'where to write the installer settings' scripts/verify-release-artifacts.sh; then
+  echo "release artifact verification does not run the packaged setup command" >&2
+  exit 1
+fi
 if grep -Fq 'sudoers_tmp' install.sh; then
   echo "install.sh still provisions a panel sudoers policy" >&2
   exit 1
