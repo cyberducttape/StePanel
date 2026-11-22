@@ -22,9 +22,14 @@
   read-only into the disposable host and consumed by the proof. Local KVM
   runs retain a bounded direct-fetch fallback. The same fixture fetch passed
   locally with both expected hashes.
-- Shell syntax and ShellCheck passed. Exact-source workflow/release checks and
-  the hosted rerun remain pending; no recovery-proof success is claimed for
-  the failed host run.
+- Shell syntax, ShellCheck, and `make release-check` passed. Exact-source CI
+  [44990700232](https://github.com/cyberducttape/StePanel/actions/runs/44990700232)
+  passed on `e04235f8`, including Go/race tests, ENOSPC and database restore
+  drills, and UI E2E. The new host run
+  [44990700250](https://github.com/cyberducttape/StePanel/actions/runs/44990700250)
+  has passed archive extraction, fixture staging, and host startup; native
+  installation and WordPress recovery remain in progress. No recovery-proof
+  success is claimed for the failed earlier run.
 
 ## Make manual native builds installable — 2026-11-21
 

@@ -100,9 +100,12 @@ both executables as the invoking user before elevating for the installer.
   interruption drills, but failed when the disposable host timed out fetching
   WordPress/WP-CLI fixtures. The workflow now stages and verifies those pinned
   fixtures on the runner before host mutation and mounts them read-only for
-  recovery. A rerun is required to verify this correction. This snapshot
-  workflow does not replace a clean-host test of the official tagged archive
-  before release.
+  recovery. On exact source `e04235f8`, full integration CI passed
+  ([44990700232](https://github.com/cyberducttape/StePanel/actions/runs/44990700232));
+  the host rerun [44990700250](https://github.com/cyberducttape/StePanel/actions/runs/44990700250)
+  has passed archive extraction, fixture staging, and host startup, while its
+  install/recovery phase remains in progress. This snapshot workflow does not
+  replace a clean-host test of the official tagged archive before release.
 - Installer preflight reports OS, web-server, and database support tier and
   actionable failed prerequisites (including availability of required base,
   PHP, database, web-server, and selected optional-feature packages in
