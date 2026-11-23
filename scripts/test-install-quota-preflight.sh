@@ -47,5 +47,8 @@ grep -Fq 'docs/INSTALLATION.md#prepare-filesystem-quotas' <<<"$message"
 quota_failure=tools
 message=$(install_preflight_user_quotas "$web_root" /home)
 grep -Fq 'Enforcement will be checked again before setup continues' <<<"$message"
+grep -Fq 'at least one quota check is deferred' <<<"$message"
+grep -Fq "HOST REQUIREMENT (VERIFICATION DEFERRED): \$quota_preflight" "$ROOT_DIR/install.sh"
+! grep -Fq 'HOST REQUIREMENT: $quota_preflight' <(sed -n '355,365p' "$ROOT_DIR/install.sh")
 
 echo 'installer quota preflight contract passed'

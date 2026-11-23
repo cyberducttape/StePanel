@@ -124,6 +124,9 @@ certification.
   with a documented repair and recheck command.
 - All passing checks are visible even when another check fails; any blocker
   still prevents the guided build from continuing.
+- If quota tools are missing but mount options are present, label enforcement
+  as deferred and unverified rather than as a satisfied requirement; the
+  post-package check must still block before hosted-site provisioning.
 - No privileged host setting is changed by the doctor. The installer repeats
   prerequisite checks before mutation.
 - Aggregation tests, shell syntax, ShellCheck, documentation checks, and

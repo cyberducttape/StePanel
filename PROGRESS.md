@@ -4886,3 +4886,17 @@ does not close a current-source or power-loss gate.
   [45179420668](https://github.com/cyberducttape/StePanel/actions/runs/45179420668)
   is still running its race and recovery suites; this local alert validation
   does not replace that result.
+
+## Clarify deferred quota readiness during setup — 2026-11-23
+
+- The host preflight can safely defer quota inspection when the required quota
+  tools are absent: it installs those tools only after installation is
+  confirmed, then blocks before hosted-site provisioning unless quotas are
+  enforced. The preflight output now labels this state “VERIFICATION
+  DEFERRED” so operators don't read it as a passing quota check.
+- Added a shell contract assertion for the deferred label and retained checks
+  for the installer’s later fail-closed enforcement check.
+- `bash -n install.sh scripts/test-install-quota-preflight.sh`,
+  `bash scripts/test-install-quota-preflight.sh`, and `git diff --check` passed.
+- This does not certify quota enforcement on an installed host; that remains a
+  release gate.
