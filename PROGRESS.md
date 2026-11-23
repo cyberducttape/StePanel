@@ -18,8 +18,15 @@
 - `GOMAXPROCS=2 go test -p 1 -timeout 30m ./... -count=3` passed all packages.
   The requested 60-second `FuzzNormalizeName` run passed with 1,996,514
   executions and no failure. After the evidence-collector change,
-  `go test ./internal/evidence`, `go vet ./internal/evidence`, and
-  `git diff --check` passed; full checks are being rerun before commit.
+  `make check`, `go test -race ./internal/evidence`, the documentation link and
+  reference checks, generated API artifact checks, and `git diff --check` all
+  passed locally.
+- The correction was committed and pushed as `ba3fad109d841727465c41b42de948b23c8bb20d`
+  with the requested author/committer identity. Hosted Documentation and
+  CodeQL passed ([45155198102](https://github.com/cyberducttape/StePanel/actions/runs/45155198102),
+  [45155198141](https://github.com/cyberducttape/StePanel/actions/runs/45155198141));
+  hosted integration and the independent KVM abrupt-loss and ext4 quota jobs
+  were still running at this update.
 - The standard CI workflow passed on exact source
   `a0b95937d5f796461fe303e0194f7be8589caeaf` in
   [run 45151465626](https://github.com/cyberducttape/StePanel/actions/runs/45151465626):
