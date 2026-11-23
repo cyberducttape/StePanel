@@ -113,6 +113,23 @@ grep -Fq 'No system services were changed. Your saved settings were secured at $
   echo 'installer cancellation must distinguish secured setup settings from system-service changes' >&2
   exit 1
 }
+grep -Fq 'print_install_settings_reuse_command "$CONFIG_FILE"' "$repo/install.sh" || {
+  echo 'installer cancellation must print a shell-safe saved-settings command' >&2
+  exit 1
+}
+reuse_config="$tmp/StePanel settings with 'quotes.env"
+reuse_command=$(print_install_settings_reuse_command "$reuse_config")
+expected_command=$(printf 'install later with: sudo ./install.sh --config %q' "$reuse_config")
+[[ $reuse_command == "$expected_command" ]] || {
+  echo 'saved-settings reuse command did not quote a path containing spaces and quotes' >&2
+  exit 1
+}
+quoted_config=${reuse_command#*--config }
+round_trip_config=$(bash -c "printf '%s' $quoted_config")
+[[ $round_trip_config == "$reuse_config" ]] || {
+  echo 'saved-settings reuse command does not preserve the original path when copied' >&2
+  exit 1
+}
 if grep -Fq 'Nothing was changed.' "$repo/install.sh"; then
   echo 'installer cancellation must not claim that no changes were made' >&2
   exit 1

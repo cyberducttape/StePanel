@@ -2152,6 +2152,12 @@ the domain changes, and stop changing after the user customizes them.
 **Status:** Complete for the source-based setup workflow on exact source
 `7250004d`. Hosted integration CI [44993864711](https://github.com/cyberducttape/StePanel/actions/runs/44993864711), CodeQL [44993864715](https://github.com/cyberducttape/StePanel/actions/runs/44993864715), documentation CI [44993864722](https://github.com/cyberducttape/StePanel/actions/runs/44993864722), and release evidence [44994033387](https://github.com/cyberducttape/StePanel/actions/runs/44994033387) passed. Setup output and the existing-file retry message both provide the root-owned private-copy path; parser regressions reject truncated quotes, trailing characters, and invalid escapes. This does not make the workflow available in the published v0.7.0 archive or certify an official release package.
 
+Installer cancellation now prints its reuse command with Bash-safe quoting, so
+saved configuration paths containing spaces or shell metacharacters remain
+copyable. A regression checks the rendered command and round-trips a path with
+spaces and quotes. Local installer settings and full shell-contract checks
+pass; exact-source hosted CI for this follow-up is pending.
+
 The documented `stepanel setup` flow must continue successfully into the
 installer. Treat its generated settings as the supported contract: promote a
 user-owned setup file into a root-only destination without changing it in

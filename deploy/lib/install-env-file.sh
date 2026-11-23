@@ -24,6 +24,10 @@ secure_install_settings_file() {
   chmod 0600 -- "$file" || return $?
 }
 
+print_install_settings_reuse_command() {
+  printf 'install later with: sudo ./install.sh --config %q\n' "$1"
+}
+
 load_env_file() {
   local file=$1 visibility=${2:-} owner mode key encoded value character closed
   [[ -f $file && ! -L $file ]] || { echo "$file must be a regular file." >&2; exit 1; }

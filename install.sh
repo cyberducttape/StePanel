@@ -498,7 +498,7 @@ if (( GUIDED == 1 )); then
   read -r -p "Install StePanel with the changes above? [y/N]: " install_answer
   if [[ ${install_answer,,} != y && ${install_answer,,} != yes ]]; then
     echo "No system services were changed. Your saved settings were secured at $CONFIG_FILE and can be reused;"
-    echo "install later with: sudo ./install.sh --config $CONFIG_FILE"
+    print_install_settings_reuse_command "$CONFIG_FILE"
     exit 0
   fi
 fi

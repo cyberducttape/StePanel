@@ -4839,3 +4839,14 @@ does not close a current-source or power-loss gate.
   supported `GOTOOLCHAIN=auto`; the installer contract and complete shell
   suite pass locally with `GOTOOLCHAIN=local`. CodeQL, docs, and release
   evidence passed on `5b75cb8f`; the corrected follow-up still needs hosted CI.
+
+## Keep the saved-settings retry command copyable — 2026-11-23
+
+- Installer cancellation now prints the reuse command with Bash `%q` quoting.
+  This preserves settings paths containing spaces and shell metacharacters.
+- The focused settings contract verifies the rendered path and a shell
+  round-trip. `make shell-contract-check`, shell syntax, and `git diff --check`
+  passed. ShellCheck reports existing warnings in these scripts; the shared
+  CI shell-lint job remains the authoritative check for this change.
+- No services are changed by cancellation. This is a copy/paste usability fix,
+  not a change to the saved file's ownership or installation state.
