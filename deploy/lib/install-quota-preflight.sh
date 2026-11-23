@@ -37,3 +37,14 @@ install_preflight_user_quotas() {
     printf 'user quotas are active on %s and %s' "$web_root" "$home_mount"
   fi
 }
+
+# Make an uninspectable quota state visibly distinct from verified enforcement
+# wherever the installer reports its host requirements.
+install_print_quota_preflight() {
+  local result=${1:-}
+  if [[ $result == *'Enforcement will be checked again before setup continues'* ]]; then
+    printf 'HOST REQUIREMENT (VERIFICATION DEFERRED): %s\n' "$result"
+  else
+    printf 'HOST REQUIREMENT: %s\n' "$result"
+  fi
+}

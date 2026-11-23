@@ -81,7 +81,7 @@ if (( GUIDED == 1 )); then
   fi
   if (( UNSAFE_LAB == 0 )); then
     if quota_preflight=$(install_preflight_user_quotas /var/www /home); then
-      echo "HOST REQUIREMENT: $quota_preflight"
+      install_print_quota_preflight "$quota_preflight"
     else
       echo "BLOCKER: $quota_preflight" >&2
       exit 1
@@ -354,11 +354,7 @@ else
 fi
 if (( UNSAFE_LAB == 0 )); then
   if quota_preflight=$(install_preflight_user_quotas /var/www /home); then
-    if [[ $quota_preflight == *'Enforcement will be checked again before setup continues'* ]]; then
-      echo "HOST REQUIREMENT (VERIFICATION DEFERRED): $quota_preflight"
-    else
-      echo "HOST REQUIREMENT: $quota_preflight"
-    fi
+    install_print_quota_preflight "$quota_preflight"
   else
     preflight_blockers+=("$quota_preflight")
   fi

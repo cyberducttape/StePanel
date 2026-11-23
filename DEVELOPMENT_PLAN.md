@@ -126,7 +126,8 @@ certification.
   still prevents the guided build from continuing.
 - If quota tools are missing but mount options are present, label enforcement
   as deferred and unverified rather than as a satisfied requirement; the
-  post-package check must still block before hosted-site provisioning.
+  guided pre-question and full installer reports must both use that label,
+  and the post-package check must still block before hosted-site provisioning.
 - No privileged host setting is changed by the doctor. The installer repeats
   prerequisite checks before mutation.
 - Aggregation tests, shell syntax, ShellCheck, documentation checks, and
@@ -2699,7 +2700,7 @@ immediately and that it remains if setup is later canceled. The cancellation
 error distinguishes unsaved installer settings from that retained rclone
 configuration. Focused setup tests, `make check`, and
 `go test -race ./internal/setup -count=1` pass locally. Exact-source hosted
-checks are pending.
+checks remain pending on current main.
 
 **Acceptance criteria**
 

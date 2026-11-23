@@ -48,7 +48,18 @@ quota_failure=tools
 message=$(install_preflight_user_quotas "$web_root" /home)
 grep -Fq 'Enforcement will be checked again before setup continues' <<<"$message"
 grep -Fq 'at least one quota check is deferred' <<<"$message"
-grep -Fq "HOST REQUIREMENT (VERIFICATION DEFERRED): \$quota_preflight" "$ROOT_DIR/install.sh"
-! grep -Fq 'HOST REQUIREMENT: $quota_preflight' <(sed -n '355,365p' "$ROOT_DIR/install.sh")
+report=$(install_print_quota_preflight "$message")
+grep -Fq 'HOST REQUIREMENT (VERIFICATION DEFERRED):' <<<"$report"
+quota_report_count=$(grep -Fc 'install_print_quota_preflight "$quota_preflight"' "$ROOT_DIR/install.sh")
+[[ $quota_report_count == 2 ]]
+quota_check_line=$(grep -n 'install_preflight_user_quotas /var/www /home' "$ROOT_DIR/install.sh" | sed -n '1p' | cut -d: -f1)
+guided_setup_line=$(grep -n 'stepanel" setup --output' "$ROOT_DIR/install.sh" | cut -d: -f1)
+(( quota_check_line < guided_setup_line ))
+if quota_report=$(install_print_quota_preflight 'user quotas are active'); then
+  [[ $quota_report == 'HOST REQUIREMENT: user quotas are active' ]]
+else
+  echo 'active quota check did not report a normal host requirement' >&2
+  exit 1
+fi
 
 echo 'installer quota preflight contract passed'

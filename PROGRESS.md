@@ -4892,12 +4892,13 @@ does not close a current-source or power-loss gate.
 - The host preflight can safely defer quota inspection when the required quota
   tools are absent: it installs those tools only after installation is
   confirmed, then blocks before hosted-site provisioning unless quotas are
-  enforced. The preflight output now labels this state “VERIFICATION
-  DEFERRED” so operators don't read it as a passing quota check.
-- Added a shell contract assertion for the deferred label and retained checks
-  for the installer’s later fail-closed enforcement check.
-- `bash -n install.sh scripts/test-install-quota-preflight.sh`,
-  `bash scripts/test-install-quota-preflight.sh`, and `git diff --check` passed.
+  enforced. The guided pre-question path still reported this state like a
+  passing requirement, so both installer preflight paths now share one
+  formatter that labels it “VERIFICATION DEFERRED.”
+- Expanded the shell contract to check the active and deferred labels and both
+  call sites, while retaining ordering and fail-closed enforcement checks.
+- `make shell-contract-check`, `make release-check`, shell syntax, and
+  `git diff --check` passed.
 - This does not certify quota enforcement on an installed host; that remains a
   release gate.
 
@@ -4913,8 +4914,9 @@ does not close a current-source or power-loss gate.
   settings were not saved and calls out the rclone config that remains.
 - Added a configure-remote-then-cancel regression. Focused setup tests and
   `make check` passed, including `go vet ./...` and all package tests.
-- The exact-source hosted integration, documentation, CodeQL, and candidate
-  preflight workflows for `06655e13` are queued.
+- Exact-source hosted integration, documentation, CodeQL, and candidate
+  preflight checks remain pending on current main; earlier runs were canceled
+  when later commits advanced the branch.
 
 ## Point setup wizard to the Make-free evaluation command — 2026-11-23
 
@@ -4925,5 +4927,5 @@ does not close a current-source or power-loss gate.
 - Updated the wizard and its exact-text regression. `go test ./internal/setup
   -count=1`, formatting, and full `make check` passed (`go vet ./...` and all
   Go packages).
-- Hosted checks remain queued due runner availability; exact-source validation
-  is required before this item is closed.
+- Exact-source hosted checks are pending; local `make check` is not a substitute
+  for that evidence.
