@@ -2457,6 +2457,8 @@ gates. The latest packaged install smoke passed on source `2e9e06e9`: installati
 and cleanup completed, WordPress HTTPS/database recovery measured 4,398 ms,
 and one recovery-matrix iteration passed. See the
 [`first-host smoke report`](docs/lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-2e9e06e.md).
+The exact-source `v0.9.0` preflight's installed-host job also passed on
+`ab8a5151` in [run 45173194319](https://github.com/cyberducttape/StePanel/actions/runs/45173194319): the versioned archive installed and cleanup completed, the WordPress HTTPS/database recovery proof measured 4,905 ms, and one recovery-matrix iteration passed. The disposable host had no project quota enforcement, so Git deployment refused safely. The final candidate-artifact verification job is still queued; this is not a completed current-head preflight or a published release. See the [scoped report](docs/lab-results/2026-11-23-v0.9.0-ubuntu-install-45173194319.md).
 The read-only manual preflight for `v0.9.0` passed on source
 `679cd6db9c283d78e70102f1dd87943fbe70e4d4` in
 [workflow run 45134667043](https://github.com/cyberducttape/StePanel/actions/runs/45134667043).

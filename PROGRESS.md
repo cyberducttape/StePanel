@@ -4850,3 +4850,18 @@ does not close a current-source or power-loss gate.
   CI shell-lint job remains the authoritative check for this change.
 - No services are changed by cancellation. This is a copy/paste usability fix,
   not a change to the saved file's ownership or installation state.
+
+## Verify the v0.9.0 packaged first-host flow — 2026-11-23
+
+- The installed-host job in release-candidate preflight
+  [45173194319](https://github.com/cyberducttape/StePanel/actions/runs/45173194319)
+  passed for the exact versioned archive built from `ab8a5151` on Ubuntu 24.04
+  + Caddy + MariaDB. Installation and cleanup completed; installed WordPress
+  HTTPS/database recovery measured 4,905 ms; one recovery-matrix iteration
+  passed.
+- The disposable host had no project quotas. Git deployment refused and the
+  live site remained unchanged, which proves fail-closed behavior only. The
+  final candidate-artifact verification job was queued, and no release was
+  published. The current `993a4079` source still needs its own hosted checks.
+- Full scope and limits are recorded in
+  [`2026-11-23-v0.9.0-ubuntu-install-45173194319.md`](docs/lab-results/2026-11-23-v0.9.0-ubuntu-install-45173194319.md).
