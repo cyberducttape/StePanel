@@ -282,9 +282,15 @@ run setup from the built checkout:
 
 ```sh
 ./stepanel setup --output stepanel-install.env      # answer the questions
-sudo ./install.sh --config stepanel-install.env --dry-run
-sudo ./install.sh --config stepanel-install.env
+./scripts/install-guided.sh --config stepanel-install.env --dry-run
+./scripts/install-guided.sh --config stepanel-install.env
 ```
+
+The guided source script rebuilds the matching panel, broker, and CLI as your
+user, runs the read-only host preflight, then passes the saved settings to the
+privileged installer. GNU Make and a separately installed Go compiler are not
+required. Use the direct `sudo ./install.sh --config ...` commands when the
+matching binaries are already built in the checkout.
 
 The setup command creates a private file owned by the user who ran it. The
 installer checks that it is a regular, non-symlink file with one link and

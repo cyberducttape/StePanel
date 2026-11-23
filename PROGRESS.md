@@ -4784,3 +4784,18 @@ does not close a current-source or power-loss gate.
   `go vet ./...`, full `go test ./...`, and `make check` passed. This is a
   first-run convenience improvement; it does not alter the Operator Beta or
   production-certification status.
+
+## Use saved setup answers through the source installer — 2026-11-23
+
+- `scripts/install-guided.sh` now accepts `--config FILE` and `--dry-run`,
+  preserving each argument when forwarding to the standard native installer.
+  On a fresh host it still performs the read-only preflight and builds the
+  matching binaries as the invoking user. Without `--config`, it retains the
+  interactive wizard. The installation guide now documents generating
+  settings with `stepanel setup`, previewing them, and installing through the
+  same bootstrap command.
+- Regression coverage verifies a settings path containing spaces survives
+  argument forwarding and conflicting config flags fail before build or
+  privilege elevation. `scripts/test-install-guided.sh`, all shell contracts,
+  documentation links/references (93 files), and `git diff --check` passed.
+  Full `make check` and hosted CI for this follow-up are pending.

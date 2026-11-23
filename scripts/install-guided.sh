@@ -9,12 +9,37 @@ if (( EUID == 0 )); then
   exit 1
 fi
 
-takeover=()
-for arg in "$@"; do
+install_args=()
+config_seen=0
+while (($#)); do
+  arg=$1
   case "$arg" in
-    --take-over-host) takeover+=(--take-over-host) ;;
-    *) echo "usage: $0 [--take-over-host]" >&2; exit 64 ;;
+    --take-over-host|--dry-run) install_args+=("$arg") ;;
+    --config)
+      [[ $# -ge 2 && -n $2 && $2 != --* && $config_seen == 0 ]] || {
+        echo "usage: $0 [--config FILE] [--dry-run] [--take-over-host]" >&2
+        exit 64
+      }
+      install_args+=(--config "$2")
+      config_seen=1
+      shift
+      ;;
+    --config=*)
+      config_path=${arg#--config=}
+      [[ -n $config_path && $config_seen == 0 ]] || {
+        echo "usage: $0 [--config FILE] [--dry-run] [--take-over-host]" >&2
+        exit 64
+      }
+      install_args+=(--config "$config_path")
+      config_seen=1
+      ;;
+    -h|--help)
+      echo "usage: $0 [--config FILE] [--dry-run] [--take-over-host]"
+      exit 0
+      ;;
+    *) echo "usage: $0 [--config FILE] [--dry-run] [--take-over-host]" >&2; exit 64 ;;
   esac
+  shift
 done
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -141,8 +166,13 @@ sync -f "$repo_root"
 cd "$repo_root"
 if (( existing_install )); then
   echo 'Build complete. Starting the native upgrade.'
-  "$sudo_bin" ./install.sh
+  "$sudo_bin" ./install.sh "${install_args[@]}"
 else
-  echo 'Build complete. Starting the guided native installer.'
-  "$sudo_bin" ./install.sh --guided "${takeover[@]}"
+  if (( config_seen )); then
+    echo 'Build complete. Starting the native installer with the saved settings.'
+    "$sudo_bin" ./install.sh "${install_args[@]}"
+  else
+    echo 'Build complete. Starting the guided native installer.'
+    "$sudo_bin" ./install.sh --guided "${install_args[@]}"
+  fi
 fi

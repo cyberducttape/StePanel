@@ -218,6 +218,12 @@ Make; preflight help points to the direct command. Shell contracts exercise
 the Bash path with a deliberately failing `make` shim and still exercise the
 Make target separately. Focused contracts, the complete shell-contract suite,
 documentation links/references, and `make check` pass locally.
+The native source wrapper also accepts `--config FILE` and `--dry-run` and
+passes those arguments, preserving path boundaries, to `install.sh`. A saved
+setup file can now use the same pinned build and preflight path without a
+manual binary build or switching installer commands. Regression coverage
+includes a config path containing spaces and rejects duplicate config input;
+the installation guide shows this workflow.
 The `stepanelctl doctor` command now presents readiness failures as a readable
 checklist by default, includes the diagnostic and suggested next step, retains
 JSON output for automation, and exits nonzero for critical/not-ready or
