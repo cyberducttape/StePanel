@@ -55,7 +55,8 @@ func runSetup(args []string, in *os.File, out io.Writer, host setupguide.Host, e
 	}
 	if _, err := os.Lstat(*output); err == nil && !*force {
 		quotedOutput := shellQuoteCommandArg(*output)
-		return fmt.Errorf("%s already exists; from a source checkout run `./scripts/install-guided.sh --config %s`, or run `sudo ./install.sh --config %s` with matching binaries already built (or pass --force to replace it; its keys will be lost)", *output, quotedOutput, quotedOutput)
+		_, preview, install := setupInstallCommands(quotedOutput)
+		return fmt.Errorf("%s already exists; continue with the saved settings:\n  Preview: %s\n  Install: %s\nPass --force to replace it; its keys will be lost", *output, preview, install)
 	}
 	answers, err := setupguide.NewGuide(newSetupTerminal(in), out, host).Run()
 	if err != nil {
@@ -78,14 +79,59 @@ func runSetup(args []string, in *os.File, out io.Writer, host setupguide.Host, e
 	if !*fromInstaller {
 		fmt.Fprintln(out, "\nNext:")
 		quotedPath := shellQuoteCommandArg(path)
-		fmt.Fprintf(out, "  From a source checkout (builds the matching binaries):\n")
-		fmt.Fprintf(out, "    Preview: ./scripts/install-guided.sh --config %s --dry-run\n", quotedPath)
-		fmt.Fprintf(out, "    Install: ./scripts/install-guided.sh --config %s\n", quotedPath)
-		fmt.Fprintf(out, "  With matching binaries already built:\n")
-		fmt.Fprintf(out, "    Preview: sudo ./install.sh --config %s --dry-run\n", quotedPath)
-		fmt.Fprintf(out, "    Install: sudo ./install.sh --config %s\n", quotedPath)
+		description, preview, install := setupInstallCommands(quotedPath)
+		fmt.Fprintf(out, "  %s\n", description)
+		fmt.Fprintf(out, "    Preview: %s\n", preview)
+		fmt.Fprintf(out, "    Install: %s\n", install)
 	}
 	return nil
+}
+
+// setupInstallCommands selects the installer that matches the context in
+// which `stepanel setup` was run. Commands use a subshell cd so they remain
+// copyable even when the user later changes directories.
+func setupInstallCommands(quotedConfig string) (description, preview, install string) {
+	workingDirectory, _ := os.Getwd()
+	executable, _ := os.Executable()
+	return setupInstallCommandsFromContext(quotedConfig, workingDirectory, executable)
+}
+
+func setupInstallCommandsFromContext(quotedConfig, workingDirectory, executable string) (description, preview, install string) {
+	candidates := []string{workingDirectory}
+	if executable != "" {
+		candidates = append(candidates, filepath.Dir(executable))
+	}
+	roots := make([]string, 0, len(candidates))
+	seen := make(map[string]bool, len(candidates))
+	for _, candidate := range candidates {
+		root, err := filepath.Abs(candidate)
+		if err != nil || seen[root] {
+			continue
+		}
+		seen[root] = true
+		roots = append(roots, root)
+		if regularSetupFile(root, "go.mod") && regularSetupFile(root, "install.sh") && regularSetupFile(root, "scripts/install-guided.sh") {
+			prefix := "(cd " + shellQuoteCommandArg(root) + " && "
+			return "From this StePanel source checkout (builds matching binaries):",
+				prefix + "./scripts/install-guided.sh --config " + quotedConfig + " --dry-run)",
+				prefix + "./scripts/install-guided.sh --config " + quotedConfig + ")"
+		}
+	}
+	for _, root := range roots {
+		if regularSetupFile(root, "install.sh") && regularSetupFile(root, "stepanel-root") && regularSetupFile(root, "stepanelctl") {
+			prefix := "(cd " + shellQuoteCommandArg(root) + " && sudo ./install.sh --config " + quotedConfig
+			return "From this extracted StePanel release directory (uses its matching binaries):",
+				prefix + " --dry-run)", prefix + ")"
+		}
+	}
+	return "From a StePanel source checkout, run the guided installer (it builds matching binaries):",
+		"./scripts/install-guided.sh --config " + quotedConfig + " --dry-run",
+		"./scripts/install-guided.sh --config " + quotedConfig
+}
+
+func regularSetupFile(root, name string) bool {
+	info, err := os.Stat(filepath.Join(root, name))
+	return err == nil && info.Mode().IsRegular()
 }
 
 // shellQuote returns one POSIX-shell argument. Setup paths are user-selected,

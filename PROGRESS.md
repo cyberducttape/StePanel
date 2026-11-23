@@ -356,7 +356,23 @@
   command, and sitefiles. Frontend syntax and unit tests (19/19) passed for the
   resumable upload work. Playwright discovered 34 tests; customer E2E was not
   run because the disposable seeded instance credentials are not configured.
-  Exact-source hosted CI remains pending. No install was run against the host.
+  Exact-source integration, CodeQL, documentation, and release-evidence checks
+  passed for commit `2d3bebf5`; the package preflight started separately on
+  that source. No install was run against the shared host.
+
+## Print setup commands for the matching install context — 2026-11-23
+
+- `stepanel setup` detects source checkouts and extracted release directories,
+  then prints only the matching installer path. Commands use a quoted absolute
+  directory inside a subshell, so copying them works even after changing the
+  caller's current directory. Existing-settings guidance uses the same command
+  selection.
+- Added regressions for source and release layouts, including directory and
+  settings paths with spaces and apostrophes.
+- Focused setup tests and full `make check` passed locally; `git diff --check`
+  passed. The exact-source integration, browser, and versioned package preflight
+  results are tracked separately; the package's installed-host smoke is still
+  running. No release was published.
 
 ## Aggregate first-install diagnostics — 2026-11-22
 

@@ -232,6 +232,12 @@ matching binaries have already been built. The installation guide shows this
 workflow. Installer publication uses a durable rollback journal around each
 binary rename; injected rename failures and process kills between publication
 steps restore the previous complete executable set before a later build.
+After saving settings, the CLI detects whether it is running from a source
+checkout or an extracted release directory and prints only that context's
+matching installer commands. Each command changes into the detected absolute
+directory in a subshell, so it remains copyable from any later working
+directory. Tests cover both layouts and quote paths containing spaces and
+apostrophes.
 The `stepanelctl doctor` command now presents readiness failures as a readable
 checklist by default, includes the diagnostic and suggested next step, retains
 JSON output for automation, and exits nonzero for critical/not-ready or

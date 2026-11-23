@@ -86,15 +86,21 @@ func TestSetupWritesPrivateInstallerSettings(t *testing.T) {
 			t.Errorf("settings missing %s", want)
 		}
 	}
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := "(cd " + shellQuoteCommandArg(workingDirectory) + " && "
 	for _, command := range []string{
-		"./scripts/install-guided.sh --config " + quotedOutput + " --dry-run",
-		"./scripts/install-guided.sh --config " + quotedOutput,
-		"sudo ./install.sh --config " + quotedOutput + " --dry-run",
-		"sudo ./install.sh --config " + quotedOutput,
+		prefix + "./scripts/install-guided.sh --config " + quotedOutput + " --dry-run)",
+		prefix + "./scripts/install-guided.sh --config " + quotedOutput + ")",
 	} {
 		if !strings.Contains(out.String(), command) {
 			t.Errorf("setup instructions do not include %q:\n%s", command, out.String())
 		}
+	}
+	if strings.Contains(out.String(), "sudo ./install.sh") {
+		t.Fatalf("source checkout guidance should give one matching install path:\n%s", out.String())
 	}
 	if strings.Contains(out.String(), "correct horse") {
 		t.Fatalf("transcript:\n%s", out.String())
@@ -148,10 +154,14 @@ func TestSetupExistingFileShowsDirectInstallCommand(t *testing.T) {
 		t.Fatal("setup accepted an existing output without --force")
 	}
 	message := err.Error()
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, want := range []string{
 		"already exists",
-		"./scripts/install-guided.sh --config " + shellQuoteCommandArg(output),
-		"sudo ./install.sh --config " + shellQuoteCommandArg(output),
+		"(cd " + shellQuoteCommandArg(workingDirectory) + " && ./scripts/install-guided.sh --config " + shellQuoteCommandArg(output) + " --dry-run)",
+		"(cd " + shellQuoteCommandArg(workingDirectory) + " && ./scripts/install-guided.sh --config " + shellQuoteCommandArg(output) + ")",
 		"--force to replace it",
 	} {
 		if !strings.Contains(message, want) {
@@ -160,6 +170,27 @@ func TestSetupExistingFileShowsDirectInstallCommand(t *testing.T) {
 	}
 	if data, err := os.ReadFile(output); err != nil || string(data) != "keep" {
 		t.Fatalf("existing file changed: data=%q err=%v", data, err)
+	}
+}
+
+func TestSetupInstructionsUseMatchingReleaseDirectory(t *testing.T) {
+	releaseDir := filepath.Join(t.TempDir(), "StePanel release's")
+	if err := os.MkdirAll(releaseDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"install.sh", "stepanel-root", "stepanelctl"} {
+		if err := os.WriteFile(filepath.Join(releaseDir, name), []byte("artifact"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	config := shellQuoteCommandArg(filepath.Join(t.TempDir(), "answers user's.env"))
+	description, preview, install := setupInstallCommandsFromContext(config, t.TempDir(), filepath.Join(releaseDir, "stepanel"))
+	prefix := "(cd " + shellQuoteCommandArg(releaseDir) + " && sudo ./install.sh --config " + config
+	if !strings.Contains(description, "extracted StePanel release directory") {
+		t.Fatalf("description = %q", description)
+	}
+	if preview != prefix+" --dry-run)" || install != prefix+")" {
+		t.Fatalf("release commands = %q / %q", preview, install)
 	}
 }
 
