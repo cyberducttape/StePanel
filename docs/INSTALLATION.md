@@ -34,7 +34,7 @@ evidence-backed first installation, use **Ubuntu 24.04 + Caddy + MariaDB**:
 | Platform combination | Tier | Evidence / policy |
 | --- | --- | --- |
 | Ubuntu 24.04 + Apache + MariaDB | Beta; repeat acceptance pending | Earlier [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
-| Ubuntu 24.04 + Caddy + MariaDB | Recommended Beta profile | Exact-source `07726007` install smoke; WordPress database/HTTPS recovery measured 4.380 s ([report](lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-07726007.md)); repeat acceptance pending |
+| Ubuntu 24.04 + Caddy + MariaDB | Recommended Beta profile | Versioned `v0.9.0` candidate from source `2012d87` passed the disposable install smoke; WordPress recovery measured 7.597 s ([report](lab-results/2026-11-23-v0.9.0-ubuntu-install-45146220535.md)). Candidate not published; repeated/physical-host certification pending |
 | AlmaLinux 9 + Apache + MariaDB | Beta; repeat acceptance pending | Exact-source `07726007` install smoke; WordPress recovery measured 7.522 s ([report](lab-results/2026-11-23-el9-first-install-phpcurl-fallback-07726007.md)); repeat acceptance pending |
 | AlmaLinux 9 + Caddy + MariaDB | Beta; repeat acceptance pending | Earlier [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
 | Rocky Linux 9 + Apache + MariaDB | Beta; repeat acceptance pending | Exact-source `07726007` install smoke; WordPress recovery measured 7.576 s ([report](lab-results/2026-11-23-el9-first-install-phpcurl-fallback-07726007.md)); repeat acceptance pending |

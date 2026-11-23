@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -50,6 +51,18 @@ type Check struct {
 	// Variant requires this case-insensitive fragment in a run's display
 	// title. Use it when one workflow implements multiple independent gates.
 	Variant string
+	// CalledBy accepts reusable-workflow callers only when their run contains
+	// the named job prefix. GitHub attributes a reusable workflow run to its
+	// caller, not to the reusable workflow file itself.
+	CalledBy []WorkflowCaller
+}
+
+// WorkflowCaller identifies a workflow that invokes this check as a reusable
+// workflow. RequiredJobPrefix prevents unrelated runs of that caller from
+// being counted as evidence.
+type WorkflowCaller struct {
+	Workflow          string
+	RequiredJobPrefix string
 }
 
 // DefaultChecks are the workflows the release gates cite.
@@ -58,7 +71,7 @@ var DefaultChecks = []Check{
 	{Name: "CI (pull request)", Workflow: "ci.yml", Scope: Code},
 	{Name: "CodeQL", Workflow: "codeql.yml", Scope: Code},
 	{Name: "CI integration", Workflow: "ci-integration.yml", Scope: Code},
-	{Name: "Installation smoke", Workflow: "install-smoke.yml", Scope: Code},
+	{Name: "Installation smoke", Workflow: "install-smoke.yml", Scope: Code, CalledBy: []WorkflowCaller{{Workflow: "release-preflight.yml", RequiredJobPrefix: "Install-test the versioned release archive /"}}},
 	{Name: "Installed recovery cohort", Workflow: "recovery-cohort.yml", Scope: Code},
 	{Name: "Quota-enabled install smoke (ext4)", Workflow: "quota-install-smoke.yml", Scope: Code, Variant: "ext4"},
 	{Name: "Quota-enabled install smoke (XFS)", Workflow: "quota-install-smoke.yml", Scope: Code, Variant: "xfs"},
@@ -80,6 +93,13 @@ type Run struct {
 // Jobs counts a run's jobs by outcome.
 type Jobs struct {
 	Total, Passed, Failed, Queued, Waiting, Running, Unknown int
+}
+
+// ActionJob is the identifying state of one Actions job.
+type ActionJob struct {
+	Name       string `json:"name"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion"`
 }
 
 // Result is the evidence found for one check.
@@ -171,20 +191,26 @@ const maxJobPages = 10
 
 // Jobs counts the jobs of a run's latest attempt.
 func (c *Client) Jobs(ctx context.Context, runID int64) (Jobs, error) {
+	counts, _, err := c.JobsWithDetails(ctx, runID)
+	return counts, err
+}
+
+// JobsWithDetails returns bounded job counts and names from the latest run
+// attempt. Names are needed to identify reusable workflows in caller runs.
+func (c *Client) JobsWithDetails(ctx context.Context, runID int64) (Jobs, []ActionJob, error) {
 	var counts Jobs
+	var details []ActionJob
 	for page := 1; page <= maxJobPages; page++ {
 		var listing struct {
-			TotalCount int `json:"total_count"`
-			Jobs       []struct {
-				Status     string `json:"status"`
-				Conclusion string `json:"conclusion"`
-			} `json:"jobs"`
+			TotalCount int         `json:"total_count"`
+			Jobs       []ActionJob `json:"jobs"`
 		}
 		query := url.Values{"filter": {"latest"}, "per_page": {"100"}, "page": {fmt.Sprint(page)}}
 		if err := c.get(ctx, fmt.Sprintf("/actions/runs/%d/jobs", runID), query, &listing); err != nil {
-			return Jobs{}, err
+			return Jobs{}, nil, err
 		}
 		for _, job := range listing.Jobs {
+			details = append(details, job)
 			counts.Total++
 			switch job.Status {
 			case "completed":
@@ -204,10 +230,10 @@ func (c *Client) Jobs(ctx context.Context, runID int64) (Jobs, error) {
 			}
 		}
 		if len(listing.Jobs) < 100 || counts.Total >= listing.TotalCount {
-			return counts, nil
+			return counts, details, nil
 		}
 	}
-	return Jobs{}, fmt.Errorf("run %d has more than %d jobs", runID, maxJobPages*100)
+	return Jobs{}, nil, fmt.Errorf("run %d has more than %d jobs", runID, maxJobPages*100)
 }
 
 // selectRun picks the evidence among runs on one commit, newest first. A
@@ -236,19 +262,39 @@ func Collect(ctx context.Context, c *Client, repo Repository, commit string, che
 	}
 	equivalent := map[key]bool{}
 	results := make([]Result, 0, len(checks))
+	type runEvidence struct {
+		run            Run
+		requiredPrefix string
+	}
 	for _, check := range checks {
 		result := Result{Check: check}
 		runs, err := c.Runs(ctx, check.Workflow, "", RunHistory)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", check.Name, err)
 		}
-		var matching []Run
-		var relevant []Run
+		candidates := make([]runEvidence, 0, len(runs))
 		for _, run := range runs {
+			candidates = append(candidates, runEvidence{run: run})
+		}
+		for _, caller := range check.CalledBy {
+			callerRuns, callerErr := c.Runs(ctx, caller.Workflow, "", RunHistory)
+			if callerErr != nil {
+				return nil, fmt.Errorf("%s caller %s: %w", check.Name, caller.Workflow, callerErr)
+			}
+			for _, run := range callerRuns {
+				candidates = append(candidates, runEvidence{run: run, requiredPrefix: caller.RequiredJobPrefix})
+			}
+		}
+		sort.SliceStable(candidates, func(i, j int) bool {
+			return candidates[i].run.CreatedAt.After(candidates[j].run.CreatedAt)
+		})
+		var matching, relevant []runEvidence
+		for _, candidate := range candidates {
+			run := candidate.run
 			if check.Variant != "" && !strings.Contains(strings.ToLower(run.DisplayTitle), strings.ToLower(check.Variant)) {
 				continue
 			}
-			relevant = append(relevant, run)
+			relevant = append(relevant, candidate)
 			k := key{run.HeadSHA, check.Scope == Code}
 			same, seen := equivalent[k]
 			if !seen {
@@ -258,16 +304,74 @@ func Collect(ctx context.Context, c *Client, repo Repository, commit string, che
 				equivalent[k] = same
 			}
 			if same {
-				matching = append(matching, run)
+				matching = append(matching, candidate)
 			}
 		}
-		if result.Run = selectRun(matching); result.Run != nil {
-			result.Matches = true
-		} else {
-			result.Run = selectRun(relevant)
+		selected := false
+		jobsByRun := make(map[int64]Jobs)
+		selectCandidate := func(candidates []runEvidence, equivalent bool) error {
+			for _, candidate := range candidates {
+				evidenceRun := candidate.run
+				if candidate.requiredPrefix != "" {
+					counts, details, jobsErr := c.JobsWithDetails(ctx, candidate.run.ID)
+					if jobsErr != nil {
+						return fmt.Errorf("%s reusable-workflow job lookup: %w", check.Name, jobsErr)
+					}
+					var matchingJob *ActionJob
+					for _, job := range details {
+						if strings.HasPrefix(job.Name, candidate.requiredPrefix) {
+							matchingJob = &job
+							break
+						}
+					}
+					if matchingJob == nil {
+						continue
+					}
+					evidenceRun.Status = matchingJob.Status
+					evidenceRun.Conclusion = matchingJob.Conclusion
+					jobsByRun[candidate.run.ID] = counts
+				}
+				result.Run = &evidenceRun
+				result.Matches = equivalent
+				selected = true
+				return nil
+			}
+			return nil
+		}
+		matchingCompleted := make([]runEvidence, 0, len(matching))
+		for _, candidate := range matching {
+			if candidate.run.Conclusion != "cancelled" {
+				matchingCompleted = append(matchingCompleted, candidate)
+			}
+		}
+		if err := selectCandidate(matchingCompleted, true); err != nil {
+			return nil, err
+		}
+		if !selected {
+			if err := selectCandidate(matching, true); err != nil {
+				return nil, err
+			}
+		}
+		if !selected {
+			relevantCompleted := make([]runEvidence, 0, len(relevant))
+			for _, candidate := range relevant {
+				if candidate.run.Conclusion != "cancelled" {
+					relevantCompleted = append(relevantCompleted, candidate)
+				}
+			}
+			if err := selectCandidate(relevantCompleted, false); err != nil {
+				return nil, err
+			}
+			if !selected {
+				if err := selectCandidate(relevant, false); err != nil {
+					return nil, err
+				}
+			}
 		}
 		if result.Run != nil {
-			if result.Jobs, err = c.Jobs(ctx, result.Run.ID); err != nil {
+			if jobs, ok := jobsByRun[result.Run.ID]; ok {
+				result.Jobs = jobs
+			} else if result.Jobs, err = c.Jobs(ctx, result.Run.ID); err != nil {
 				return nil, fmt.Errorf("%s: %w", check.Name, err)
 			}
 		}

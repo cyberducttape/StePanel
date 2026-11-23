@@ -24,8 +24,9 @@ const (
 // fakeAPI serves workflow runs and job listings from maps keyed by workflow
 // file and run ID.
 type fakeAPI struct {
-	runs map[string][]Run
-	jobs map[int64][]string // conclusions; queued/waiting/in_progress are statuses
+	runs     map[string][]Run
+	jobs     map[int64][]string // conclusions; queued/waiting/in_progress are statuses
+	jobNames map[int64][]string
 	// requests records the paths requested, for assertions on pagination.
 	requests []string
 }
@@ -48,18 +49,66 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		all := f.jobs[id]
 		var jobs []map[string]string
 		for i := (page - 1) * 100; i < len(all) && i < page*100; i++ {
+			name := ""
+			if i < len(f.jobNames[id]) {
+				name = f.jobNames[id][i]
+			}
 			switch all[i] {
 			case "":
-				jobs = append(jobs, map[string]string{"status": "in_progress"})
+				jobs = append(jobs, map[string]string{"name": name, "status": "in_progress"})
 			case "queued", "pending", "requested", "waiting", "in_progress", "unknown":
-				jobs = append(jobs, map[string]string{"status": all[i]})
+				jobs = append(jobs, map[string]string{"name": name, "status": all[i]})
 			default:
-				jobs = append(jobs, map[string]string{"status": "completed", "conclusion": all[i]})
+				jobs = append(jobs, map[string]string{"name": name, "status": "completed", "conclusion": all[i]})
 			}
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"total_count": len(all), "jobs": jobs})
 	default:
 		http.NotFound(w, r)
+	}
+}
+
+func TestCollectFindsSuccessfulReusableInstallSmokeInCallerWorkflow(t *testing.T) {
+	installJob := "Install-test the versioned release archive / ubuntu-24.04-caddy-mariadb / shard default"
+	api := &fakeAPI{
+		runs: map[string][]Run{
+			"install-smoke.yml":     nil,
+			"release-preflight.yml": {run(45146220535, shaA, "completed", "success")},
+		},
+		jobs:     map[int64][]string{45146220535: {"success", "success", "success"}},
+		jobNames: map[int64][]string{45146220535: {"Set up job", installJob, "Build and verify versioned release candidate"}},
+	}
+	checks := []Check{{
+		Name: "Installation smoke", Workflow: "install-smoke.yml", Scope: Code,
+		CalledBy: []WorkflowCaller{{Workflow: "release-preflight.yml", RequiredJobPrefix: "Install-test the versioned release archive /"}},
+	}}
+	results, err := Collect(context.Background(), newClient(t, api), sameAs{}, shaA, checks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || !results[0].Matches || results[0].Run == nil || results[0].Run.ID != 45146220535 {
+		t.Fatalf("installation evidence = %+v, want matching caller run", results)
+	}
+	if results[0].Jobs != (Jobs{Total: 3, Passed: 3}) {
+		t.Fatalf("caller run jobs = %+v, want all three successful", results[0].Jobs)
+	}
+
+	api.jobs[45146220535] = []string{"success", "failure", "success"}
+	results, err = Collect(context.Background(), newClient(t, api), sameAs{}, shaA, checks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := outcome(results[0].Run); got != "❌ failed" {
+		t.Fatalf("reusable install job outcome = %q, want failed even if caller succeeds", got)
+	}
+
+	api.jobNames[45146220535] = []string{"Set up job", "Build and verify versioned release candidate"}
+	results, err = Collect(context.Background(), newClient(t, api), sameAs{}, shaA, checks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[0].Matches || results[0].Run != nil {
+		t.Fatalf("caller without install job was incorrectly counted: %+v", results[0])
 	}
 }
 

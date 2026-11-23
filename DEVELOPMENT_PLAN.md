@@ -2423,7 +2423,23 @@ HTTPS/database recovery proof in 7,359 ms, passed one recovery-matrix iteration,
 generated and verified exact-source release evidence and an SBOM, and retained
 the candidate artifact. This was a disposable systemd container without project
 quotas; Git deployment correctly failed closed. No tag was pushed and no release
-was published. Broader production certification remains separate.
+was published. The newer exact-source preflight on `2012d87`
+[45146220535](https://github.com/cyberducttape/StePanel/actions/runs/45146220535)
+also passed: the versioned package installed with cleanup complete, the
+database-backed WordPress HTTPS recovery proof measured 7,597 ms, and one
+recovery-matrix iteration passed. Both amd64/arm64 archive checksums were
+verified locally; the candidate, SPDX SBOM, and exact-source release evidence
+were retained. The report records 4/21 P0 gates complete and the NO-GO release
+decision. This was still a quota-less disposable systemd container, and no tag
+was pushed or release published. See the
+[reviewed result](docs/lab-results/2026-11-23-v0.9.0-ubuntu-install-45146220535.md).
+The candidate's original embedded workflow-evidence table omitted its
+reusable install job because GitHub attributes that job to the caller. The
+evidence collector now verifies the required caller job and reports its own
+status; regression tests cover unrelated callers and failed install jobs.
+The refreshed attribution is documented
+[here](docs/lab-results/2026-11-23-v0.9.0-evidence-attribution.md).
+Broader production certification remains separate.
 
 **Acceptance criteria**
 

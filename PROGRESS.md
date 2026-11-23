@@ -1,28 +1,38 @@
-## Current-source install and abrupt-loss checks are running — 2026-11-23
+## Candidate install evidence and release-report correction — 2026-11-23
 
-- The standard CI workflow passed on exact current source
+- The exact versioned `v0.9.0` candidate preflight
+  [45146220535](https://github.com/cyberducttape/StePanel/actions/runs/45146220535)
+  completed successfully for source `2012d87cf5ec2f9f590433524b050f92017f7f75`.
+  Ubuntu 24.04 + Caddy + MariaDB install and cleanup completed; installed
+  WordPress database/HTTPS recovery measured 7,597 ms; one recovery-matrix
+  iteration passed. The disposable container had no project quotas, so quota
+  enforcement remains open. No tag or release was published.
+- The candidate's embedded evidence report incorrectly omitted the install
+  smoke because GitHub attributes the reusable install workflow to its caller.
+  The evidence collector now recognizes a caller only when its job list
+  contains the install-smoke job, and reports that job's actual status. A
+  regression proves an unrelated preflight is excluded and a failed install
+  job cannot be masked by a successful caller workflow. A refreshed report
+  counts run 45146220535 as a passing install smoke; see
+  [the correction record](docs/lab-results/2026-11-23-v0.9.0-evidence-attribution.md).
+- `GOMAXPROCS=2 go test -p 1 -timeout 30m ./... -count=3` passed all packages.
+  The requested 60-second `FuzzNormalizeName` run passed with 1,996,514
+  executions and no failure. After the evidence-collector change,
+  `go test ./internal/evidence`, `go vet ./internal/evidence`, and
+  `git diff --check` passed; full checks are being rerun before commit.
+- The standard CI workflow passed on exact source
   `a0b95937d5f796461fe303e0194f7be8589caeaf` in
   [run 45151465626](https://github.com/cyberducttape/StePanel/actions/runs/45151465626):
   formatting, release-tree contract, `go vet`, all Go package/security tests,
   frontend unit tests, and shell syntax checks. The exact-source report
   [45151965434](https://github.com/cyberducttape/StePanel/actions/runs/45151965434)
   records 3 executable checks passed, 6 incomplete, and a **NO-GO** production
-  decision. It was generated while the candidate install smoke was active, so
-  it correctly does not count that install result.
-- The manually dispatched `v0.9.0` candidate preflight
-  [45146220535](https://github.com/cyberducttape/StePanel/actions/runs/45146220535)
-  builds the exact versioned archive from source
-  `2012d87cf5ec2f9f590433524b050f92017f7f75`.
-  Archive verification and disposable-host startup passed; the install and
-  recovery smoke remains active. It has no result yet and no release is being
-  published.
+  decision. That report predates candidate completion.
 - The uncushioned Rocky Linux 9 KVM interruption workflow
   [45150861029](https://github.com/cyberducttape/StePanel/actions/runs/45150861029)
   runs source `edd11d472dd856a4da1997118db34fc9b5950c2c`, with file restore,
   database restore, Git deploy, retention, control-plane write, and interrupted
-  backup scenarios. KVM setup and verified image download passed; the boot,
-  install, and interruption drill remains active. No recovery result is counted
-  yet.
+  backup scenarios. It remains active; no recovery result is counted yet.
 - The ext4 quota-enabled install workflow
   [45151625662](https://github.com/cyberducttape/StePanel/actions/runs/45151625662)
   is running on the same current source. It boots a disposable quota-enabled
