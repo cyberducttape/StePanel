@@ -28,8 +28,10 @@
   hosted integration passed ([45155198110](https://github.com/cyberducttape/StePanel/actions/runs/45155198110)),
   including full Go race tests, tmpfs ENOSPC recovery, mixed HTTP load, MySQL
   and PostgreSQL restore integrations, and seeded browser/accessibility E2E.
-  The documentation/CodeQL follow-up for the progress-only descendant is
-  running.
+  Documentation [45159787534](https://github.com/cyberducttape/StePanel/actions/runs/45159787534)
+  and CodeQL [45159785529](https://github.com/cyberducttape/StePanel/actions/runs/45159785529)
+  also passed on the docs-only descendant `046af5ee`. This progress refresh is
+  itself documentation-only; its normal docs and CodeQL checks are pending.
 - The standard CI workflow passed on exact source
   `a0b95937d5f796461fe303e0194f7be8589caeaf` in
   [run 45151465626](https://github.com/cyberducttape/StePanel/actions/runs/45151465626):
@@ -45,8 +47,9 @@
   alert delivery/retry. The reviewed [report](docs/lab-results/2026-11-23-rocky-kvm-abrupt-loss-edd11d47.md)
   links the retained logs and records the source relationship and limitations.
   An exact-current-source rerun [45158813904](https://github.com/cyberducttape/StePanel/actions/runs/45158813904)
-  is now running; one older-source pass is not counted as repeated or physical
-  power-loss certification.
+  is actively running the same KVM matrix on code source `4e9ca58a` (the
+  subsequent `046af5ee` commit changes documentation only); one older-source
+  pass is not counted as repeated or physical power-loss certification.
 - The ext4 quota-enabled install workflow
   [45151625662](https://github.com/cyberducttape/StePanel/actions/runs/45151625662)
   is running on the same current source. It boots a disposable quota-enabled
