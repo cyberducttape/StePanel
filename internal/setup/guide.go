@@ -27,7 +27,7 @@ import (
 
 // ErrCancelled is returned when the operator declines to continue or input
 // ends before the guide finishes.
-var ErrCancelled = errors.New("setup cancelled; nothing was written")
+var ErrCancelled = errors.New("setup cancelled; installer settings were not saved. Any rclone configuration you created remains")
 
 // Host provides the guide's side effects.
 type Host interface {
@@ -288,7 +288,10 @@ func (g *Guide) Run() (Answers, error) {
 	g.say("If rclone is installed without a remote, setup can open its storage")
 	g.say("configuration after you confirm the host and stack support tier.")
 	g.say("Press Enter to accept a [default].")
-	g.say("Nothing on this server changes until you confirm the installation.")
+	g.say("This wizard does not install host packages or change system services.")
+	g.say("If you choose to configure a backup remote, rclone updates your user-level")
+	g.say("configuration immediately; that change remains if you cancel setup.")
+	g.say("The native installer asks separately before making system changes.")
 	g.say("")
 	g.say("Support status: StePanel is Operator Beta, not production-certified.")
 	g.say("Most-tested starting point: Ubuntu 24.04 + Caddy + MariaDB.")

@@ -4900,3 +4900,16 @@ does not close a current-source or power-loss gate.
   `bash scripts/test-install-quota-preflight.sh`, and `git diff --check` passed.
 - This does not certify quota enforcement on an installed host; that remains a
   release gate.
+
+## Clarify setup cancellation after rclone configuration — 2026-11-23
+
+- The wizard configures rclone before its final settings-save prompt when the
+  operator chooses to create a backup remote. Its old introduction promised
+  no host changes until install confirmation, and its cancellation error said
+  nothing had been written. Both statements hid that retained per-user
+  configuration.
+- The wizard now explains that rclone writes its user-level config at that
+  step and that it remains if setup is canceled. Cancellation says installer
+  settings were not saved and calls out the rclone config that remains.
+- Added a configure-remote-then-cancel regression. `go test
+  ./internal/setup -count=1` passed; full checks and hosted CI are pending.

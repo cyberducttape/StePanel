@@ -2691,3 +2691,22 @@ Documentation, CodeQL, and release-evidence workflows also passed.
 - The seeded browser screenshot regression and frontend unit suite pass;
   exact-source hosted CI passes.
 
+### M0bf — Make setup cancellation honest about rclone changes (P2)
+
+**Status:** Implemented locally. The setup guide now says that choosing to
+configure an offsite remote updates the current user's rclone configuration
+immediately and that it remains if setup is later canceled. The cancellation
+error distinguishes unsaved installer settings from that retained rclone
+configuration. `go test ./internal/setup -count=1` passes; full local and
+exact-source hosted checks are pending.
+
+**Acceptance criteria**
+
+- The guide explains the rclone configuration side effect before asking the
+  operator to make it.
+- Canceling after rclone configuration reports that installer settings were
+  not saved and that the chosen rclone configuration remains.
+- A regression exercises the configure-then-cancel path and confirms settings
+  are not reported saved.
+- Setup tests, full checks, and exact-source CI pass.
+

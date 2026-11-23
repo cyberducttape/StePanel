@@ -312,6 +312,30 @@ func TestGuideConfiguresRcloneAfterSupportReview(t *testing.T) {
 	}
 }
 
+func TestGuideCancellationExplainsRcloneConfigurationPersists(t *testing.T) {
+	host := newHost()
+	host.remotes = nil
+	_, out, err := run(t, host,
+		[]string{"", "", "y", "", "", "123456", "", "n"},
+		[]string{password, password})
+	if !errors.Is(err, ErrCancelled) {
+		t.Fatalf("err = %v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"rclone updates your user-level",
+		"that change remains if you cancel setup",
+		"installer settings were not saved",
+		"Any rclone configuration you created remains",
+	} {
+		if !strings.Contains(out, want) && !strings.Contains(err.Error(), want) {
+			t.Errorf("cancellation omitted %q\noutput: %s\nerror: %v", want, out, err)
+		}
+	}
+	if host.configures != 1 || strings.Contains(out, "Settings saved") {
+		t.Fatalf("expected persisted rclone config but no installer settings: configures=%d\n%s", host.configures, out)
+	}
+}
+
 func TestGuideCanBeDeclined(t *testing.T) {
 	_, _, err := run(t, newHost(), []string{"", "", "", "", "", "123456", "", "n"}, []string{password, password})
 	if !errors.Is(err, ErrCancelled) {
