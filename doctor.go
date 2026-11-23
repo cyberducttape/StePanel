@@ -114,6 +114,7 @@ func (a *App) checkProductionReadiness() ProductionReadinessReport {
 		checkDeploymentModeReadiness(),
 		a.checkKernelReadiness(),
 		a.checkControlPlaneReadiness(),
+		a.checkControlPlaneIntegrityReadiness(),
 		a.checkWorkerReadiness(),
 		a.checkRootBrokerReadiness(),
 		a.checkWebServerReadiness(),
@@ -203,12 +204,49 @@ func (a *App) checkControlPlaneReadiness() ProductionReadinessCheck {
 	if a.Jobs == nil {
 		return ProductionReadinessCheck{Name: "Control Plane", Status: "fail", Severity: "critical", Message: "durable job store is not initialized"}
 	}
-	if a.Jobs.db != nil {
-		if err := a.Jobs.IntegrityCheck(); err != nil {
-			return ProductionReadinessCheck{Name: "Control Plane", Status: "fail", Severity: "critical", Message: "control-plane integrity check failed: " + err.Error()}
+	check, err := a.Jobs.ReadinessStatus()
+	if err != nil || !check.Ready {
+		message := check.Detail
+		if message == "" && err != nil {
+			message = err.Error()
+		}
+		return ProductionReadinessCheck{Name: "Control Plane", Status: "fail", Severity: "critical", Message: message, Remediation: "Check control-plane database availability and free disk space; preserve the database before attempting repair"}
+	}
+	return ProductionReadinessCheck{Name: "Control Plane", Status: "pass", Severity: "info", Message: check.Detail}
+}
+
+// Full SQLite verification runs in the background maintenance loop. The
+// interactive doctor reports the latest result rather than competing with
+// active job transactions by running quick_check synchronously.
+func (a *App) checkControlPlaneIntegrityReadiness() ProductionReadinessCheck {
+	if a.Jobs == nil || a.Jobs.db == nil {
+		return ProductionReadinessCheck{Name: "Control Plane Integrity", Status: "fail", Severity: "critical", Message: "durable control-plane database is unavailable"}
+	}
+	checkedAt, integrityErr, checked := a.Jobs.IntegrityStatus()
+	if !checked {
+		return ProductionReadinessCheck{
+			Name:        "Control Plane Integrity",
+			Status:      "warning",
+			Severity:    "warning",
+			Message:     "a full SQLite integrity verification has not completed since this process started",
+			Remediation: "Wait for the scheduled control-plane integrity check, then run stepanelctl doctor again",
 		}
 	}
-	return ProductionReadinessCheck{Name: "Control Plane", Status: "pass", Severity: "info", Message: "durable job and control-plane state are available"}
+	if integrityErr != nil {
+		return ProductionReadinessCheck{
+			Name:        "Control Plane Integrity",
+			Status:      "fail",
+			Severity:    "critical",
+			Message:     fmt.Sprintf("full SQLite integrity verification failed at %s: %v", checkedAt.Format(time.RFC3339), integrityErr),
+			Remediation: "Stop control-plane mutations and follow the database recovery runbook; do not delete or replace the database",
+		}
+	}
+	return ProductionReadinessCheck{
+		Name:     "Control Plane Integrity",
+		Status:   "pass",
+		Severity: "info",
+		Message:  "full SQLite integrity verification succeeded at " + checkedAt.Format(time.RFC3339),
+	}
 }
 
 func (a *App) checkWorkerReadiness() ProductionReadinessCheck {

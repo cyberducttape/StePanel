@@ -1,3 +1,18 @@
+## Keep operator doctor checks responsive — 2026-11-23
+
+- `stepanelctl doctor` no longer runs SQLite `PRAGMA quick_check` synchronously
+  while answering a readiness report. It uses the existing bounded control-plane
+  query, then reports the last full background integrity scan and its timestamp.
+  Missing evidence is an explicit warning; failed scans include recovery
+  guidance. This avoids making a manual diagnostic compete for the single
+  SQLite connection with active job traffic.
+- Added regression coverage for the unverified, passed, and failed integrity
+  states, and verified the readiness check does not trigger a scan.
+- Focused doctor tests, focused race test, full `make check` (including `go vet`
+  and all Go packages), and `git diff --check` passed locally. Exact-source hosted
+  CI has not run yet. This does not establish SQLite's certified production
+  capacity envelope.
+
 ## Make the large-file SFTP handoff usable — 2026-11-23
 
 - The customer Files page now has an expandable SFTP guide for transfers beyond
