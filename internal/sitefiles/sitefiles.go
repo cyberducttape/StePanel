@@ -135,6 +135,13 @@ type Store interface {
 	Delete(ctx context.Context, site SiteAccess, path string) error
 }
 
+// LargeWriter publishes a fully verified resumable upload without buffering
+// it in the panel process. Implementations must retain the Store path and
+// atomic replacement guarantees.
+type LargeWriter interface {
+	WriteLarge(ctx context.Context, site SiteAccess, path string, content io.Reader, expectedRevision string) error
+}
+
 // Clean validates a path relative to a document root and returns it in the
 // form the helper accepts: "" for the root itself, otherwise slash-separated
 // components with no empty, "." or ".." component and no control

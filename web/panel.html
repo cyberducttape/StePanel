@@ -83,7 +83,7 @@
             <label class="quiet-action file-upload-label" for="fileUpload">Upload files</label><input type="file" id="fileUpload" multiple class="visually-hidden">
             <button type="button" class="quiet-action" id="fileRefresh">Refresh</button>
           </div>
-          <p class="import-copy" id="fileTransferLimits">Edit files up to 2 MiB, upload files up to 4 MiB, and download files up to 40 GiB. Use SFTP for larger transfers.</p>
+          <p class="import-copy" id="fileTransferLimits">Edit files up to 2 MiB. Upload files up to 100 MiB in resumable, checksum-verified chunks; downloads support files up to 40 GiB.</p>
           <form class="file-name-form" id="fileNameForm" hidden><div class="field"><label for="fileNameInput" id="fileNameLabel">Name</label><input id="fileNameInput" name="name" maxlength="255" autocomplete="off" spellcheck="false" required></div><button type="submit" class="primary-action" id="fileNameSubmit">Create</button><button type="button" class="quiet-action" id="fileNameCancel">Cancel</button></form>
           <p class="import-note" id="fileStatus" role="status" aria-live="polite">Choose a website to browse its files.</p>
           <div class="file-table-wrap"><table class="file-table" id="fileTable" hidden><caption class="visually-hidden">Folder contents</caption><thead><tr><th scope="col">Name</th><th scope="col">Size</th><th scope="col">Modified</th><th scope="col">Permissions</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead><tbody id="fileRows"></tbody></table></div>

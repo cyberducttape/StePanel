@@ -3,6 +3,8 @@ package stepanel
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -182,6 +184,80 @@ func TestSiteFilesRejectsStaleEditorRevision(t *testing.T) {
 	}
 	if contents, err := os.ReadFile(file); err != nil || string(contents) != "version two from another editor" {
 		t.Fatalf("stale edit changed current contents to %q: %v", contents, err)
+	}
+}
+
+func TestSiteFilesResumableUploadPublishesVerifiedLargeFile(t *testing.T) {
+	a, docRoot := newSiteFilesApp(t)
+	a.Config.ImportRoot = filepath.Join(t.TempDir(), "imports")
+	content := bytes.Repeat([]byte("u"), sitefiles.MaxWriteBytes+19)
+	digest := sha256.Sum256(content)
+	beginBody, _ := json.Marshal(map[string]any{"path": "large.bin", "size": len(content), "sha256": hex.EncodeToString(digest[:])})
+	begin := siteFilesRequest(a, "alice", http.MethodPost, "/api/sites/files/alice/uploads", beginBody)
+	if begin.Code != http.StatusCreated {
+		t.Fatalf("begin = %d %s", begin.Code, begin.Body)
+	}
+	var session struct {
+		ID     string `json:"id"`
+		Path   string `json:"path"`
+		Size   int64  `json:"size"`
+		Offset int64  `json:"offset"`
+		SHA256 string `json:"sha256"`
+	}
+	if err := json.Unmarshal(begin.Body.Bytes(), &session); err != nil {
+		t.Fatal(err)
+	}
+	if session.ID == "" || session.Path != "large.bin" || session.Size != int64(len(content)) {
+		t.Fatalf("begin response leaked or omitted expected metadata: %+v", session)
+	}
+	put := func(offset int64, part []byte) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodPut, "/api/sites/files/alice/uploads/"+session.ID, bytes.NewReader(part))
+		r.Header.Set("Upload-Offset", strconv.FormatInt(offset, 10))
+		ctx := context.WithValue(r.Context(), apiTokenUsernameKey{}, "alice")
+		w := httptest.NewRecorder()
+		a.siteFiles(w, r.WithContext(ctx))
+		return w
+	}
+	first := put(0, content[:sitefiles.MaxWriteBytes])
+	if first.Code != http.StatusOK {
+		t.Fatalf("first chunk = %d %s", first.Code, first.Body)
+	}
+	var progress struct {
+		Offset int64 `json:"offset"`
+	}
+	if err := json.Unmarshal(first.Body.Bytes(), &progress); err != nil || progress.Offset != sitefiles.MaxWriteBytes {
+		t.Fatalf("chunk progress = %+v, %v", progress, err)
+	}
+	second := put(progress.Offset, content[progress.Offset:])
+	if second.Code != http.StatusOK {
+		t.Fatalf("second chunk = %d %s", second.Code, second.Body)
+	}
+	wrongTenant := siteFilesRequest(a, "bob", http.MethodGet, "/api/sites/files/alice/uploads/"+session.ID, nil)
+	if wrongTenant.Code != http.StatusForbidden && wrongTenant.Code != http.StatusNotFound {
+		t.Fatalf("cross-tenant session status = %d %s", wrongTenant.Code, wrongTenant.Body)
+	}
+	complete := siteFilesRequest(a, "alice", http.MethodPost, "/api/sites/files/alice/uploads/"+session.ID+"/complete", []byte(`{}`))
+	if complete.Code != http.StatusOK {
+		t.Fatalf("complete = %d %s", complete.Code, complete.Body)
+	}
+	got, err := os.ReadFile(filepath.Join(docRoot, "large.bin"))
+	if err != nil || !bytes.Equal(got, content) {
+		t.Fatalf("published upload length=%d err=%v", len(got), err)
+	}
+	if _, err := os.Stat(filepath.Join(a.Config.ImportRoot, "site-file-uploads", session.ID+".part")); !os.IsNotExist(err) {
+		t.Fatalf("staging file remains: %v", err)
+	}
+}
+
+func TestSiteFilesResumableUploadRejectsInsufficientCapacity(t *testing.T) {
+	a, _ := newSiteFilesApp(t)
+	a.Metrics = NewMetrics()
+	a.Config.ImportRoot = filepath.Join(t.TempDir(), "imports")
+	a.Config.MinFreeBytes = ^uint64(0) / 2
+	payload, _ := json.Marshal(map[string]any{"path": "large.bin", "size": int64(1024), "sha256": strings.Repeat("a", 64)})
+	w := siteFilesRequest(a, "alice", http.MethodPost, "/api/sites/files/alice/uploads", payload)
+	if w.Code != http.StatusInsufficientStorage || !strings.Contains(w.Body.String(), "insufficient free space") {
+		t.Fatalf("capacity rejection = %d %s", w.Code, w.Body)
 	}
 }
 
@@ -370,5 +446,22 @@ func TestSiteFilesRefusesUnsafeRequests(t *testing.T) {
 	big := bytes.Repeat([]byte("x"), 4<<20+1)
 	if w := siteFilesRequest(a, "alice", http.MethodPut, "/api/sites/files/alice/content?path=big", big); w.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversized write = %d", w.Code)
+	}
+}
+
+func TestSiteFilesUploadErrorsAreActionable(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want int
+	}{
+		{sitefiles.ErrUploadIncomplete, http.StatusConflict},
+		{sitefiles.ErrUploadOffset, http.StatusConflict},
+		{sitefiles.ErrUploadChecksum, http.StatusUnprocessableEntity},
+	} {
+		w := httptest.NewRecorder()
+		writeSiteFilesError(w, tc.err)
+		if w.Code != tc.want {
+			t.Errorf("writeSiteFilesError(%v) = %d, want %d", tc.err, w.Code, tc.want)
+		}
 	}
 }

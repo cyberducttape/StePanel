@@ -25,6 +25,22 @@ func TestFileChunkReaderRequiresExplicitTerminator(t *testing.T) {
 	}
 }
 
+func TestFileChunkReaderReleasesConsumedRequestBytes(t *testing.T) {
+	var framed bytes.Buffer
+	if _, err := writeFileStream(&framed, strings.NewReader("hello"), 10); err != nil {
+		t.Fatal(err)
+	}
+	wantConsumed := int64(framed.Len())
+	var consumed int64
+	got, err := io.ReadAll(NewFileContentReader(bytes.NewReader(framed.Bytes()), func(n int64) { consumed += n }))
+	if err != nil || string(got) != "hello" {
+		t.Fatalf("decoded = %q, %v", got, err)
+	}
+	if consumed != wantConsumed {
+		t.Fatalf("released %d request bytes, want %d", consumed, wantConsumed)
+	}
+}
+
 func TestFileChunkReaderRejectsOversizedFrame(t *testing.T) {
 	var header [4]byte
 	binary.BigEndian.PutUint32(header[:], fileStreamChunk+1)

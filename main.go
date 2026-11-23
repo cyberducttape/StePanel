@@ -32,6 +32,7 @@ import (
 	"github.com/cyberducttape/StePanel/internal/recovery"
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	"github.com/cyberducttape/StePanel/internal/safehttp"
+	"github.com/cyberducttape/StePanel/internal/sitefiles"
 	"github.com/cyberducttape/StePanel/internal/siteidentity"
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 	"github.com/cyberducttape/StePanel/internal/sqliteutil"
@@ -87,6 +88,9 @@ type App struct {
 	fpmStatusCache           map[string]fpmStatusCacheEntry
 	gitActivationMu          sync.Mutex
 	capacityInitMu           sync.Mutex
+	fileUploadMu             sync.Mutex
+	fileUploads              *sitefiles.UploadManager
+	fileUploadReservations   map[string]*siteFileUploadReservation
 	webhookReplayCache       *WebhookReplayCache
 	siteOperations           operations.Locks
 	dbLocks                  *operations.DBLocks
@@ -844,6 +848,13 @@ func Main() {
 					log.Printf("schedule audit checkpoint publication: %v", err)
 				}
 			case <-cleanupTicker.C:
+				if manager, _, err := app.siteFileUploadManager(); err != nil {
+					app.observeStateError(state.NewCleanupError("site_file_upload_cleanup", err, "resumable site file upload cleanup"))
+				} else {
+					for _, id := range manager.PruneExpired(time.Now().UTC()) {
+						app.releaseUploadReservation(id)
+					}
+				}
 				if pruned, err := app.Domains.pruneExpired(time.Now().UTC(), domainClaimPruneBatch); err != nil {
 					app.observeStateError(state.NewCleanupError("domain_claim_retention", err, "expired domain reservation cleanup"))
 				} else if pruned > 0 {

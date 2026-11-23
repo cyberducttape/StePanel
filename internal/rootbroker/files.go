@@ -46,6 +46,11 @@ type FilesResponse struct {
 
 const filectlPath = "/usr/local/sbin/stepanel-filectl"
 
+// MaxStreamedFileWriteBytes is the largest typed file stream the broker will
+// accept. Large files are framed through the socket and staged on disk; they
+// are not held in the request memory budget as one buffer.
+const MaxStreamedFileWriteBytes = sitefiles.MaxResumableUploadBytes
+
 // filesReadOnlyActions do not change the site and need no fencing token.
 var filesReadOnlyActions = map[string]bool{"list": true, "read": true, "download": true}
 
@@ -64,7 +69,7 @@ func (v *Validator) validateFilesRequest(req *FilesRequest) error {
 		clean = sitefiles.CleanTarget
 	}
 	switch req.Action {
-	case "list", "read", "download", "write", "mkdir", "rename", "delete":
+	case "list", "read", "download", "write", "write-large", "mkdir", "rename", "delete":
 	default:
 		return fmt.Errorf("unsupported files action %q", req.Action)
 	}
@@ -88,7 +93,7 @@ func (v *Validator) validateFilesRequest(req *FilesRequest) error {
 		}
 	} else if req.StreamResponse {
 		return fmt.Errorf("files %s does not stream a response", req.Action)
-	} else if req.Action == "write" {
+	} else if req.Action == "write" || req.Action == "write-large" {
 		if !req.StreamContent || req.ContentReader == nil {
 			return errors.New("file writes require a streamed content body")
 		}
@@ -216,7 +221,7 @@ func (b *Broker) handleFilesRequest(ctx context.Context, req *FilesRequest) (*Re
 		return &Response{OK: false, Error: fmt.Sprintf("site %q is not placed in a hosting account", req.Site)}, nil
 	}
 	args := []string{req.Action, req.Site, user, req.Path}
-	if req.Action == "write" {
+	if req.Action == "write" || req.Action == "write-large" {
 		args = append(args, req.ExpectedRevision)
 	}
 	if req.Action == "rename" {
@@ -224,22 +229,24 @@ func (b *Broker) handleFilesRequest(ctx context.Context, req *FilesRequest) (*Re
 	}
 	cmd := stepanelhelper.NewCommand(ctx, b.filectlPath(), args...)
 	var staged *os.File
-	if req.Action == "write" {
+	var streamedContent *boundedFilesReader
+	if req.Action == "write" || req.Action == "write-large" {
+		maxBytes := int64(sitefiles.MaxWriteBytes)
+		if req.Action == "write-large" {
+			maxBytes = sitefiles.MaxResumableUploadBytes
+		}
 		staged, err = os.CreateTemp("", "stepanel-file-upload-*")
 		if err != nil {
 			return nil, fmt.Errorf("stage streamed file content: %w", err)
 		}
-		defer func() {
-			name := staged.Name()
-			_ = staged.Close()
-			_ = os.Remove(name)
-		}()
-		written, copyErr := io.Copy(staged, io.LimitReader(req.ContentReader, sitefiles.MaxWriteBytes+1))
+		defer func() { name := staged.Name(); _ = staged.Close(); _ = os.Remove(name) }()
+		streamedContent = &boundedFilesReader{reader: req.ContentReader, limit: maxBytes}
+		written, copyErr := io.Copy(staged, streamedContent)
 		if copyErr != nil {
 			return &Response{OK: false, Error: "files write failed: incomplete streamed content"}, nil
 		}
-		if written > sitefiles.MaxWriteBytes {
-			return &Response{OK: false, Error: fmt.Sprintf("files write failed: file is larger than %d bytes", sitefiles.MaxWriteBytes)}, nil
+		if written > maxBytes {
+			return &Response{OK: false, Error: fmt.Sprintf("files write failed: file is larger than %d bytes", maxBytes)}, nil
 		}
 		if _, err := staged.Seek(0, io.SeekStart); err != nil {
 			return nil, fmt.Errorf("rewind streamed file content: %w", err)
@@ -254,7 +261,13 @@ func (b *Broker) handleFilesRequest(ctx context.Context, req *FilesRequest) (*Re
 	}
 	stdout, stderr, err := stepanelhelper.RunCappedSeparate(ctx, cmd, stdoutLimit, maxBrokerCommandOutput)
 	if err != nil {
+		if streamedContent != nil && streamedContent.readErr != nil {
+			return &Response{OK: false, Error: "files write failed: incomplete streamed content"}, nil
+		}
 		return &Response{OK: false, Error: fmt.Sprintf("files %s failed: %s", req.Action, filesHelperError(err, stderr))}, nil
+	}
+	if streamedContent != nil && streamedContent.count > streamedContent.limit {
+		return &Response{OK: false, Error: fmt.Sprintf("files write failed: file is larger than %d bytes", streamedContent.limit)}, nil
 	}
 	var result FilesResponse
 	switch req.Action {
@@ -275,6 +288,29 @@ func (b *Broker) handleFilesRequest(ctx context.Context, req *FilesRequest) (*Re
 		return nil, err
 	}
 	return &Response{OK: true, Details: details}, nil
+}
+
+type boundedFilesReader struct {
+	reader  io.Reader
+	limit   int64
+	count   int64
+	readErr error
+}
+
+func (r *boundedFilesReader) Read(p []byte) (int, error) {
+	remaining := r.limit + 1 - r.count
+	if remaining <= 0 {
+		return 0, io.EOF
+	}
+	if int64(len(p)) > remaining {
+		p = p[:remaining]
+	}
+	n, err := r.reader.Read(p)
+	r.count += int64(n)
+	if err != nil && !errors.Is(err, io.EOF) {
+		r.readErr = err
+	}
+	return n, err
 }
 
 // filesHelperError keeps the helper's own explanation, which is written for
@@ -327,11 +363,21 @@ func (c *Client) Files(ctx context.Context, req FilesRequest) (FilesResponse, er
 // FilesWrite streams file bytes separately from the JSON request metadata.
 // This avoids base64 expansion and whole-file copies in the panel and broker.
 func (c *Client) FilesWrite(ctx context.Context, site, tenantID, rel string, content io.Reader, expectedRevision string) error {
+	return c.filesWrite(ctx, "write", site, tenantID, rel, content, expectedRevision)
+}
+
+// FilesWriteLarge streams a staged, checksum-verified upload directly to the
+// atomic file helper. The helper enforces the larger cap independently.
+func (c *Client) FilesWriteLarge(ctx context.Context, site, tenantID, rel string, content io.Reader, expectedRevision string) error {
+	return c.filesWrite(ctx, "write-large", site, tenantID, rel, content, expectedRevision)
+}
+
+func (c *Client) filesWrite(ctx context.Context, action, site, tenantID, rel string, content io.Reader, expectedRevision string) error {
 	if content == nil {
 		return errors.New("file content is required")
 	}
 	req := &Request{RequestType: "files", Files: &FilesRequest{
-		Action: "write", Site: site, TenantID: tenantID, Path: rel, StreamContent: true, ExpectedRevision: expectedRevision,
+		Action: action, Site: site, TenantID: tenantID, Path: rel, StreamContent: true, ExpectedRevision: expectedRevision,
 	}}
 	if tokens := operations.FencingTokens(ctx); len(tokens) > 0 {
 		req.Fencing = tokens

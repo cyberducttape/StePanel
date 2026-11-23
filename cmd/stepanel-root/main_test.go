@@ -524,3 +524,73 @@ func TestStdinTransportRejectsOversizedRequest(t *testing.T) {
 		t.Fatal("transport kept reading after an oversized request")
 	}
 }
+
+type drainFileStreamExecutor struct{ bytes int64 }
+
+func (e *drainFileStreamExecutor) Execute(_ context.Context, req *rootbroker.Request) (*rootbroker.Response, error) {
+	if req.Files == nil || req.Files.ContentReader == nil {
+		return nil, errors.New("streamed content is missing")
+	}
+	n, err := io.Copy(io.Discard, req.Files.ContentReader)
+	e.bytes = n
+	if err != nil {
+		return nil, err
+	}
+	return &rootbroker.Response{OK: true}, nil
+}
+
+type zeroBytesReader struct{}
+
+func (zeroBytesReader) Read(p []byte) (int, error) { clear(p); return len(p), nil }
+
+func TestStdinTransportStreamsFileBeyondMemoryBudget(t *testing.T) {
+	contentSize := int64(maxBufferedRequestBytes) + 1
+	reader, writer := io.Pipe()
+	producerDone := make(chan error, 1)
+	go func() {
+		encoder := json.NewEncoder(writer)
+		err := encoder.Encode(rootbroker.Request{RequestType: "files", Files: &rootbroker.FilesRequest{Action: "write-large", Site: "alice", TenantID: "alice", Path: "large.bin", StreamContent: true}})
+		if err == nil {
+			remaining := contentSize
+			buffer := make([]byte, 32<<10)
+			for remaining > 0 {
+				n := int64(len(buffer))
+				if n > remaining {
+					n = remaining
+				}
+				var header [4]byte
+				binary.BigEndian.PutUint32(header[:], uint32(n))
+				if _, err = writer.Write(header[:]); err != nil {
+					break
+				}
+				if _, err = io.CopyN(writer, zeroBytesReader{}, n); err != nil {
+					break
+				}
+				remaining -= n
+			}
+			if err == nil {
+				var end [4]byte
+				_, err = writer.Write(end[:])
+			}
+		}
+		_ = writer.CloseWithError(err)
+		producerDone <- err
+	}()
+	executor := &drainFileStreamExecutor{}
+	var output strings.Builder
+	serveRequests(executor, reader, &output, log.New(io.Discard, "", 0))
+	_ = reader.Close()
+	if err := <-producerDone; err != nil {
+		t.Fatal(err)
+	}
+	if executor.bytes != contentSize {
+		t.Fatalf("streamed %d bytes, want %d", executor.bytes, contentSize)
+	}
+	var response rootbroker.Response
+	if err := json.NewDecoder(strings.NewReader(output.String())).Decode(&response); err != nil || !response.OK {
+		t.Fatalf("stream response = %+v, %v", response, err)
+	}
+	if used := brokerRequestBudget.used.Load(); used != 0 {
+		t.Fatalf("broker retained %d streamed bytes in its memory budget", used)
+	}
+}

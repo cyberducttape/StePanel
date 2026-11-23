@@ -73,7 +73,7 @@ var typedTimeouts = map[string]map[string]time.Duration{
 		"quota-clear": timeoutConfig, "place": timeoutConfig, "unplace": timeoutLifecycle,
 	},
 	"files": {
-		"list": timeoutListing, "read": timeoutConfig, "download": 12 * time.Hour, "write": timeoutConfig,
+		"list": timeoutListing, "read": timeoutConfig, "download": 12 * time.Hour, "write": timeoutConfig, "write-large": timeoutBulk,
 		"mkdir": timeoutConfig, "rename": timeoutConfig, "delete": timeoutLifecycle,
 	},
 	"git": {

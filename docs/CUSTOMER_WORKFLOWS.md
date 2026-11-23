@@ -92,9 +92,11 @@ mutation lock, and is recorded in the account's audit trail
 (`site.files.write`, `site.files.mkdir`, `site.files.rename`,
 `site.files.delete`).
 
-- Open files up to 2 MiB in the editor and save or upload files up to 4 MiB.
-  Downloads stream directly and support regular files up to 40 GiB. Use SFTP
-  for uploads larger than 4 MiB or downloads larger than 40 GiB.
+- Open files up to 2 MiB in the editor. Inline uploads remain capped at 4 MiB;
+  larger uploads use resumable 4 MiB chunks up to 100 MiB, with a SHA-256
+  check before atomic publication. An interrupted upload can resume for 24
+  hours when the customer reselects the same file in the same browser tab.
+  Downloads stream directly and support regular files up to 40 GiB.
 - Directory views return at most 5,000 entries and identify truncated results.
   Enumeration is capped while reading the directory, with a short deadline
   and per-tenant concurrency limit.

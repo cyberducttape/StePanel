@@ -78,6 +78,24 @@ func TestSiteFileDownloadTimeoutClassificationIsNarrow(t *testing.T) {
 	}
 }
 
+func TestResumableSiteFileTransferTimeoutClassificationIsNarrow(t *testing.T) {
+	for _, tc := range []struct {
+		method, path string
+		want         bool
+	}{
+		{http.MethodPut, "/api/sites/files/shop/uploads/0123456789abcdef0123456789abcdef", true},
+		{http.MethodPost, "/api/sites/files/shop/uploads/0123456789abcdef0123456789abcdef/complete", true},
+		{http.MethodPost, "/api/sites/files/shop/uploads", false},
+		{http.MethodGet, "/api/sites/files/shop/uploads/0123456789abcdef0123456789abcdef", false},
+		{http.MethodPut, "/api/sites/files/shop/content", false},
+	} {
+		r := httptest.NewRequest(tc.method, tc.path, nil)
+		if got := IsSiteFileUpload(r); got != tc.want {
+			t.Errorf("IsSiteFileUpload(%s %s) = %v, want %v", tc.method, tc.path, got, tc.want)
+		}
+	}
+}
+
 func TestTimeoutMiddlewareLeavesEventStreamWithoutDeadline(t *testing.T) {
 	handler := DefaultTimeouts().Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if deadline, ok := r.Context().Deadline(); ok {

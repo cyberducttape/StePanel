@@ -85,6 +85,30 @@ func IsSiteFileDownload(r *http.Request) bool {
 		strings.HasSuffix(r.URL.Path, "/content") && r.URL.Query().Get("download") == "1"
 }
 
+// IsSiteFileUpload marks only resumable chunk transfers and their final atomic
+// publication for the long transfer deadline. Session creation/status calls
+// remain ordinary short API requests.
+func IsSiteFileUpload(r *http.Request) bool {
+	if r == nil || r.URL == nil || !strings.HasPrefix(r.URL.Path, "/api/sites/files/") {
+		return false
+	}
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) < 5 || len(parts) > 7 || parts[0] != "api" || parts[1] != "sites" || parts[2] != "files" || parts[4] != "uploads" {
+		return false
+	}
+	if len(parts) == 6 {
+		return r.Method == http.MethodPut
+	}
+	return len(parts) == 7 && parts[6] == "complete" && r.Method == http.MethodPost
+}
+
+func isSiteFileUploadChunk(r *http.Request) bool {
+	if !IsSiteFileUpload(r) || r.Method != http.MethodPut {
+		return false
+	}
+	return len(strings.Split(strings.Trim(r.URL.Path, "/"), "/")) == 6
+}
+
 // DefaultTimeouts provides sensible defaults for all timeout classes
 func DefaultTimeouts() TimeoutConfiguration {
 	return TimeoutConfiguration{
@@ -201,9 +225,14 @@ func (tc TimeoutConfiguration) Middleware() func(http.Handler) http.Handler {
 				// Streams manage their own write deadlines and lifetime.
 				next.ServeHTTP(w, r)
 				return
-			case IsUploadPath(r.URL.Path):
+			case IsUploadPath(r.URL.Path), IsSiteFileUpload(r):
 				// Uploads need long timeouts
 				timeout = tc.UploadRead
+				if IsSiteFileUpload(r) {
+					if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(timeout + time.Minute)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+						log.Printf("extend write deadline for %s: %v", r.URL.Path, err)
+					}
+				}
 			case IsSiteFileDownload(r):
 				// A download context may live for the size-aware transfer budget;
 				// each response write is separately capped by the handler.
@@ -231,7 +260,7 @@ func (tc TimeoutConfiguration) Middleware() func(http.Handler) http.Handler {
 			// the network read for every other class too, so a slowly
 			// trickled request body cannot hold a handler past its class.
 			// Uploads keep the server read timeout plus their idle guard.
-			if !IsUploadPath(r.URL.Path) {
+			if !IsUploadPath(r.URL.Path) && !isSiteFileUploadChunk(r) {
 				if err := http.NewResponseController(w).SetReadDeadline(time.Now().Add(readTimeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
 					log.Printf("set read deadline for %s: %v", r.URL.Path, err)
 				}

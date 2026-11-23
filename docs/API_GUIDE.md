@@ -253,11 +253,24 @@ Common site resources:
 | `GET`/`POST`/`PUT` | `/api/sites/php/{site}` | PHP-FPM runtime profile; POST previews include the theoretical aggregate PHP memory ceiling and any available measured worker RSS evidence before applying |
 | `GET`/`POST`/`PUT` | `/api/sites/resources/{site}` | CPU, memory, I/O, task, and PHP-worker limits plus observed cgroup usage and private PHP-FPM counters; POST previews changes and PUT requires its current preview token |
 | `GET` | `/api/sites/usage/{site}` | Bounded site-tree bytes/files/directories and an explicitly estimated account-quota upper bound when a quota is configured |
+| `POST` | `/api/sites/files/{site}/uploads` | Start a tenant-bound resumable upload with size, SHA-256, and storage admission checks |
+| `GET`/`PUT`/`DELETE` | `/api/sites/files/{site}/uploads/{uploadID}` | Read durable offset, append the next chunk, or cancel the upload |
+| `POST` | `/api/sites/files/{site}/uploads/{uploadID}/complete` | Verify the full checksum and atomically publish the file |
 | `GET`/`PUT`/`DELETE` | `/api/sites/access/{site}` | SSH/SFTP policy and public keys |
 | `GET`/`PUT`/`DELETE` | `/api/sites/redis/{site}` | Logical Redis/Valkey allocation |
 | `GET`/`PUT`/`DELETE` | `/api/tasks/{site}/{name}` | Systemd task with bounded interval, single-run concurrency, timeout/resources, missed-run policy, webhook, failure auto-disable, and 20-run history |
 | `POST` | `/api/tasks/{site}/{name}/kill` | Stop the active task run |
 | `GET`/`PUT`/`POST`/`DELETE` | `/api/workers/{site}/{name}` | Managed site worker |
+
+Large customer file transfers use the resumable upload endpoints above. Start a
+session with the relative destination, total byte count, SHA-256 digest, and
+optional `expected_revision`. Append raw `application/octet-stream` chunks of
+up to 4 MiB with `Upload-Offset` set to the returned durable offset. Sessions
+are scoped to the authenticated tenant and site, can resume from their offset
+after a panel restart, and expire after 24 hours. Completion verifies the
+assembled digest and atomically publishes the file; the total upload limit is
+100 MiB. Insufficient disk admission is rejected before the session is
+accepted.
 
 Customer route activation requires a DNS ownership proof:
 

@@ -388,6 +388,53 @@
     const editorSave = $('#fileEditorSave');
     const editorReload = $('#fileEditorReload');
     const MAX_WRITE = 4 * 1024 * 1024;
+    const MAX_RESUMABLE_UPLOAD = 100 * 1024 * 1024;
+    const UPLOAD_CHUNK = 4 * 1024 * 1024;
+
+    const sha256File = async (file) => {
+      const bytes = await file.arrayBuffer();
+      const digest = await crypto.subtle.digest('SHA-256', bytes);
+      return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('');
+    };
+
+    const resumableFileUpload = async (file, context) => {
+      if (file.size > MAX_RESUMABLE_UPLOAD) throw new Error('Files larger than 100 MiB are not supported by the browser file manager.');
+      if (!crypto?.subtle) throw new Error('This browser cannot verify file checksums. Use a current browser over HTTPS.');
+      const digest = await sha256File(file);
+      const target = join(context.path, file.name);
+      const resumeKey = `stepanel-upload:${context.site}:${target}:${file.size}:${file.lastModified}`;
+      let session = null;
+      const previous = sessionStorage.getItem(resumeKey);
+      if (previous) {
+        try {
+          const candidate = await api.get(`${base(context.site)}/uploads/${encodeURIComponent(previous)}`);
+          if (candidate.path === target && candidate.size === file.size && candidate.sha256 === digest) session = candidate;
+          else sessionStorage.removeItem(resumeKey);
+        } catch (_) { sessionStorage.removeItem(resumeKey); }
+      }
+      if (!session) {
+        session = await api.request(`${base(context.site)}/uploads`, {
+          method: 'POST', json: { path: target, size: file.size, sha256: digest },
+          errorMessage: `Could not start upload of ${file.name}`,
+        });
+        sessionStorage.setItem(resumeKey, session.id);
+      }
+      while (session.offset < file.size) {
+        if (!isCurrent(context)) throw new Error('Website or folder changed. The upload is saved and can resume when you select the same file again.');
+        const start = session.offset;
+        const end = Math.min(start + UPLOAD_CHUNK, file.size);
+        const chunk = file.slice(start, end);
+        setStatus(`Uploading ${file.name}: ${Math.floor(start * 100 / file.size)}% (${ui.formatBytes ? ui.formatBytes(start) : Math.round(start / 1048576) + ' MB'} of ${Math.ceil(file.size / 1048576)} MB)…`, 'pending');
+        session = await api.request(`${base(context.site)}/uploads/${encodeURIComponent(session.id)}`, {
+          method: 'PUT', body: chunk, headers: { 'Upload-Offset': String(start) },
+          errorMessage: `Could not upload ${file.name}`,
+        });
+      }
+      await api.request(`${base(context.site)}/uploads/${encodeURIComponent(session.id)}/complete`, {
+        method: 'POST', json: {}, errorMessage: `Could not finish ${file.name}`,
+      });
+      sessionStorage.removeItem(resumeKey);
+    };
     const writable = can('files:write');
 
     let sites = [];
@@ -660,8 +707,8 @@
       const uploadContext = { site, path, token, generation: contextGeneration };
       upload.value = '';
       for (const file of files) {
-        if (file.size > MAX_WRITE) {
-          setStatus(`${file.name} is larger than 4 MB; upload it over SFTP instead.`, 'error');
+        if (file.size > MAX_RESUMABLE_UPLOAD) {
+          setStatus(`${file.name} is larger than the 100 MiB upload limit.`, 'error');
           return;
         }
         if (!validName(file.name)) {
@@ -672,7 +719,11 @@
       for (const [index, file] of files.entries()) {
         setStatus(`Uploading ${file.name} (${index + 1} of ${files.length})…`, 'pending');
         try {
-          await api.request(`${base(uploadContext.site)}/content?path=${encodeURIComponent(join(uploadContext.path, file.name))}`, { method: 'PUT', body: file, errorMessage: `Could not upload ${file.name}` });
+          if (file.size <= MAX_WRITE) {
+            await api.request(`${base(uploadContext.site)}/content?path=${encodeURIComponent(join(uploadContext.path, file.name))}`, { method: 'PUT', body: file, errorMessage: `Could not upload ${file.name}` });
+          } else {
+            await resumableFileUpload(file, uploadContext);
+          }
         } catch (error) {
           setStatus(error.message, 'error');
           if (isCurrent(uploadContext)) open(uploadContext.path, uploadContext.site);

@@ -223,6 +223,16 @@ func readBounded(r io.Reader, limit int64) ([]byte, error) {
 // rename for crash durability on filesystems that support directory fsync.
 // An existing file keeps its permissions; a new one is 0640.
 func (l Local) Write(_ context.Context, site SiteAccess, rel string, content io.Reader, expectedRevision string) (err error) {
+	return l.write(site, rel, content, expectedRevision, MaxWriteBytes)
+}
+
+// WriteLarge publishes a checksum-verified resumable transfer while preserving
+// the same descriptor-relative confinement and durable atomic replacement.
+func (l Local) WriteLarge(_ context.Context, site SiteAccess, rel string, content io.Reader, expectedRevision string) error {
+	return l.write(site, rel, content, expectedRevision, MaxResumableUploadBytes)
+}
+
+func (l Local) write(site SiteAccess, rel string, content io.Reader, expectedRevision string, maxBytes int64) (err error) {
 	if content == nil {
 		return errors.New("file content is required")
 	}
@@ -263,7 +273,7 @@ func (l Local) Write(_ context.Context, site SiteAccess, rel string, content io.
 			}
 		}
 	}()
-	written, err := io.Copy(file, io.LimitReader(content, MaxWriteBytes+1))
+	written, err := io.Copy(file, io.LimitReader(content, maxBytes+1))
 	if err != nil {
 		file.Close()
 		var maxBytesErr *http.MaxBytesError
@@ -272,7 +282,7 @@ func (l Local) Write(_ context.Context, site SiteAccess, rel string, content io.
 		}
 		return fmt.Errorf("write file: %w", err)
 	}
-	if written > MaxWriteBytes {
+	if written > maxBytes {
 		file.Close()
 		return ErrTooLarge
 	}

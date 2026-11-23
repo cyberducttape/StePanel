@@ -716,6 +716,52 @@ paths:
       summary: Create a directory, rename or delete inside a hosting-account site's document root
       description: "POST /api/sites/files/{site}/mkdir {path}, /rename {path, destination} (never replaces an existing destination) and /delete {path} (recursive; a symbolic link is removed, never followed). Requires files:write."
       responses: {'200': {description: Change applied}, '422': {description: Refused, with the reason}}
+  /api/v1/sites/files/{site}/uploads:
+    post:
+      summary: Start a resumable, checksum-verified customer file upload
+      operationId: startSiteFileUpload
+      description: Creates a tenant-bound upload session for a path beneath the site's document root. Total size is limited to 100 MiB. The host reserves space for durable staging and final publication before accepting chunks; requires files:write and CSRF protection for cookie sessions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path, size, sha256]
+              properties:
+                path: {type: string, description: Relative destination path}
+                size: {type: integer, minimum: 1, maximum: 104857600}
+                sha256: {type: string, pattern: '^[a-fA-F0-9]{64}$'}
+                expected_revision: {type: string, description: Optional current file revision for optimistic concurrency}
+      responses: {'201': {description: Upload session and accepted offset}, '409': {description: Path or expected revision conflict}, '413': {description: Upload exceeds size limit}, '429': {description: Tenant or host upload capacity reached}, '507': {description: Insufficient reserved storage}}
+  /api/v1/sites/files/{site}/uploads/{uploadID}:
+    get:
+      summary: Read resumable upload status
+      operationId: getSiteFileUpload
+      description: Returns the authorized session's destination, expected size and checksum, and durable next offset. Session IDs are tenant-bound and expire after 24 hours.
+      responses: {'200': {description: Current upload status}, '404': {description: Session is unavailable to this tenant}}
+    put:
+      summary: Append one ordered chunk to a resumable upload
+      operationId: appendSiteFileUpload
+      description: Sends raw bytes for the exact next offset in Upload-Offset. Chunks are limited to 4 MiB and durably synced before the offset advances. Requires files:write.
+      parameters:
+        - {name: Upload-Offset, in: header, required: true, schema: {type: integer, minimum: 0}}
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: {type: string, format: binary, maxLength: 4194304}
+      responses: {'200': {description: Updated durable upload status}, '409': {description: Offset does not match the durable session offset}, '413': {description: Chunk exceeds limit}}
+    delete:
+      summary: Cancel and remove a resumable upload session
+      operationId: cancelSiteFileUpload
+      responses: {'200': {description: Session canceled}, '404': {description: Session is unavailable to this tenant}}
+  /api/v1/sites/files/{site}/uploads/{uploadID}/complete:
+    post:
+      summary: Verify and atomically publish a completed upload
+      operationId: completeSiteFileUpload
+      description: Verifies the full SHA-256 digest and optional expected revision, then atomically replaces the target as the site's Unix user. Requires files:write; incomplete or invalid sessions are not published.
+      responses: {'200': {description: File verified and atomically published}, '409': {description: Upload is incomplete or target revision changed}, '422': {description: Checksum or path validation failed}}
   /api/v1/security/center:
     get:
       summary: Read administrator host security and operational posture

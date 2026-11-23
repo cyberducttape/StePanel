@@ -1,4 +1,5 @@
 /stepanel
+/.stepanel*
 /bin/
 /dist/
 /coverage.out

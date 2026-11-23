@@ -105,6 +105,12 @@ func getDocumentedRoutes(t *testing.T) []string {
 			if strings.HasPrefix(route, "/api/v1/") {
 				route = "/api" + strings.TrimPrefix(route, "/api/v1")
 			}
+			// The file manager exposes several typed operations beneath one
+			// authenticated ServeMux subtree; keep the route contract aligned
+			// with that single registered handler while documenting each path.
+			if strings.HasPrefix(route, "/api/sites/files/") {
+				route = "/api/sites/files/"
+			}
 			routes[route] = true
 		}
 	}

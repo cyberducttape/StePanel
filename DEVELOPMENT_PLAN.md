@@ -54,15 +54,15 @@ recovery remains a separate recovery flow.
 
 ### M0aw — Keep guided installer binaries from diverging (P2)
 
-**Status:** Implemented locally and covered by the installer contract suite.
-The guided build stages both outputs and saves the previous executable pair;
-if either publication step fails, its exit cleanup restores the prior pair.
-The test injects failure at the second rename, verifies the old pair remains,
-then reruns and verifies both binaries identify the same new build. Hosted run
-45085537386 failed because the fixture inherited CI's `GOTOOLCHAIN=local` and
-incorrectly attempted a mocked toolchain download. The fixture now explicitly
-uses `GOTOOLCHAIN=auto`; its isolated CI-environment reproduction passes.
-Hosted CI for the corrected test is pending.
+**Status:** Implemented locally; `make check`, race tests for the changed Go
+packages, ShellCheck, and installer contracts pass. In addition to ordinary
+failure rollback, the guided build now writes a durable same-checkout journal
+for both prior binaries before publication. On startup, it restores the prior
+pair before compiling if the previous process was killed between the two
+renames. A forced-kill regression verifies the restored build identities
+before the fake compiler runs. The cancellation message identifies the saved,
+secured settings path and accurately says system services were not changed.
+Exact-source hosted CI is pending.
 
 **Acceptance criteria**
 
@@ -70,9 +70,10 @@ Hosted CI for the corrected test is pending.
   published.
 - A failed second publication restores the previous executable pair (or
   restores the original absence of files).
-- A subsequent build publishes matching artifacts, verified by build
-  identity in the guided-installer regression test.
-- Shell syntax, contract tests, and exact-source hosted CI pass.
+- After a forced process stop between renames, the next run restores the old
+  pair before building and publishes matching new artifacts.
+- Shell syntax, contract tests, full local checks, and exact-source hosted CI
+  pass.
 
 ### M0ax — Report first-install blockers together (P1)
 

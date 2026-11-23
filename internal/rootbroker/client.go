@@ -406,7 +406,7 @@ func (c *Client) executeStream(ctx context.Context, req *Request, content io.Rea
 		_ = cmd.Wait()
 		return nil, fmt.Errorf("encode streamed broker request: %w", err)
 	}
-	_, streamErr := writeFileStream(stdin, content, sitefiles.MaxWriteBytes)
+	_, streamErr := writeFileStream(stdin, content, fileWriteLimit(req))
 	_ = stdin.Close()
 	var resp Response
 	decodeErr := json.NewDecoder(stdout).Decode(&resp)
@@ -444,7 +444,7 @@ func (c *Client) executeStreamSocket(ctx context.Context, req *Request, content 
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		return nil, fmt.Errorf("encode streamed broker request: %w", err)
 	}
-	_, streamErr := writeFileStream(conn, content, sitefiles.MaxWriteBytes)
+	_, streamErr := writeFileStream(conn, content, fileWriteLimit(req))
 	if unixConn, ok := conn.(*net.UnixConn); ok {
 		_ = unixConn.CloseWrite()
 	}
@@ -456,6 +456,13 @@ func (c *Client) executeStreamSocket(ctx context.Context, req *Request, content 
 		return &resp, streamErr
 	}
 	return &resp, nil
+}
+
+func fileWriteLimit(req *Request) int64 {
+	if req != nil && req.Files != nil && req.Files.Action == "write-large" {
+		return sitefiles.MaxResumableUploadBytes
+	}
+	return sitefiles.MaxWriteBytes
 }
 
 // executeSocket talks to the root broker through a root-owned local service.

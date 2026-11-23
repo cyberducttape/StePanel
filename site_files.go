@@ -8,7 +8,9 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -112,6 +114,68 @@ var errSiteNotPlaced = errors.New("the file manager is available for sites in a 
 // brokerFileStore is the production sitefiles.Store.
 type brokerFileStore struct{ cfg Config }
 
+type siteFileUploadReservation struct {
+	mu          sync.Mutex
+	reservation *capacityReservation
+	baseOffset  int64
+	offset      int64
+}
+
+func (a *App) siteFileUploadManager() (*sitefiles.UploadManager, string, error) {
+	a.fileUploadMu.Lock()
+	defer a.fileUploadMu.Unlock()
+	root, err := filepath.Abs(filepath.Join(a.Config.ImportRoot, "site-file-uploads"))
+	if err != nil {
+		return nil, "", err
+	}
+	if a.fileUploads == nil {
+		manager, err := sitefiles.NewUploadManager(root)
+		if err != nil {
+			return nil, "", err
+		}
+		a.fileUploads = manager
+		if a.fileUploadReservations == nil {
+			a.fileUploadReservations = make(map[string]*siteFileUploadReservation)
+		}
+	}
+	return a.fileUploads, root, nil
+}
+
+func publicSiteFileUpload(session sitefiles.UploadSession) map[string]any {
+	return map[string]any{"id": session.ID, "path": session.Path, "size": session.Size, "offset": session.Offset, "sha256": session.SHA256}
+}
+
+func (a *App) uploadReservation(id string, session sitefiles.UploadSession, root, targetRoot string) (*siteFileUploadReservation, error) {
+	a.fileUploadMu.Lock()
+	defer a.fileUploadMu.Unlock()
+	if current := a.fileUploadReservations[id]; current != nil {
+		return current, nil
+	}
+	remaining := session.Size - session.Offset
+	demands := []capacityDemand{{Path: root, Bytes: uint64(remaining)}, {Path: os.TempDir(), Bytes: uint64(remaining)}, {Path: targetRoot, Bytes: uint64(remaining)}}
+	reservation, err := a.capacityLedger().reserve(a.Config, "resumable site file upload", root, demands)
+	if err != nil {
+		return nil, err
+	}
+	current := &siteFileUploadReservation{reservation: reservation, baseOffset: session.Offset, offset: session.Offset}
+	a.fileUploadReservations[id] = current
+	return current, nil
+}
+
+func (a *App) releaseUploadReservation(id string) {
+	a.fileUploadMu.Lock()
+	current := a.fileUploadReservations[id]
+	delete(a.fileUploadReservations, id)
+	a.fileUploadMu.Unlock()
+	if current != nil {
+		current.mu.Lock()
+		defer current.mu.Unlock()
+	}
+	if current != nil && current.reservation != nil {
+		current.reservation.release()
+	}
+}
+
 var _ sitefiles.SiteAccess = AuthorizedSite{}
 
 func (s brokerFileStore) run(ctx context.Context, req rootbroker.FilesRequest) (rootbroker.FilesResponse, error) {
@@ -182,6 +246,18 @@ func (s brokerFileStore) Write(ctx context.Context, site sitefiles.SiteAccess, r
 	return client.FilesWrite(ctx, target.site, target.tenantID, rel, content, expectedRevision)
 }
 
+func (s brokerFileStore) WriteLarge(ctx context.Context, site sitefiles.SiteAccess, rel string, content io.Reader, expectedRevision string) error {
+	target, err := resolveAuthorizedFileTarget(site)
+	if err != nil {
+		return err
+	}
+	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", s.cfg.WebRoot)
+	if err != nil {
+		return err
+	}
+	return client.FilesWriteLarge(ctx, target.site, target.tenantID, rel, content, expectedRevision)
+}
+
 func (s brokerFileStore) Mkdir(ctx context.Context, site sitefiles.SiteAccess, rel string) error {
 	target, err := resolveAuthorizedFileTarget(site)
 	if err != nil {
@@ -229,7 +305,7 @@ func (a *App) siteFileStore() sitefiles.Store {
 }
 
 func (a *App) siteFiles(w http.ResponseWriter, r *http.Request) {
-	site, operation, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, siteFilesPrefix), "/")
+	site, remainder, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, siteFilesPrefix), "/")
 	if safeUser(site) != site || site == "" {
 		http.Error(w, "invalid site", http.StatusUnprocessableEntity)
 		return
@@ -248,6 +324,11 @@ func (a *App) siteFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	store := a.siteFileStore()
+	operation, tail, _ := strings.Cut(remainder, "/")
+	if operation == "uploads" {
+		a.siteFileUpload(w, r, site, tail, location.DocRoot, access, store)
+		return
+	}
 	switch {
 	case operation == "" && (r.Method == http.MethodGet || r.Method == http.MethodHead):
 		a.siteFilesList(w, r, store, access)
@@ -307,6 +388,161 @@ func (a *App) siteFiles(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "unsupported file manager operation", http.StatusMethodNotAllowed)
 	}
+}
+
+func (a *App) siteFileUpload(w http.ResponseWriter, r *http.Request, site string, tail, targetRoot string, access sitefiles.SiteAccess, store sitefiles.Store) {
+	if !a.requireCustomerScope(w, r, "files:write") {
+		return
+	}
+	if !a.Auth.CSRF(r) {
+		http.Error(w, "invalid CSRF token", http.StatusForbidden)
+		return
+	}
+	manager, root, err := a.siteFileUploadManager()
+	if err != nil {
+		http.Error(w, "large upload storage is unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	// Expired resumptions release their corresponding capacity holds.
+	for _, id := range manager.PruneExpired(time.Now()) {
+		a.releaseUploadReservation(id)
+	}
+
+	if tail == "" && r.Method == http.MethodPost {
+		var input struct {
+			Path             string `json:"path"`
+			Size             int64  `json:"size"`
+			SHA256           string `json:"sha256"`
+			ExpectedRevision string `json:"expected_revision"`
+		}
+		if err := decodeJSON(w, r, 16<<10, &input); err != nil {
+			http.Error(w, "invalid upload request", http.StatusBadRequest)
+			return
+		}
+		rel, err := sitefiles.CleanTarget(input.Path)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
+		if input.Size < 1 || input.Size > sitefiles.MaxResumableUploadBytes {
+			http.Error(w, sitefiles.ErrTooLarge.Error(), http.StatusRequestEntityTooLarge)
+			return
+		}
+		release, admitted := siteFileWrites.acquire(access.TenantID())
+		if !admitted {
+			w.Header().Set("Retry-After", "5")
+			http.Error(w, "too many uploads are in progress", http.StatusTooManyRequests)
+			return
+		}
+		defer release()
+		if err := os.MkdirAll(root, 0o700); err != nil {
+			http.Error(w, "upload storage is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		// The broker stages once before its atomic same-directory publish. Hold
+		// capacity for both the durable resumable file and that bounded broker
+		// staging copy, including when they share a filesystem.
+		demands := []capacityDemand{{Path: root, Bytes: uint64(input.Size)}, {Path: os.TempDir(), Bytes: uint64(input.Size)}, {Path: targetRoot, Bytes: uint64(input.Size)}}
+		reservation, err := a.capacityLedger().reserve(a.Config, "resumable site file upload", root, demands)
+		if err != nil {
+			a.writeUploadError(w, r, err)
+			return
+		}
+		session, err := manager.Begin(site, access.TenantID(), rel, input.Size, input.SHA256, input.ExpectedRevision)
+		if err != nil {
+			reservation.release()
+			if errors.Is(err, sitefiles.ErrUploadSessionLimit) {
+				w.Header().Set("Retry-After", "300")
+				http.Error(w, err.Error(), http.StatusTooManyRequests)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
+		a.fileUploadMu.Lock()
+		if a.fileUploadReservations == nil {
+			a.fileUploadReservations = make(map[string]*siteFileUploadReservation)
+		}
+		a.fileUploadReservations[session.ID] = &siteFileUploadReservation{reservation: reservation}
+		a.fileUploadMu.Unlock()
+		writeJSON(w, http.StatusCreated, publicSiteFileUpload(session))
+		return
+	}
+	id, action, hasAction := strings.Cut(tail, "/")
+	if !hasAction {
+		action = ""
+	}
+	session, err := manager.Info(id, site, access.TenantID())
+	if err != nil {
+		http.Error(w, "upload session not found", http.StatusNotFound)
+		return
+	}
+	if action == "" && r.Method == http.MethodGet {
+		writeJSON(w, http.StatusOK, publicSiteFileUpload(session))
+		return
+	}
+	if action == "" && r.Method == http.MethodDelete {
+		if err := manager.Cancel(id, site, access.TenantID()); err != nil {
+			http.Error(w, "could not cancel upload", http.StatusConflict)
+			return
+		}
+		a.releaseUploadReservation(id)
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		return
+	}
+	if action == "" && r.Method == http.MethodPut {
+		release, admitted := siteFileWrites.acquire(access.TenantID())
+		if !admitted {
+			w.Header().Set("Retry-After", "5")
+			http.Error(w, "too many uploads are in progress", http.StatusTooManyRequests)
+			return
+		}
+		defer release()
+		start, err := strconv.ParseInt(r.Header.Get("Upload-Offset"), 10, 64)
+		if err != nil || start < 0 {
+			http.Error(w, "Upload-Offset is required", http.StatusBadRequest)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, sitefiles.MaxUploadChunkBytes+1)
+		guardUploadBody(w, r)
+		uploadReservation, err := a.uploadReservation(id, session, root, targetRoot)
+		if err != nil {
+			a.writeUploadError(w, r, err)
+			return
+		}
+		updated, err := manager.Append(r.Context(), id, site, access.TenantID(), start, session.Size, r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		uploadReservation.mu.Lock()
+		defer uploadReservation.mu.Unlock()
+		if updated.Offset > uploadReservation.offset {
+			if err := uploadReservation.reservation.consume(updated.Offset - uploadReservation.baseOffset); err != nil {
+				http.Error(w, "upload capacity accounting failed; the session is resumable", http.StatusServiceUnavailable)
+				return
+			}
+			uploadReservation.offset = updated.Offset
+		}
+		writeJSON(w, http.StatusOK, publicSiteFileUpload(updated))
+		return
+	}
+	if action == "complete" && r.Method == http.MethodPost {
+		a.siteFilesMutate(w, r, access, "site.files.upload.completed", session.Path, func(ctx context.Context) error {
+			large, ok := store.(sitefiles.LargeWriter)
+			if !ok {
+				return errors.New("large file publication is unavailable")
+			}
+			return manager.Complete(ctx, id, site, access.TenantID(), func(s sitefiles.UploadSession, content io.Reader) error {
+				return large.WriteLarge(ctx, access, s.Path, content, s.ExpectedRevision)
+			})
+		})
+		if _, infoErr := manager.Info(id, site, access.TenantID()); errors.Is(infoErr, os.ErrNotExist) {
+			a.releaseUploadReservation(id)
+		}
+		return
+	}
+	http.Error(w, "unsupported upload operation", http.StatusMethodNotAllowed)
 }
 
 func (a *App) siteFilesList(w http.ResponseWriter, r *http.Request, store sitefiles.Store, site sitefiles.SiteAccess) {
@@ -466,6 +702,10 @@ func (a *App) siteFilesMutate(w http.ResponseWriter, r *http.Request, site sitef
 func writeSiteFilesError(w http.ResponseWriter, err error) {
 	var refused *sitefiles.RefusedError
 	switch {
+	case errors.Is(err, sitefiles.ErrUploadIncomplete), errors.Is(err, sitefiles.ErrUploadOffset):
+		http.Error(w, err.Error(), http.StatusConflict)
+	case errors.Is(err, sitefiles.ErrUploadChecksum):
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 	case errors.Is(err, sitefiles.ErrRevisionConflict):
 		http.Error(w, sitefiles.ErrRevisionConflict.Error(), http.StatusConflict)
 	case errors.Is(err, sitefiles.ErrNotFound):

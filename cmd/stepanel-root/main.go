@@ -319,6 +319,11 @@ const (
 	// streams from, never inline; the largest inline payload is the bounded
 	// legacy restore-dump body (rootbroker.MaxInlineDumpBytes) after base64.
 	maxRequestBytes = 8 << 20
+	// Streamed file content is framed and copied to a bounded staging file.
+	// It has its own validated 100 MiB cap and releases memory-budget charges
+	// as frames leave the decoder, so this is a byte limit rather than a memory
+	// allocation allowance.
+	maxStreamRequestBytes = rootbroker.MaxStreamedFileWriteBytes + (1 << 20)
 	// maxBufferedRequestBytes is the broker-wide budget for request bytes
 	// read but not yet released, across all connections. Connection count
 	// alone would allow maxSocketConnections * maxRequestBytes of buffered
@@ -327,7 +332,7 @@ const (
 )
 
 var (
-	errRequestTooLarge        = fmt.Errorf("request exceeds the %d-byte broker request limit", maxRequestBytes)
+	errRequestTooLarge        = errors.New("request exceeds the configured broker request limit")
 	errRequestBudgetExhausted = errors.New("broker request memory budget is exhausted; retry the operation")
 )
 
@@ -390,6 +395,17 @@ func (r *budgetedReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
+func (r *budgetedReader) releaseConsumed(n int64) {
+	if n <= 0 {
+		return
+	}
+	if n > r.charged {
+		n = r.charged
+	}
+	r.charged -= n
+	r.budget.release(n)
+}
+
 // nextRequest releases the budget held by the request just served and
 // starts the per-request limit again.
 func (r *budgetedReader) nextRequest() {
@@ -425,6 +441,9 @@ func serveRequests(broker executor, reader io.Reader, writer io.Writer, logger *
 			}
 			_ = encoder.Encode(resp)
 			continue
+		}
+		if req.Files != nil && req.Files.StreamContent {
+			budgeted.limit = maxStreamRequestBytes
 		}
 		attachFilesStream(&req, decoder, budgeted)
 		if req.Files != nil && req.Files.StreamResponse {
@@ -485,6 +504,9 @@ func serveConn(broker executor, conn net.Conn, limits connLimits, logger *log.Lo
 				writeSocketResponse(conn, encoder, &rootbroker.Response{OK: false, Error: fmt.Sprintf("decode error: %v", err)}, limits, logger)
 			}
 			return
+		}
+		if req.Files != nil && req.Files.StreamContent {
+			budgeted.limit = maxStreamRequestBytes
 		}
 		attachFilesStream(&req, decoder, budgeted)
 		if req.Files != nil && req.Files.StreamResponse {
@@ -549,7 +571,11 @@ func attachFilesStream(req *rootbroker.Request, decoder *json.Decoder, reader io
 	if req != nil && req.Files != nil && req.Files.StreamContent {
 		// JSON decoding can read ahead into the raw framed body. Preserve those
 		// bytes before continuing through the budgeted connection reader.
-		req.Files.ContentReader = rootbroker.NewFileContentReader(io.MultiReader(decoder.Buffered(), reader))
+		var consume func(int64)
+		if budgeted, ok := reader.(interface{ releaseConsumed(int64) }); ok {
+			consume = budgeted.releaseConsumed
+		}
+		req.Files.ContentReader = rootbroker.NewFileContentReader(io.MultiReader(decoder.Buffered(), reader), consume)
 	}
 }
 

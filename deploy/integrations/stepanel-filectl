@@ -5,7 +5,8 @@
 #   stepanel-filectl list   SITE USER PATH
 #   stepanel-filectl read   SITE USER PATH          file bytes on stdout
 #   stepanel-filectl download SITE USER PATH        size line, then file bytes
-#   stepanel-filectl write  SITE USER PATH          file bytes on stdin
+#   stepanel-filectl write  SITE USER PATH          up to 4 MiB on stdin
+#   stepanel-filectl write-large SITE USER PATH     up to 100 MiB on stdin
 #   stepanel-filectl mkdir  SITE USER PATH
 #   stepanel-filectl rename SITE USER PATH NEWPATH
 #   stepanel-filectl delete SITE USER PATH
@@ -29,14 +30,15 @@ location_lib=/usr/local/lib/stepanel/site-location.sh
 max_read_bytes=$(( 2 * 1024 * 1024 ))
 max_download_bytes=$(( 40 * 1024 * 1024 * 1024 ))
 max_write_bytes=$(( 4 * 1024 * 1024 ))
+max_large_write_bytes=$(( 100 * 1024 * 1024 ))
 max_entries=5000
 
-usage() { echo 'usage: stepanel-filectl list|read|download|write|mkdir|rename|delete SITE USER PATH [REVISION|NEWPATH]' >&2; exit 64; }
+usage() { echo 'usage: stepanel-filectl list|read|download|write|write-large|mkdir|rename|delete SITE USER PATH [REVISION|NEWPATH]' >&2; exit 64; }
 
 action=${1:-}
 case $action in
   rename) (( $# == 5 )) || usage ;;
-  write) (( $# == 4 || $# == 5 )) || usage ;;
+  write|write-large) (( $# == 4 || $# == 5 )) || usage ;;
   list|read|download|mkdir|delete) (( $# == 4 )) || usage ;;
   *) usage ;;
 esac
@@ -74,6 +76,10 @@ valid_relative "$relative" || { echo 'invalid path' >&2; exit 1; }
 as_user() {
   runuser -u "$user" -- env -i HOME="$site_home" PATH=/usr/bin:/bin LANG=C.UTF-8 "$@"
 }
+
+if [[ $action == write-large ]]; then
+  max_write_bytes=$max_large_write_bytes
+fi
 
 destination_relative=.
 if [[ $action == rename ]]; then
@@ -417,7 +423,7 @@ def main():
             read_file(rootfd, parts, max_read)
         elif action == "download":
             download_file(rootfd, parts, max_download)
-        elif action == "write":
+        elif action in ("write", "write-large"):
             write_file(rootfd, parts, max_write, max_read, expected_revision)
         elif action == "mkdir":
             mkdir(rootfd, parts)

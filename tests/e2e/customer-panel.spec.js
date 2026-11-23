@@ -124,9 +124,25 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   let releaseShopList;
   const shopListPending = new Promise((resolve) => { releaseShopList = resolve; });
   let failNextMainList = false;
+  let resumableUploadOffset = 0;
+  let resumableUploadChunks = 0;
   await page.route('**/api/sites/files/e2e-main**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
+    if (url.pathname.endsWith('/uploads') && request.method() === 'POST') {
+      const body = request.postDataJSON();
+      resumableUploadOffset = 0;
+      resumableUploadChunks = 0;
+      return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 'a'.repeat(32), path: body.path, size: body.size, offset: 0, sha256: body.sha256 }) });
+    }
+    if (url.pathname.includes('/uploads/')) {
+      const isComplete = url.pathname.endsWith('/complete');
+      if (isComplete) return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+      if (request.method() === 'GET') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'a'.repeat(32), path: 'wp-content/large.bin', size: 4 * 1024 * 1024 + 19, offset: resumableUploadOffset, sha256: 'test' }) });
+      resumableUploadChunks += 1;
+      resumableUploadOffset = Number(request.headers()['upload-offset']) + request.postDataBuffer().length;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'a'.repeat(32), path: 'wp-content/large.bin', size: 4 * 1024 * 1024 + 19, offset: resumableUploadOffset, sha256: 'test' }) });
+    }
     if (request.method() !== 'GET') {
       writes.push(`${request.method()} ${url.pathname}${url.search}`);
       writeRevisions.push(request.headers()['if-match'] || '');
@@ -375,7 +391,7 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   failNextMainList = true;
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Files' }).click();
   await expect(page.locator('#files')).toBeVisible();
-  await expect(page.locator('#fileTransferLimits')).toHaveText('Edit files up to 2 MiB, upload files up to 4 MiB, and download files up to 40 GiB. Use SFTP for larger transfers.');
+  await expect(page.locator('#fileTransferLimits')).toHaveText('Edit files up to 2 MiB. Upload files up to 100 MiB in resumable, checksum-verified chunks; downloads support files up to 40 GiB.');
   await expect(page.locator('#fileStatus')).toContainText('temporary listing failure');
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Websites' }).click();
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Files' }).click();
@@ -393,6 +409,9 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   releaseShopList.done = true;
   releaseShopList();
   await expect(page.locator('#fileBreadcrumbs [aria-current="location"]')).toHaveText('wp-content');
+  await page.locator('#fileUpload').setInputFiles({ name: 'large.bin', mimeType: 'application/octet-stream', buffer: Buffer.alloc(4 * 1024 * 1024 + 19, 7) });
+  await expect(page.locator('#fileStatus')).toContainText('Uploaded 1 file.');
+  expect(resumableUploadChunks).toBe(2);
   await page.getByRole('button', { name: 'index.php', exact: true }).click();
   await page.locator('#fileSite').selectOption('e2e-shop');
   await expect(page.getByRole('button', { name: 'shop.php', exact: true })).toBeVisible();

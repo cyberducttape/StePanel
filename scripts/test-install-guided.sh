@@ -21,6 +21,10 @@ if [[ ${1:-} == version ]]; then
   printf 'go version %s linux/amd64\n' "${GO_TEST_VERSION:-go1.26.11}"
   exit 0
 fi
+if [[ ${VERIFY_RECOVERED_PAIR:-0} == 1 && " $* " == *' build '* ]]; then
+  [[ $($FAKE_REPO/stepanel) == previous-panel ]]
+  [[ $($FAKE_REPO/stepanel-root) == previous-root ]]
+fi
 printf '%s\n' "$*" >> "$GO_LOG"
 output=
 while (($#)); do
@@ -159,17 +163,17 @@ real_mv=$(command -v mv)
 cat > "$fake_bin/mv" <<'SH'
 #!/usr/bin/env bash
 set -Eeuo pipefail
-count=0
-[[ ! -f $MV_COUNT_FILE ]] || read -r count < "$MV_COUNT_FILE"
-count=$((count + 1))
-printf '%s\n' "$count" > "$MV_COUNT_FILE"
-if [[ ${FAIL_SECOND_PUBLISH:-0} == 1 && $count == 2 ]]; then exit 1; fi
-exec "$REAL_MV" "$@"
+target=${@: -1}
+if [[ ${FAIL_SECOND_PUBLISH:-0} == 1 && $target == */stepanel-root ]]; then exit 1; fi
+"$REAL_MV" "$@"
+if [[ ${KILL_AFTER_PANEL_PUBLISH:-0} == 1 && $target == */stepanel ]]; then
+  kill -KILL "$PPID"
+fi
 SH
 chmod 0755 "$fake_bin/mv"
 if env GO=go SUDO=sudo SUDO_LOG="$tmp/interrupted-sudo.log" \
   GO_LOG="$tmp/interrupted-go.log" PATH="$fake_bin:$PATH" \
-  GOTOOLCHAIN=auto BUILD_ID=interrupted-build MV_COUNT_FILE="$tmp/mv-count" \
+  GOTOOLCHAIN=auto BUILD_ID=interrupted-build \
   REAL_MV="$real_mv" FAIL_SECOND_PUBLISH=1 \
   bash "$fake_repo/scripts/install-guided.sh" >"$tmp/interrupted.out" 2>&1; then
   echo 'guided build continued after the second binary publication failed' >&2
@@ -179,10 +183,43 @@ fi
 [[ $("$fake_repo/stepanel-root") == previous-root ]]
 env GO=go SUDO=sudo SUDO_LOG="$tmp/restart-sudo.log" \
   GO_LOG="$tmp/restart-go.log" PATH="$fake_bin:$PATH" \
-  GOTOOLCHAIN=auto BUILD_ID=restart-build MV_COUNT_FILE="$tmp/mv-count" \
+  GOTOOLCHAIN=auto BUILD_ID=restart-build \
   REAL_MV="$real_mv" bash "$fake_repo/scripts/install-guided.sh" >"$tmp/restart.out"
 [[ $("$fake_repo/stepanel") == restart-build ]]
 [[ $("$fake_repo/stepanel-root") == restart-build ]]
+
+# A hard process kill after the first rename leaves a durable journal. On the
+# next invocation recovery must restore the old matched pair before the Go
+# build starts, then publish the new pair by one build identity.
+cat > "$fake_repo/stepanel" <<'SH'
+#!/usr/bin/env bash
+echo previous-panel
+SH
+cat > "$fake_repo/stepanel-root" <<'SH'
+#!/usr/bin/env bash
+echo previous-root
+SH
+chmod 0755 "$fake_repo/stepanel" "$fake_repo/stepanel-root"
+if env GO=go SUDO=sudo SUDO_LOG="$tmp/killed-sudo.log" \
+  GO_LOG="$tmp/killed-go.log" PATH="$fake_bin:$PATH" \
+  GOTOOLCHAIN=auto BUILD_ID=killed-build REAL_MV="$real_mv" \
+  KILL_AFTER_PANEL_PUBLISH=1 \
+  bash "$fake_repo/scripts/install-guided.sh" >"$tmp/killed.out" 2>&1; then
+  echo 'guided installer survived a forced kill during binary publication' >&2
+  exit 1
+fi
+[[ -d $fake_repo/.stepanel-guided-publish ]]
+[[ $("$fake_repo/stepanel") == killed-build ]]
+[[ $("$fake_repo/stepanel-root") == previous-root ]]
+env GO=go SUDO=sudo SUDO_LOG="$tmp/recovered-sudo.log" \
+  GO_LOG="$tmp/recovered-go.log" PATH="$fake_bin:$PATH" \
+  GOTOOLCHAIN=auto BUILD_ID=recovered-build REAL_MV="$real_mv" \
+  FAKE_REPO="$fake_repo" VERIFY_RECOVERED_PAIR=1 \
+  bash "$fake_repo/scripts/install-guided.sh" >"$tmp/recovered.out" 2>&1
+[[ ! -e $fake_repo/.stepanel-guided-publish ]]
+[[ $("$fake_repo/stepanel") == recovered-build ]]
+[[ $("$fake_repo/stepanel-root") == recovered-build ]]
+grep -Fq 'Recovering an interrupted guided binary publication' "$tmp/recovered.out"
 rm -f -- "$fake_bin/mv"
 
 rm -f -- "$fake_repo/stepanel" "$fake_repo/stepanel-root" "$tmp/bad-sudo.log"

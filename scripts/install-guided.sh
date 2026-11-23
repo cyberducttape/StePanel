@@ -23,6 +23,38 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
   exit 1
 }
 
+# Serialize builds and recover an interrupted two-binary publication before
+# checking or building anything. The journal lives in the checkout so it
+# survives a killed process and /tmp cleanup.
+command -v flock >/dev/null 2>&1 || {
+  echo 'flock is required to publish guided build artifacts safely.' >&2
+  exit 1
+}
+exec 9>"$repo_root/.stepanel-guided.lock"
+flock -x 9
+
+publish_journal="$repo_root/.stepanel-guided-publish"
+restore_journal_binary() {
+  local name=$1 target="$repo_root/$1" restore_tmp
+  if [[ -f "$publish_journal/$name.existed" ]]; then
+    restore_tmp=$(mktemp "$repo_root/.${name}.restore.XXXXXX")
+    cp -p -- "$publish_journal/$name" "$restore_tmp"
+    mv -f -- "$restore_tmp" "$target"
+  else
+    rm -f -- "$target"
+  fi
+}
+recover_interrupted_publish() {
+  [[ -d $publish_journal && ! -L $publish_journal ]] || return 0
+  echo 'Recovering an interrupted guided binary publication before continuing.' >&2
+  restore_journal_binary stepanel
+  restore_journal_binary stepanel-root
+  sync -f "$repo_root"
+  rm -rf -- "$publish_journal"
+  sync -f "$repo_root"
+}
+recover_interrupted_publish
+
 sudo_bin=${SUDO:-sudo}
 command -v -- "$sudo_bin" >/dev/null 2>&1 || {
   echo 'sudo is required to configure host services.' >&2
@@ -43,32 +75,13 @@ fi
 build_dir=$(mktemp -d "${TMPDIR:-/tmp}/stepanel-guided-build.XXXXXX")
 panel_tmp=
 root_tmp=
-panel_backup=
-root_backup=
-panel_existed=0
-root_existed=0
-publishing=0
-restore_previous_binary() {
-  local backup=$1 target=$2 existed=$3 restore_tmp
-  if (( existed )); then
-    restore_tmp=$(mktemp "$repo_root/.stepanel-restore.XXXXXX")
-    cp -p -- "$backup" "$restore_tmp"
-    mv -f -- "$restore_tmp" "$target"
-  else
-    rm -f -- "$target"
-  fi
-}
+pending_journal=
 cleanup() {
   local status=$?
-  if (( publishing )); then
-    echo 'Could not publish both matching binaries; restoring the previous pair.' >&2
-    if [[ -n $panel_backup ]]; then restore_previous_binary "$panel_backup" "$repo_root/stepanel" "$panel_existed" || echo 'Could not restore stepanel; rerun the guided build before installing.' >&2; fi
-    if [[ -n $root_backup ]]; then restore_previous_binary "$root_backup" "$repo_root/stepanel-root" "$root_existed" || echo 'Could not restore stepanel-root; rerun the guided build before installing.' >&2; fi
-  fi
+  recover_interrupted_publish || echo 'Could not recover the previous binary pair; rerun the guided build to retry recovery.' >&2
   [[ -z $panel_tmp ]] || rm -f -- "$panel_tmp"
   [[ -z $root_tmp ]] || rm -f -- "$root_tmp"
-  [[ -z $panel_backup ]] || rm -f -- "$panel_backup"
-  [[ -z $root_backup ]] || rm -f -- "$root_backup"
+  [[ -z $pending_journal ]] || rm -rf -- "$pending_journal"
   rm -rf -- "$build_dir"
   return "$status"
 }
@@ -88,28 +101,38 @@ echo 'Building StePanel with the repository-pinned Go toolchain as your user...'
   run_go build -trimpath -o "$build_dir/stepanel-root" ./cmd/stepanel-root
 )
 
-# Publish each completed binary atomically into the checkout. The installer
-# expects both at its root and uses the helper and asset files beside them.
+# Prepare a durable rollback journal before either binary is published. If
+# power is lost between the two renames, the next invocation restores the
+# previous pair before it builds or invokes the installer.
 panel_tmp=$(mktemp "$repo_root/.stepanel.XXXXXX")
 root_tmp=$(mktemp "$repo_root/.stepanel-root.XXXXXX")
 install -m 0755 -- "$build_dir/stepanel" "$panel_tmp"
 install -m 0755 -- "$build_dir/stepanel-root" "$root_tmp"
-panel_backup=$(mktemp "$repo_root/.stepanel-previous.XXXXXX")
-root_backup=$(mktemp "$repo_root/.stepanel-root-previous.XXXXXX")
+pending_journal=$(mktemp -d "$repo_root/.stepanel-guided-publish.new.XXXXXX")
 if [[ -e $repo_root/stepanel || -L $repo_root/stepanel ]]; then
-  panel_existed=1
-  cp -p -- "$repo_root/stepanel" "$panel_backup"
+  : > "$pending_journal/stepanel.existed"
+  cp -p -- "$repo_root/stepanel" "$pending_journal/stepanel"
 fi
 if [[ -e $repo_root/stepanel-root || -L $repo_root/stepanel-root ]]; then
-  root_existed=1
-  cp -p -- "$repo_root/stepanel-root" "$root_backup"
+  : > "$pending_journal/stepanel-root.existed"
+  cp -p -- "$repo_root/stepanel-root" "$pending_journal/stepanel-root"
 fi
-publishing=1
+sync -f "$pending_journal"
+[[ ! -e $publish_journal ]] || {
+  echo 'An unrecovered guided publication journal remains; refusing to overwrite it.' >&2
+  exit 1
+}
+mv -- "$pending_journal" "$publish_journal"
+pending_journal=
+sync -f "$repo_root"
 mv -f -- "$panel_tmp" "$repo_root/stepanel"
 panel_tmp=
+sync -f "$repo_root"
 mv -f -- "$root_tmp" "$repo_root/stepanel-root"
 root_tmp=
-publishing=0
+sync -f "$repo_root"
+rm -rf -- "$publish_journal"
+sync -f "$repo_root"
 
 cd "$repo_root"
 if (( existing_install )); then

@@ -149,7 +149,7 @@ func TestBrokerFilesRunAsTheRecordedAccountUser(t *testing.T) {
 	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + record + "\ncase $1 in\n" +
 		"  list) printf 'f\\t5\\t640\\t1700000000\\tindex.php\\nd\\t4096\\t2750\\t1700000000\\tassets\\n' ;;\n" +
 		"  read) printf 'hello' ;;\n" +
-		"  write) cat > " + stdin + " ;;\n" +
+		"  write|write-large) cat > " + stdin + " ;;\n" +
 		"  delete) echo 'path does not exist' >&2; exit 1 ;;\n" +
 		"esac\n"
 	if err := os.WriteFile(stub, []byte(script), 0o700); err != nil {
@@ -190,6 +190,13 @@ func TestBrokerFilesRunAsTheRecordedAccountUser(t *testing.T) {
 	if data, err := os.ReadFile(stdin); err != nil || string(data) != "<?php echo 1;" {
 		t.Fatalf("helper stdin = %q, %v", data, err)
 	}
+	largeContent := bytes.Repeat([]byte("L"), sitefiles.MaxWriteBytes+1)
+	if resp, _ = run(&FilesRequest{Action: "write-large", Site: "alice", TenantID: "alice", Path: "large.bin", StreamContent: true, ContentReader: bytes.NewReader(largeContent)}); !resp.OK {
+		t.Fatalf("large streamed write = %+v", resp)
+	}
+	if data, err := os.ReadFile(stdin); err != nil || !bytes.Equal(data, largeContent) {
+		t.Fatalf("large helper stdin length=%d err=%v", len(data), err)
+	}
 	if resp, _ = run(&FilesRequest{Action: "rename", Site: "alice", TenantID: "alice", Path: "a", Destination: "b"}); !resp.OK {
 		t.Fatalf("rename = %s", resp.Error)
 	}
@@ -204,7 +211,7 @@ func TestBrokerFilesRunAsTheRecordedAccountUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "list alice alice \nread alice alice index.php\nwrite alice alice index.php \nrename alice alice a b\ndelete alice alice gone\n"
+	want := "list alice alice \nread alice alice index.php\nwrite alice alice index.php \nwrite-large alice alice large.bin \nrename alice alice a b\ndelete alice alice gone\n"
 	if string(data) != want {
 		t.Fatalf("helper calls =\n%s\nwant\n%s", data, want)
 	}

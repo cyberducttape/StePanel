@@ -235,6 +235,32 @@ func TestLocalStoreRefusesLinksAndLimits(t *testing.T) {
 	}
 }
 
+func TestLocalStoreWriteLargeUsesAtomicPathAndKeepsSiteRootConfinement(t *testing.T) {
+	ctx := context.Background()
+	store, dir := newLocal(t)
+	content := bytes.Repeat([]byte("large"), (MaxWriteBytes+4)/5)
+	if err := store.WriteLarge(ctx, testSiteAccess("alice"), "uploads/artifact.bin", bytes.NewReader(content), ""); err == nil {
+		t.Fatal("write into a missing parent directory succeeded")
+	}
+	if err := os.Mkdir(filepath.Join(dir, "uploads"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WriteLarge(ctx, testSiteAccess("alice"), "uploads/artifact.bin", bytes.NewReader(content), ""); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "uploads/artifact.bin"))
+	if err != nil || !bytes.Equal(got, content) {
+		t.Fatalf("large write length=%d, err=%v", len(got), err)
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(dir, "escape")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WriteLarge(ctx, testSiteAccess("alice"), "escape/artifact.bin", bytes.NewReader(content), ""); err == nil {
+		t.Fatal("large write followed a symlink outside the site root")
+	}
+}
+
 func TestReadBoundedRejectsFileGrowthAfterStat(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "active.log")
 	if err := os.WriteFile(path, []byte("1234"), 0o600); err != nil {
