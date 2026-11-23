@@ -169,7 +169,7 @@ SH
 chmod 0755 "$fake_bin/mv"
 if env GO=go SUDO=sudo SUDO_LOG="$tmp/interrupted-sudo.log" \
   GO_LOG="$tmp/interrupted-go.log" PATH="$fake_bin:$PATH" \
-  BUILD_ID=interrupted-build MV_COUNT_FILE="$tmp/mv-count" \
+  GOTOOLCHAIN=auto BUILD_ID=interrupted-build MV_COUNT_FILE="$tmp/mv-count" \
   REAL_MV="$real_mv" FAIL_SECOND_PUBLISH=1 \
   bash "$fake_repo/scripts/install-guided.sh" >"$tmp/interrupted.out" 2>&1; then
   echo 'guided build continued after the second binary publication failed' >&2
@@ -179,7 +179,7 @@ fi
 [[ $("$fake_repo/stepanel-root") == previous-root ]]
 env GO=go SUDO=sudo SUDO_LOG="$tmp/restart-sudo.log" \
   GO_LOG="$tmp/restart-go.log" PATH="$fake_bin:$PATH" \
-  BUILD_ID=restart-build MV_COUNT_FILE="$tmp/mv-count" \
+  GOTOOLCHAIN=auto BUILD_ID=restart-build MV_COUNT_FILE="$tmp/mv-count" \
   REAL_MV="$real_mv" bash "$fake_repo/scripts/install-guided.sh" >"$tmp/restart.out"
 [[ $("$fake_repo/stepanel") == restart-build ]]
 [[ $("$fake_repo/stepanel-root") == restart-build ]]

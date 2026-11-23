@@ -58,9 +58,11 @@ recovery remains a separate recovery flow.
 The guided build stages both outputs and saves the previous executable pair;
 if either publication step fails, its exit cleanup restores the prior pair.
 The test injects failure at the second rename, verifies the old pair remains,
-then reruns and verifies both binaries identify the same new build. The earlier
-source commit's hosted integration CI passed; hosted CI for these changes is
-pending.
+then reruns and verifies both binaries identify the same new build. Hosted run
+45085537386 failed because the fixture inherited CI's `GOTOOLCHAIN=local` and
+incorrectly attempted a mocked toolchain download. The fixture now explicitly
+uses `GOTOOLCHAIN=auto`; its isolated CI-environment reproduction passes.
+Hosted CI for the corrected test is pending.
 
 **Acceptance criteria**
 
@@ -71,6 +73,26 @@ pending.
 - A subsequent build publishes matching artifacts, verified by build
   identity in the guided-installer regression test.
 - Shell syntax, contract tests, and exact-source hosted CI pass.
+
+### M0ax — Report first-install blockers together (P1)
+
+**Status:** Implemented locally; aggregation, ordering, shell syntax, ShellCheck,
+and installer-contract tests pass. The read-only host preflight now runs all
+independent OS/package-manager, systemd, quota, and offsite-tool checks, prints
+each blocker with a fix, then gives an exact recheck command. Quota and remote
+backup requirements remain required; this does not modify mount settings or
+configure a remote. Exact-source CI is pending.
+
+**Acceptance criteria**
+
+- The report lists every independent failed precondition in one invocation,
+  with a documented repair and recheck command.
+- All passing checks are visible even when another check fails; any blocker
+  still prevents the guided build from continuing.
+- No privileged host setting is changed by the doctor. The installer repeats
+  prerequisite checks before mutation.
+- Aggregation tests, shell syntax, ShellCheck, documentation checks, and
+  exact-source hosted CI pass.
 
 ### Release publication safety — verify artifacts before publishing
 

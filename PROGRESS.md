@@ -1,5 +1,23 @@
 # Production-readiness progress
 
+## Aggregate first-install diagnostics — 2026-11-22
+
+- The read-only host preflight now runs OS/package-manager, systemd, quota,
+  and offsite-tool checks together. Each unmet prerequisite includes a repair
+  instruction; the report ends with the exact recheck command. Any blocker
+  still stops the guided build, and the installer repeats checks before host
+  changes. Quota and verified-offsite requirements remain mandatory.
+- Added an aggregation regression proving later checks still run after a
+  failure, plus Makefile, CI shell-syntax, and ShellCheck coverage. The doctor
+  contract, installer ordering contract, shell syntax, ShellCheck, and
+  `make shell-contract-check` pass locally.
+- Pushed commit `d77898ac` had a CI failure in the guided-installer shell
+  contract: the new retry fixture inherited CI's `GOTOOLCHAIN=local` and
+  unintentionally entered the bootstrap path without a download-log mock.
+  The fixture now sets `GOTOOLCHAIN=auto` for its injected publish-failure and
+  restart cases. Reproduction with CI's environment passes locally. The fix
+  and doctor changes are not yet pushed; exact-source CI is pending.
+
 ## Require current credentials for customer credential changes — 2026-11-22
 
 - Customer password changes and authenticator enrollment/replacement now

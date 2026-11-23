@@ -13,4 +13,6 @@ grep -Fq 'install_preflight_user_quotas /var/www /home' "$ROOT_DIR/scripts/insta
 grep -Fq 'install_guided_host_support' "$ROOT_DIR/scripts/install-host-preflight.sh"
 grep -Fq 'install_preflight_systemd' "$ROOT_DIR/scripts/install-host-preflight.sh"
 grep -Fq 'install_preflight_offsite' "$ROOT_DIR/scripts/install-host-preflight.sh"
+grep -Fq 'install-doctor.sh' "$ROOT_DIR/scripts/install-host-preflight.sh"
+grep -Fq 'install_doctor_finish' "$ROOT_DIR/scripts/install-host-preflight.sh"
 echo 'guided host preflight ordering contract passed'

@@ -157,9 +157,11 @@ cd StePanel
 ```
 
 Before downloading Go or compiling, the script uses `sudo` for a read-only
-check of the OS support tier, running systemd manager, user-quota readiness on
-`/var/www` and `/home`, and rclone availability. Missing host requirements stop
-setup before the toolchain download. An unconfigured rclone remote is handled
+doctor report covering the OS support tier, running systemd manager,
+user-quota readiness on `/var/www` and `/home`, and rclone availability. It
+reports every unmet prerequisite in one pass with a repair step and the exact
+recheck command. Missing host requirements stop setup before the toolchain
+download. An unconfigured rclone remote is handled
 inside the wizard after the support tier is confirmed. The wizard tests
 write/read/delete access to the destination you select; the full
 installer repeats the host checks before making changes. The script then
@@ -173,8 +175,9 @@ If rclone itself is missing, it prints the exact package-install command.
 
 Before the integrated wizard asks for setup answers, the installer also checks
 for a live systemd manager and active user quotas on `/var/www` and `/home`.
-Missing requirements are reported with the next action before you enter
-credentials; the installer repeats these checks before making host changes.
+The read-only report shows all missing prerequisites and repair guidance before
+you enter credentials; rerun `sudo bash scripts/install-host-preflight.sh` to
+recheck. The installer repeats these checks before making host changes.
 
 For a manual build and install, use `make build` followed by
 `sudo ./install.sh --guided` from the same checkout.
