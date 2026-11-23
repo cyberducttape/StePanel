@@ -1,3 +1,12 @@
+## Run the local preview from a clean checkout — 2026-11-23
+
+- On source `853b65dc`, ran `bash scripts/evaluate-local.sh` in a detached
+  temporary worktree. The preview returned HTTP 200 and `ss` confirmed its
+  only listener was `127.0.0.1:8080`.
+- Stopped the temporary app and removed its build directory and worktree. The
+  repository checkout stayed clean and port 8080 was released. This is
+  loopback UI-evaluation evidence only, not native install evidence.
+
 ## Make the native install guide scannable — 2026-11-23
 
 - Consolidated repeated preflight, support-tier, and rclone explanations in

@@ -392,6 +392,11 @@ disposable-host scope and missing project-quota limitation are recorded in
   from the checkout's existing data; it built successfully, returned HTTP
   200, and listened on `127.0.0.1:8080` before clean shutdown. This is UI
   evaluation evidence only, not a native installation test.
+- On exact source `853b65dc`, a clean temporary checkout ran the documented
+  `bash scripts/evaluate-local.sh` command, returned HTTP 200, and listened
+  only on `127.0.0.1:8080`. The temporary process, build directory, and
+  worktree were removed afterward. This confirms the preview path, not native
+  installation or production readiness.
 - `bash scripts/evaluate-local.sh` and the guided native installer can
   bootstrap the pinned Go toolchain without installing a system Go package.
   Full development commands
