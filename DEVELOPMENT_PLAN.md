@@ -106,6 +106,11 @@ and [release evidence](https://github.com/cyberducttape/StePanel/actions/runs/45
 passed. The packaged Ubuntu host smoke passed on code-identical commit
 `df838fa9`; its WordPress recovery measurement and scope are in the
 [smoke report](docs/lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-df838fa.md).
+On clean source archive `c4870e6f`, the guided installer downloaded and
+SHA-256-verified the pinned Go 1.26.11 toolchain, built all three binaries,
+ran the actual CLI help command, and reached a mocked privileged handoff.
+This validates source bootstrap and build behavior, not a second installed-host
+run.
 The OpenAPI-backed `stepanelctl` is built by source and release workflows,
 included in release archives and the container, and installed as a root-owned
 `/usr/local/bin/stepanelctl`. Guided publication uses a durable rollback
@@ -120,6 +125,9 @@ reusable setup settings from system-service changes.
   v2.17.1 snapshot archives.
 - `make build` and the guided source installer build all three binaries;
   interrupted publication restores the complete prior set before rebuilding.
+- From a clean source archive with `GO` unavailable, guided setup downloads
+  only the pinned compiler to temporary storage, verifies its checksum, builds
+  all three executables as the invoking user, and completes the host handoff.
 - Native install and upgrade snapshot the CLI target for rollback, install it
   with root ownership, and verify its executable help command in the packaged
   installed-host smoke. The Ubuntu 24.04 + Caddy + MariaDB run passed on

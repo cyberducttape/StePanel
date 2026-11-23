@@ -4427,3 +4427,9 @@ does not close a current-source or power-loss gate.
   source passed, including Go tests, race tests, recovery/ENOSPC drills,
   database restore checks, static analysis, container smoke, and browser E2E
   ([run 45103029684](https://github.com/cyberducttape/StePanel/actions/runs/45103029684)).
+- A clean source archive of `c4870e6f` was run with `GO` pointed at a missing
+  executable. The real guided bootstrap downloaded Go 1.26.11, verified its
+  pinned SHA-256, built `stepanel`, `stepanel-root`, and `stepanelctl`, ran the
+  actual `stepanelctl help`, and reached the mocked `sudo ./install.sh --guided`
+  handoff. The fake sudo prevented all host mutation; the separate packaged
+  installed-host result above supplies host-install evidence.
