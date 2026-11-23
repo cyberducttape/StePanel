@@ -135,10 +135,12 @@
   be run against the unauthenticated local preview. Its exact-source hosted
   browser/accessibility job passed in
   [run 45201896488](https://github.com/cyberducttape/StePanel/actions/runs/45201896488).
-  Documentation [45201896612](https://github.com/cyberducttape/StePanel/actions/runs/45201896612)
+  The same integration job also passed on `5da789bb`, including Go tests,
+  race tests, recovery/ENOSPC, MySQL and PostgreSQL restore integration,
+  container checks, and the browser suite. Documentation
+  [45201896612](https://github.com/cyberducttape/StePanel/actions/runs/45201896612)
   and CodeQL [45201896556](https://github.com/cyberducttape/StePanel/actions/runs/45201896556)
-  also passed on `5da789bb`. The same run's full integration gate is still
-  executing race tests; the exact-source candidate preflight
+  passed on that source as well. The exact-source candidate preflight
   [45202075337](https://github.com/cyberducttape/StePanel/actions/runs/45202075337)
   is exercising its disposable install and recovery smoke. Neither is counted
   as passed yet.

@@ -2769,9 +2769,12 @@ their explanations instead of competing for a narrow third grid column. The
 seeded browser regression checks the explanation/action geometry at desktop
 and mobile widths. The exact-source seeded browser/accessibility job passed in
 [run 45201896488](https://github.com/cyberducttape/StePanel/actions/runs/45201896488),
-as did documentation and CodeQL. Local `make check` and frontend unit tests
-pass. Hosted full integration and installed-host candidate checks are still
-running; their completion is required before those checks are counted.
+as did the full integration job in the same run, documentation
+[45201896612](https://github.com/cyberducttape/StePanel/actions/runs/45201896612),
+and CodeQL [45201896556](https://github.com/cyberducttape/StePanel/actions/runs/45201896556).
+Local `make check` and frontend unit tests pass. The separate packaged
+installed-host candidate [45202075337](https://github.com/cyberducttape/StePanel/actions/runs/45202075337)
+is still running; it is required before the fresh-host gate is counted.
 
 **Acceptance criteria**
 
