@@ -87,6 +87,8 @@ func TestSetupWritesPrivateInstallerSettings(t *testing.T) {
 		}
 	}
 	for _, command := range []string{
+		"./scripts/install-guided.sh --config " + quotedOutput + " --dry-run",
+		"./scripts/install-guided.sh --config " + quotedOutput,
 		"sudo ./install.sh --config " + quotedOutput + " --dry-run",
 		"sudo ./install.sh --config " + quotedOutput,
 	} {
@@ -148,6 +150,7 @@ func TestSetupExistingFileShowsDirectInstallCommand(t *testing.T) {
 	message := err.Error()
 	for _, want := range []string{
 		"already exists",
+		"./scripts/install-guided.sh --config " + shellQuoteCommandArg(output),
 		"sudo ./install.sh --config " + shellQuoteCommandArg(output),
 		"--force to replace it",
 	} {

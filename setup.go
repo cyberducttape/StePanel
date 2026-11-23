@@ -55,7 +55,7 @@ func runSetup(args []string, in *os.File, out io.Writer, host setupguide.Host, e
 	}
 	if _, err := os.Lstat(*output); err == nil && !*force {
 		quotedOutput := shellQuoteCommandArg(*output)
-		return fmt.Errorf("%s already exists; run `sudo ./install.sh --config %s` to use it (or pass --force to replace it; its keys will be lost)", *output, quotedOutput)
+		return fmt.Errorf("%s already exists; from a source checkout run `./scripts/install-guided.sh --config %s`, or run `sudo ./install.sh --config %s` with matching binaries already built (or pass --force to replace it; its keys will be lost)", *output, quotedOutput, quotedOutput)
 	}
 	answers, err := setupguide.NewGuide(newSetupTerminal(in), out, host).Run()
 	if err != nil {
@@ -78,8 +78,12 @@ func runSetup(args []string, in *os.File, out io.Writer, host setupguide.Host, e
 	if !*fromInstaller {
 		fmt.Fprintln(out, "\nNext:")
 		quotedPath := shellQuoteCommandArg(path)
-		fmt.Fprintf(out, "  1. Preview the changes: sudo ./install.sh --config %s --dry-run\n", quotedPath)
-		fmt.Fprintf(out, "  2. Install:             sudo ./install.sh --config %s\n", quotedPath)
+		fmt.Fprintf(out, "  From a source checkout (builds the matching binaries):\n")
+		fmt.Fprintf(out, "    Preview: ./scripts/install-guided.sh --config %s --dry-run\n", quotedPath)
+		fmt.Fprintf(out, "    Install: ./scripts/install-guided.sh --config %s\n", quotedPath)
+		fmt.Fprintf(out, "  With matching binaries already built:\n")
+		fmt.Fprintf(out, "    Preview: sudo ./install.sh --config %s --dry-run\n", quotedPath)
+		fmt.Fprintf(out, "    Install: sudo ./install.sh --config %s\n", quotedPath)
 	}
 	return nil
 }

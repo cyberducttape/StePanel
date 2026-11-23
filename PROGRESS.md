@@ -330,25 +330,29 @@
 
 ## Make guided binary publication recover after a hard stop — 2026-11-23
 
-- The guided source installer now serializes publication and records both
-  previous executables in a durable journal before replacing either one. If
-  SIGKILL or power loss interrupts the two renames, the next invocation
-  restores the prior pair before building or installing. Filesystem syncs
-  bracket journal creation, each publication, and journal removal.
-- Added a forced-kill regression after publishing only `stepanel`; the restart
-  verifies the prior panel/root pair is restored before the fake compiler runs,
-  then checks both new binaries share the restart build identity. The existing
-  injected second-rename failure still verifies rollback.
+- The guided source installer serializes publication and records the previous
+  executable set in a durable journal before replacing any binary. If SIGKILL
+  or power loss interrupts publication, the next invocation restores the prior
+  complete set before building or installing. Filesystem syncs bracket journal
+  creation, each publication, and journal removal.
+- Added forced-kill regressions after publishing `stepanel` and
+  `stepanel-root`; a restart verifies all three prior executables are restored
+  before the fake compiler runs, then checks the new set shares one build
+  identity. An injected failure on the final rename also verifies rollback.
 - Installer cancellation already reports that system services were untouched
   while naming the secured reusable settings path; the settings ownership
   contract test asserts this wording and rejects the old “Nothing was changed”
   claim.
+- `stepanel setup` now recommends `scripts/install-guided.sh` for a source
+  checkout, so generated instructions build matching binaries before install;
+  direct `install.sh` commands are identified as appropriate only when those
+  binaries are already built. Tests cover both instruction paths.
 - Passed `scripts/test-install-guided.sh`,
   `scripts/test-install-guided-settings.sh`,
   `scripts/test-install-guided-preflight-order.sh`, and
   `make shell-contract-check`; ShellCheck passed for both changed installer
   scripts. Full `make check` passed, including `go vet ./...` and all Go tests
-  (root package 119.5 seconds). Race tests passed for rootbroker, root broker
+  (root package 120.7 seconds). Race tests passed for rootbroker, root broker
   command, and sitefiles. Frontend syntax and unit tests (19/19) passed for the
   resumable upload work. Playwright discovered 34 tests; customer E2E was not
   run because the disposable seeded instance credentials are not configured.

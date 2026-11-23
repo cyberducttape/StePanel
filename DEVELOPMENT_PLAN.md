@@ -226,8 +226,12 @@ includes a config path containing spaces, relative paths from outside the
 checkout, and rejection of missing files, symlinks, and duplicate config
 input. File ownership, mode, and link count are checked before toolchain
 download; contract tests run with the CI `GOTOOLCHAIN=local` default to catch
-environment-sensitive bootstrap behavior. The installation guide shows this
-workflow.
+environment-sensitive bootstrap behavior. `stepanel setup` recommends this
+wrapper for source checkouts and shows direct `install.sh` commands only when
+matching binaries have already been built. The installation guide shows this
+workflow. Installer publication uses a durable rollback journal around each
+binary rename; injected rename failures and process kills between publication
+steps restore the previous complete executable set before a later build.
 The `stepanelctl doctor` command now presents readiness failures as a readable
 checklist by default, includes the diagnostic and suggested next step, retains
 JSON output for automation, and exits nonzero for critical/not-ready or
