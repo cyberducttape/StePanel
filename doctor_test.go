@@ -57,7 +57,14 @@ func TestControlPlaneDoctorUsesCachedIntegrityEvidence(t *testing.T) {
 	}
 
 	jobs.integrityMu.Lock()
-	jobs.integrityAt = time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
+	jobs.integrityAt = time.Now().Add(-controlPlaneIntegrityFreshness - time.Minute)
+	jobs.integrityErr = nil
+	jobs.integrityMu.Unlock()
+	if integrity := app.checkControlPlaneIntegrityReadiness(); integrity.Status != "warning" || !strings.Contains(integrity.Message, "evidence is stale") || integrity.Remediation == "" {
+		t.Fatalf("stale integrity evidence = %+v", integrity)
+	}
+
+	jobs.integrityMu.Lock()
 	jobs.integrityErr = errors.New("injected quick_check failure")
 	jobs.integrityMu.Unlock()
 	integrity := app.checkControlPlaneIntegrityReadiness()

@@ -69,6 +69,8 @@ type ProductionReadinessReport struct {
 	OverallStatus string                     `json:"overall_status"` // "healthy", "degraded", "critical"
 }
 
+const controlPlaneIntegrityFreshness = 30 * time.Minute
+
 // productionReadiness handles production readiness checks
 func (a *App) productionReadiness(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -239,6 +241,25 @@ func (a *App) checkControlPlaneIntegrityReadiness() ProductionReadinessCheck {
 			Severity:    "critical",
 			Message:     fmt.Sprintf("full SQLite integrity verification failed at %s: %v", checkedAt.Format(time.RFC3339), integrityErr),
 			Remediation: "Stop control-plane mutations and follow the database recovery runbook; do not delete or replace the database",
+		}
+	}
+	age := time.Since(checkedAt)
+	if age < 0 {
+		return ProductionReadinessCheck{
+			Name:        "Control Plane Integrity",
+			Status:      "warning",
+			Severity:    "warning",
+			Message:     "last full SQLite integrity verification is timestamped " + checkedAt.Format(time.RFC3339) + ", which is ahead of the host clock",
+			Remediation: "Check host time synchronization and wait for a fresh integrity verification",
+		}
+	}
+	if age > controlPlaneIntegrityFreshness {
+		return ProductionReadinessCheck{
+			Name:        "Control Plane Integrity",
+			Status:      "warning",
+			Severity:    "warning",
+			Message:     fmt.Sprintf("last full SQLite integrity verification succeeded at %s, but its evidence is stale (%s old)", checkedAt.Format(time.RFC3339), age.Round(time.Minute)),
+			Remediation: "Check the control-plane maintenance loop and database availability, then wait for a fresh scheduled integrity verification",
 		}
 	}
 	return ProductionReadinessCheck{

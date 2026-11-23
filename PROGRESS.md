@@ -1,3 +1,14 @@
+## Mark stale integrity evidence in operator doctor output — 2026-11-23
+
+- `stepanelctl doctor` now marks a successful SQLite integrity scan stale after
+  30 minutes, matching the 15-minute maintenance cadence with headroom. A scan
+  timestamp ahead of the host clock is also reported as a warning. Both cases
+  include an actionable next step instead of presenting old evidence as a
+  current pass.
+- Tests cover current, missing, stale, future-dated, and failed scan evidence.
+  Focused normal/race tests and full `make check` passed locally; `git diff
+  --check` passed. Hosted CI for this exact follow-up is pending.
+
 ## Keep operator doctor checks responsive — 2026-11-23
 
 - `stepanelctl doctor` no longer runs SQLite `PRAGMA quick_check` synchronously

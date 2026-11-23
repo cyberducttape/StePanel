@@ -218,8 +218,10 @@ unrecognized status.
 Its control-plane check uses the bounded readiness query rather than running
 SQLite `quick_check` inline. The report now shows the latest background
 integrity result and timestamp, warns when no scan has completed since startup,
-and gives recovery guidance on failure. `make check` and the focused integrity
-doctor race test pass locally; exact-source hosted CI is pending.
+warns when a successful scan is over 30 minutes old (the maintenance cadence is
+15 minutes), flags a timestamp ahead of the host clock, and gives recovery
+guidance on failure. `make check` and the focused integrity-doctor race test
+pass locally; exact-source hosted CI is pending.
 The integrated guided installer also secures a previously saved setup file
 before reusing it, so `./stepanel setup` followed by
 `sudo ./install.sh --guided` no longer offers a reuse path that fails root
