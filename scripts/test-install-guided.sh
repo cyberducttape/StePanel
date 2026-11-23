@@ -156,14 +156,45 @@ grep -Fq 'Starting the native upgrade.' "$tmp/existing.out"
 # same pinned build and read-only preflight, with argv boundaries preserved.
 config_path="$tmp/operator setup.env"
 : > "$config_path"
+chmod 0600 "$config_path"
 env GO=go SUDO=sudo SUDO_LOG="$tmp/config-sudo.log" \
   SUDO_ARGV_LOG="$tmp/config-sudo-argv.log" GO_LOG="$tmp/config-go.log" \
-  PATH="$fake_bin:$PATH" BUILD_ID=config-build \
+  PATH="$fake_bin:$PATH" BUILD_ID=config-build GOTOOLCHAIN=auto \
   bash "$fake_repo/scripts/install-guided.sh" --config "$config_path" --dry-run \
   > "$tmp/config.out"
 [[ $(tail -n 4 "$tmp/config-sudo-argv.log") == "$(printf './install.sh\n--config\n%s\n--dry-run' "$config_path")" ]]
 grep -Fq 'Starting the native installer with the saved settings.' "$tmp/config.out"
 grep -Fq 'install-host-preflight.sh' "$tmp/config-sudo.log"
+
+# Resolve relative settings against the caller's directory before the wrapper
+# changes into the checkout for compilation and installation.
+relative_dir="$tmp/relative config"
+mkdir -p "$relative_dir"
+printf 'STEPANEL_PANEL_HOSTNAME="example.test"\n' > "$relative_dir/settings.env"
+chmod 0600 "$relative_dir/settings.env"
+(
+  cd "$relative_dir"
+  env GO=go SUDO=sudo SUDO_LOG="$tmp/relative-sudo.log" \
+    SUDO_ARGV_LOG="$tmp/relative-sudo-argv.log" GO_LOG="$tmp/relative-go.log" \
+    PATH="$fake_bin:$PATH" GOTOOLCHAIN=auto bash "$fake_repo/scripts/install-guided.sh" \
+    --config settings.env --dry-run > "$tmp/relative.out"
+)
+[[ $(tail -n 4 "$tmp/relative-sudo-argv.log") == "$(printf './install.sh\n--config\n%s\n--dry-run' "$relative_dir/settings.env")" ]]
+
+for invalid_config in missing linked; do
+  invalid_path="$tmp/$invalid_config.env"
+  if [[ $invalid_config == linked ]]; then
+    ln -s "$config_path" "$invalid_path"
+  fi
+  if env GO=go SUDO=sudo GO_LOG="$tmp/invalid-$invalid_config-build.log" \
+    SUDO_LOG="$tmp/invalid-$invalid_config-sudo.log" PATH="$fake_bin:$PATH" \
+    bash "$fake_repo/scripts/install-guided.sh" --config "$invalid_path" \
+    > "$tmp/$invalid_config.out" 2>&1; then
+    echo "guided installer accepted $invalid_config setup settings" >&2
+    exit 1
+  fi
+  [[ ! -e $tmp/invalid-$invalid_config-build.log && ! -e $tmp/invalid-$invalid_config-sudo.log ]]
+done
 
 if env GO=go SUDO=sudo GO_LOG="$tmp/duplicate-config-go.log" \
   SUDO_LOG="$tmp/duplicate-config-sudo.log" PATH="$fake_bin:$PATH" \

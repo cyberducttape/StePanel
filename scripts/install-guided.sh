@@ -11,6 +11,7 @@ fi
 
 install_args=()
 config_seen=0
+invoking_directory=$PWD
 while (($#)); do
   arg=$1
   case "$arg" in
@@ -20,7 +21,9 @@ while (($#)); do
         echo "usage: $0 [--config FILE] [--dry-run] [--take-over-host]" >&2
         exit 64
       }
-      install_args+=(--config "$2")
+      config_path=$2
+      [[ $config_path == /* ]] || config_path="$invoking_directory/$config_path"
+      install_args+=(--config "$config_path")
       config_seen=1
       shift
       ;;
@@ -30,6 +33,7 @@ while (($#)); do
         echo "usage: $0 [--config FILE] [--dry-run] [--take-over-host]" >&2
         exit 64
       }
+      [[ $config_path == /* ]] || config_path="$invoking_directory/$config_path"
       install_args+=(--config "$config_path")
       config_seen=1
       ;;
@@ -41,6 +45,23 @@ while (($#)); do
   esac
   shift
 done
+
+if (( config_seen )); then
+  [[ -f $config_path && ! -L $config_path ]] || {
+    echo "$config_path must be an existing regular, non-symlink setup file." >&2
+    exit 1
+  }
+  config_owner=$(stat -c %u -- "$config_path")
+  config_mode=$(stat -c %a -- "$config_path")
+  config_links=$(stat -c %h -- "$config_path")
+  invoking_uid=$(id -u)
+  [[ ( $config_owner == 0 || $config_owner == "$invoking_uid" ) &&
+     $config_mode =~ ^[0-7]{3,4}$ && $(( 8#$config_mode & 077 )) == 0 &&
+     $config_links == 1 ]] || {
+    echo "$config_path must be owned by root or the invoking user, private, and have one link." >&2
+    exit 1
+  }
+fi
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 [[ -f "$repo_root/go.mod" && -f "$repo_root/install.sh" ]] || {

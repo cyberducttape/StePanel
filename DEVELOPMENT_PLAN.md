@@ -222,8 +222,12 @@ The native source wrapper also accepts `--config FILE` and `--dry-run` and
 passes those arguments, preserving path boundaries, to `install.sh`. A saved
 setup file can now use the same pinned build and preflight path without a
 manual binary build or switching installer commands. Regression coverage
-includes a config path containing spaces and rejects duplicate config input;
-the installation guide shows this workflow.
+includes a config path containing spaces, relative paths from outside the
+checkout, and rejection of missing files, symlinks, and duplicate config
+input. File ownership, mode, and link count are checked before toolchain
+download; contract tests run with the CI `GOTOOLCHAIN=local` default to catch
+environment-sensitive bootstrap behavior. The installation guide shows this
+workflow.
 The `stepanelctl doctor` command now presents readiness failures as a readable
 checklist by default, includes the diagnostic and suggested next step, retains
 JSON output for automation, and exits nonzero for critical/not-ready or

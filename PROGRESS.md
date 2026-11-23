@@ -4798,4 +4798,24 @@ does not close a current-source or power-loss gate.
   argument forwarding and conflicting config flags fail before build or
   privilege elevation. `scripts/test-install-guided.sh`, all shell contracts,
   documentation links/references (93 files), and `git diff --check` passed.
-  Full `make check` and hosted CI for this follow-up are pending.
+  At this point full `make check` and hosted CI for this follow-up were pending.
+
+## Validate saved installer settings before compiling — 2026-11-23
+
+- Relative `--config` paths now remain anchored to the caller's working
+  directory when the wrapper changes into the source checkout. Before sudo,
+  preflight, compiler download, or build, the wrapper rejects missing files,
+  symlinks, unexpected owners, readable-by-others modes, and multiple hard
+  links. The native installer still repeats its authoritative secure-file
+  validation before reading secrets.
+- Added regressions for relative settings paths from outside the checkout,
+  missing files, and symlinks; the existing path-with-spaces forwarding test
+  remains. The focused installer test, all shell contracts, ShellCheck,
+  `make check` (including `go vet ./...` and the full Go suite), documentation
+  links/references (93 documents), and `git diff --check` pass locally. The
+  exact-source integration run for parent `5b75cb8f` exposed that the new
+  shell cases inherited CI's `GOTOOLCHAIN=local` and reached the fake curl
+  without `DOWNLOAD_LOG`. Both cases now explicitly select the mock's
+  supported `GOTOOLCHAIN=auto`; the installer contract and complete shell
+  suite pass locally with `GOTOOLCHAIN=local`. CodeQL, docs, and release
+  evidence passed on `5b75cb8f`; the corrected follow-up still needs hosted CI.
