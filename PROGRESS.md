@@ -1,3 +1,25 @@
+## Complete the exact-source v0.9.0 install preflight — 2026-11-23
+
+- The non-publishing candidate preflight
+  [45202075337](https://github.com/cyberducttape/StePanel/actions/runs/45202075337)
+  completed successfully for product source
+  `5da789bb51e6da28e5c94667ebc8cf2f27049462`. Its installed-host job,
+  versioned archive build, exact-source evidence generation, SPDX SBOM,
+  artifact verification, and artifact retention all passed.
+- Ubuntu 24.04 + Caddy + MariaDB installed successfully in a disposable
+  systemd container, and post-install cleanup completed. The installed
+  WordPress HTTPS/database recovery proof measured **7,668 ms**. One recovery
+  matrix iteration passed. The host lacked project quotas; Git deployment
+  correctly failed closed with the live site unchanged. Repeated recovery,
+  quota-enabled host certification, and physical power-loss remain open.
+- Both versioned architecture archives and their checksums passed validation;
+  exact artifact SHA-256 values, recovery evidence, limitations, and the
+  retained artifact digest are recorded in the
+  [candidate result](docs/lab-results/2026-11-23-v0.9.0-ubuntu-install-45202075337.md).
+  Current `main` differs from tested product source only by documentation and
+  progress commits. No tag was pushed and no public release was published.
+  Production remains **NO-GO** under the documented gates.
+
 ## Run the local preview from a clean checkout — 2026-11-23
 
 - On source `853b65dc`, ran `bash scripts/evaluate-local.sh` in a detached

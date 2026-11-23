@@ -2464,15 +2464,19 @@ the documentation and CodeQL workflows passed on documentation-only descendant
 
 ### M0as — Gate tagged packages on a real fresh-host install (P1)
 
-**Status:** The exact-source `v0.9.0` Linux amd64 and arm64 archives passed
-`scripts/verify-release-artifacts.sh` on source `927c6571`. The local run used
-GoReleaser v2.17.1, the repository evidence generator, and Syft to produce the
-required report and SBOM; checksum, package contents, setup CLI, and automation
-CLI checks all passed. The disposable-host installation job
-[45197434678](https://github.com/cyberducttape/StePanel/actions/runs/45197434678)
-is still queued, so no install or recovery result is claimed. The current plan
-update changes documentation only; the hosted install result remains required
-before calling the current source a verified candidate. The actual tag-triggered
+**Status:** The non-publishing exact-source `v0.9.0` candidate preflight
+[45202075337](https://github.com/cyberducttape/StePanel/actions/runs/45202075337)
+passed on product source `5da789bb51e6da28e5c94667ebc8cf2f27049462`. The
+Ubuntu 24.04 + Caddy + MariaDB disposable systemd host installed the versioned
+archive, completed cleanup, and passed the installed WordPress HTTPS/database
+recovery proof with measured RTO 7,668 ms. One recovery-matrix iteration
+passed. The amd64/arm64 archives, checksums, package contents, exact-source
+evidence, SPDX SBOM, and packaged setup/CLI checks all passed. Full run evidence
+and artifact checksums are in the [reviewed result](docs/lab-results/2026-11-23-v0.9.0-ubuntu-install-45202075337.md).
+The disposable container lacks project-quota enforcement, so Git deployment
+refused safely and quota certification remains open. A single iteration does
+not satisfy repeated recovery or physical power-loss gates. This is not
+production certification; no tag or public release was created. The tag-triggered
 publication event remains unexercised.
 The tag-triggered release workflow passes the tag into the packaged Ubuntu
 24.04 + Caddy + MariaDB install-smoke workflow. With a tag, that workflow
