@@ -165,7 +165,8 @@ download. An unconfigured rclone remote is handled
 inside the wizard after the support tier is confirmed. The wizard tests
 write/read/delete access to the destination you select; the full
 installer repeats the host checks before making changes. The script then
-builds both binaries as your normal user with the repository-pinned Go
+builds the panel, privileged broker, and automation CLI as your normal user
+with the repository-pinned Go
 toolchain and runs the guided native installer through `sudo`. It does not
 build Go code as root. If you intentionally want StePanel to stop an
 existing web server, pass `--take-over-host`; otherwise the installer asks

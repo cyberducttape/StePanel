@@ -4424,4 +4424,6 @@ does not close a current-source or power-loss gate.
   because the progress note linked to generated release evidence. That link
   has been corrected; documentation, CodeQL, and release-evidence workflows
   pass on `237d1d16`. A fresh full integration run on that code-equivalent
-  source has passed unit tests and UI E2E and is still running race tests.
+  source passed, including Go tests, race tests, recovery/ENOSPC drills,
+  database restore checks, static analysis, container smoke, and browser E2E
+  ([run 45103029684](https://github.com/cyberducttape/StePanel/actions/runs/45103029684)).

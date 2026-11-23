@@ -54,24 +54,23 @@ recovery remains a separate recovery flow.
 
 ### M0aw — Keep guided installer binaries from diverging (P2)
 
-**Status:** Implemented locally; `make check`, race tests for the changed Go
-packages, ShellCheck, and installer contracts pass. In addition to ordinary
-failure rollback, the guided build now writes a durable same-checkout journal
-for both prior binaries before publication. On startup, it restores the prior
-pair before compiling if the previous process was killed between the two
-renames. A forced-kill regression verifies the restored build identities
-before the fake compiler runs. The cancellation message identifies the saved,
-secured settings path and accurately says system services were not changed.
-Exact-source CI passed on `64bb74a4`: the [integration workflow](https://github.com/cyberducttape/StePanel/actions/runs/45094688816), including shell, full Go/race, and recovery checks; [documentation](https://github.com/cyberducttape/StePanel/actions/runs/45094688982); [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/45094688849); and the seeded customer browser job all passed. The [Ubuntu 24.04 installed-host smoke](https://github.com/cyberducttape/StePanel/actions/runs/45094688912) also passed: install and cleanup completed, a WordPress HTTPS/database restore measured 4,407 ms, and one recovery-matrix iteration passed. The scoped result and limitations are in [`2026-11-23-ubuntu-packaged-first-host-smoke-64bb74a.md`](docs/lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-64bb74a.md).
+**Status:** The original two-binary journal is extended to cover the full
+three-executable set under M0ay. On exact code source `237d1d16` the hosted
+[integration workflow](https://github.com/cyberducttape/StePanel/actions/runs/45103029684)
+passed, including shell contracts, Go tests, race tests, ENOSPC drills, and
+database restore checks. The [seeded browser job](https://github.com/cyberducttape/StePanel/actions/runs/45103029684)
+also passed. The cancellation message and saved-settings contract remain
+covered by the shell suite. The installed-host evidence for the three-binary
+install is recorded under M0ay.
 
 **Acceptance criteria**
 
 - The installer is never invoked after only one new executable has been
   published.
-- A failed second publication restores the previous executable pair (or
+- A failed publication restores the previous complete executable set (or
   restores the original absence of files).
-- After a forced process stop between renames, the next run restores the old
-  pair before building and publishes matching new artifacts.
+- After forced process stops between publications, the next run restores the
+  old set before building and publishes matching new artifacts.
 - Shell syntax, contract tests, full local checks, and exact-source hosted CI
   pass.
 
@@ -100,13 +99,18 @@ host certification or project-quota enforcement.
 
 ### M0ay — Ship the documented API CLI with native installs (P1)
 
-**Status:** The packaged install smoke passed on exact source `df838fa9`;
-integration CI is being rerun on documentation-corrected, code-equivalent
-source `237d1d16`. The OpenAPI-backed `stepanelctl` is now built by source and release workflows,
+**Status:** Verified on code source `237d1d16`. Hosted [integration](https://github.com/cyberducttape/StePanel/actions/runs/45103029684),
+[documentation](https://github.com/cyberducttape/StePanel/actions/runs/45103898528),
+[CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/45103898618),
+and [release evidence](https://github.com/cyberducttape/StePanel/actions/runs/45103945286)
+passed. The packaged Ubuntu host smoke passed on code-identical commit
+`df838fa9`; its WordPress recovery measurement and scope are in the
+[smoke report](docs/lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-df838fa.md).
+The OpenAPI-backed `stepanelctl` is built by source and release workflows,
 included in release archives and the container, and installed as a root-owned
 `/usr/local/bin/stepanelctl`. Guided publication uses a durable rollback
 journal for the entire executable set and restores it before rebuilding after
-an interrupted rename. Installer cancellation also distinguishes secured,
+an interrupted rename. Installer cancellation distinguishes secured,
 reusable setup settings from system-service changes.
 
 **Acceptance criteria**
@@ -125,7 +129,8 @@ reusable setup settings from system-service changes.
 - README and API/installation guides state how the CLI is obtained; API
   generation and shell-completion artifacts remain checked.
 - Focused installer and release checks and full local `make check` pass.
-  Exact-source integration on code-equivalent `237d1d16` remains in progress.
+  Exact-source hosted integration and browser E2E passed on code-equivalent
+  `237d1d16`; the host installation smoke passed on `df838fa9`.
 
 ### Release publication safety — verify artifacts before publishing
 
@@ -286,11 +291,12 @@ path is usable, but it is not a production-ready release.
   toolchain selection is required. Contract tests cover missing/old Go, local
   mode, checksum failure before extraction/build/privilege elevation, and
   unsupported options.
-  `scripts/install-guided.sh` builds both binaries as the normal user, then
+  `scripts/install-guided.sh` builds all three executables as the normal user, then
   invokes the guided host installer through `sudo`. Source-based installation
   remains clearly distinct from a published release archive. The manual
-  fallback `make build && sudo ./install.sh --guided` also builds both
-  `stepanel` and `stepanel-root`; `make evaluate` builds only the panel binary.
+  fallback `make build && sudo ./install.sh --guided` also builds
+  `stepanel`, `stepanel-root`, and `stepanelctl`; `make evaluate` builds only
+  the panel binary.
   Before fetching the compiler, the source bootstrap checks for an existing
   installation and routes it to the ordinary upgrade path; fresh hosts must
   pass the read-only OS/systemd/quota/rclone preflight before any toolchain
