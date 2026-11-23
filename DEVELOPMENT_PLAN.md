@@ -375,7 +375,8 @@ disposable-host scope and missing project-quota limitation are recorded in
 **Acceptance criteria**
 
 - A newcomer can start a loopback-only, no-host-mutation UI evaluation without
-  configuring offsite storage using `make evaluate`; the launcher fixes the
+  configuring offsite storage using `bash scripts/evaluate-local.sh`; `make
+  evaluate` is an optional alias. The launcher fixes the
   listener to loopback, clears inherited StePanel settings, and the
   instructions and native setup greeting clearly prohibit network exposure
   and real customer data in development mode. Setup users are shown the
@@ -391,18 +392,20 @@ disposable-host scope and missing project-quota limitation are recorded in
   from the checkout's existing data; it built successfully, returned HTTP
   200, and listened on `127.0.0.1:8080` before clean shutdown. This is UI
   evaluation evidence only, not a native installation test.
-- `make evaluate` and the guided native installer can bootstrap the pinned Go
-  toolchain without installing a system Go package. Full development commands
+- `bash scripts/evaluate-local.sh` and the guided native installer can
+  bootstrap the pinned Go toolchain without installing a system Go package.
+  Full development commands
   (`make check`, `go run`) state that an installed Go 1.21+ with automatic
   toolchain selection is required. Contract tests cover missing/old Go, local
   mode, checksum failure before extraction/build/privilege elevation, and
   unsupported options.
-  `scripts/install-guided.sh` builds all three executables as the normal user, then
-  invokes the guided host installer through `sudo`. Source-based installation
+  `scripts/install-guided.sh` builds all three executables as the normal user,
+  then invokes the guided host installer through `sudo`. Source-based installation
   remains clearly distinct from a published release archive. The manual
   fallback `make build && sudo ./install.sh --guided` also builds
-  `stepanel`, `stepanel-root`, and `stepanelctl`; `make evaluate` builds only
-  the panel binary.
+  `stepanel`, `stepanel-root`, and `stepanelctl`; local evaluation builds only
+  the panel binary. `make evaluate` remains an optional alias for the Bash
+  evaluation command.
   Before fetching the compiler, the source bootstrap checks for an existing
   installation and routes it to the ordinary upgrade path; fresh hosts must
   pass the read-only OS/systemd/quota/rclone preflight before any toolchain
