@@ -822,6 +822,17 @@ body { background: var(--panel-bg); color: var(--panel-text); }
   .content { padding: 28px 18px 42px; }
   .metrics { grid-template-columns: 1fr; }
   .lower-grid { grid-template-columns: 1fr; }
+  /* Status, label and detail are three flex children on desktop. On a phone,
+     keep the label and its evidence together instead of squeezing the label
+     into a narrow middle column. */
+  .security-item {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    align-items: start;
+  }
+  .security-item .status { grid-column: 1; grid-row: 1 / span 2; }
+  .security-item strong { grid-column: 2; grid-row: 1; }
+  .security-item small { grid-column: 2; grid-row: 2; }
 }
 
 /* Operator appearance packs, inspired by MailSwiftSync's selectable color

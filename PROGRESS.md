@@ -1,3 +1,20 @@
+## Make mobile first-run evidence readable — 2026-11-23
+
+- The seeded operator overview screenshot captured a mobile resize transition:
+  the navigation drawer appeared over clipped dashboard content. The screenshot
+  journey now verifies the drawer is closed and waits for its final offscreen
+  position before capture.
+- Visual inspection of the corrected 390px capture exposed a second issue:
+  operator security checks squeezed status, title, and evidence into three
+  flex columns. Mobile rows now put evidence below the title, with status in a
+  separate leading column. The browser regression asserts the grid layout and
+  a readable title width.
+- Built the panel from current source and ran the focused seeded Chromium
+  screenshot journey: 1/1 passed. Visually inspected the saved mobile image;
+  navigation no longer obscures content and security labels are readable.
+  `npm run test:unit` passed (20/20), JavaScript syntax check and `git diff
+  --check` passed. Hosted exact-source CI is pending.
+
 ## Mark stale integrity evidence in operator doctor output — 2026-11-23
 
 - `stepanelctl doctor` now marks a successful SQLite integrity scan stale after

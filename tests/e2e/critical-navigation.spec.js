@@ -278,6 +278,18 @@ test('capture seeded administrator overview screenshots', async ({ page }, testI
   await expect(page.getByRole('main')).toBeVisible();
   await page.screenshot({ path: `${directory}/admin-overview-desktop-${testInfo.project.name}.png`, fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
+  // Resizing crosses the desktop-to-drawer breakpoint and animates the
+  // sidebar offscreen. Wait for its final closed position so this evidence
+  // image represents the initial mobile view instead of a transition frame.
+  await expect(page.locator('#navToggle')).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('#navBackdrop')).toBeHidden();
+  await expect.poll(() => page.locator('#workspaceSidebar').evaluate((sidebar) => {
+    const transform = new DOMMatrixReadOnly(getComputedStyle(sidebar).transform);
+    return Math.abs(transform.m41 + sidebar.getBoundingClientRect().width) < 0.5;
+  })).toBe(true);
+  const securityRow = page.locator('.security-item').filter({ hasText: 'Administrator authentication' }).first();
+  await expect.poll(() => securityRow.evaluate((row) => getComputedStyle(row).display)).toBe('grid');
+  expect(await securityRow.locator('strong').evaluate((label) => label.getBoundingClientRect().width)).toBeGreaterThan(120);
   await page.screenshot({ path: `${directory}/admin-overview-mobile-${testInfo.project.name}.png`, fullPage: true });
 });
 
