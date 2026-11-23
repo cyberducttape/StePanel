@@ -2390,8 +2390,9 @@ the documentation and CodeQL workflows passed on documentation-only descendant
 
 ### M0as — Gate tagged packages on a real fresh-host install (P1)
 
-**Status:** Exact-tag packaged smoke and a read-only manual release-candidate
-preflight are implemented; hosted exact-tag validation remains pending.
+**Status:** Exact-tag packaged smoke and read-only release-candidate preflight
+passed on the current source; the actual tag-triggered publication event remains
+unexercised.
 The tag-triggered release workflow passes the tag into the packaged Ubuntu
 24.04 + Caddy + MariaDB install-smoke workflow. With a tag, that workflow
 builds the exact versioned archive using GoReleaser's current-tag override and
@@ -2407,10 +2408,15 @@ gates. The latest packaged install smoke passed on source `2e9e06e9`: installati
 and cleanup completed, WordPress HTTPS/database recovery measured 4,398 ms,
 and one recovery-matrix iteration passed. See the
 [`first-host smoke report`](docs/lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-2e9e06e.md).
-The run used a disposable systemd container and does not prove the tag-triggered
-versioned-archive path. The manual release-candidate preflight must pass on the
-committed source before this gate is complete; production certification remains
-separate.
+The read-only manual preflight for `v0.9.0` passed on source
+`679cd6db9c283d78e70102f1dd87943fbe70e4d4` in
+[workflow run 45134667043](https://github.com/cyberducttape/StePanel/actions/runs/45134667043).
+It built and installed the exact versioned archive, completed the WordPress
+HTTPS/database recovery proof in 7,359 ms, passed one recovery-matrix iteration,
+generated and verified exact-source release evidence and an SBOM, and retained
+the candidate artifact. This was a disposable systemd container without project
+quotas; Git deployment correctly failed closed. No tag was pushed and no release
+was published. Broader production certification remains separate.
 
 **Acceptance criteria**
 
@@ -2419,8 +2425,10 @@ separate.
 - Manual preflight can build, install-test, verify, and retain a versioned
   candidate without creating a tag or publishing artifacts.
 - A failed or unavailable smoke prevents all package and container publication.
-- Release contract and full local checks pass; hosted workflow validation
-  confirms the reusable workflow receives the tag source and blocks publication.
+- Release contract and full local checks pass; the manual hosted preflight
+  confirms the reusable workflow builds, installs, and verifies the requested
+  versioned archive without publication. The actual tag-triggered release event
+  remains unexercised because it would enter the publication workflow.
 - The installation guide states the guarantee and its limits.
 
 ### M0at — Make customer MFA enrollment self-service (P1)

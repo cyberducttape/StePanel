@@ -4625,14 +4625,13 @@ does not close a current-source or power-loss gate.
   package installation remains unproven until the manual preflight passes on a
   committed source; this change does not publish a release or certify the
   production gates.
-- First hosted preflight `45134395215` failed in the archive-build step before
+- First hosted preflight [45134395215](https://github.com/cyberducttape/StePanel/actions/runs/45134395215) failed in the archive-build step before
   host setup because an untagged manual-dispatch checkout had no local tag for
   GoReleaser. The smoke and preflight now create the validated candidate tag
   locally at the checked-out commit (or verify an existing tag resolves to the
   same commit); nothing is pushed. YAML parsing, action pin checks,
   `make release-check`, and `git diff --check` passed after this correction.
-  Rerun the hosted preflight before treating the exact-tag package path as
-  validated.
+- Hosted preflight [45134667043](https://github.com/cyberducttape/StePanel/actions/runs/45134667043) then passed end to end: exact versioned archive build and extraction, 34m41s Ubuntu 24.04/Caddy/MariaDB installed-host smoke, WordPress HTTPS/database recovery in 7,359 ms, one recovery-matrix iteration, exact-source evidence, SBOM, artifact verification, and candidate artifact retention. The test host lacked project quotas, so Git deployment failed closed as designed. No Git tag was pushed and no release was published; actual tag-triggered publication remains deliberately unexercised. This is one disposable container run, not production certification.
 - The first integration attempt failed only its documentation-reference check
   because the progress note linked to generated release evidence. That link
   has been corrected; documentation, CodeQL, and release-evidence workflows
