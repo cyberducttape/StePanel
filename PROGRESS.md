@@ -2,19 +2,21 @@
 
 - Both site overview and guided lifecycle views use their recovery summary for
   the newest integrity-verified backup, avoiding a separate backup inventory
-  scan (up to 500 entries in overview). Lifecycle web-server/PHP-FPM error
-  samples load on demand from bounded requests, with visible loading, failure,
-  and result states.
+  scan (up to 500 entries in overview). Both views defer log reads until an
+  operator requests them. The overview loads bounded web-server, PHP-FPM, and
+  access-log samples together and marks the log state as untested beforehand.
 - Browser regressions confirm backup/recovery failure remains visible, the
-  500-entry inventory is not requested, and lifecycle log sources are fetched
-  only after the operator selects “Load recent errors.”
-- `npm run test:unit` passed (19/19). `make check` passed, including `go vet`
-  and the full Go suite (root package 115.1 seconds). The rebuilt embedded
-  panel passed the complete Playwright suite: 33 passed, one expected skip;
-  focused overview and lifecycle journeys also passed. The first lifecycle
-  change was pushed as `8e54ebb4`; its hosted integration is still running.
-  This follow-up adds the overview inventory removal and needs its own exact-source
-  hosted integration. This is UI/workload evidence, not host certification.
+  500-entry inventory is not requested, and no overview logs are read before
+  the request action. The 503 incident journey verifies that loaded access-log
+  evidence is correlated with the host snapshot.
+- `npm run test:unit` passed (19/19). The rebuilt embedded panel passed the
+  complete Playwright suite: 33 passed, one expected skip; focused overview and
+  lifecycle journeys also passed. `make check` passed before this last
+  JavaScript-only refinement. Hosted UI E2E, documentation, CodeQL, and release
+  evidence passed for `2831dbf0`; the integration workflow for that commit passed
+  the Go suite and race tests, then was superseded during database integration.
+  The current follow-up’s exact-source integration is pending. These are
+  UI/workload and code-check results, not host certification.
 
 # Production-readiness progress
 

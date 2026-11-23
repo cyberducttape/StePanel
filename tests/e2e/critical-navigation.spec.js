@@ -381,13 +381,18 @@ test('site overview makes backup failures explicit', async ({ page }) => {
     });
   });
   let backupInventoryRequests = 0;
+  let overviewLogRequests = 0;
   page.on('request', (request) => {
     const url = new URL(request.url());
     if (url.pathname === '/api/backups' && url.searchParams.get('site') === 'e2e-site' && url.searchParams.get('limit') === '500') backupInventoryRequests++;
+    if (url.pathname === '/api/sites/logs/e2e-site') overviewLogRequests++;
   });
   await page.route('**/api/sites/recovery/e2e-site', async (route) => {
     await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'recovery summary unavailable' }) });
   });
+  await page.route('**/api/sites/logs/e2e-site?source=error&lines=100', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ lines: ['PHP Fatal error: test'], collected_at: new Date().toISOString() }) }));
+  await page.route('**/api/sites/logs/e2e-site?source=php-fpm&lines=100', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ lines: [], collected_at: new Date().toISOString() }) }));
+  await page.route('**/api/sites/logs/e2e-site?source=access&lines=100', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ lines: [], collected_at: new Date().toISOString() }) }));
   // The common login fixture has already loaded the overview once. Reload so
   // both routes above participate in the initial site-grid request rather
   // than waiting for a later tab activation.
@@ -400,6 +405,13 @@ test('site overview makes backup failures explicit', async ({ page }) => {
   await expect(page.locator('.overview-stat').filter({ hasText: 'Last verified backup' })).toContainText('Unavailable');
   await expect(page.locator('.overview-stat').filter({ hasText: 'Last verified backup' })).toContainText('Recovery summary unavailable');
   expect(backupInventoryRequests).toBe(0);
+  const overviewPanel = page.locator('#workspace-panel');
+  await expect(overviewPanel).toContainText('Recent logs have not been sampled.');
+  expect(overviewLogRequests).toBe(0);
+  await overviewPanel.getByRole('button', { name: 'Load recent log evidence' }).click();
+  await expect(overviewPanel).toContainText('PHP Fatal error: test');
+  await expect(overviewPanel).toContainText('Recent log samples loaded.');
+  expect(overviewLogRequests).toBe(3);
 });
 
 test('site inventory failure can be retried without reloading', async ({ page }) => {
@@ -483,6 +495,9 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
   await page.getByRole('button', { name: /Manage site/ }).click();
   const panel = page.locator('#workspace-panel');
   const diagnosis = panel.getByRole('region', { name: 'Site incident assessment' });
+  await expect(panel).toContainText('Recent logs have not been sampled.');
+  await panel.getByRole('button', { name: 'Load recent log evidence' }).click();
+  await expect(diagnosis).toContainText('1 HTTP 503 response(s) observed');
   await expect(diagnosis).not.toContainText('Scheduled backup recovery point is stale');
   await expect(diagnosis).toContainText('site files is under capacity pressure');
   await expect(diagnosis).toContainText('free bytes below 10% and free inodes below 10%');

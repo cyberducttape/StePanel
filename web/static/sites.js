@@ -563,16 +563,13 @@
 
   async function renderOverviewTab(site, panel, ctx) {
     const observe = (promise) => promise.then((value) => ({ ok: true, value }), (error) => ({ ok: false, error }));
-    const [overview, deploymentList, usage, php, recoveryResult, resourceResult, webLogResult, phpLogResult, accessLogResult, activityResult, databaseResult, siteDiagnosticResult] = await Promise.all([
+    const [overview, deploymentList, usage, php, recoveryResult, resourceResult, activityResult, databaseResult, siteDiagnosticResult] = await Promise.all([
       ctx.getJSON(`/api/sites/overview/${encodeURIComponent(site)}`),
       observe(ctx.getJSON(`/api/deployments?site=${encodeURIComponent(site)}`)),
       observe(ctx.getJSON(`/api/sites/usage/${encodeURIComponent(site)}`)),
       observe(ctx.getJSON(`/api/sites/php/${encodeURIComponent(site)}`)),
       ctx.can('backup:read') ? observe(ctx.getJSON(`/api/sites/recovery/${encodeURIComponent(site)}`)) : Promise.resolve(null),
       observe(ctx.getJSON(`/api/sites/resources/${encodeURIComponent(site)}`)),
-      ctx.can('logs:read') ? observe(ctx.getJSON(`/api/sites/logs/${encodeURIComponent(site)}?source=error&lines=100`)) : Promise.resolve(null),
-      ctx.can('logs:read') ? observe(ctx.getJSON(`/api/sites/logs/${encodeURIComponent(site)}?source=php-fpm&lines=100`)) : Promise.resolve(null),
-      ctx.can('logs:read') ? observe(ctx.getJSON(`/api/sites/logs/${encodeURIComponent(site)}?source=access&lines=100`)) : Promise.resolve(null),
       ctx.isAdministrator ? observe(ctx.getJSON(`/api/audit/events?target=${encodeURIComponent(site)}&limit=8`)) : Promise.resolve(null),
       ctx.isAdministrator ? observe(ctx.getJSON('/api/database/diagnostics')) : Promise.resolve(null),
       observe(ctx.getJSON(`/api/sites/diagnostics/${encodeURIComponent(site)}`)),
@@ -641,12 +638,53 @@
       value && value.nodeType ? value : el('strong', {}, value),
       note ? el('small', {}, note) : null,
     ])));
+    const incidentSignals = {
+      overview, phpData, phpAvailable: php.ok, resourceData, resourceAvailable: resourceResult.ok,
+      usageData, usageAvailable: usage.ok,
+      recovery: recoveryResult && recoveryResult.ok ? recoveryResult.value : null,
+      recoveryAvailable: Boolean(recoveryResult && recoveryResult.ok),
+      lastDeployment, deployments, webLogResult: null, phpLogResult: null, accessLogResult: null,
+      canReadLogs: ctx.can('logs:read'),
+      latestChange: activityResult && activityResult.ok ? (activityResult.value.events || [])[0] : null,
+      databaseDiagnostics: databaseResult && databaseResult.ok ? databaseResult.value : null,
+      databaseDiagnosticsAvailable: databaseResult && databaseResult.ok,
+      siteDiagnostics: siteDiagnosticResult && siteDiagnosticResult.ok ? siteDiagnosticResult.value : null,
+      siteDiagnosticsAvailable: siteDiagnosticResult && siteDiagnosticResult.ok,
+    };
+    const incidentMount = el('div', {}, renderIncidentAssessment(incidentSignals));
+    const incidentLogStatus = el('span', { role: 'status', 'aria-live': 'polite' }, ctx.can('logs:read')
+      ? 'Recent logs have not been sampled.'
+      : 'Recent logs are not available to this role.');
+    const incidentLogButton = ctx.can('logs:read') ? ctx.button('Load recent log evidence', async (event) => {
+      const trigger = event.currentTarget;
+      trigger.disabled = true;
+      trigger.textContent = 'Loading recent logs…';
+      incidentLogStatus.textContent = 'Reading bounded web-server, PHP-FPM, and access-log samples…';
+      try {
+        const [webLogResult, phpLogResult, accessLogResult] = await Promise.all([
+          observe(ctx.getJSON(`/api/sites/logs/${encodeURIComponent(site)}?source=error&lines=100`)),
+          observe(ctx.getJSON(`/api/sites/logs/${encodeURIComponent(site)}?source=php-fpm&lines=100`)),
+          observe(ctx.getJSON(`/api/sites/logs/${encodeURIComponent(site)}?source=access&lines=100`)),
+        ]);
+        Object.assign(incidentSignals, { webLogResult, phpLogResult, accessLogResult });
+        incidentMount.replaceChildren(renderIncidentAssessment(incidentSignals));
+        incidentLogStatus.textContent = webLogResult.ok && phpLogResult.ok && accessLogResult.ok
+          ? 'Recent log samples loaded. Their timestamps are shown with the evidence.'
+          : 'One or more log samples could not be read. The incident view marks those sources unavailable.';
+      } finally {
+        if (trigger.isConnected) {
+          trigger.disabled = false;
+          trigger.textContent = 'Refresh recent log evidence';
+        }
+      }
+    }) : null;
+    const incidentSection = el('div', {}, [incidentMount, incidentLogButton, incidentLogStatus]);
 
     panel.replaceChildren(
       el('p', { className: 'panel-intro' }, 'A quick read on whether this site is healthy: what is deployed, when it last backed up, and what changed most recently.'),
       el('div', { className: 'workspace-panel-actions' }, [el('a', { className: 'primary-action', href: workspaceHash(site, 'journey') }, 'Open guided site workflow')]),
       grid,
-      renderIncidentAssessment({ overview, phpData, phpAvailable: php.ok, resourceData, resourceAvailable: resourceResult.ok, usageData, usageAvailable: usage.ok, recovery: recoveryResult && recoveryResult.ok ? recoveryResult.value : null, recoveryAvailable: Boolean(recoveryResult && recoveryResult.ok), lastDeployment, deployments, webLogResult, phpLogResult, accessLogResult, canReadLogs: ctx.can('logs:read'), latestChange: activityResult && activityResult.ok ? (activityResult.value.events || [])[0] : null, databaseDiagnostics: databaseResult && databaseResult.ok ? databaseResult.value : null, databaseDiagnosticsAvailable: databaseResult && databaseResult.ok, siteDiagnostics: siteDiagnosticResult && siteDiagnosticResult.ok ? siteDiagnosticResult.value : null, siteDiagnosticsAvailable: siteDiagnosticResult && siteDiagnosticResult.ok }),
+      incidentSection,
     );
 
     if (ctx.isAdministrator) {
@@ -859,7 +897,7 @@
     }
     const excerpts = [];
     const inspectLog = (result, label, saturation) => {
-      if (!canReadLogs) return;
+      if (!canReadLogs || result === null) return;
       if (!result || !result.ok) {
         add('unknown', `${label} log signal unavailable`, 'The bounded recent-log request did not complete.', 'Open Logs to inspect availability and retry.');
         return;
@@ -924,8 +962,13 @@
       const inodeRatio = Number(quota.inode_limit) > 0 ? Number(quota.tree_inodes) / Number(quota.inode_limit) : NaN;
       const hasQuotaEvidence = Number.isFinite(diskRatio) || Number.isFinite(inodeRatio);
       outageEvidence.push({ level: diskRatio >= 0.9 || inodeRatio >= 0.9 ? 'warning' : hasQuotaEvidence ? 'guidance' : 'unknown', label: 'Disk / quota', text: hasQuotaEvidence ? `Measured site tree: ${Number.isFinite(diskRatio) ? `${Math.round(diskRatio * 100)}% of byte allowance` : 'byte quota unknown'}; ${Number.isFinite(inodeRatio) ? `${Math.round(inodeRatio * 100)}% of inode allowance` : 'inode quota unknown'}. Tree usage may omit other account-owned files.` : 'Quota headroom is unavailable in this snapshot.' });
-      const relevantWebErrors = webLogResult && webLogResult.ok ? (webLogResult.value.lines || []).filter((line) => /\b(503|upstream|connect\(\)|no space|permission denied|failed|error)\b/i.test(line)).length : null;
-      outageEvidence.push({ level: relevantWebErrors === null ? 'unknown' : relevantWebErrors ? 'warning' : 'guidance', label: 'Web server', text: relevantWebErrors === null ? 'Recent web-server error log is unavailable or access is not authorized.' : `${relevantWebErrors} relevant upstream/error line(s) in the bounded web-server log sample${webLogResult.value.collected_at ? ` collected ${new Date(webLogResult.value.collected_at).toLocaleString()}` : ''}.` });
+      const relevantWebErrors = webLogResult === null ? undefined : webLogResult && webLogResult.ok ? (webLogResult.value.lines || []).filter((line) => /\b(503|upstream|connect\(\)|no space|permission denied|failed|error)\b/i.test(line)).length : null;
+      const webLogText = relevantWebErrors === undefined
+        ? 'Not sampled yet. Load recent log evidence to inspect bounded web-server, PHP-FPM, and access-log output.'
+        : relevantWebErrors === null
+          ? 'Recent web-server error log could not be read or access is not authorized.'
+          : `${relevantWebErrors} relevant upstream/error line(s) in the bounded web-server log sample${webLogResult.value.collected_at ? ` collected ${new Date(webLogResult.value.collected_at).toLocaleString()}` : ''}.`;
+      outageEvidence.push({ level: relevantWebErrors === null || relevantWebErrors === undefined ? 'unknown' : relevantWebErrors ? 'warning' : 'guidance', label: 'Web server', text: webLogText });
       const tls = siteDiagnostics && siteDiagnostics.tls || [];
       const tlsProblems = tls.filter((cert) => ['expired', 'expiring', 'missing', 'hostname_mismatch', 'failed'].includes(cert.status) || ['failed', 'dead-letter'].includes(cert.renewal));
       const tlsUnknown = tls.filter((cert) => cert.status === 'unknown' || cert.renewal === 'unknown');
@@ -946,6 +989,7 @@
     }
     const unknowns = ['Application-level database login and query latency are not tested with the customer’s credentials. The database inventory confirms helper access and ownership only.'];
     if (!canReadLogs) unknowns.push('Recent web-server and PHP-FPM logs are hidden because this account lacks logs:read.');
+    else if (webLogResult === null || phpLogResult === null || accessLogResult === null) unknowns.push('Recent web-server, PHP-FPM, and access logs have not been sampled. Load recent log evidence before concluding that no log errors or HTTP 503 responses occurred.');
     if (!resourceAvailable || !resourceData || !resourceData.fpm_status || !resourceData.fpm_status.available) unknowns.push('Live PHP-FPM counters are unavailable unless the installed root broker can safely query a managed pool.');
     const levelLabel = { critical: 'Action needed', warning: 'Review', unknown: 'Not verified', guidance: 'Performance guidance' };
     return el('section', { className: 'incident-assessment', 'aria-label': 'Site incident assessment' }, [

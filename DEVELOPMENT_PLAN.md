@@ -29,10 +29,11 @@ this source is tracked in `PROGRESS.md`.
 - Opening the overview and lifecycle views does not issue an additional backup
   inventory request; the summary uses the recovery endpoint’s latest-backup
   evidence.
-- Opening the lifecycle view does not read log files; requesting recent errors
-  loads bounded web-server and PHP-FPM samples and displays the evidence.
-- Missing permissions and failed recovery/log queries remain distinct from an
-  empty inventory or clean log sample.
+- Opening the overview and lifecycle views does not read log files; requesting
+  recent evidence loads bounded web-server, PHP-FPM, and access-log samples.
+- The overview explicitly says when logs have not been sampled; HTTP 503 evidence
+  appears only after the access-log sample is loaded. Failed queries remain
+  distinct from an empty log sample or a clean result.
 - Frontend unit tests, focused overview and lifecycle journeys, the full browser
   E2E suite, and `make check` pass against the current frontend assets.
 
