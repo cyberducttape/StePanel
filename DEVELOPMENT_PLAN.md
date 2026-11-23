@@ -100,8 +100,9 @@ host certification or project-quota enforcement.
 
 ### M0ay — Ship the documented API CLI with native installs (P1)
 
-**Status:** Implemented locally; exact-source hosted CI is pending. The
-OpenAPI-backed `stepanelctl` is now built by source and release workflows,
+**Status:** The packaged install smoke passed on exact source `df838fa9`;
+integration CI is being rerun on documentation-corrected, code-equivalent
+source `237d1d16`. The OpenAPI-backed `stepanelctl` is now built by source and release workflows,
 included in release archives and the container, and installed as a root-owned
 `/usr/local/bin/stepanelctl`. Guided publication uses a durable rollback
 journal for the entire executable set and restores it before rebuilding after
@@ -116,12 +117,15 @@ reusable setup settings from system-service changes.
 - `make build` and the guided source installer build all three binaries;
   interrupted publication restores the complete prior set before rebuilding.
 - Native install and upgrade snapshot the CLI target for rollback, install it
-  with root ownership, and verify it in the packaged installed-host smoke.
+  with root ownership, and verify its executable help command in the packaged
+  installed-host smoke. The Ubuntu 24.04 + Caddy + MariaDB run passed on
+  `df838fa9`; WordPress HTTPS/database restore measured 4,435 ms and one
+  recovery-matrix iteration passed. See the
+  [scoped smoke report](docs/lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-df838fa.md).
 - README and API/installation guides state how the CLI is obtained; API
   generation and shell-completion artifacts remain checked.
 - Focused installer and release checks and full local `make check` pass.
-  Exact-source integration and installed-host smoke remain pending for these
-  changes.
+  Exact-source integration on code-equivalent `237d1d16` remains in progress.
 
 ### Release publication safety — verify artifacts before publishing
 

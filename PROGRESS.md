@@ -4411,9 +4411,17 @@ does not close a current-source or power-loss gate.
   ShellCheck, `git diff --check`, and full `make check` passed locally.
   GoReleaser produced both Linux archives. Exact-source release-evidence
   verification is pending a committed source identity and generated evidence.
-- Exact-source hosted CI for the CLI packaging changes remains pending. The
-  earlier packaged Ubuntu 24.04 + Caddy + MariaDB smoke
-  [45094688912](https://github.com/cyberducttape/StePanel/actions/runs/45094688912)
-  passed on `64bb74a4`; its WordPress HTTPS/database restore proof measured
-  4,407 ms. This was a disposable systemd container run, not repeated
-  certification; power-loss recovery and quota enforcement remain unproven.
+- Packaged Ubuntu 24.04 + Caddy + MariaDB smoke
+  [45100771925](https://github.com/cyberducttape/StePanel/actions/runs/45100771925)
+  passed on exact code source `df838fa9`. The installer verified the installed
+  CLI's root ownership and help command; WordPress HTTPS/database recovery
+  measured 4,435 ms, and one recovery-matrix iteration passed. The scoped
+  evidence is in
+  [`2026-11-23-ubuntu-packaged-first-host-smoke-df838fa.md`](docs/lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-df838fa.md).
+  This was a disposable systemd-container run, not repeated certification;
+  power-loss recovery and quota enforcement remain unproven.
+- The first integration attempt failed only its documentation-reference check
+  because the progress note linked to generated release evidence. That link
+  has been corrected; documentation, CodeQL, and release-evidence workflows
+  pass on `237d1d16`. A fresh full integration run on that code-equivalent
+  source has passed unit tests and UI E2E and is still running race tests.
