@@ -4,8 +4,11 @@
   `a0b95937d5f796461fe303e0194f7be8589caeaf` in
   [run 45151465626](https://github.com/cyberducttape/StePanel/actions/runs/45151465626):
   formatting, release-tree contract, `go vet`, all Go package/security tests,
-  frontend unit tests, and shell syntax checks. An exact-source evidence report
-  was requested after this run and is still generating.
+  frontend unit tests, and shell syntax checks. The exact-source report
+  [45151965434](https://github.com/cyberducttape/StePanel/actions/runs/45151965434)
+  records 3 executable checks passed, 6 incomplete, and a **NO-GO** production
+  decision. It was generated while the candidate install smoke was active, so
+  it correctly does not count that install result.
 - The manually dispatched `v0.9.0` candidate preflight
   [45146220535](https://github.com/cyberducttape/StePanel/actions/runs/45146220535)
   builds the exact versioned archive from source
@@ -20,6 +23,11 @@
   backup scenarios. KVM setup and verified image download passed; the boot,
   install, and interruption drill remains active. No recovery result is counted
   yet.
+- The ext4 quota-enabled install workflow
+  [45151625662](https://github.com/cyberducttape/StePanel/actions/runs/45151625662)
+  is running on the same current source. It boots a disposable quota-enabled
+  guest; quota enforcement and its recovery result remain unverified until the
+  job completes.
 
 ## Reverify first-run installer safety — 2026-11-23
 
