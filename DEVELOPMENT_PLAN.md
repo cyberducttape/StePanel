@@ -1504,6 +1504,15 @@ physical-host certification. Current-code AlmaLinux 9/Caddy/MariaDB smoke
 [44724016501](https://github.com/cyberducttape/StePanel/actions/runs/44724016501)
 passed one additional installed-host recovery iteration and WordPress HTTP
 proof (measured RTO 5.022 s).
+On 2026-11-23, Rocky Linux 9 KVM drill [45150861029](https://github.com/cyberducttape/StePanel/actions/runs/45150861029)
+passed six guest-loss operation scenarios plus database ENOSPC and alert
+delivery/retry on source `edd11d47`; the detailed [reviewed report](docs/lab-results/2026-11-23-rocky-kvm-abrupt-loss-edd11d47.md)
+links the retained artifact and records that it is one guest-loss pass, not
+physical power-loss certification. The exact-current-source KVM follow-up
+[45158813904](https://github.com/cyberducttape/StePanel/actions/runs/45158813904)
+is running. The release gate remains open pending review of that artifact,
+repeated recovery iterations, real-host/power-loss coverage, and remaining
+failure classes.
 **Current evidence update (2026-11-21):** The cache-disabled KVM abrupt-loss
 run [44735170833](https://github.com/cyberducttape/StePanel/actions/runs/44735170833)
 passed all five operation scenarios once on source `c3e37ebc`; this is guest

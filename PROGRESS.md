@@ -25,8 +25,11 @@
   with the requested author/committer identity. Hosted Documentation and
   CodeQL passed ([45155198102](https://github.com/cyberducttape/StePanel/actions/runs/45155198102),
   [45155198141](https://github.com/cyberducttape/StePanel/actions/runs/45155198141));
-  hosted integration and the independent KVM abrupt-loss and ext4 quota jobs
-  were still running at this update.
+  hosted integration passed ([45155198110](https://github.com/cyberducttape/StePanel/actions/runs/45155198110)),
+  including full Go race tests, tmpfs ENOSPC recovery, mixed HTTP load, MySQL
+  and PostgreSQL restore integrations, and seeded browser/accessibility E2E.
+  The documentation/CodeQL follow-up for the progress-only descendant is
+  running.
 - The standard CI workflow passed on exact source
   `a0b95937d5f796461fe303e0194f7be8589caeaf` in
   [run 45151465626](https://github.com/cyberducttape/StePanel/actions/runs/45151465626):
@@ -37,9 +40,13 @@
   decision. That report predates candidate completion.
 - The uncushioned Rocky Linux 9 KVM interruption workflow
   [45150861029](https://github.com/cyberducttape/StePanel/actions/runs/45150861029)
-  runs source `edd11d472dd856a4da1997118db34fc9b5950c2c`, with file restore,
-  database restore, Git deploy, retention, control-plane write, and interrupted
-  backup scenarios. It remains active; no recovery result is counted yet.
+  passed once on source `edd11d472dd856a4da1997118db34fc9b5950c2c`: all six
+  selected guest-loss scenarios passed, as did database ENOSPC and operator
+  alert delivery/retry. The reviewed [report](docs/lab-results/2026-11-23-rocky-kvm-abrupt-loss-edd11d47.md)
+  links the retained logs and records the source relationship and limitations.
+  An exact-current-source rerun [45158813904](https://github.com/cyberducttape/StePanel/actions/runs/45158813904)
+  is now running; one older-source pass is not counted as repeated or physical
+  power-loss certification.
 - The ext4 quota-enabled install workflow
   [45151625662](https://github.com/cyberducttape/StePanel/actions/runs/45151625662)
   is running on the same current source. It boots a disposable quota-enabled

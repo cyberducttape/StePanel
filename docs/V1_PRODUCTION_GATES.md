@@ -29,6 +29,13 @@ closed and left the live site unchanged. The source evidence remains **NO-GO**
 (4 of 21 P0 gates complete); no tag was pushed and no release was published.
 See the [reviewed candidate report](./lab-results/2026-11-23-v0.9.0-ubuntu-install-45146220535.md).
 
+The uncushioned Rocky Linux 9 KVM run [45150861029](https://github.com/cyberducttape/StePanel/actions/runs/45150861029)
+passed six guest-loss operation scenarios, database ENOSPC, and operator-alert
+delivery/retry on source `edd11d47`; see the [reviewed drill report](./lab-results/2026-11-23-rocky-kvm-abrupt-loss-edd11d47.md).
+It is one guest-loss iteration, not physical power-loss or repeated recovery
+certification. An exact-current-source KVM rerun [45158813904](https://github.com/cyberducttape/StePanel/actions/runs/45158813904)
+is running. The P0 decision remains **NO-GO**.
+
 The previous packaged Ubuntu 24.04 + Caddy + MariaDB installed-host smoke
 passed on source `07726007b1c835b2fa34b55ba6bb7e806ccff196` ([host run
 45108095187](https://github.com/cyberducttape/StePanel/actions/runs/45108095187)).
