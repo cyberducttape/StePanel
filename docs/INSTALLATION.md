@@ -23,19 +23,22 @@ Support tiers are intentionally explicit. The following combinations have
 passed disposable installed-host smoke checks, but StePanel remains Operator
 Beta until the production gates in [V1_PRODUCTION_GATES.md](V1_PRODUCTION_GATES.md)
 are closed. The current-code six-host run completed one recovery-matrix
-iteration per combination; historical runs provide additional evidence, but
-do not meet the documented repeated-certification requirement. A smoke pass
-is not a production certification. For the most evidence-backed first
-installation, use **Ubuntu 24.04 + Caddy + MariaDB**:
+iteration per combination on an earlier code snapshot. The latest exact-source
+install smokes cover Ubuntu 24.04 + Caddy, AlmaLinux 9 + Apache, and Rocky
+Linux 9 + Apache; each passed one recovery-matrix iteration. The other three
+table combinations rely on earlier smoke evidence. Historical runs provide
+additional evidence, but do not meet the documented repeated-certification
+requirement. A smoke pass is not production certification. For the most
+evidence-backed first installation, use **Ubuntu 24.04 + Caddy + MariaDB**:
 
 | Platform combination | Tier | Evidence / policy |
 | --- | --- | --- |
-| Ubuntu 24.04 + Apache + MariaDB | Beta; repeat acceptance pending | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
-| Ubuntu 24.04 + Caddy + MariaDB | Recommended Beta profile | Latest packaged install smoke `a309055d`: install completed and database-backed WordPress HTTPS recovery measured 6.996 s ([report](lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-a309055d.md)); [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration; repeat acceptance pending |
-| AlmaLinux 9 + Apache + MariaDB | Beta; repeat acceptance pending | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
-| AlmaLinux 9 + Caddy + MariaDB | Beta; repeat acceptance pending | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
-| Rocky Linux 9 + Apache + MariaDB | Beta; repeat acceptance pending | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
-| Rocky Linux 9 + Caddy + MariaDB | Beta; repeat acceptance pending | Historical nine-run cohort; current-code [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
+| Ubuntu 24.04 + Apache + MariaDB | Beta; repeat acceptance pending | Earlier [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
+| Ubuntu 24.04 + Caddy + MariaDB | Recommended Beta profile | Exact-source `07726007` install smoke; WordPress database/HTTPS recovery measured 4.380 s ([report](lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-07726007.md)); repeat acceptance pending |
+| AlmaLinux 9 + Apache + MariaDB | Beta; repeat acceptance pending | Exact-source `07726007` install smoke; WordPress recovery measured 7.522 s ([report](lab-results/2026-11-23-el9-first-install-phpcurl-fallback-07726007.md)); repeat acceptance pending |
+| AlmaLinux 9 + Caddy + MariaDB | Beta; repeat acceptance pending | Earlier [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
+| Rocky Linux 9 + Apache + MariaDB | Beta; repeat acceptance pending | Exact-source `07726007` install smoke; WordPress recovery measured 7.576 s ([report](lab-results/2026-11-23-el9-first-install-phpcurl-fallback-07726007.md)); repeat acceptance pending |
+| Rocky Linux 9 + Caddy + MariaDB | Beta; repeat acceptance pending | Earlier [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
 | Debian 12 | Experimental | Installer coverage exists; not in the six-combination installed-host matrix |
 | Debian 13 | Unsupported until certified | No current install evidence |
 | AlmaLinux 8, Ubuntu 22.04 | Unsupported | No current release certification |

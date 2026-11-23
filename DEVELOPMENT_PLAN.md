@@ -87,9 +87,11 @@ independent OS/package-manager, systemd, quota, and offsite-tool checks, prints
 each blocker with a fix, then gives an exact recheck command. Quota and remote
 backup requirements remain required; this does not modify mount settings or
 configure a remote. Exact-source integration, docs, CodeQL, seeded browser E2E,
-and the Ubuntu 24.04 installed-host smoke passed on `64bb74a4`. The smoke
-proved clean installation and one recovery-matrix iteration, but not repeated
-host certification or project-quota enforcement.
+and installed-host smokes passed on `07726007`: Ubuntu 24.04 + Caddy, AlmaLinux
+9 + Apache, and Rocky Linux 9 + Apache. The smoke reports record one
+recovery-matrix iteration per host and the missing project-quota enforcement
+in the disposable containers; this is not repeated or physical-host
+certification.
 
 **Acceptance criteria**
 
@@ -2314,8 +2316,10 @@ Acceptance criteria:
 
 ### M0aq — Remove the extra installer-settings copy step (P1)
 
-**Status:** Implemented locally; `make check` passed, exact-source hosted CI is
-pending. `stepanel setup`
+**Status:** Implemented and verified on exact source `07726007`; the hosted Go
+and shell-contract jobs passed in
+[run 45108095198](https://github.com/cyberducttape/StePanel/actions/runs/45108095198).
+`stepanel setup`
 now prints a dry-run and install command that use its generated path directly.
 For every `--config` install path, the installer validates that the input is a
 regular non-symlink file, has one link, is private, and is owned by root or the

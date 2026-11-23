@@ -49,7 +49,10 @@
   recovery times and limitations are recorded in the
   [EL 9 report](docs/lab-results/2026-11-23-el9-first-install-phpcurl-fallback-07726007.md).
   This resolves the specific package-selection blocker on those tested images,
-  not the repeated or physical-host certification requirements.
+  not the repeated or physical-host certification requirements. The
+  installation guide's platform table now distinguishes the three
+  exact-source profile results from older evidence for the other web-server
+  combinations.
 
 ## Exact-source checks for resumable uploads and setup recovery — 2026-11-23
 
