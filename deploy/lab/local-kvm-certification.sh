@@ -210,9 +210,10 @@ if [[ ${RESUME:-0} != 1 ]]; then
 # --- Build the release-shaped tree on the host -----------------------------
 (cd "$repo" && go build -trimpath -ldflags='-s -w' -o "$run_dir/stepanel" ./cmd/stepanel \
   && go build -trimpath -ldflags='-s -w' -o "$run_dir/stepanel-root" ./cmd/stepanel-root \
+  && go build -trimpath -ldflags='-s -w' -o "$run_dir/stepanelctl" ./cmd/stepanelctl \
   && go test -c -trimpath -o "$run_dir/stepanel-enospc.test" .)
 tar -czf "$run_dir/source.tar.gz" --exclude=.git --exclude=node_modules --exclude=test-results -C "$repo" . \
-  -C "$run_dir" stepanel stepanel-root stepanel-enospc.test
+  -C "$run_dir" stepanel stepanel-root stepanelctl stepanel-enospc.test
 
 # --- Boot ------------------------------------------------------------------
 qemu-img create -q -f qcow2 -F qcow2 -b "$(realpath "$image")" "$run_dir/root.qcow2" 20G

@@ -196,6 +196,12 @@ for archive in "${archives[@]}"; do
         echo "  ✗ FAIL: stepanel-root binary not found" >&2
         exit 1
     fi
+    if grep -Eq '(^|/)stepanelctl$' "$archive_listing"; then
+        echo "  ✓ stepanelctl automation CLI present"
+    else
+        echo "  ✗ FAIL: stepanelctl binary not found" >&2
+        exit 1
+    fi
 done
 
 echo
@@ -232,6 +238,13 @@ if [[ -n $release_arch ]]; then
         exit 1
     fi
     echo '✓ packaged setup command starts and exposes installer settings options'
+    tar -xOf "$host_archive" stepanelctl > "$verification_tmp/stepanelctl"
+    chmod 0755 "$verification_tmp/stepanelctl"
+    if ! "$verification_tmp/stepanelctl" help >/dev/null 2>&1; then
+        echo '✗ FAIL: packaged stepanelctl help did not run' >&2
+        exit 1
+    fi
+    echo '✓ packaged API automation CLI starts and prints help'
 else
     echo "- skipped native setup execution for unsupported verifier architecture: $host_arch"
 fi

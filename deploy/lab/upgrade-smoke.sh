@@ -32,7 +32,7 @@ previous_version=${STEPANEL_PREVIOUS_VERSION:?STEPANEL_PREVIOUS_VERSION (for exa
 [[ $previous_version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "invalid previous version: $previous_version" >&2; exit 1; }
 
 [[ -x "$previous_root/install.sh" && -x "$previous_root/stepanel" ]] || { echo "invalid previous release tree: $previous_root" >&2; exit 1; }
-[[ -x "$candidate_root/install.sh" && -x "$candidate_root/stepanel" && -x "$candidate_root/stepanel-root" ]] || { echo "invalid candidate release tree: $candidate_root" >&2; exit 1; }
+[[ -x "$candidate_root/install.sh" && -x "$candidate_root/stepanel" && -x "$candidate_root/stepanel-root" && -x "$candidate_root/stepanelctl" ]] || { echo "invalid candidate release tree: $candidate_root" >&2; exit 1; }
 if [[ -n "$broken_root" && ( ! -x "$broken_root/install.sh" || ! -x "$broken_root/stepanel" ) ]]; then
   echo "invalid deliberately broken release tree: $broken_root" >&2
   exit 1

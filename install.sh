@@ -45,7 +45,12 @@ done
 SAFETY_BYPASS_VARS=(STEPANEL_SKIP_QUOTA_CHECK STEPANEL_SKIP_STARTUP_DB_RECONCILE STEPANEL_SKIP_STARTUP_HOST_RECONCILE STEPANEL_LAB_HTTP_COOKIES STEPANEL_LAB_DIRECT_ROOT_BROKER)
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_USER="stepanel"; APP_DIR="/opt/stepanel"; DATA_DIR="/var/lib/ste-panel"; ENV_FILE="/etc/ste-panel.env"
-if [[ ! -f "$ROOT_DIR/stepanel" || ! -x "$ROOT_DIR/stepanel" ]]; then echo "Build an executable stepanel binary before installing." >&2; exit 1; fi
+for required_binary in stepanel stepanel-root stepanelctl; do
+  if [[ ! -f "$ROOT_DIR/$required_binary" || ! -x "$ROOT_DIR/$required_binary" ]]; then
+    echo "Build the executable $required_binary binary before installing." >&2
+    exit 1
+  fi
+done
 
 . "$ROOT_DIR/deploy/lib/install-env-file.sh"
 . "$ROOT_DIR/deploy/lib/install-first-login.sh"
@@ -454,7 +459,7 @@ for web_service in "${PREEXISTING_WEB_SERVICES[@]}"; do
   echo "  STOP and DISABLE $web_service"
 done
 echo "  ENABLE and START $SELECTED_WEB_SERVICE, $DB_SERVICE, php-fpm, stepanel, stepanel-root-broker"
-echo "  CREATE or UPDATE $APP_DIR, $DATA_DIR, /var/www/sites, $ENV_FILE, /usr/local/sbin/stepanel-*, systemd units"
+echo "  CREATE or UPDATE $APP_DIR, $DATA_DIR, /var/www/sites, $ENV_FILE, /usr/local/bin/stepanelctl, /usr/local/sbin/stepanel-*, systemd units"
 install_print_optional_change_plan \
   "$WEB_SERVER" "$INSTALL_DB_ADMIN" "$INSTALL_MODSEC" "$MODSEC_MODE" \
   "$INSTALL_MAIL" "$ACTIVATE_MAIL" "$INSTALL_FTP" "$ACTIVATE_FTP" \
@@ -1039,6 +1044,7 @@ managed_targets=(
   /etc/sysctl.d/60-stepanel-links.conf
   "$APP_DIR/stepanel"
   /usr/local/sbin/stepanel-root
+  /usr/local/bin/stepanelctl
   "$APP_DIR/integrations/install-fail2ban.sh"
   /usr/local/sbin/stepanel-appctl
   /usr/local/share/stepanel/python/gunicorn-23.0.0.requirements.txt
@@ -1130,6 +1136,7 @@ for link_protection in fs.protected_hardlinks fs.protected_symlinks; do
 done
 
 install -d -m 0750 "$APP_DIR" "$DATA_DIR/imports" "$DATA_DIR/mail" "$DATA_DIR/apps" /var/www/sites
+install -d -m 0755 -o root -g root /usr/local/bin
 install -d -m 0755 -o root -g root "$PROXY_ROOT" "$VHOST_ROOT"
 install -d -m 0700 -o root -g root /var/lib/stepanel-privileged
 # The root broker refuses to run without durable journals. Keep this separate
@@ -1156,8 +1163,8 @@ if [[ "$INSTALL_TLS" == "1" && "$WEB_SERVER" == "apache" ]]; then
   if [[ "$PKG" == "apt" ]]; then apt-get install -y certbot python3-certbot-apache; else dnf install -y certbot python3-certbot-apache; fi
 fi
 install -m 0755 "$ROOT_DIR/stepanel" "$APP_DIR/stepanel"
-[[ -f "$ROOT_DIR/stepanel-root" ]] || { echo "missing release artifact: $ROOT_DIR/stepanel-root" >&2; exit 1; }
 install -m 0755 -o root -g root "$ROOT_DIR/stepanel-root" /usr/local/sbin/stepanel-root
+install -m 0755 -o root -g root "$ROOT_DIR/stepanelctl" /usr/local/bin/stepanelctl
 printf '%s\n' "$AUDIT_KEY" > "$INSTALL_TXN/audit.key"
 install -m 0600 -o root -g root "$INSTALL_TXN/audit.key" /etc/stepanel-audit.key
 install -m 0755 "$ROOT_DIR/deploy/integrations/install-fail2ban.sh" "$APP_DIR/integrations/install-fail2ban.sh"

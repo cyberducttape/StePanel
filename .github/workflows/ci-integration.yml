@@ -319,6 +319,7 @@ jobs:
             sleep 1
           done
           test "$ready" = 1
+          docker exec stepanel-container-smoke stepanelctl help >/dev/null 2>&1
           # Exercise an actual container process kill and restart. This checks
           # that the control-plane database and readiness state survive a hard stop;
           # it is one recovery point, not the complete Gate 5 operation matrix.
@@ -335,6 +336,7 @@ jobs:
             sleep 1
           done
           test "$ready" = 1
+          docker exec stepanel-container-smoke stepanelctl help >/dev/null 2>&1
           docker exec stepanel-container-smoke test -s /var/lib/ste-panel/control-plane.db
       - name: Install Helm
         uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0

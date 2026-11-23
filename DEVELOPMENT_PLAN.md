@@ -98,6 +98,31 @@ host certification or project-quota enforcement.
 - Aggregation tests, shell syntax, ShellCheck, documentation checks, and
   exact-source hosted CI pass.
 
+### M0ay — Ship the documented API CLI with native installs (P1)
+
+**Status:** Implemented locally; exact-source hosted CI is pending. The
+OpenAPI-backed `stepanelctl` is now built by source and release workflows,
+included in release archives and the container, and installed as a root-owned
+`/usr/local/bin/stepanelctl`. Guided publication uses a durable rollback
+journal for the entire executable set and restores it before rebuilding after
+an interrupted rename. Installer cancellation also distinguishes secured,
+reusable setup settings from system-service changes.
+
+**Acceptance criteria**
+
+- Linux amd64/arm64 release archives contain a runnable CLI and the release
+  verifier executes its help command. Verified locally with GoReleaser
+  v2.17.1 snapshot archives.
+- `make build` and the guided source installer build all three binaries;
+  interrupted publication restores the complete prior set before rebuilding.
+- Native install and upgrade snapshot the CLI target for rollback, install it
+  with root ownership, and verify it in the packaged installed-host smoke.
+- README and API/installation guides state how the CLI is obtained; API
+  generation and shell-completion artifacts remain checked.
+- Focused installer and release checks and full local `make check` pass.
+  Exact-source integration and installed-host smoke remain pending for these
+  changes.
+
 ### Release publication safety — verify artifacts before publishing
 
 **Status:** Implemented and verified on `01d4a2d5`. The complete integration

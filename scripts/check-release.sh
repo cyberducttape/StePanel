@@ -29,8 +29,20 @@ if ! grep -Eq '^[[:space:]]+write_env STEPANEL_BACKUP_ENCRYPTION_KEY "\$BACKUP_E
 fi
 if ! grep -Fqx '      - docs/**' .goreleaser.yaml ||
    ! grep -Fqx '      - deploy/**' .goreleaser.yaml ||
-   ! grep -Fqx '      - PROGRESS.md' .goreleaser.yaml; then
+   ! grep -Fqx '      - PROGRESS.md' .goreleaser.yaml ||
+   ! grep -Fqx '      - stepanelctl' .goreleaser.yaml; then
   echo "release archive does not package the setup/support documentation and installer assets" >&2
+  exit 1
+fi
+if ! grep -Fqx '    main: ./cmd/stepanelctl' .goreleaser.yaml ||
+   ! grep -Fqx '    binary: stepanelctl' .goreleaser.yaml ||
+   ! grep -Fq 'stepanelctl' scripts/verify-release-artifacts.sh ||
+   ! grep -Fq 'install -m 0755 -o root -g root "$ROOT_DIR/stepanelctl" /usr/local/bin/stepanelctl' install.sh ||
+   ! grep -Fqx '  /usr/local/bin/stepanelctl' install.sh ||
+   ! grep -Fq 'go build -trimpath -ldflags="-s -w" -o /out/stepanelctl ./cmd/stepanelctl' Dockerfile ||
+   ! grep -Fq 'COPY --from=build /out/stepanelctl /usr/local/bin/stepanelctl' Dockerfile ||
+   ! grep -Fq 'docker exec stepanel-container-smoke stepanelctl help' .github/workflows/ci-integration.yml; then
+  echo "release and native installation do not ship, verify, and transactionally install stepanelctl" >&2
   exit 1
 fi
 if ! grep -Fq 'docs/INSTALLATION.md' scripts/verify-release-artifacts.sh ||

@@ -137,6 +137,9 @@ if ! ./install.sh "${install_args[@]}"; then
   journalctl -u stepanel.service -u stepanel-worker.service --no-pager -n 100 || true
   exit 1
 fi
+[[ -x /usr/local/bin/stepanelctl ]] || { echo 'native installer did not install stepanelctl' >&2; exit 1; }
+[[ $(stat -c %u /usr/local/bin/stepanelctl) == 0 ]] || { echo 'stepanelctl is not root-owned' >&2; exit 1; }
+/usr/local/bin/stepanelctl help >/dev/null 2>&1 || { echo 'installed stepanelctl help command failed' >&2; exit 1; }
 if [[ ${STEPANEL_INSTALLER_PREEXISTING_APACHE_SMOKE:-0} == 1 ]]; then
   if systemctl is-active --quiet apache2 || systemctl is-enabled --quiet apache2; then
     echo 'consented takeover did not stop and disable pre-existing Apache' >&2

@@ -4392,25 +4392,29 @@ does not close a current-source or power-loss gate.
   the usability work. `npm run test:unit` passed (19/19), JavaScript syntax
   checks and `git diff --check` passed. The new assertion awaits hosted E2E.
 
-## Verify guided installer publication recovery and first-host smoke — 2026-11-23
+## Ship the documented CLI and verify guided installation recovery — 2026-11-23
 
-- Reviewed INS-02 and INS-03 against the current source. The guided builder
-  already stages both binaries and writes a durable rollback journal before
-  publishing either one. On restart, it restores the prior pair before
-  rebuilding. Cancellation accurately reports that system services were not
-  changed and that saved settings were secured for reuse.
-- Regression coverage injects failure on the second binary rename and kills
-  the process after the first rename. It verifies restoration of the prior
-  pair before the next build and matching binary identity after that build.
-  `scripts/test-install-guided.sh`,
-  `scripts/test-install-guided-settings.sh`, Bash syntax checks, and ShellCheck
-  all passed.
-- Packaged Ubuntu 24.04 + Caddy + MariaDB smoke
+- Added `stepanelctl` to source builds, GoReleaser Linux amd64/arm64 archives,
+  Docker, native install/upgrade rollback, and installed-host smoke checks.
+  The release archive's CLI `help` command ran successfully from a local
+  GoReleaser v2.17.1 snapshot.
+- Guided publication uses a durable journal for all three executables.
+  Regression coverage injects failure on the last rename and kills the
+  publisher after the first and second rename. Restart tests prove the full
+  old set is restored before rebuilding and the new set shares one build ID.
+- Confirmed INS-03's cancellation message accurately says that system services
+  were not changed and identifies the saved settings as secured and reusable;
+  its contract test rejects the old “Nothing was changed” wording.
+- `scripts/test-install-guided.sh`,
+  `scripts/test-install-guided-settings.sh`, `scripts/check-release.sh`,
+  `make release-check`, `go test ./cmd/stepanelctl`, shell syntax checks,
+  ShellCheck, `git diff --check`, and full `make check` passed locally.
+  GoReleaser produced both Linux archives. The exact-source release-evidence
+  verifier was not applicable to this uncommitted tree because it has no
+  generated `RELEASE_EVIDENCE.md`.
+- Exact-source hosted CI for the CLI packaging changes remains pending. The
+  earlier packaged Ubuntu 24.04 + Caddy + MariaDB smoke
   [45094688912](https://github.com/cyberducttape/StePanel/actions/runs/45094688912)
-  passed on source `64bb74a4`. Installation and cleanup completed, the
-  installed WordPress HTTPS/database restore proof measured 4,407 ms, and one
-  recovery-matrix iteration passed. See the
-  [evidence report](docs/lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-64bb74a.md).
-  It was a disposable systemd container run; physical power-loss recovery,
-  quota enforcement, repeated certification, and the tag-triggered release
-  path remain unproven.
+  passed on `64bb74a4`; its WordPress HTTPS/database restore proof measured
+  4,407 ms. This was a disposable systemd container run, not repeated
+  certification; power-loss recovery and quota enforcement remain unproven.

@@ -184,14 +184,15 @@ jobs:
           rm -rf -- "$release_tree"
           install -d -m 0755 "$release_tree"
           tar -xzf "${archives[0]}" -C "$release_tree"
-          for required in stepanel stepanel-root install.sh deploy/lab/install-smoke.sh deploy/lib/install-support-tier.sh web/index.html; do
+          for required in stepanel stepanel-root stepanelctl install.sh deploy/lab/install-smoke.sh deploy/lib/install-support-tier.sh web/index.html; do
             if [[ ! -f "$release_tree/$required" ]]; then
               echo "release archive is missing $required" >&2
               exit 1
             fi
           done
-          [[ -x "$release_tree/stepanel" && -x "$release_tree/stepanel-root" ]]
+          [[ -x "$release_tree/stepanel" && -x "$release_tree/stepanel-root" && -x "$release_tree/stepanelctl" ]]
           "$release_tree/stepanel" setup --help >/dev/null
+          "$release_tree/stepanelctl" help >/dev/null 2>&1
           echo "STEPANEL_RELEASE_TREE=$release_tree" >> "$GITHUB_ENV"
           echo "Installed-host smoke will use $(basename "${archives[0]}") from exact source $GITHUB_SHA."
       - name: Stage pinned WordPress recovery fixtures

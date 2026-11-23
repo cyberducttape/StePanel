@@ -4,6 +4,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/cyberducttape/StePanel.Commit=docker -X github.com/cyberducttape/StePanel.BuildDate=container" -o /out/stepanel ./cmd/stepanel
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/stepanelctl ./cmd/stepanelctl
 
 FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
 
@@ -32,6 +33,7 @@ RUN apt-get update \
     && mkdir -p /opt/stepanel/web/static /var/lib/ste-panel/imports /var/www/sites \
     && chown -R stepanel:stepanel /opt/stepanel /var/lib/ste-panel /var/www/sites
 COPY --from=build /out/stepanel /opt/stepanel/stepanel
+COPY --from=build /out/stepanelctl /usr/local/bin/stepanelctl
 COPY web/index.html /opt/stepanel/web/index.html
 COPY web/static/ /opt/stepanel/web/static/
 USER 10001:10001

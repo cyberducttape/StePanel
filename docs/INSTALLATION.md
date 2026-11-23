@@ -181,6 +181,9 @@ recheck. The installer repeats these checks before making host changes.
 
 For a manual build and install, use `make build` followed by
 `sudo ./install.sh --guided` from the same checkout.
+The installer places the API automation client at
+`/usr/local/bin/stepanelctl`; release archives include the same client for
+manual use. See the [API guide](API_GUIDE.md) for token setup and commands.
 
 Do not run this on a host already serving websites unless you intend to hand
 ports 80 and 443 to StePanel. The preflight lists services and files it will

@@ -490,7 +490,9 @@ operation catalogs and the Bash, Zsh, and Fish completions. Regenerate with
 
 ### CLI automation
 
-`stepanelctl` uses a scoped bearer token from `STEPANEL_TOKEN`. It calls the
+`stepanelctl` is included in the Linux release archive and installed to
+`/usr/local/bin/stepanelctl` by the native installer; `make build` creates it
+for source deployments. It uses a scoped bearer token from `STEPANEL_TOKEN`. It calls the
 same API operations as the dashboard; the server remains authoritative for
 permissions, capacity admission, confirmation, and durable job state.
 

@@ -21,9 +21,10 @@ if [[ ${1:-} == version ]]; then
   printf 'go version %s linux/amd64\n' "${GO_TEST_VERSION:-go1.26.11}"
   exit 0
 fi
-if [[ ${VERIFY_RECOVERED_PAIR:-0} == 1 && " $* " == *' build '* ]]; then
+if [[ ${VERIFY_RECOVERED_SET:-0} == 1 && " $* " == *' build '* ]]; then
   [[ $($FAKE_REPO/stepanel) == previous-panel ]]
   [[ $($FAKE_REPO/stepanel-root) == previous-root ]]
+  [[ $($FAKE_REPO/stepanelctl) == previous-cli ]]
 fi
 printf '%s\n' "$*" >> "$GO_LOG"
 output=
@@ -92,8 +93,10 @@ GO_LOG="$tmp/go.log" SUDO_LOG="$tmp/sudo.log" GO=go SUDO=sudo \
   GOTOOLCHAIN=auto PATH="$fake_bin:$PATH" \
   bash "$fake_repo/scripts/install-guided.sh" --take-over-host
 [[ -x $fake_repo/stepanel && -x $fake_repo/stepanel-root ]]
+[[ -x $fake_repo/stepanelctl ]]
 grep -Fq './cmd/stepanel' "$tmp/go.log"
 grep -Fq './cmd/stepanel-root' "$tmp/go.log"
+grep -Fq './cmd/stepanelctl' "$tmp/go.log"
 [[ $(wc -l < "$tmp/sudo.log") == 3 ]]
 grep -Fq 'test -f /etc/ste-panel.env' "$tmp/sudo.log"
 grep -Fq 'install-host-preflight.sh' "$tmp/sudo.log"
@@ -114,7 +117,7 @@ grep -Fq 'install-host-preflight.sh' "$tmp/preflight-fail-sudo.log"
 [[ ! -e $tmp/preflight-fail-go.log ]]
 
 for compiler_mode in missing old local; do
-  rm -f -- "$fake_repo/stepanel" "$fake_repo/stepanel-root"
+  rm -f -- "$fake_repo/stepanel" "$fake_repo/stepanel-root" "$fake_repo/stepanelctl"
   : > "$tmp/bootstrap.log"
   env_args=(GO=go GO_LOG="$tmp/$compiler_mode-go.log" SUDO_LOG="$tmp/$compiler_mode-sudo.log"
     BOOTSTRAP_LOG="$tmp/bootstrap.log" DOWNLOAD_LOG="$tmp/download.log"
@@ -125,7 +128,7 @@ for compiler_mode in missing old local; do
     local) env_args+=(GOTOOLCHAIN=local) ;;
   esac
   env "${env_args[@]}" bash "$fake_repo/scripts/install-guided.sh"
-  [[ -x $fake_repo/stepanel && -x $fake_repo/stepanel-root ]]
+  [[ -x $fake_repo/stepanel && -x $fake_repo/stepanel-root && -x $fake_repo/stepanelctl ]]
   [[ $(<"$tmp/bootstrap.log") == $'verify:'* && $(tail -n 1 "$tmp/bootstrap.log") == extract ]]
   [[ $(wc -l < "$tmp/$compiler_mode-sudo.log") == 3 ]]
   grep -Fq 'test -f /etc/ste-panel.env' "$tmp/$compiler_mode-sudo.log"
@@ -137,7 +140,7 @@ for compiler_mode in missing old local; do
   fi
 done
 
-rm -f -- "$fake_repo/stepanel" "$fake_repo/stepanel-root"
+rm -f -- "$fake_repo/stepanel" "$fake_repo/stepanel-root" "$fake_repo/stepanelctl"
 env GO=go GO_LOG="$tmp/existing-go.log" SUDO_LOG="$tmp/existing-sudo.log" \
   BOOTSTRAP_LOG="$tmp/existing-bootstrap.log" DOWNLOAD_LOG="$tmp/existing-download.log" \
   GOTOOLCHAIN=auto SUDO=sudo EXISTING_INSTALL=1 PATH="$fake_bin:$PATH" \
@@ -148,8 +151,8 @@ grep -Fq 'test -f /etc/ste-panel.env' "$tmp/existing-sudo.log"
 [[ $(tail -n 1 "$tmp/existing-sudo.log") == './install.sh' ]]
 grep -Fq 'Starting the native upgrade.' "$tmp/existing.out"
 
-# If publishing the second executable fails, the first rename is rolled back.
-# A subsequent complete run must then publish a pair from one build identity.
+# If publishing the final executable fails, earlier renames are rolled back.
+# A subsequent complete run must publish all binaries from one build identity.
 cat > "$fake_repo/stepanel" <<'SH'
 #!/usr/bin/env bash
 echo previous-panel
@@ -158,15 +161,22 @@ cat > "$fake_repo/stepanel-root" <<'SH'
 #!/usr/bin/env bash
 echo previous-root
 SH
-chmod 0755 "$fake_repo/stepanel" "$fake_repo/stepanel-root"
+cat > "$fake_repo/stepanelctl" <<'SH'
+#!/usr/bin/env bash
+echo previous-cli
+SH
+chmod 0755 "$fake_repo/stepanel" "$fake_repo/stepanel-root" "$fake_repo/stepanelctl"
 real_mv=$(command -v mv)
 cat > "$fake_bin/mv" <<'SH'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 target=${@: -1}
-if [[ ${FAIL_SECOND_PUBLISH:-0} == 1 && $target == */stepanel-root ]]; then exit 1; fi
+if [[ ${FAIL_FINAL_PUBLISH:-0} == 1 && $target == */stepanelctl ]]; then exit 1; fi
 "$REAL_MV" "$@"
 if [[ ${KILL_AFTER_PANEL_PUBLISH:-0} == 1 && $target == */stepanel ]]; then
+  kill -KILL "$PPID"
+fi
+if [[ ${KILL_AFTER_ROOT_PUBLISH:-0} == 1 && $target == */stepanel-root ]]; then
   kill -KILL "$PPID"
 fi
 SH
@@ -174,23 +184,25 @@ chmod 0755 "$fake_bin/mv"
 if env GO=go SUDO=sudo SUDO_LOG="$tmp/interrupted-sudo.log" \
   GO_LOG="$tmp/interrupted-go.log" PATH="$fake_bin:$PATH" \
   GOTOOLCHAIN=auto BUILD_ID=interrupted-build \
-  REAL_MV="$real_mv" FAIL_SECOND_PUBLISH=1 \
+  REAL_MV="$real_mv" FAIL_FINAL_PUBLISH=1 \
   bash "$fake_repo/scripts/install-guided.sh" >"$tmp/interrupted.out" 2>&1; then
-  echo 'guided build continued after the second binary publication failed' >&2
+  echo 'guided build continued after the final binary publication failed' >&2
   exit 1
 fi
 [[ $("$fake_repo/stepanel") == previous-panel ]]
 [[ $("$fake_repo/stepanel-root") == previous-root ]]
+[[ $("$fake_repo/stepanelctl") == previous-cli ]]
 env GO=go SUDO=sudo SUDO_LOG="$tmp/restart-sudo.log" \
   GO_LOG="$tmp/restart-go.log" PATH="$fake_bin:$PATH" \
   GOTOOLCHAIN=auto BUILD_ID=restart-build \
   REAL_MV="$real_mv" bash "$fake_repo/scripts/install-guided.sh" >"$tmp/restart.out"
 [[ $("$fake_repo/stepanel") == restart-build ]]
 [[ $("$fake_repo/stepanel-root") == restart-build ]]
+[[ $("$fake_repo/stepanelctl") == restart-build ]]
 
 # A hard process kill after the first rename leaves a durable journal. On the
-# next invocation recovery must restore the old matched pair before the Go
-# build starts, then publish the new pair by one build identity.
+# next invocation recovery must restore the old matched set before the Go
+# build starts, then publish the new set by one build identity.
 cat > "$fake_repo/stepanel" <<'SH'
 #!/usr/bin/env bash
 echo previous-panel
@@ -199,7 +211,11 @@ cat > "$fake_repo/stepanel-root" <<'SH'
 #!/usr/bin/env bash
 echo previous-root
 SH
-chmod 0755 "$fake_repo/stepanel" "$fake_repo/stepanel-root"
+cat > "$fake_repo/stepanelctl" <<'SH'
+#!/usr/bin/env bash
+echo previous-cli
+SH
+chmod 0755 "$fake_repo/stepanel" "$fake_repo/stepanel-root" "$fake_repo/stepanelctl"
 if env GO=go SUDO=sudo SUDO_LOG="$tmp/killed-sudo.log" \
   GO_LOG="$tmp/killed-go.log" PATH="$fake_bin:$PATH" \
   GOTOOLCHAIN=auto BUILD_ID=killed-build REAL_MV="$real_mv" \
@@ -211,18 +227,56 @@ fi
 [[ -d $fake_repo/.stepanel-guided-publish ]]
 [[ $("$fake_repo/stepanel") == killed-build ]]
 [[ $("$fake_repo/stepanel-root") == previous-root ]]
+[[ $("$fake_repo/stepanelctl") == previous-cli ]]
 env GO=go SUDO=sudo SUDO_LOG="$tmp/recovered-sudo.log" \
   GO_LOG="$tmp/recovered-go.log" PATH="$fake_bin:$PATH" \
   GOTOOLCHAIN=auto BUILD_ID=recovered-build REAL_MV="$real_mv" \
-  FAKE_REPO="$fake_repo" VERIFY_RECOVERED_PAIR=1 \
+  FAKE_REPO="$fake_repo" VERIFY_RECOVERED_SET=1 \
   bash "$fake_repo/scripts/install-guided.sh" >"$tmp/recovered.out" 2>&1
 [[ ! -e $fake_repo/.stepanel-guided-publish ]]
 [[ $("$fake_repo/stepanel") == recovered-build ]]
 [[ $("$fake_repo/stepanel-root") == recovered-build ]]
+[[ $("$fake_repo/stepanelctl") == recovered-build ]]
 grep -Fq 'Recovering an interrupted guided binary publication' "$tmp/recovered.out"
+
+# Also interrupt after the second of three publishes. Recovery must restore all
+# old artifacts before the next build, including the CLI that had not yet been
+# published when the process died.
+cat > "$fake_repo/stepanel" <<'SH'
+#!/usr/bin/env bash
+echo previous-panel
+SH
+cat > "$fake_repo/stepanel-root" <<'SH'
+#!/usr/bin/env bash
+echo previous-root
+SH
+cat > "$fake_repo/stepanelctl" <<'SH'
+#!/usr/bin/env bash
+echo previous-cli
+SH
+chmod 0755 "$fake_repo/stepanel" "$fake_repo/stepanel-root" "$fake_repo/stepanelctl"
+if env GO=go SUDO=sudo SUDO_LOG="$tmp/killed-middle-sudo.log" \
+  GO_LOG="$tmp/killed-middle-go.log" PATH="$fake_bin:$PATH" \
+  GOTOOLCHAIN=auto BUILD_ID=killed-middle-build REAL_MV="$real_mv" \
+  KILL_AFTER_ROOT_PUBLISH=1 \
+  bash "$fake_repo/scripts/install-guided.sh" >"$tmp/killed-middle.out" 2>&1; then
+  echo 'guided installer survived a forced kill during binary-set publication' >&2
+  exit 1
+fi
+[[ $("$fake_repo/stepanel") == killed-middle-build ]]
+[[ $("$fake_repo/stepanel-root") == killed-middle-build ]]
+[[ $("$fake_repo/stepanelctl") == previous-cli ]]
+env GO=go SUDO=sudo SUDO_LOG="$tmp/recovered-middle-sudo.log" \
+  GO_LOG="$tmp/recovered-middle-go.log" PATH="$fake_bin:$PATH" \
+  GOTOOLCHAIN=auto BUILD_ID=recovered-middle-build REAL_MV="$real_mv" \
+  FAKE_REPO="$fake_repo" VERIFY_RECOVERED_SET=1 \
+  bash "$fake_repo/scripts/install-guided.sh" >"$tmp/recovered-middle.out" 2>&1
+[[ $("$fake_repo/stepanel") == recovered-middle-build ]]
+[[ $("$fake_repo/stepanel-root") == recovered-middle-build ]]
+[[ $("$fake_repo/stepanelctl") == recovered-middle-build ]]
 rm -f -- "$fake_bin/mv"
 
-rm -f -- "$fake_repo/stepanel" "$fake_repo/stepanel-root" "$tmp/bad-sudo.log"
+rm -f -- "$fake_repo/stepanel" "$fake_repo/stepanel-root" "$fake_repo/stepanelctl" "$tmp/bad-sudo.log"
 if env GO="$tmp/missing-go" SUDO=sudo SUDO_LOG="$tmp/bad-sudo.log" \
   BOOTSTRAP_LOG="$tmp/bad-bootstrap.log" DOWNLOAD_LOG="$tmp/bad-download.log" \
   BAD_CHECKSUM=1 PATH="$fake_bin:$PATH" \
@@ -235,7 +289,7 @@ if grep -Fq extract "$tmp/bad-bootstrap.log"; then
   echo 'bootstrap extracted an archive before verifying its checksum' >&2
   exit 1
 fi
-[[ ! -e $fake_repo/stepanel && ! -e $fake_repo/stepanel-root ]]
+[[ ! -e $fake_repo/stepanel && ! -e $fake_repo/stepanel-root && ! -e $fake_repo/stepanelctl ]]
 grep -Fq 'install-host-preflight.sh' "$tmp/bad-sudo.log"
 if grep -Fq './install.sh' "$tmp/bad-sudo.log"; then
   echo 'bootstrap handed off to the installer after a failed checksum' >&2

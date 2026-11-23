@@ -2,7 +2,7 @@ APP := stepanel
 GO ?= go
 LDFLAGS := -s -w -X github.com/cyberducttape/StePanel.Commit=$${GIT_COMMIT:-dev} -X github.com/cyberducttape/StePanel.BuildDate=$$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-.PHONY: all build build-panel evaluate test test-race fmt fmt-check vet coverage coverage-check fuzz-smoke api-generate api-check shell-contract-check check recovery-drill mixed-load production-gate audit release-check clean
+.PHONY: all build build-panel build-cli evaluate test test-race fmt fmt-check vet coverage coverage-check fuzz-smoke api-generate api-check shell-contract-check check recovery-drill mixed-load production-gate audit release-check clean
 
 # The test suite exercises SQLite workers and helper subprocesses. Keep the
 # default local targets within a modest process budget so a developer's host
@@ -19,6 +19,10 @@ all: check build
 build:
 	$(MAKE) build-panel
 	$(GO) build -trimpath -o stepanel-root ./cmd/stepanel-root
+	$(MAKE) build-cli
+
+build-cli:
+	$(GO) build -trimpath -o stepanelctl ./cmd/stepanelctl
 
 build-panel:
 	$(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(APP) ./cmd/stepanel
@@ -103,4 +107,4 @@ release-check:
 	./scripts/check-release.sh
 
 clean:
-	rm -f $(APP) stepanel-root coverage.out
+	rm -f $(APP) stepanel-root stepanelctl coverage.out

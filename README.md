@@ -176,7 +176,7 @@ review its preflight before accepting any changes.
 
 ### Container
 
-The container packages the control plane only. It does not run Apache, PHP, or
+The container packages the control plane and `stepanelctl` API client. It does not run Apache, PHP, or
 a database server inside the container. Database administrator packages are
 host integrations and are not installed in the container image. Treat Docker
 and Kubernetes as control-plane packaging for evaluation or limited
@@ -306,8 +306,9 @@ verified SQLite backup, and `stepanel restore-control-plane SOURCE --dry-run`
 to validate a candidate before the guarded maintenance-window restore:
 `stepanel restore-control-plane SOURCE --replace`.
 
-For API automation, build or install `stepanelctl` and set `STEPANEL_URL` and
-`STEPANEL_TOKEN`. `stepanelctl` supports both read-only inspection and
+The GoReleaser archive and native installer include `stepanelctl`, the
+operator API client. Source builds create it with `make build`. Set
+`STEPANEL_URL` and `STEPANEL_TOKEN` to use read-only inspection and
 state-changing workflows such as site creation, backup/restore, migration,
 and provisioning. `doctor` prints a readable checklist with each check's
 result, diagnostic message, and next step; add `--json` for scripts. Other inspection
