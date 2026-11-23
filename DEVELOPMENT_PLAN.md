@@ -2764,13 +2764,14 @@ and reference checks pass; exact-source documentation CI is pending.
 
 ### M0bi — Keep first-run checklist actions readable (P2)
 
-**Status:** Implemented locally. Setup checklist actions now sit below their
-explanations instead of competing for a narrow third grid column. A seeded
-browser regression checks the explanation/action geometry at desktop and
-mobile widths. The current-source local evaluation renders the action on its
-own line at 1440px and 390px, with no horizontal overflow or uncaught browser
-errors. Frontend unit tests and the focused installer publication/settings
-contracts pass; seeded hosted browser CI remains pending.
+**Status:** Implemented on `5da789bb`. Setup checklist actions now sit below
+their explanations instead of competing for a narrow third grid column. The
+seeded browser regression checks the explanation/action geometry at desktop
+and mobile widths. The exact-source seeded browser/accessibility job passed in
+[run 45201896488](https://github.com/cyberducttape/StePanel/actions/runs/45201896488),
+as did documentation and CodeQL. Local `make check` and frontend unit tests
+pass. Hosted full integration and installed-host candidate checks are still
+running; their completion is required before those checks are counted.
 
 **Acceptance criteria**
 
