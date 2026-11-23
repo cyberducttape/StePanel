@@ -4876,3 +4876,13 @@ does not close a current-source or power-loss gate.
   check` also passed on `b633dbea`. The hosted integration run for the
   code-equivalent `993a4079` commit is queued; this architectural validation
   remains open until it completes.
+
+## Validate audit-outcome alert rules — 2026-11-23
+
+- Downloaded Prometheus 3.5.0 `promtool`, verified the archive against the
+  SHA-256 pinned in CI, and ran it against the current audit-outcome alert
+  rules. All 44 rules parsed and `observability/alerts_test.yml` passed.
+- Exact-source integration run
+  [45179420668](https://github.com/cyberducttape/StePanel/actions/runs/45179420668)
+  is still running its race and recovery suites; this local alert validation
+  does not replace that result.

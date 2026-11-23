@@ -1368,7 +1368,11 @@ recovery.
 ### M0h — Fail closed on missing authentication and reconcile audit outcomes (P1)
 
 **Status:** Implemented; local full-suite and focused race verification passed.
-Exact-source hosted CI and the Prometheus rule renderer are still pending.
+The pinned Prometheus 3.5.0 `promtool` also reports all 44 alert rules valid
+and passes `observability/alerts_test.yml` on current source. Exact-source
+hosted CI is running in [integration run
+45179420668](https://github.com/cyberducttape/StePanel/actions/runs/45179420668);
+keep this item open until that run completes.
 
 Production authentication is validated from trusted startup configuration
 before route construction. Disabled authentication requires an explicit
