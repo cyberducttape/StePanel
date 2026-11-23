@@ -2508,3 +2508,20 @@ exact-source hosted CI for this test change remain pending.
   behavior; the 100 MiB durable-session path is exercised through the API.
 - Focused and full Go checks, browser tests, and exact-source hosted CI pass.
 
+### M0bc — Keep themed primary actions accessible on first paint (P2)
+
+**Status:** Fix and theme-color contract test implemented locally; hosted
+browser verification is pending. CI for `db39eb83` found that the global button
+color transition briefly rendered “Add website” at 4.16:1 contrast while the
+light theme initialized. The appearance stylesheet now applies primary-action
+colors without an intermediate animation and sets a contrasting foreground,
+including the Windows 95/3.1 palettes. A unit test checks the foreground and
+accent contrast across all ten themes and prohibits the first-paint tween.
+
+**Acceptance criteria**
+
+- Every theme's primary-action foreground/accent pair meets WCAG AA 4.5:1.
+- Theme initialization cannot animate through an insufficient-contrast color.
+- Frontend unit tests and the seeded customer browser accessibility suite pass;
+  exact-source hosted CI passes.
+

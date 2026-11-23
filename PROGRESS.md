@@ -1,3 +1,19 @@
+## Fix a first-paint contrast failure found by hosted browser CI — 2026-11-23
+
+- CI for `db39eb83` failed the seeded customer-panel axe check: the default
+  light-theme “Add website” button was sampled mid-transition at 4.16:1, below
+  WCAG AA's 4.5:1 requirement. The previous UI run on the parent source had
+  passed; this failure was recovered from the Playwright artifact and is
+  addressed in the follow-up source.
+- Themed primary actions now skip the color tween during theme application and
+  use a dedicated foreground token. Windows 95/3.1 use white text on navy;
+  other palettes use their dark foreground token. Added a unit test that
+  evaluates all ten themes plus light default mode and requires at least 4.5:1.
+- `npm run test:unit` passed (20/20). Documentation and CodeQL workflows pass
+  for the upload-test commit. The complete integration workflow for that
+  commit was still running when this fix was prepared; this CSS correction's
+  exact-source hosted CI remains pending.
+
 ## Verify full-size resumable customer uploads with bounded test memory — 2026-11-23
 
 - The existing customer file manager accepts resumable uploads through 100 MiB
