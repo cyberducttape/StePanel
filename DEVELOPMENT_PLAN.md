@@ -14,12 +14,14 @@ successful one-off smoke does not close a host-certification gate.
 
 ### M0az — Make the site lifecycle workspace lighter on first load (P2)
 
-**Status:** Implemented and locally verified on the current worktree. The
+**Status:** Implemented in commit `8e54ebb4` and locally verified. The
 lifecycle view now uses its recovery summary for the latest backup instead of
 performing a second backup inventory scan. Recent web-server and PHP-FPM error
-samples are loaded only when an operator asks to inspect them. The seeded
-lifecycle browser journey and full browser suite passed against a freshly built
-panel binary with embedded assets; frontend unit tests passed (19/19).
+samples are loaded only when an operator asks to inspect them. `make check`
+passed, including `go vet ./...` and the full Go suite. The seeded lifecycle
+browser journey and full browser suite passed against a freshly built panel
+binary with embedded assets; frontend unit tests passed (19/19). Hosted CI for
+this source is tracked in `PROGRESS.md`.
 
 **Acceptance criteria**
 

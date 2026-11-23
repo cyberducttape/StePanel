@@ -6,10 +6,13 @@
   with visible loading, unavailable, and result states.
 - Regression coverage confirms opening the view makes no backup-list request or
   log reads, and explicitly loading errors requests both log sources.
-- `npm run test:unit` passed (19/19). The rebuilt embedded panel passed the
-  complete Playwright suite: 33 passed, one expected skip. The targeted
-  lifecycle/accessibility journey passed independently. `git diff --check`
-  passed. This is UI/workload evidence, not host certification.
+- `npm run test:unit` passed (19/19). `make check` passed, including `go vet`
+  and the full Go suite (root package 120.3 seconds). The rebuilt embedded
+  panel passed the complete Playwright suite: 33 passed, one expected skip; the
+  targeted lifecycle/accessibility journey passed independently. Changes were
+  committed and pushed to `main` as `8e54ebb4` by Stephan Loesevitz. Hosted
+  integration CI for that exact source is still running; this is UI/workload
+  evidence, not host certification.
 
 # Production-readiness progress
 
