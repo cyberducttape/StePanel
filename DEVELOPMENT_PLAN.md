@@ -2556,21 +2556,21 @@ full hosted integration, documentation, CodeQL, and release evidence also pass.
 
 ### M0bd — Make large-file SFTP handoff clear to customers (P2)
 
-**Status:** The SFTP guide is verified on exact source `b59461f5`. The latest
-oversized-upload path now opens the guide automatically; its browser regression
-and exact-source CI are pending. The prior guide's frontend unit tests,
-documentation checks, seeded browser/accessibility tests, and full hosted
-integration suite passed, including Go, race, recovery, ENOSPC, database,
-container, and infrastructure checks. Hosted evidence: [CI integration 45126292777](https://github.com/cyberducttape/StePanel/actions/runs/45126292777),
-[Documentation 45126292759](https://github.com/cyberducttape/StePanel/actions/runs/45126292759),
-[CodeQL 45126292768](https://github.com/cyberducttape/StePanel/actions/runs/45126292768),
-and [release evidence 45126471128](https://github.com/cyberducttape/StePanel/actions/runs/45126471128).
-When a customer opens Files, the page can show the account Unix username and
-selected site's document root, with a direct link to that site's SFTP settings.
-The guidance identifies the hosting administrator as the source for host and
-port details, avoids implying SFTP is enabled everywhere, and warns customers
-to keep private keys private. The customer workflow guide documents the same
-limits and handoff.
+**Status:** Implemented and verified on exact source `07f83f2a`, an ancestor of
+current `main`. The SFTP guide gives the selected site's Unix username,
+document root, and Security settings link, and explains that host/port details
+and SFTP availability depend on host policy. Oversized browser uploads and
+editor saves open the guide automatically; when site details are unavailable,
+the user gets a direct administrator handoff. The seeded regression covers the
+oversized upload path. Hosted [CI integration 45129625487](https://github.com/cyberducttape/StePanel/actions/runs/45129625487)
+passed seeded browser/accessibility tests, the full Go suite, race tests,
+recovery and ENOSPC drills, database restore checks, and container and
+infrastructure validation. [Documentation 45129625591](https://github.com/cyberducttape/StePanel/actions/runs/45129625591),
+[CodeQL 45129625495](https://github.com/cyberducttape/StePanel/actions/runs/45129625495),
+and [release evidence 45132709532](https://github.com/cyberducttape/StePanel/actions/runs/45132709532)
+also passed. This improves the supported SFTP handoff; it does not implement
+first-party SFTP provisioning or change the bounded 100 MiB browser-upload
+limit.
 
 **Acceptance criteria**
 
