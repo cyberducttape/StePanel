@@ -120,7 +120,7 @@ func TestGuideAcceptsDefaults(t *testing.T) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
 	for _, want := range []string{
-		"Only exploring? Stop here and run `make evaluate`",
+		"Only exploring? Stop here and run `bash scripts/evaluate-local.sh`",
 		"loopback-only demo without installing services or changing",
 		"This wizard is for a native host installation",
 		"Operator Beta, not production-certified",

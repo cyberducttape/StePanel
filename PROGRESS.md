@@ -4911,5 +4911,19 @@ does not close a current-source or power-loss gate.
 - The wizard now explains that rclone writes its user-level config at that
   step and that it remains if setup is canceled. Cancellation says installer
   settings were not saved and calls out the rclone config that remains.
-- Added a configure-remote-then-cancel regression. `go test
-  ./internal/setup -count=1` passed; full checks and hosted CI are pending.
+- Added a configure-remote-then-cancel regression. Focused setup tests and
+  `make check` passed, including `go vet ./...` and all package tests.
+- The exact-source hosted integration, documentation, CodeQL, and candidate
+  preflight workflows for `06655e13` are queued.
+
+## Point setup wizard to the Make-free evaluation command — 2026-11-23
+
+- The setup wizard still recommended `make evaluate`, despite the documented
+  primary evaluation command being `bash scripts/evaluate-local.sh`. A
+  newcomer without GNU Make would hit an unnecessary failure while following
+  the wizard's evaluation path.
+- Updated the wizard and its exact-text regression. `go test ./internal/setup
+  -count=1`, formatting, and full `make check` passed (`go vet ./...` and all
+  Go packages).
+- Hosted checks remain queued due runner availability; exact-source validation
+  is required before this item is closed.

@@ -277,7 +277,7 @@ func (g *Guide) Run() (Answers, error) {
 	answers := Answers{Keys: map[string]string{}}
 	g.say("StePanel guided setup")
 	g.say("")
-	g.say("Only exploring? Stop here and run `make evaluate` from the checkout.")
+	g.say("Only exploring? Stop here and run `bash scripts/evaluate-local.sh` from the checkout.")
 	g.say("That opens a loopback-only demo without installing services or changing")
 	g.say("this host. Do not use it for customer data or expose it to a network.")
 	g.say("")

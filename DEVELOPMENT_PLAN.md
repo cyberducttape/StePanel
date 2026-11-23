@@ -2697,8 +2697,9 @@ Documentation, CodeQL, and release-evidence workflows also passed.
 configure an offsite remote updates the current user's rclone configuration
 immediately and that it remains if setup is later canceled. The cancellation
 error distinguishes unsaved installer settings from that retained rclone
-configuration. `go test ./internal/setup -count=1` passes; full local and
-exact-source hosted checks are pending.
+configuration. Focused setup tests, `make check`, and
+`go test -race ./internal/setup -count=1` pass locally. Exact-source hosted
+checks are pending.
 
 **Acceptance criteria**
 
@@ -2709,4 +2710,19 @@ exact-source hosted checks are pending.
 - A regression exercises the configure-then-cancel path and confirms settings
   are not reported saved.
 - Setup tests, full checks, and exact-source CI pass.
+
+### M0bg — Keep evaluation instructions consistent in the setup wizard (P2)
+
+**Status:** Implemented locally. The setup wizard now points first-time
+evaluators to `bash scripts/evaluate-local.sh`, matching the no-Make command
+in the README and installation guide. The setup regression checks the exact
+wizard text. `make check` passes locally; exact-source hosted checks are
+pending.
+
+**Acceptance criteria**
+
+- The setup wizard's evaluation path works without GNU Make.
+- User-facing entry points consistently identify the Bash script as the
+  primary command and describe `make evaluate` only as an optional alias.
+- The setup test and `make check` pass; exact-source CI passes.
 
