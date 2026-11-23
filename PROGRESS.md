@@ -4865,3 +4865,14 @@ does not close a current-source or power-loss gate.
   published. The current `993a4079` source still needs its own hosted checks.
 - Full scope and limits are recorded in
   [`2026-11-23-v0.9.0-ubuntu-install-45173194319.md`](docs/lab-results/2026-11-23-v0.9.0-ubuntu-install-45173194319.md).
+
+## Reconcile typed durable operation status — 2026-11-23
+
+- Confirmed all ten `site.operation` routes have typed executors and the worker
+  dispatches directly to them; no durable worker replays an HTTP handler.
+  Node deployment uses typed services, revalidates its queuing token, and
+  refuses rollback after lease loss.
+- Focused executor, revoked-token, and lease-loss tests passed. Full `make
+  check` also passed on `b633dbea`. The hosted integration run for the
+  code-equivalent `993a4079` commit is queued; this architectural validation
+  remains open until it completes.

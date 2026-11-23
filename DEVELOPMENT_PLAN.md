@@ -1297,11 +1297,17 @@ unverified where they cannot establish application-level behavior.
 
 ### M0e — Continue typed durable operation extraction (P1)
 
-**Status:** In progress. Node tooling, Python deployment, Composer install,
-and sandboxed runner builds have typed worker executors. Node deployment now
-uses shared typed application, Node-selection, and proxy services from both
-HTTP and durable-job entry points; its synthetic HTTP replay has been removed.
-The remaining six routes were converted under M0s; no route replays a handler.
+**Status:** Implementation complete; exact-source hosted validation is pending.
+All ten `site.operation` routes have typed executors, and the worker invokes
+those services directly. The remaining routes were completed under M0s;
+Node tooling, Python deployment, Composer install, sandboxed runner builds, and
+Node deployment also use typed worker services. Node deployment revalidates
+the queuing token, checkpoints recovery state, and refuses compensation after
+lease loss. Static inspection confirms no worker synthesizes an HTTP request or
+invokes a route handler. The focused executor/token/lease tests and full local
+`make check` pass on `b633dbea`; hosted integration for the code-equivalent
+`993a4079` source remains queued. Keep this validation item open until hosted
+CI completes.
 
 **Acceptance criteria**
 
