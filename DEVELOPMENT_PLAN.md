@@ -325,6 +325,12 @@ iteration; this does not close repeated certification, project quota, physical
 power-loss, or tagged-release installation criteria. See the [Ubuntu
 report](docs/lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-07726007.md)
 and [EL 9 report](docs/lab-results/2026-11-23-el9-first-install-phpcurl-fallback-07726007.md).
+The later packaged smoke on `2e9e06e9` also passed on Ubuntu 24.04 + Caddy +
+MariaDB: installation and cleanup completed, one recovery-matrix iteration
+passed, and application-level WordPress recovery measured 4,398 ms. Its
+disposable-host scope and missing project-quota limitation are recorded in
+[`the report`](docs/lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-2e9e06e.md)
+([run 45129211602](https://github.com/cyberducttape/StePanel/actions/runs/45129211602)).
 
 **Acceptance criteria**
 
@@ -2392,12 +2398,12 @@ WordPress HTTPS recovery proof before building or publishing release assets.
 The check-release contract prevents removing the prerequisite unnoticed.
 This improves the package onboarding gate but does not certify production or
 replace repeated failure-recovery, quota, power-loss, capacity, and security
-gates. The packaged install smoke passed on source `64bb74a4`: installation
-and cleanup completed, WordPress HTTPS/database recovery measured 4,407 ms,
+gates. The latest packaged install smoke passed on source `2e9e06e9`: installation
+and cleanup completed, WordPress HTTPS/database recovery measured 4,398 ms,
 and one recovery-matrix iteration passed. See the
-[`first-host smoke report`](docs/lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-64bb74a.md).
+[`first-host smoke report`](docs/lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-2e9e06e.md).
 The run used a disposable systemd container and does not prove the tag-triggered
-release path or production certification.
+release path or production certification. Tag-path validation remains pending.
 
 **Acceptance criteria**
 

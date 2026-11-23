@@ -38,9 +38,14 @@
   [docs 45129625591](https://github.com/cyberducttape/StePanel/actions/runs/45129625591),
   [CodeQL 45129625495](https://github.com/cyberducttape/StePanel/actions/runs/45129625495),
   [release evidence 45132709532](https://github.com/cyberducttape/StePanel/actions/runs/45132709532)).
-  A separate packaged Ubuntu 24.04 + Caddy + MariaDB install and WordPress
-  recovery smoke on parent source `2e9e06e9` is still running; it does not
-  include this final UI-only improvement.
+  The separate packaged Ubuntu 24.04 + Caddy + MariaDB install and WordPress
+  recovery smoke on parent source `2e9e06e9` also passed: install and cleanup
+  completed, one recovery-matrix iteration passed, and application-level
+  recovery measured 4,398 ms ([run
+  45129211602](https://github.com/cyberducttape/StePanel/actions/runs/45129211602),
+  [report](docs/lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-2e9e06e.md)).
+  That snapshot run predates this final UI-only improvement and is not a tagged
+  release or production certification.
 
 ## Fix a first-paint contrast failure found by hosted browser CI — 2026-11-23
 
