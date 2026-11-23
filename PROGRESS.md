@@ -1,3 +1,18 @@
+## Reverify first-run installer safety — 2026-11-23
+
+- On current `main` (`dd030b6f`), reran `scripts/test-install-guided.sh` and
+  `scripts/test-install-guided-settings.sh`; both pass. The guided-build test
+  injects a failure on the final binary rename and kills publication after
+  either of the first two renames, then verifies recovery before rebuilding
+  and confirms all three executables share the new build identity. The
+  settings contract verifies that cancellation says host services were not
+  changed while identifying the saved settings as secured and reusable.
+- The versioned `v0.9.0` candidate install/recovery workflow
+  [45146220535](https://github.com/cyberducttape/StePanel/actions/runs/45146220535)
+  has passed archive build, package validation, fixture staging, and disposable
+  host startup. Its installed-host smoke is still running; no installation or
+  recovery result is claimed yet. No release was published.
+
 ## Make mobile first-run evidence readable — 2026-11-23
 
 - The seeded operator overview screenshot captured a mobile resize transition:
