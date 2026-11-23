@@ -411,29 +411,25 @@
       observe(ctx.getJSON(`/api/sites/php/${encodeURIComponent(site)}`)),
       observe(ctx.getJSON(`/api/sites/resources/${encodeURIComponent(site)}`)),
       ctx.can('backup:read') ? observe(ctx.getJSON(`/api/sites/recovery/${encodeURIComponent(site)}`)) : Promise.resolve(null),
-      ctx.can('backup:read') ? observe(ctx.getJSON(`/api/backups?site=${encodeURIComponent(site)}&limit=100`)) : Promise.resolve(null),
       observe(ctx.getJSON(`/api/wordpress/status/${encodeURIComponent(site)}`)),
-      ctx.can('logs:read') ? observe(ctx.getJSON(`/api/sites/logs/${encodeURIComponent(site)}?source=error&lines=40`)) : Promise.resolve(null),
-      ctx.can('logs:read') ? observe(ctx.getJSON(`/api/sites/logs/${encodeURIComponent(site)}?source=php-fpm&lines=40`)) : Promise.resolve(null),
       observe(ctx.getJSON(`/api/deployments?site=${encodeURIComponent(site)}`)),
     ]);
-    const [overviewResult, diagnosticResult, phpResult, resourceResult, recoveryResult, backupResult, wordpressResult, webLogResult, phpLogResult, deploymentResult] = checks;
+    const [overviewResult, diagnosticResult, phpResult, resourceResult, recoveryResult, wordpressResult, deploymentResult] = checks;
     const overview = overviewResult.value || {};
     const diagnostics = diagnosticResult.value || {};
     const php = phpResult.value || {};
     const resources = resourceResult.value || {};
     const recovery = recoveryResult?.value || null;
-    const backups = backupResult?.value?.backups || [];
     const wordpress = wordpressResult.value || {};
     const tls = diagnostics.tls || [];
     const routes = overview.routes || [];
     const apps = overview.applications || [];
     const deployments = (deploymentResult.value?.deployments || []).slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    const latest = backups.filter((item) => item.verified_at).sort((a, b) => new Date(b.verified_at) - new Date(a.verified_at))[0];
+    // The recovery summary already includes the newest backup's integrity and
+    // verification timestamps. Avoid a second backup-directory scan here.
+    const latest = recovery?.last_backup || null;
     const fpm = resources.fpm_status || {};
     const profiles = php.profiles || (php.profile ? [php.profile] : []);
-    const logLines = [...(webLogResult?.value?.lines || []), ...(phpLogResult?.value?.lines || [])].map((line) => typeof line === 'string' ? line : (line.message || line.line || JSON.stringify(line)));
-    const notableLogs = logLines.filter((line) => /error|critical|fatal|failed|denied|timeout|refused|upstream|database connection|ssl|tls/i.test(line)).slice(-3);
     const nav = (tab) => workspaceHash(site, tab);
     const link = (label, href, className = 'quiet-action') => el('a', { className, href }, label);
     const statePill = (state, label) => el('span', { className: `lifecycle-state lifecycle-state-${state}`, role: 'status' }, label);
@@ -456,6 +452,35 @@
     const recoveryState = recovery ? (recovery.confidence === 'high' || recovery.confidence === 'verified' ? 'done' : latest ? 'attention' : 'next') : 'unknown';
     const phpPools = fpm.pools || [];
     const phpIssue = profiles.some((profile) => profile.state === 'pending' || profile.last_error) || phpPools.some((pool) => pool.state !== 'available');
+    const recentLogsValue = el('span', {}, ctx.can('logs:read') ? 'Not loaded' : 'Not available to this role');
+    const recentLogsDetail = el('small', {}, ctx.can('logs:read')
+      ? 'Load a bounded web-server and PHP-FPM error sample when troubleshooting.'
+      : 'Your role does not have permission to read site logs.');
+    const recentLogsButton = ctx.can('logs:read') ? ctx.button('Load recent errors', async (event) => {
+      const trigger = event.currentTarget;
+      recentLogsValue.textContent = 'Loading…';
+      recentLogsDetail.textContent = 'Reading a bounded sample from web-server and PHP-FPM logs.';
+      try {
+        const [webResult, phpLogResult] = await Promise.all([
+          observe(ctx.getJSON(`/api/sites/logs/${encodeURIComponent(site)}?source=error&lines=40`)),
+          observe(ctx.getJSON(`/api/sites/logs/${encodeURIComponent(site)}?source=php-fpm&lines=40`)),
+        ]);
+        if (webResult.error || phpLogResult.error) {
+          recentLogsValue.textContent = 'Log query unavailable';
+          recentLogsDetail.textContent = 'One or more log sources could not be read. Check the Logs tab for access and service details.';
+          return;
+        }
+        const logLines = [...(webResult.value.lines || []), ...(phpLogResult.value.lines || [])]
+          .map((line) => typeof line === 'string' ? line : (line.message || line.line || JSON.stringify(line)));
+        const notableLogs = logLines.filter((line) => /error|critical|fatal|failed|denied|timeout|refused|upstream|database connection|ssl|tls/i.test(line)).slice(-3);
+        recentLogsValue.textContent = `${notableLogs.length} notable line(s) in recent sample`;
+        recentLogsDetail.textContent = notableLogs.length
+          ? notableLogs.map((line) => line.slice(0, 240)).join(' · ')
+          : 'No matching error indicators in this bounded sample; this is not proof that requests succeed.';
+      } finally {
+        if (trigger.isConnected) trigger.textContent = 'Refresh recent errors';
+      }
+    }) : null;
 
     if (overviewResult.error) {
       panel.replaceChildren(el('p', { className: 'error-state', role: 'alert' }, `Site workflow is unavailable: ${overviewResult.error.message || 'site overview request failed'}`));
@@ -500,7 +525,7 @@
         : 'Recovery status could not be loaded or this role cannot view it. Do not assume a backup or restore proof exists.', [
         link('Backups, restore rehearsals, and staging clones', nav('backups')),
         recovery ? ctx.badge(evidenceLevelLabels[recovery.confidence_level] || 'Evidence unknown', recovery.confidence === 'verified' ? 'ok' : recovery.confidence === 'failing' || recovery.confidence === 'no_backup' ? 'danger' : 'warn') : null,
-        latest ? ctx.badge(`Latest integrity-verified backup ${ctx.formatAge(latest.verified_at)}`, 'ok') : ctx.badge(backupResult?.error ? 'Backup inventory unavailable' : 'No verified backup found', 'warn'),
+        latest?.verified_at ? ctx.badge(`Latest integrity-verified backup ${ctx.formatAge(latest.verified_at)}`, 'ok') : ctx.badge(recoveryResult?.error ? 'Backup and recovery evidence unavailable' : 'No verified backup found', 'warn'),
       ]),
       step(6, 'Clone to staging and promote safely', 'next', 'Optional before cutover', 'Create an isolated clone, validate WordPress and database-backed behavior there, and use the guarded promotion preview when ready. Staging is not a substitute for an independent backup.', [
         link('Open staging and clone actions', nav('backups')),
@@ -511,7 +536,7 @@
     const diagnosticCards = [
       el('article', { className: 'lifecycle-diagnostic' }, [el('strong', {}, 'WordPress'), el('span', {}, wordpressResult.error ? 'Status unavailable' : wordpress.installed ? `Detected${wordpress.wp_cli ? ' · WP-CLI available' : ' · WP-CLI unavailable'}` : 'Not detected'), el('small', {}, 'Presence check uses wp-config.php; application login and HTTP behavior are not tested.')]),
       el('article', { className: 'lifecycle-diagnostic' }, [el('strong', {}, 'PHP-FPM'), el('span', {}, phpResult.error ? 'Diagnostics unavailable' : profiles.length ? `${profiles.map((profile) => `PHP ${profile.version} ${profile.state || 'configured'}`).join(' · ')}${phpIssue ? ' · attention' : ''}` : 'No PHP profile reported'), el('small', {}, phpPools.length ? phpPools.map((pool) => `${pool.php_version || 'default'}: ${pool.active_processes || 0}/${pool.max_children || '?'} active, queue ${pool.listen_queue || 0}, ${pool.slow_requests || 0} slow request(s)`).join(' · ') : (profiles.find((profile) => profile.last_error)?.last_error || 'Live worker counters unavailable; open Runtime for host-level details.'))]),
-      el('article', { className: 'lifecycle-diagnostic' }, [el('strong', {}, 'Recent error logs'), el('span', {}, webLogResult?.error || phpLogResult?.error ? 'Log query unavailable' : `${notableLogs.length} notable line(s) in recent sample`), el('small', {}, notableLogs.length ? notableLogs.map((line) => line.slice(0, 240)).join(' · ') : 'No matching error indicators in this bounded sample; this is not proof that requests succeed.')]),
+      el('article', { className: 'lifecycle-diagnostic' }, [el('strong', {}, 'Recent error logs'), recentLogsValue, recentLogsDetail, recentLogsButton]),
       el('article', { className: 'lifecycle-diagnostic' }, [el('strong', {}, 'Recent deployment'), el('span', {}, deploymentResult.error ? 'History unavailable' : deployments[0] ? `${deployments[0].stage || 'Deployment'} · ${deployments[0].state}` : 'No deployment recorded'), el('small', {}, deployments[0] ? `Updated ${ctx.formatAge(deployments[0].created_at)}. Compare with application and web-server logs.` : 'Use deployment history to publish a release or inspect migration activation.')]),
     ];
 

@@ -425,7 +425,13 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
   const accessTimestamp = `[${String(accessAt.getUTCDate()).padStart(2, '0')}/${accessAt.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' })}/${accessAt.getUTCFullYear()}:${accessAt.toISOString().slice(11, 19)} +0000]`;
   let backupScheduleEnabled = true;
   let backupHasRun = false;
+  const lifecycleBackupRequests = [];
+  let lifecycleLogQueries = 0;
   const json = (body) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === '/api/backups' && url.searchParams.get('site') === 'e2e-journey' && url.searchParams.get('limit') === '100') lifecycleBackupRequests.push(request);
+  });
   await page.route('**/api/sites/overview', (route) => route.fulfill(json({ sites: [site] })));
   await page.route('**/api/sites/overview/e2e-journey', (route) => route.fulfill(json(site)));
   await page.route('**/api/sites/diagnostics/e2e-journey', (route) => route.fulfill(json({
@@ -452,10 +458,15 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
   await page.route('**/api/sites/php/e2e-journey', (route) => route.fulfill(json({ configured: true, profile: { version: '8.3', state: 'applied' } })));
   await page.route('**/api/sites/resources/e2e-journey', (route) => route.fulfill(json({ configured: true, observed: { state: 'active', ActiveState: 'active', SubState: 'running', Result: 'success', OOMEvents: '3', OOMKillEvents: '2', OOMEvidence: 'available' }, fpm_status: { available: true, collected_at: new Date().toISOString(), pools: [{ php_version: '8.3', state: 'available', saturated: true, active_processes: 8, max_children: 8, listen_queue: 3, slow_requests: 2 }] } })));
   await page.route('**/api/sites/recovery/e2e-journey', (route) => route.fulfill(json({ confidence: 'unverified', last_backup: null, last_passed_rehearsal: null, summary: 'No verified recovery point.' })));
-  await page.route('**/api/backups?site=e2e-journey&limit=100', (route) => route.fulfill(json({ backups: [] })));
   await page.route('**/api/wordpress/status/e2e-journey', (route) => route.fulfill(json({ installed: true, wp_cli: true })));
-  await page.route('**/api/sites/logs/e2e-journey?source=error&lines=40', (route) => route.fulfill(json({ lines: ['PHP Fatal error: test failure in plugin.php'], available: true })));
-  await page.route('**/api/sites/logs/e2e-journey?source=php-fpm&lines=40', (route) => route.fulfill(json({ lines: [], available: true })));
+  await page.route('**/api/sites/logs/e2e-journey?source=error&lines=40', (route) => {
+    lifecycleLogQueries++;
+    return route.fulfill(json({ lines: ['PHP Fatal error: test failure in plugin.php'], available: true }));
+  });
+  await page.route('**/api/sites/logs/e2e-journey?source=php-fpm&lines=40', (route) => {
+    lifecycleLogQueries++;
+    return route.fulfill(json({ lines: [], available: true }));
+  });
   await page.route('**/api/sites/logs/e2e-journey?source=access&lines=100', (route) => route.fulfill(json({ lines: [`198.51.100.7 - - ${accessTimestamp} "GET / HTTP/1.1" 503 211`], available: true })));
   await page.route('**/api/sites/logs/e2e-journey?source=error&lines=100', (route) => route.fulfill(json({ lines: ['upstream connect() failed while connecting to PHP-FPM'], available: true, collected_at: new Date().toISOString() })));
   await page.route('**/api/deployments?site=e2e-journey', (route) => route.fulfill(json({ deployments: [{ stage: 'activation', state: 'completed', created_at: accessAt.toISOString() }] })));
@@ -501,6 +512,8 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
     await expect(finding.locator('p')).not.toBeEmpty();
     await expect(finding.locator('small')).not.toBeEmpty();
   }
+  const backupRequestsBeforeGuided = lifecycleBackupRequests.length;
+  const logQueriesBeforeGuided = lifecycleLogQueries;
   await page.getByRole('tab', { name: 'Guided workflow' }).click();
   await expect(panel.getByRole('heading', { name: 'Import or create the site' })).toBeVisible();
   await expect(panel).toContainText('origin and exact set of imported cPanel components are not inferred');
@@ -508,7 +521,11 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
   await expect(panel).toContainText('TLS not verified');
   await expect(panel).toContainText('Live application check needed');
   await expect(panel).toContainText('No verified backup found');
+  expect(lifecycleBackupRequests.length).toBe(backupRequestsBeforeGuided);
+  expect(lifecycleLogQueries).toBe(logQueriesBeforeGuided);
+  await panel.getByRole('button', { name: 'Load recent errors' }).click();
   await expect(panel).toContainText('PHP Fatal error: test failure in plugin.php');
+  expect(lifecycleLogQueries).toBe(logQueriesBeforeGuided + 2);
   await checkA11y(page);
   await panel.getByRole('button', { name: 'Run WordPress status' }).click();
   await expect(panel.locator('#lifecycleWordPressOutput')).toContainText('Success: WordPress is installed.');

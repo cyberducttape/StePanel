@@ -12,6 +12,24 @@ successful one-off smoke does not close a host-certification gate.
 
 ## Milestones
 
+### M0az — Make the site lifecycle workspace lighter on first load (P2)
+
+**Status:** Implemented and locally verified on the current worktree. The
+lifecycle view now uses its recovery summary for the latest backup instead of
+performing a second backup inventory scan. Recent web-server and PHP-FPM error
+samples are loaded only when an operator asks to inspect them. The seeded
+lifecycle browser journey and full browser suite passed against a freshly built
+panel binary with embedded assets; frontend unit tests passed (19/19).
+
+**Acceptance criteria**
+
+- Opening the lifecycle view does not issue a separate backup-list request.
+- Opening the lifecycle view does not read log files; requesting recent errors
+  loads bounded web-server and PHP-FPM samples and displays the evidence.
+- Recovery and log-query failures remain distinguishable from an empty result.
+- Frontend unit tests, the lifecycle browser journey, and full browser E2E pass
+  against the freshly built frontend assets.
+
 ### M0au — Gate customer WordPress credentials on verified ownership (P1)
 
 **Status:** Implemented and verified on exact source `07726007`; the hosted

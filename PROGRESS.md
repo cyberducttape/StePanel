@@ -1,3 +1,16 @@
+## Reduce first-load work in the site lifecycle workspace — 2026-11-22
+
+- The guided lifecycle view now uses the latest-backup evidence already present
+  in its recovery summary rather than running a second backup inventory scan.
+  Web-server and PHP-FPM error samples load on demand from a bounded sample,
+  with visible loading, unavailable, and result states.
+- Regression coverage confirms opening the view makes no backup-list request or
+  log reads, and explicitly loading errors requests both log sources.
+- `npm run test:unit` passed (19/19). The rebuilt embedded panel passed the
+  complete Playwright suite: 33 passed, one expected skip. The targeted
+  lifecycle/accessibility journey passed independently. `git diff --check`
+  passed. This is UI/workload evidence, not host certification.
+
 # Production-readiness progress
 
 ## Verify customer setup flows on exact source — 2026-11-23
