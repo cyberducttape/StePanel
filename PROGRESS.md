@@ -4336,3 +4336,14 @@ does not close a current-source or power-loss gate.
 - This removes one first-use decision for the common WordPress path. Overall
   first-install and operational simplicity remain in progress; production
   certification gates are tracked separately above.
+
+## Verify customer website setup and file-list layout — 2026-11-23
+
+- The customer panel's browser E2E/accessibility job passed on `2c1b4693`,
+  including the empty-account WordPress default. The exact-source integration
+  workflow passed its Go suite and ENOSPC checks and was still in the race
+  suite at the latest poll; CodeQL and documentation workflows passed.
+- Added a browser assertion that each file-manager row has five cells matching
+  the table header. This protects the file listing's layout while continuing
+  the usability work. `npm run test:unit` passed (19/19), JavaScript syntax
+  checks and `git diff --check` passed. The new assertion awaits hosted E2E.

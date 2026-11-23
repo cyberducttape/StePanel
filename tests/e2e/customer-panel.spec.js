@@ -380,6 +380,9 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Websites' }).click();
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Files' }).click();
   await expect(page.getByRole('button', { name: 'index.php', exact: true })).toBeVisible();
+  await expect(page.locator('#fileRows tr')).toHaveCount(2);
+  await expect(page.locator('#fileRows tr').first().locator('td')).toHaveCount(5);
+  await expect(page.locator('#fileRows tr').first().locator('td').first()).toContainText('wp-content');
   await checkA11y(page);
   // Navigating clears old rows before the new directory response arrives.
   await page.getByRole('button', { name: 'wp-content', exact: true }).click();

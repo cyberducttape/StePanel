@@ -2330,12 +2330,13 @@ workflows passed.
 
 ### M0au — Make the first customer site follow the supported WordPress path (P2)
 
-**Status:** Implemented locally; `make check` passed. Customer-panel browser
-coverage and exact-source CI remain to be run. When an account has no assigned sites, the customer site
-form selects WordPress by default and exposes the WordPress fields. Blank PHP
-remains available for customers deploying another application, with concise
-guidance explaining that choice. Existing mandatory domain-ownership
-verification is unchanged.
+**Status:** Implemented and pushed as `2c1b4693`; `make check`, frontend unit
+tests, and the customer-panel browser E2E/accessibility job passed. The exact
+source integration workflow was still running its race suite at the latest
+check. When an account has no assigned sites, the customer site form selects
+WordPress by default and exposes its setup fields. Blank PHP remains available
+for customers deploying another application, with concise guidance explaining
+that choice. Existing mandatory domain-ownership verification is unchanged.
 
 **Acceptance criteria**
 
@@ -2343,4 +2344,6 @@ verification is unchanged.
 - Blank PHP remains selectable and explains when it is appropriate.
 - Browser coverage verifies the empty-account first-site state; frontend unit
   tests, full local checks, and exact-source CI pass.
+- File-manager browser coverage also asserts each rendered row has the same
+  five cells as the table header, guarding the core file-browsing layout.
 
