@@ -2439,9 +2439,11 @@ the documentation and CodeQL workflows passed on documentation-only descendant
 
 ### M0as — Gate tagged packages on a real fresh-host install (P1)
 
-**Status:** Exact-tag packaged smoke and read-only release-candidate preflight
-passed on the current source; the actual tag-triggered publication event remains
-unexercised.
+**Status:** Prior exact-tag packaged smoke and read-only release-candidate
+preflight runs passed. The latest installed-host job passed on `ab8a5151`, but
+the final candidate-artifact verification remains queued; current `main` has
+advanced to `0a606eb8` and still needs exact-source candidate verification.
+The actual tag-triggered publication event remains unexercised.
 The tag-triggered release workflow passes the tag into the packaged Ubuntu
 24.04 + Caddy + MariaDB install-smoke workflow. With a tag, that workflow
 builds the exact versioned archive using GoReleaser's current-tag override and
