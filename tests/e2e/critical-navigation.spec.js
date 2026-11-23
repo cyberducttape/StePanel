@@ -34,6 +34,7 @@ test('login and overview accessibility', async ({ page }) => {
 });
 
 test('first-run primary action follows the next unresolved setup step', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
   let hostNeedsAttention = true;
   let omitHealthChecks = false;
   let currentSites = [];
@@ -75,6 +76,20 @@ test('first-run primary action follows the next unresolved setup step', async ({
   const hostStep = page.locator('#onboardingChecklist .setup-step').filter({ hasText: 'Check host and job health' });
   await expect(hostStep).toHaveClass(/setup-step-unknown/);
   await expect(hostStep).toContainText('Health check details were not returned');
+  const assertSetupActionFollowsExplanation = async () => {
+    const explanation = hostStep.locator('.setup-step-copy p');
+    const action = hostStep.locator('.setup-step-action');
+    const explanationBox = await explanation.boundingBox();
+    const actionBox = await action.boundingBox();
+    expect(explanationBox).not.toBeNull();
+    expect(actionBox).not.toBeNull();
+    expect(actionBox.y).toBeGreaterThanOrEqual(explanationBox.y + explanationBox.height);
+    expect(actionBox.x).toBeGreaterThanOrEqual(explanationBox.x);
+  };
+  await assertSetupActionFollowsExplanation();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await assertSetupActionFollowsExplanation();
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await expect(primary).toHaveAttribute('href', '#controlPlaneDetailsToggle');
 
   omitHealthChecks = false;

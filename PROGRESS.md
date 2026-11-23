@@ -116,6 +116,25 @@
   running ([45146220535](https://github.com/cyberducttape/StePanel/actions/runs/45146220535));
   its host result is not yet counted.
 
+## Keep first-run actions readable — 2026-11-23
+
+- Restructured setup checklist rows so each remediation action appears below
+  its explanation. This prevents long host-health messages from squeezing the
+  action label into an unreadable column.
+- Added a seeded Playwright geometry assertion for 1440px and 390px viewports.
+  In local evaluation, the measured action begins below the description at
+  both widths; the 390px page has no horizontal overflow. The desktop preview
+  had no uncaught JavaScript errors and was visually inspected.
+- `npm run test:unit` passed (20/20), both guided installer contract scripts
+  passed, `node --check web/static/onboarding.js` passed, and `git diff
+  --check` passed. The installer interruption test kills publication after
+  the first and second binary moves, verifies recovery before the next build,
+  and confirms matching identities for all three executables. The cancellation
+  contract confirms secured settings are identified as reusable.
+- The seeded Playwright job requires the hosted disposable account and cannot
+  be run against the unauthenticated local preview; it remains an exact-source
+  CI acceptance check.
+
 ## Mark stale integrity evidence in operator doctor output — 2026-11-23
 
 - `stepanelctl doctor` now marks a successful SQLite integrity scan stale after

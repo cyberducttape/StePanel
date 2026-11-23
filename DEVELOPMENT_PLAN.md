@@ -2762,3 +2762,23 @@ and reference checks pass; exact-source documentation CI is pending.
   network exposure and real customer data.
 - Documentation links/references and exact-source documentation CI pass.
 
+### M0bi — Keep first-run checklist actions readable (P2)
+
+**Status:** Implemented locally. Setup checklist actions now sit below their
+explanations instead of competing for a narrow third grid column. A seeded
+browser regression checks the explanation/action geometry at desktop and
+mobile widths. The current-source local evaluation renders the action on its
+own line at 1440px and 390px, with no horizontal overflow or uncaught browser
+errors. Frontend unit tests and the focused installer publication/settings
+contracts pass; seeded hosted browser CI remains pending.
+
+**Acceptance criteria**
+
+- Long first-run diagnostic descriptions and their actions never overlap at
+  desktop or mobile viewport widths.
+- A browser regression checks the action position at 1440px and 390px.
+- The local evaluation preview has no uncaught browser errors and no horizontal
+  overflow at those widths.
+- Frontend unit tests, installer publication recovery tests, and exact-source
+  seeded browser CI pass.
+

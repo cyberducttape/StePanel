@@ -599,8 +599,8 @@ body { background: var(--panel-bg); color: var(--panel-text); }
 .onboarding-checklist { display: grid; gap: 9px; min-width: 0; margin: 0; padding: 0; list-style: none; }
 .setup-step {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
-  align-items: center;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: start;
   gap: 13px;
   padding: 13px 15px;
   border: 1px solid var(--ws-border);
@@ -623,7 +623,7 @@ body { background: var(--panel-bg); color: var(--panel-text); }
 .setup-step-copy { min-width: 0; }
 .setup-step-copy strong { display: block; color: var(--panel-text); font-size: 13px; }
 .setup-step-copy p { margin-top: 4px; color: var(--panel-muted); font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
-.setup-step-action { color: var(--panel-text); font-size: 11px; font-weight: 750; text-decoration: none; white-space: nowrap; }
+.setup-step-action { grid-column: 2; justify-self: start; margin-top: 2px; color: var(--panel-text); font-size: 11px; font-weight: 750; text-decoration: none; white-space: normal; }
 .setup-step-action:hover { text-decoration: underline; }
 .setup-step-action:focus-visible { outline: 3px solid #28718e; outline-offset: 3px; }
 .onboarding h2 { font-size: 26px; margin-bottom: 12px; }
@@ -1423,9 +1423,6 @@ textarea[aria-invalid="true"] {
   .metrics { grid-template-columns: 1fr; }
   .topbar { min-height: 64px; padding: 0 16px; }
   .content { padding: 16px; }
-  .setup-step { grid-template-columns: 30px minmax(0, 1fr); }
-  .setup-step-action { grid-column: 2; }
-
   .activity-item {
     flex-direction: column;
     align-items: flex-start;
