@@ -41,10 +41,15 @@
   WordPress database/HTTPS recovery measured 4,380 ms and one recovery-matrix
   iteration passed. Its scope and limits are recorded in
   [`the host report`](docs/lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-07726007.md).
-  Exact-source Rocky Linux 9 and AlmaLinux 9 installed-host reruns remain in
-  progress ([45108134385](https://github.com/cyberducttape/StePanel/actions/runs/45108134385),
+  Exact-source Rocky Linux 9 + Apache and AlmaLinux 9 + Apache installed-host
+  reruns also passed ([45108134385](https://github.com/cyberducttape/StePanel/actions/runs/45108134385),
   [45108134199](https://github.com/cyberducttape/StePanel/actions/runs/45108134199));
-  the old-source EL failures do not count as resolved host evidence.
+  both installed cleanly using the `php-common` fallback and completed one
+  WordPress recovery proof and one recovery-matrix iteration. Their measured
+  recovery times and limitations are recorded in the
+  [EL 9 report](docs/lab-results/2026-11-23-el9-first-install-phpcurl-fallback-07726007.md).
+  This resolves the specific package-selection blocker on those tested images,
+  not the repeated or physical-host certification requirements.
 
 ## Exact-source checks for resumable uploads and setup recovery — 2026-11-23
 

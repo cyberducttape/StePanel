@@ -289,9 +289,15 @@ literal version string `9` misclassified real `9.9` hosts as outside the
 matrix. EL support classification now matches the major series while telling
 operators to verify the exact minor release evidence. Four EL jobs failed on
 the old source before this correction. Exact-source integration, documentation,
-CodeQL, and release-evidence checks pass on `07726007`; installed-host reruns
-for Ubuntu 24.04, Rocky Linux 9, and AlmaLinux 9 are in progress. The EL
-profiles remain unverified until their current-source installation jobs finish.
+CodeQL, and release-evidence checks pass on `07726007`. Exact-source
+installed-host reruns passed on Ubuntu 24.04 + Caddy + MariaDB, AlmaLinux 9 +
+Apache + MariaDB, and Rocky Linux 9 + Apache + MariaDB. The two EL 9 smoke
+reports record the successful `php-common` fallback and installed WordPress
+recovery proof. Each profile passed one disposable systemd-container recovery
+iteration; this does not close repeated certification, project quota, physical
+power-loss, or tagged-release installation criteria. See the [Ubuntu
+report](docs/lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-07726007.md)
+and [EL 9 report](docs/lab-results/2026-11-23-el9-first-install-phpcurl-fallback-07726007.md).
 
 **Acceptance criteria**
 
