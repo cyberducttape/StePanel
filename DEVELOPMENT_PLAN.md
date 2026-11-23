@@ -774,15 +774,17 @@ and does not replace host-level recovery certification.
 ### M0 — Restore green exact-source CI
 
 **Priority:** Immediate release hygiene  
-**Latest exact-source status:** CI integration on `c127e212` passed formatting,
-release checks, vet, the full non-race Go suite, ENOSPC drills, benchmarks, and
-coverage floors; UI E2E and CodeQL also passed. The race job failed only in
-`TestLongSiteOperationRenewsLeasePastShortLeasePeriods`: its 90 ms test lease
-could expire during race-instrumented SQLite work before the simulated restore
-finished. The regression now uses a 2 s lease and a 5 s operation to require
-multiple renewals with CI scheduling headroom. The focused race test passed
-five consecutive runs locally; exact-source integration rerun is pending.
-Production remains **NO-GO** until the rerun and the separate host gates pass.
+**Latest verified status:** CI integration
+[45094688816](https://github.com/cyberducttape/StePanel/actions/runs/45094688816)
+passed on source `64bb74a4`, including formatting, release and installer
+contracts, vet, the full Go suite, coverage floors, race tests, recovery and
+ENOSPC drills, database integration, deployment validation, and browser E2E.
+Current `main` (`c4397643`) differs from that tested source only in
+documentation. Documentation [45098230459](https://github.com/cyberducttape/StePanel/actions/runs/45098230459),
+CodeQL [45098230480](https://github.com/cyberducttape/StePanel/actions/runs/45098230480),
+and release evidence [45098464802](https://github.com/cyberducttape/StePanel/actions/runs/45098464802)
+passed on `c4397643`. Production remains **NO-GO** until the separate
+installed-host certification gates pass.
 
 **Historical status:** Green on current code source `1e6db18` with documentation commit
 `b2be13f`: CI integration passed on the identical code tree, and CodeQL,
