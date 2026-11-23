@@ -4948,3 +4948,18 @@ does not close a current-source or power-loss gate.
   correctly shell-quoted sudo command. Hosted CI and the non-publishing
   versioned candidate preflight are queued; GitHub currently reports zero
   self-hosted runners, so they provide no result yet.
+
+## Recheck the versioned first-install candidate — 2026-11-23
+
+- The exact-source `v0.9.0` preflight for `72f891fd` is queued as
+  [45196599008](https://github.com/cyberducttape/StePanel/actions/runs/45196599008).
+  GitHub currently reports zero self-hosted runners; no install result is
+  available.
+- A local GoReleaser v2.17.1 build produced Linux amd64 and arm64 versioned
+  archives without publishing. The strict artifact verifier stopped at the
+  missing exact-source evidence file (the local command had not generated the
+  workflow's evidence or SBOM), so this build is not counted as a verified
+  candidate. The hosted preflight remains responsible for the complete
+  evidence, SBOM, archive verification, and disposable-host installation.
+- Exact-source `make check`, documentation links/references, and release
+  contract checks passed on `72f891fd`; no release was published.
