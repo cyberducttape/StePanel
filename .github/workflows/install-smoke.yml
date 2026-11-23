@@ -28,6 +28,10 @@ on:
         required: false
         type: string
         default: all
+      release_tag:
+        description: Build this exact GoReleaser versioned archive without publishing it
+        required: false
+        type: string
   schedule:
     - cron: '17 3 * * *'
   # Changes to the privileged side or the installed-host drills run one host
@@ -169,7 +173,9 @@ jobs:
         with:
           distribution: goreleaser
           version: 'v2.17.1'
-          args: release --snapshot --clean
+          args: ${{ inputs.release_tag != '' && 'release --skip=publish --clean' || 'release --snapshot --clean' }}
+        env:
+          GORELEASER_CURRENT_TAG: ${{ inputs.release_tag }}
       - name: Extract and validate packaged installer tree
         run: |
           set -eu

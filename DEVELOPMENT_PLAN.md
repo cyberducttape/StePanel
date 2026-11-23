@@ -2390,12 +2390,17 @@ the documentation and CodeQL workflows passed on documentation-only descendant
 
 ### M0as — Gate tagged packages on a real fresh-host install (P1)
 
-**Status:** Release gate and packaged smoke are implemented; tag-path
-validation remains pending.
-The tag-triggered release workflow now calls the packaged Ubuntu 24.04 +
-Caddy + MariaDB install-smoke workflow and waits for its database-backed
-WordPress HTTPS recovery proof before building or publishing release assets.
-The check-release contract prevents removing the prerequisite unnoticed.
+**Status:** Exact-tag packaged smoke and a read-only manual release-candidate
+preflight are implemented; hosted exact-tag validation remains pending.
+The tag-triggered release workflow passes the tag into the packaged Ubuntu
+24.04 + Caddy + MariaDB install-smoke workflow. With a tag, that workflow
+builds the exact versioned archive using GoReleaser's current-tag override and
+`--skip=publish`, then waits for its database-backed WordPress HTTPS recovery
+proof before the release job can publish. Routine smoke runs continue to use
+snapshot archives. A manually dispatched release-candidate preflight performs
+the same install proof, version/source checks, release checks, artifact
+verification, and temporary artifact retention with read-only permissions and
+no publish step. Contract checks prevent these safeguards from drifting.
 This improves the package onboarding gate but does not certify production or
 replace repeated failure-recovery, quota, power-loss, capacity, and security
 gates. The latest packaged install smoke passed on source `2e9e06e9`: installation
@@ -2403,12 +2408,16 @@ and cleanup completed, WordPress HTTPS/database recovery measured 4,398 ms,
 and one recovery-matrix iteration passed. See the
 [`first-host smoke report`](docs/lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-2e9e06e.md).
 The run used a disposable systemd container and does not prove the tag-triggered
-release path or production certification. Tag-path validation remains pending.
+versioned-archive path. The manual release-candidate preflight must pass on the
+committed source before this gate is complete; production certification remains
+separate.
 
 **Acceptance criteria**
 
 - Every tagged release waits for the exact-tag release archive to complete the
   recommended fresh-host installation and WordPress recovery smoke.
+- Manual preflight can build, install-test, verify, and retain a versioned
+  candidate without creating a tag or publishing artifacts.
 - A failed or unavailable smoke prevents all package and container publication.
 - Release contract and full local checks pass; hosted workflow validation
   confirms the reusable workflow receives the tag source and blocks publication.

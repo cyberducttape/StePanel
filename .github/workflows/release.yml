@@ -16,6 +16,7 @@ jobs:
     uses: ./.github/workflows/install-smoke.yml
     with:
       host: ubuntu-24.04-caddy-mariadb
+      release_tag: ${{ github.ref_name }}
 
   release:
     needs: installer-smoke

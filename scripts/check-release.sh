@@ -2,6 +2,7 @@
 set -eu
 
 bash scripts/test-release-publication-order.sh
+bash scripts/test-release-preflight-workflow.sh
 
 version=$(sed -n 's/^const Version = "\([^"]*\)"$/\1/p' version.go)
 if [ -z "$version" ]; then
@@ -189,8 +190,9 @@ fi
 if ! grep -Fqx '  installer-smoke:' .github/workflows/release.yml ||
    ! grep -Fqx '    uses: ./.github/workflows/install-smoke.yml' .github/workflows/release.yml ||
    ! grep -Fqx '      host: ubuntu-24.04-caddy-mariadb' .github/workflows/release.yml ||
+   ! grep -Fqx '      release_tag: ${{ github.ref_name }}' .github/workflows/release.yml ||
    ! grep -Fqx '    needs: installer-smoke' .github/workflows/release.yml; then
-  echo "release publication is not gated on the packaged Ubuntu/Caddy/MariaDB installation and recovery smoke" >&2
+  echo "release publication is not gated on the exact tagged Ubuntu/Caddy/MariaDB installation and recovery smoke" >&2
   exit 1
 fi
 

@@ -1,0 +1,98 @@
+name: Release candidate preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Version tag to build and install-test (for example v0.9.0)
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  installer-smoke:
+    name: Install-test the versioned release archive
+    uses: ./.github/workflows/install-smoke.yml
+    with:
+      host: ubuntu-24.04-caddy-mariadb
+      release_tag: ${{ inputs.release_tag }}
+
+  candidate:
+    name: Build and verify versioned release candidate
+    needs: installer-smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: '1.26.11'
+          cache: true
+      - name: Verify candidate version and source
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -eu
+          [[ $RELEASE_TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo 'release_tag must be a stable vMAJOR.MINOR.PATCH tag' >&2
+            exit 1
+          }
+          source_version=$(sed -n 's/^const Version = "\(.*\)"$/\1/p' version.go)
+          test "${RELEASE_TAG#v}" = "$source_version" || {
+            echo "candidate $RELEASE_TAG does not match version.go ($source_version)" >&2
+            exit 1
+          }
+          git fetch --quiet --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo 'candidate source must already be reachable from main' >&2
+            exit 1
+          }
+          make release-check
+      - name: Build versioned archive without publishing
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GORELEASER_CURRENT_TAG: ${{ inputs.release_tag }}
+        with:
+          distribution: goreleaser
+          version: 'v2.17.1'
+          args: release --skip=publish --clean
+      - name: Generate exact-source release evidence
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist
+          go run ./cmd/stepanel-evidence --commit "$GITHUB_SHA" > dist/RELEASE_EVIDENCE.md
+          grep -Fq "Source commit: [\`$GITHUB_SHA\`]" dist/RELEASE_EVIDENCE.md || {
+            echo 'release evidence does not match the candidate source commit' >&2
+            exit 1
+          }
+      - name: Generate SBOM
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          path: .
+          format: spdx-json
+          output-file: dist/SBOM.spdx.json
+      - name: Verify versioned release artifacts
+        env:
+          EXPECTED_RELEASE_SHA: ${{ github.sha }}
+        run: bash scripts/verify-release-artifacts.sh dist/
+      - name: Retain verified candidate for operator review
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: stepanel-release-candidate-${{ inputs.release_tag }}-${{ github.sha }}
+          path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
+            dist/RELEASE_EVIDENCE.md
+            dist/SBOM.spdx.json
+          if-no-files-found: error
+          retention-days: 30

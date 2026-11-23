@@ -56,7 +56,8 @@ for workflow in "${workflows[@]}"; do
     .github/workflows/install-smoke.yml)
       for contract in \
         'goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de' \
-        'args: release --snapshot --clean' \
+        "args: \${{ inputs.release_tag != '' && 'release --skip=publish --clean' || 'release --snapshot --clean' }}" \
+        'GORELEASER_CURRENT_TAG: ${{ inputs.release_tag }}' \
         'archives=(dist/*_linux_amd64.tar.gz)' \
         'Stage pinned WordPress recovery fixtures' \
         'fetch-wordpress-smoke-fixtures.sh' \

@@ -4606,6 +4606,25 @@ does not close a current-source or power-loss gate.
   [`2026-11-23-ubuntu-packaged-first-host-smoke-df838fa.md`](docs/lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-df838fa.md).
   This was a disposable systemd-container run, not repeated certification;
   power-loss recovery and quota enforcement remain unproven.
+
+## Exercise exact versioned release packages without publishing — 2026-11-23
+
+- Updated the reusable installed-host smoke: ordinary runs build snapshot
+  archives, while tag-triggered runs build the exact versioned archive with
+  GoReleaser's current-tag override and `--skip=publish`.
+- Added a manually dispatched, read-only release-candidate preflight. It checks
+  tag/version/source identity, runs the recommended Ubuntu/Caddy/MariaDB
+  install and WordPress recovery smoke, verifies release artifacts and evidence,
+  and retains the candidate as a temporary Actions artifact. It has no release
+  publication permissions or publish step.
+- Added regression contracts for the workflow and updated release checks to
+  enforce exact-tag propagation. `make release-check`, action SHA pin checks,
+  smoke-workflow bounds, the new preflight contract, and `git diff --check`
+  passed locally. YAML parsing and hosted preflight execution are still pending.
+- The prior disposable-host smoke used a snapshot archive. Exact versioned
+  package installation remains unproven until the manual preflight passes on a
+  committed source; this change does not publish a release or certify the
+  production gates.
 - The first integration attempt failed only its documentation-reference check
   because the progress note linked to generated release evidence. That link
   has been corrected; documentation, CodeQL, and release-evidence workflows
