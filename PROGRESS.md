@@ -1,3 +1,14 @@
+## Make the native install guide scannable — 2026-11-23
+
+- Consolidated repeated preflight, support-tier, and rclone explanations in
+  `docs/INSTALLATION.md` into one chronological four-step flow: preflight,
+  build, setup, and install. It keeps the exact clone/bootstrap command,
+  offsite-storage requirement, quota constraints, local-evaluation route, and
+  existing-web-server consent.
+- Documentation link validation, reference checks (93 documents),
+  `make release-check`, and `git diff --check` passed locally. Exact-source
+  documentation CI remains pending.
+
 ## Candidate install evidence and release-report correction — 2026-11-23
 
 - The exact versioned `v0.9.0` candidate preflight

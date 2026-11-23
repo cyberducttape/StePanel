@@ -2737,3 +2737,23 @@ pending.
   primary command and describe `make evaluate` only as an optional alias.
 - The setup test and `make check` pass; exact-source CI passes.
 
+### M0bh — Make the native install guide scannable (P2)
+
+**Status:** Implemented locally. The current-source install guide presents the
+guided flow as four ordered steps—read-only preflight, user-level build,
+credential setup, and host installation—and removes repeated explanations of
+the same checks and rclone setup. It keeps the support limits, safe local
+preview, package prerequisites, and host-change consent. Documentation link
+and reference checks pass; exact-source documentation CI is pending.
+
+**Acceptance criteria**
+
+- A first-time operator can find the one recommended command and understand
+  prerequisites, preflight effects, credential timing, and host mutations in
+  one chronological section.
+- The read-only preflight, quota requirements, offsite-backup requirement,
+  support-tier limits, and existing-web-server consent remain explicit.
+- The local preview remains clearly separate from a native install and forbids
+  network exposure and real customer data.
+- Documentation links/references and exact-source documentation CI pass.
+

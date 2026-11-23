@@ -135,11 +135,11 @@ sudo apt-get update
 sudo apt-get install -y git curl tar coreutils rclone
 ```
 
-You do not need to configure storage separately first. After showing the
-support tier for the selected host and stack, the setup wizard can open
-`rclone config` for you if no remote exists. It then verifies write, read, and
-delete access at the selected destination before setup continues. If you
-already have an rclone remote, the wizard uses it. See
+You do not need to configure a remote first. The wizard can open `rclone config`
+after it confirms the host support tier, then tests write, read, and
+delete access before asking for administrator credentials. The `rclone`
+program itself must be installed; the read-only preflight prints the package
+command if it is missing. See
 [Prepare offsite storage](#prepare-offsite-storage) for provider and
 headless-server guidance.
 
@@ -159,63 +159,43 @@ cd StePanel
 ./scripts/install-guided.sh
 ```
 
-Before downloading Go or compiling, the script uses `sudo` for a read-only
-doctor report covering the OS support tier, running systemd manager,
-user-quota readiness on `/var/www` and `/home`, and rclone availability. It
-reports every unmet prerequisite in one pass with a repair step and the exact
-recheck command. Missing host requirements stop setup before the toolchain
-download. An unconfigured rclone remote is handled
-inside the wizard after the support tier is confirmed. The wizard tests
-write/read/delete access to the destination you select; the full
-installer repeats the host checks before making changes. The script then
-builds the panel, privileged broker, and automation CLI as your normal user
-with the repository-pinned Go
-toolchain and runs the guided native installer through `sudo`. It does not
-build Go code as root. If you intentionally want StePanel to stop an
-existing web server, pass `--take-over-host`; otherwise the installer asks
-before making that change. The setup wizard checks for rclone before collecting
-credentials, then offers to open rclone's configuration if no remote exists.
-If rclone itself is missing, it prints the exact package-install command.
+The guided path has four steps:
 
-Before the integrated wizard asks for setup answers, the installer also checks
-for a live systemd manager and active user quotas on `/var/www` and `/home`.
-The read-only report shows all missing prerequisites and repair guidance before
-you enter credentials; rerun `sudo bash scripts/install-host-preflight.sh` to
-recheck. The installer repeats these checks before making host changes.
+1. **Read-only preflight.** Through `sudo`, it checks the OS support tier,
+   systemd, user quotas on `/var/www` and `/home`, and the `rclone` program.
+   It lists all blockers together with a repair and copyable recheck command.
+   Missing requirements stop setup before Go downloads or host changes. To
+   rerun the check later, use `sudo bash scripts/install-host-preflight.sh`.
+2. **Build.** The script builds the panel, privileged broker, and automation
+   CLI as your normal user. If needed, it downloads the pinned Go toolchain to
+   a temporary directory and verifies its checksum; it does not install Go or
+   run Go as root.
+3. **Setup.** The wizard shows the support evidence for the selected host and
+   stack before asking for credentials. If no rclone remote is configured, it
+   offers to open `rclone config`, then verifies write, read, and delete access
+   at the selected destination before setup continues. See
+   [Prepare offsite storage](#prepare-offsite-storage) for headless-server
+   setup. A private root-user rclone config is copied during installation to
+   `/etc/stepanel/rclone.conf` with service-readable permissions; `/root` is
+   not made readable to StePanel.
+4. **Install.** The native installer repeats the preflight before making host
+   changes and shows its change plan. It asks before stopping an existing web
+   server. Pass `--take-over-host` only when you intend StePanel to take ports
+   80 and 443 from that service.
 
-For a manual build and install, use `make build` followed by
+**Alternative manual build:** use `make build` followed by
 `sudo ./install.sh --guided` from the same checkout.
 The installer places the API automation client at
 `/usr/local/bin/stepanelctl`; release archives include the same client for
 manual use. See the [API guide](API_GUIDE.md) for token setup and commands.
 
-Do not run this on a host already serving websites unless you intend to hand
-ports 80 and 443 to StePanel. The preflight lists services and files it will
-change, and the installer asks before taking over an existing web server.
-
 If you only want to explore the interface, stop before this step and run
-`bash scripts/evaluate-local.sh` from the checkout. It is a loopback-only demo and does not
-install host services, require offsite storage, or change the server. It has no
+`bash scripts/evaluate-local.sh` from the checkout. It is a loopback-only demo
+and does not install host services, require offsite storage, or change the
+server. It has no
 production login and must never receive customer data or be exposed to a
 network. The native guided installer below is for a real host and requires
 verified offsite backup storage.
-
-Before the wizard collects storage or administrator credentials, it identifies
-the host OS and prints the evidence tier for the recommended Caddy/MariaDB
-profile. After you choose a web server and database, the wizard reports the
-exact host-and-stack tier and asks you to confirm if it is outside the tested
-matrix. That happens before checking the remote backup destination, collecting
-credentials, or saving settings. The full installer preflight repeats the
-exact tier before any host changes.
-If no remote is configured, the wizard offers to start `rclone config` in the
-same terminal after the support tier is accepted. On a headless server, a
-provider may require the setup to be completed on a trusted machine and its
-private config transferred securely. The wizard can use the root user's
-private rclone configuration. During the
-install transaction, StePanel copies it to `/etc/stepanel/rclone.conf` with
-root ownership and mode `0640`, readable by the `stepanel` service account;
-the original config is left in place. This lets offsite backups work without
-making `/root` or its private config readable to the service.
 
 ### Prepare offsite storage
 
