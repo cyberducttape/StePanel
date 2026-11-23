@@ -1,5 +1,11 @@
 ## Current-source install and abrupt-loss checks are running — 2026-11-23
 
+- The standard CI workflow passed on exact current source
+  `a0b95937d5f796461fe303e0194f7be8589caeaf` in
+  [run 45151465626](https://github.com/cyberducttape/StePanel/actions/runs/45151465626):
+  formatting, release-tree contract, `go vet`, all Go package/security tests,
+  frontend unit tests, and shell syntax checks. An exact-source evidence report
+  was requested after this run and is still generating.
 - The manually dispatched `v0.9.0` candidate preflight
   [45146220535](https://github.com/cyberducttape/StePanel/actions/runs/45146220535)
   builds the exact versioned archive from source
