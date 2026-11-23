@@ -1,7 +1,7 @@
 # StePanel v1.0.0 Production Readiness Gates
 
 **Status:** CURRENT AUTHORITATIVE RELEASE-GATE DOCUMENT
-**Last Updated:** 2026-11-22
+**Last Updated:** 2026-11-23
 **Target:** Ready to run 100+ production WordPress/PHP customer sites  
 **Approach:** Complete existing architectural contracts, add robustness testing
 
@@ -16,22 +16,29 @@ record of each gate's status and remaining work.
 
 ### Release evidence
 
-The latest Ubuntu 24.04 + Caddy + MariaDB packaged installed-host smoke passed
-on source `b901b258` ([host run
-45025566462](https://github.com/cyberducttape/StePanel/actions/runs/45025566462));
-the release-evidence workflow passed ([run
-45025579744](https://github.com/cyberducttape/StePanel/actions/runs/45025579744)).
-The GoReleaser snapshot installed on a disposable systemd container,
-`post_install_status=complete`, and database-backed WordPress HTTPS recovery
-measured 4.490 seconds; one recovery-matrix iteration passed. The current
-runtime and installer tree is code-equivalent to the tested source. This is
-one disposable-host smoke, not repeated certification; quota enforcement was
-skipped in lab mode. Repeated recovery, physical-host and power-loss evidence,
-broad ENOSPC/quota and capacity certification, and a clean-host test of the
-official tagged archive remain open. See the
-[`b901b258` host-smoke report](./lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-b901b25.md).
+The latest packaged Ubuntu 24.04 + Caddy + MariaDB installed-host smoke passed
+on source `df838fa9` ([host run
+45100771925](https://github.com/cyberducttape/StePanel/actions/runs/45100771925)).
+The GoReleaser snapshot installed in a disposable systemd container, installer
+cleanup completed, and the smoke confirmed `/usr/local/bin/stepanelctl` is
+root-owned and runs its help command. The installed WordPress database/HTTPS
+recovery proof measured **4,435 ms**; one recovery-matrix iteration passed.
+The matching full integration run passed on code-identical source `237d1d16`
+([run 45103029684](https://github.com/cyberducttape/StePanel/actions/runs/45103029684)),
+including Go/race tests, ENOSPC and database restore checks, static analysis,
+container smoke, and browser E2E. The current source `5237f03c` has only later
+documentation changes relative to those code checks. The clean source guided
+bootstrap was also run from `c4870e6f` with Go unavailable: it downloaded and
+verified the pinned Go 1.26.11 toolchain, built all three executables, ran the
+CLI help command, and reached a mocked installer handoff. That local check did
+not mutate a host. See the [scoped installed-host report](./lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-df838fa.md).
 
-The latest exact-source Ubuntu 24.04 + Caddy + MariaDB snapshot install smoke
+This is one disposable-host smoke, not repeated certification; quota
+enforcement was skipped in lab mode. Repeated recovery, physical-host and
+power-loss evidence, broad ENOSPC/quota and capacity certification, and a
+clean-host test of the official tagged archive remain open.
+
+An earlier exact-source Ubuntu 24.04 + Caddy + MariaDB snapshot install smoke
 passed on source `e04235f838834f32b6a54d40cc57e50648c00339` ([host run
 44990700250](https://github.com/cyberducttape/StePanel/actions/runs/44990700250));
 matching integration CI passed ([run
@@ -807,7 +814,7 @@ The six-host cohort [44725816245](https://github.com/cyberducttape/StePanel/acti
 - [x] Gate 2: Cross-Process Locks - Lock layer enforced; interrupted-workflow acceptance covered by `workflow_interruption_test.go`
 - [x] Gate 3: Accurate Capabilities - No "available: true" for unimplemented
 - [x] Gate 4: Automated DB Restoration - Transactional end-to-end
-- [ ] Gate 5: Failure Injection - Survives failure at every step (repository-level kill and failure matrix complete; one Rocky 9 installed-host matrix and targeted abrupt-loss scenarios passed; 20–50 repeats, additional platform cohorts, broader ENOSPC, and physical host power-loss evidence remain)
+- [ ] Gate 5: Failure Injection - Survives failure at every step (repository-level kill and failure matrix complete; one installed-host matrix, the current Ubuntu packaged install/recovery smoke, and targeted abrupt-loss scenarios passed; 20–50 repeats, additional platform cohorts, broader ENOSPC, and physical host power-loss evidence remain)
 
 ### Testing
 - [x] Adversarial concurrency tests (5 scenarios) — the five conflicting lock pairs across two SQLite connections (`TestAdversarialMutationLockScenariosSerializeAcrossConnections`) and across OS processes (`TestDBLocksAcrossOSProcesses`); the real restore, termination, resource-update, and suspension entry points are proven to wait for a lock held by another process without mutating (`cross_process_workflow_test.go`); deploy and route updates are covered at the lock-key level
