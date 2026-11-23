@@ -2456,3 +2456,31 @@ that choice. Existing mandatory domain-ownership verification is unchanged.
 - File-manager browser coverage also asserts each rendered row has the same
   five cells as the table header, guarding the core file-browsing layout.
 
+### M0ba — Defer empty-customer inventory work (P2)
+
+**Status:** Implemented locally. The seeded account-owner journey passes on a
+rebuilt panel binary, and the full browser suite passes (33 passed, one expected
+skip). Frontend unit tests pass (19/19), `make check`, release checks, and
+documentation validation pass. Exact-source hosted CI for this follow-up is
+pending.
+
+The customer home page should not enumerate sites or backups when the account
+has no sites, and the hidden site grid should not load its own inventory before
+the customer opens Websites. A server-rendered site count is only a scheduling
+hint: if the authoritative account response disagrees, load the evidence needed
+for the real current state. Customer pages should not call administrator-only
+suspension endpoints.
+
+**Acceptance criteria**
+
+- A new account with no sites loads its hosting identity and first-site setup
+  checklist without requesting the site overview, backup inventory, or
+  suspension inventory.
+- Opening Websites loads the site grid and its backup labels; a direct site
+  workspace link still opens its requested workspace.
+- If hosting assignments change after the page was rendered, the authoritative
+  response triggers the required overview and recovery reads.
+- Customer pages do not issue the administrator-only suspension request.
+- Seeded owner browser coverage proves request counts and first-site behavior;
+  full browser E2E, unit tests, local checks, and exact-source CI pass.
+

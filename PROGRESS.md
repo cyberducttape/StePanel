@@ -11,12 +11,31 @@
   evidence is correlated with the host snapshot.
 - `npm run test:unit` passed (19/19). The rebuilt embedded panel passed the
   complete Playwright suite: 33 passed, one expected skip; focused overview and
-  lifecycle journeys also passed. `make check` passed before this last
-  JavaScript-only refinement. Hosted UI E2E, documentation, CodeQL, and release
-  evidence passed for `2831dbf0`; the integration workflow for that commit passed
-  the Go suite and race tests, then was superseded during database integration.
-  The current follow-up’s exact-source integration is pending. These are
-  UI/workload and code-check results, not host certification.
+  lifecycle journeys also passed. `make check` passed on `ec452be7`; its exact-
+  source hosted integration, UI E2E, documentation, CodeQL, and release-evidence
+  workflows passed (integration run
+  [45116873640](https://github.com/cyberducttape/StePanel/actions/runs/45116873640)).
+  These are UI/workload and code-check results, not host certification.
+
+## Defer empty-customer inventory work — 2026-11-23
+
+- The customer landing page now uses its server-rendered site count to skip
+  site-overview and backup-list reads for a new account with no sites. If the
+  authoritative hosting response shows sites despite a zero render-time count,
+  it loads the needed evidence as a fallback. The site grid is loaded only when
+  the customer opens Websites (or follows a direct site route); customers no
+  longer make the administrator-only suspension request.
+- The owner browser journey now begins with a genuinely empty account, asserts
+  zero site/backup/suspension inventory requests, then assigns sites and checks
+  that the recovery evidence and grid load on demand. It also retains failed
+  inventory retry, domain-gated WordPress provisioning, and editor/navigation
+  race coverage.
+- The focused customer E2E passed; the full rebuilt browser suite passed (33
+  passed, one expected skip), frontend unit tests passed (19/19), and JavaScript
+  syntax and diff checks passed. `make check`, release checks, documentation
+  links, and documentation-reference validation all passed locally. The prior
+  source's hosted integration passed; exact-source hosted CI for this follow-up
+  is pending. No host certification is implied.
 
 # Production-readiness progress
 

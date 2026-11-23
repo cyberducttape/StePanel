@@ -6,7 +6,7 @@
   <title>{{ .Title }} · your hosting</title><link rel="icon" href="/static/favicon.svg?v={{ .AssetVersion }}" type="image/svg+xml">
   <link rel="stylesheet" href="/static/app.css?v={{ .AssetVersion }}"><link rel="stylesheet" href="/static/import.css?v={{ .AssetVersion }}"><link rel="stylesheet" href="/static/workspace.css?v={{ .AssetVersion }}"><link rel="stylesheet" href="/static/panel.css?v={{ .AssetVersion }}">
 </head>
-<body class="customer-panel" data-is-administrator="false" data-account-role="{{ if .Account.Role }}{{ .Account.Role }}{{ else }}owner{{ end }}" data-webserver="{{ .Config.WebServer }}">
+<body class="customer-panel" data-is-administrator="false" data-account-role="{{ if .Account.Role }}{{ .Account.Role }}{{ else }}owner{{ end }}" data-account-site-count="{{ .AccountSiteCount }}" data-webserver="{{ .Config.WebServer }}">
   <a class="skip-link" href="#main">Skip to main content</a>
   <div class="app-shell">
     <div class="nav-backdrop" id="navBackdrop" hidden></div>

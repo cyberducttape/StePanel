@@ -326,26 +326,44 @@
   };
 
   const loadHosting = async () => {
-    const [accountResult, overviewResult, backupResult] = await Promise.allSettled([
+    const serverRenderedSiteCount = Number(document.body.dataset.accountSiteCount || 0);
+    let [accountResult, overviewResult, backupResult] = await Promise.allSettled([
       api.get('/api/account/hosting', { errorMessage: 'Your hosting account is unavailable' }),
-      api.get('/api/sites/overview', { errorMessage: 'Website details are unavailable' }),
-      api.get('/api/backups?limit=100', { errorMessage: 'Backup status is unavailable' }),
+      serverRenderedSiteCount > 0
+        ? api.get('/api/sites/overview', { errorMessage: 'Website details are unavailable' })
+        : Promise.resolve(null),
+      serverRenderedSiteCount > 0
+        ? api.get('/api/backups?limit=100', { errorMessage: 'Backup status is unavailable' })
+        : Promise.resolve(null),
     ]);
     if (accountResult.status === 'fulfilled') {
       hosting = { ...accountResult.value, sites: accountResult.value.sites || [] };
       hostingLoaded = true;
       hostingError = null;
       fileManager.setSites(hosting.sites.filter((site) => site.placed));
+      if (hosting.sites.length > 0 && serverRenderedSiteCount === 0) {
+        [overviewResult, backupResult] = await Promise.allSettled([
+          api.get('/api/sites/overview', { errorMessage: 'Website details are unavailable' }),
+          api.get('/api/backups?limit=100', { errorMessage: 'Backup status is unavailable' }),
+        ]);
+      }
     } else {
       hostingError = accountResult.reason?.message || 'request failed';
     }
-    if (overviewResult.status === 'fulfilled') {
+    if (!overviewResult || overviewResult.value === null) {
+      overviews = new Map();
+      overviewError = null;
+    } else if (overviewResult.status === 'fulfilled') {
       overviews = new Map((overviewResult.value.sites || []).map((site) => [site.site, site]));
       overviewError = null;
     } else {
       overviewError = overviewResult.reason?.message || 'request failed';
     }
-    if (backupResult.status === 'fulfilled') {
+    if (!backupResult || backupResult.value === null) {
+      backups = [];
+      backupsLoaded = true;
+      backupsError = null;
+    } else if (backupResult.status === 'fulfilled') {
       backups = Array.isArray(backupResult.value.backups) ? backupResult.value.backups : [];
       backupsLoaded = true;
       backupsError = null;

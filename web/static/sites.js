@@ -2395,7 +2395,7 @@
     const retry = button('Retry', async () => {
       gridStatus.textContent = 'Loading websites…';
       try {
-        await loadGrid();
+        await refreshGrid();
       } catch (retryError) {
         showGridError(retryError);
       }
@@ -2414,8 +2414,11 @@
       [siteData, backupData, suspensionData] = await Promise.all([
         getJSON('/api/sites/overview'),
         getJSON('/api/backups').catch((error) => ({ __error: error, backups: [] })),
-        // Administrators only; other roles simply see no suspension badges.
-        getJSON('/api/sites/suspensions').catch(() => ({ suspensions: [] })),
+        // Suspension controls and status are administrator-only. Customer
+        // pages should not make a request that can only be denied.
+        isAdministrator
+          ? getJSON('/api/sites/suspensions').catch(() => ({ suspensions: [] }))
+          : Promise.resolve({ suspensions: [] }),
       ]);
     } catch (error) {
       showGridError(error);
@@ -2740,7 +2743,7 @@
         createForm.reset();
         updateTemplateFields();
         try {
-          await loadGrid();
+          await refreshGrid();
           openWorkspace(site, 'journey');
         } catch (error) {
           createStatus.textContent += ` The site was created, but its list could not refresh: ${error.message}`;
@@ -2756,10 +2759,27 @@
     }));
   }
 
-  loadGrid()
-    .then(() => {
-      const initial = parseWorkspaceHash();
-      if (initial) openWorkspace(initial.site, initial.tab, { pushHistory: false });
-    })
-    .catch(showGridError);
+  let gridLoaded = false;
+  let gridLoadPromise = null;
+  const refreshGrid = () => {
+    if (gridLoadPromise) return gridLoadPromise;
+    gridLoadPromise = loadGrid()
+      .then(() => { gridLoaded = true; })
+      .catch((error) => {
+        gridLoaded = false;
+        showGridError(error);
+        throw error;
+      })
+      .finally(() => { gridLoadPromise = null; });
+    return gridLoadPromise;
+  };
+  const ensureGrid = () => gridLoaded ? Promise.resolve() : refreshGrid();
+  const initialWorkspace = parseWorkspaceHash();
+  if (initialWorkspace) openWorkspace(initialWorkspace.site, initialWorkspace.tab, { pushHistory: false });
+  if (isAdministrator || (!initialWorkspace && location.hash === '#websites')) {
+    ensureGrid().catch(() => {});
+  }
+  window.addEventListener('hashchange', () => {
+    if (!isAdministrator && location.hash === '#websites') ensureGrid().catch(() => {});
+  });
 })();

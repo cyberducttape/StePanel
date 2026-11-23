@@ -52,7 +52,8 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
     ...customer,
     username: `${customer.username}-w${testInfo.workerIndex}-r${testInfo.repeatEachIndex}`,
   };
-  const hosting = hostingFor(testCustomer.username);
+  const populatedHosting = hostingFor(testCustomer.username);
+  let hosting = { ...populatedHosting, sites: [] };
 
   // Provision the customer as the administrator.
   const admin = await browser.newContext({ baseURL });
@@ -79,15 +80,30 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   let customerBackups = [
     { site: 'e2e-main', verified_at: '2026-11-20T12:00:00Z' },
   ];
-  await page.route('**/api/backups?limit=100', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ backups: customerBackups }) }));
+  let backupInventoryRequests = 0;
+  let backupChecklistRequests = 0;
+  let suspensionRequests = 0;
+  let overviewRequests = 0;
+  await page.route('**/api/backups*', (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.has('limit')) backupChecklistRequests += 1;
+    else backupInventoryRequests += 1;
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ backups: customerBackups }) });
+  });
   let shopRouteConfigured = false;
   let createdSite = null;
   await page.route('**/api/sites/overview', (route) => {
+    overviewRequests += 1;
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sites: [
-    { site: 'e2e-main', routes: [{ site: 'e2e-main', domain: 'main.example.org' }], database_count: 1, kind: 'main' },
-    { site: 'e2e-shop', routes: shopRouteConfigured ? [{ site: 'e2e-shop', domain: 'shop.example.org' }] : [], database_count: 0, kind: 'addon' },
+    ...hosting.sites.map((site) => site.site === 'e2e-main'
+      ? { site: site.site, routes: [{ site: site.site, domain: 'main.example.org' }], database_count: 1, kind: 'main' }
+      : { site: site.site, routes: shopRouteConfigured ? [{ site: site.site, domain: 'shop.example.org' }] : [], database_count: 0, kind: 'addon' }),
     ...(createdSite ? [{ site: createdSite.site, routes: [{ site: createdSite.site, domain: createdSite.domain }], database_count: 1, kind: 'addon' }] : []),
     ] }) });
+  });
+  await page.route('**/api/sites/suspensions', (route) => {
+    suspensionRequests += 1;
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '{"suspensions":[]}' });
   });
   const writes = [];
   const writeRevisions = [];
@@ -189,23 +205,37 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/panel/);
 
-  // Home: the account and its websites, with no operator navigation.
+  // Home for a new tenant: show the first WordPress action without scanning
+  // site, backup, or administrator-only suspension inventories.
   await expect(page.getByRole('heading', { name: `Welcome back, ${testCustomer.username}` })).toBeVisible();
   await expect(page.locator('#panelHome')).toHaveText(`/home/${testCustomer.username}`);
+  await expect(page.locator('#panelOnboardingList')).toContainText('Create your first WordPress site');
+  await expect(page.locator('#panelOnboardingProgress')).toContainText('0 of 3 essentials complete');
+  await expect(page.locator('#panelPrimaryAction')).toHaveAttribute('href', '#websites');
+  expect(overviewRequests).toBe(0);
+  expect(backupChecklistRequests).toBe(0);
+  expect(backupInventoryRequests).toBe(0);
+  expect(suspensionRequests).toBe(0);
+  await expect(page.locator('#panelSiteList')).toContainText('You have no websites yet');
+  await expect(page.locator('#siteOverview')).toBeEmpty();
+
+  // Once sites are assigned, load their setup evidence on demand from the
+  // checklist refresh; the hidden site grid still waits for its own view.
+  hosting = populatedHosting;
+  await page.locator('#panelOnboardingRefresh').click();
   await expect(page.locator('#panelOnboardingList')).toContainText('Open your website workspace');
   await expect(page.locator('#panelOnboardingList')).toContainText('No integrity-verified backup is recorded for e2e-shop');
   await expect(page.locator('#panelOnboardingList').getByRole('link', { name: 'Review e2e-shop backups' })).toHaveAttribute('href', '#site=e2e-shop&tab=backups');
   await expect(page.locator('#panelOnboardingList')).toContainText('e2e-shop has no configured domain route');
   await expect(page.locator('#panelPrimaryAction')).toHaveAttribute('href', '#site=e2e-shop&tab=domains');
-  // Wait for sites.js's independent inventory request before replacing the
-  // route to inject a panel-only refresh failure below.
-  await expect(page.locator('#siteOverview')).toContainText('e2e-main');
   await expect(page.locator('#panelSiteList')).toContainText('public_html');
   await expect(page.locator('#panelSiteList')).not.toContainText(`/home/${testCustomer.username}/public_html`);
+  expect(overviewRequests).toBe(1);
+  expect(backupChecklistRequests).toBe(1);
+  expect(backupInventoryRequests).toBe(0);
 
-  // Exercise a refresh outage deterministically, after both independent site
-  // overview requests have completed, so request ordering cannot decide which
-  // customer view observes the injected failure.
+  // Exercise an unavailable inventory and verify that it is not presented as
+  // an empty list. The hidden Websites grid has not made a competing request.
   await page.unroute('**/api/sites/overview');
   await page.route('**/api/sites/overview', (route) => route.fulfill({
     status: 503,
@@ -246,8 +276,11 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await page.locator('#panelOnboardingRefresh').click();
   await expect(page.locator('#panelOnboardingList')).toContainText('Every assigned website has an integrity-verified backup');
   await expect(page.locator('#panelOnboardingProgress')).toContainText('2 of 3 essentials complete');
-  await expect(page.getByRole('link', { name: 'Customers' })).toHaveCount(0);
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Websites' }).click();
+  await expect(page.locator('#siteOverview')).toContainText('e2e-main');
+  expect(backupInventoryRequests).toBe(1);
+  expect(suspensionRequests).toBe(0);
+  await expect(page.getByRole('link', { name: 'Customers' })).toHaveCount(0);
   await expect(page.locator('#siteCreateTemplate')).toHaveValue('wordpress');
   await expect(page.locator('#wordpressCreateFields')).toBeVisible();
   await expect(page.locator('#siteCreateForm > .field input').nth(0)).toHaveAttribute('name', 'domain');
