@@ -62,7 +62,7 @@ pair before compiling if the previous process was killed between the two
 renames. A forced-kill regression verifies the restored build identities
 before the fake compiler runs. The cancellation message identifies the saved,
 secured settings path and accurately says system services were not changed.
-Exact-source hosted CI is pending.
+Exact-source CI passed on `64bb74a4`: the [integration workflow](https://github.com/cyberducttape/StePanel/actions/runs/45094688816), including shell, full Go/race, and recovery checks; [documentation](https://github.com/cyberducttape/StePanel/actions/runs/45094688982); [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/45094688849); and the seeded customer browser job all passed. The [Ubuntu 24.04 installed-host smoke](https://github.com/cyberducttape/StePanel/actions/runs/45094688912) is still running.
 
 **Acceptance criteria**
 
@@ -82,7 +82,8 @@ and installer-contract tests pass. The read-only host preflight now runs all
 independent OS/package-manager, systemd, quota, and offsite-tool checks, prints
 each blocker with a fix, then gives an exact recheck command. Quota and remote
 backup requirements remain required; this does not modify mount settings or
-configure a remote. Exact-source CI is pending.
+configure a remote. Exact-source integration, docs, CodeQL, and browser checks
+passed on `64bb74a4`; the Ubuntu 24.04 installed-host smoke remains in progress.
 
 **Acceptance criteria**
 
@@ -2157,7 +2158,7 @@ Acceptance criteria:
 
 ### M0am — Keep the operator landing page focused on the next action (P2)
 
-**Status:** Implemented locally; exact-source CI pending. The overview keeps the
+**Status:** Implemented and verified on `64bb74a4`. The overview keeps the
 first-run checklist, host status, site creation, and recent jobs directly
 available. Customer/account/database controls and migration/application forms
 are grouped into two collapsed disclosures. Existing navigation and direct

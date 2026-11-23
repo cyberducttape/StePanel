@@ -1,5 +1,23 @@
 # Production-readiness progress
 
+## Exact-source checks for resumable uploads and setup recovery — 2026-11-23
+
+- Commit `64bb74a4` is pushed to `main` with the requested commit author.
+  `make check`, focused race tests, ShellCheck, and frontend unit tests passed.
+- Exact-source hosted integration passed, including Go tests, race/recovery
+  checks, and shell/install contracts
+  ([run 45094688816](https://github.com/cyberducttape/StePanel/actions/runs/45094688816)).
+  The seeded customer-panel E2E job passed in that workflow. Documentation
+  ([45094688982](https://github.com/cyberducttape/StePanel/actions/runs/45094688982)),
+  CodeQL ([45094688849](https://github.com/cyberducttape/StePanel/actions/runs/45094688849)),
+  and release-evidence workflows passed. The exact-source Ubuntu 24.04
+  installed-host install/recovery smoke is still running
+  ([45094688912](https://github.com/cyberducttape/StePanel/actions/runs/45094688912));
+  do not treat the installation gate as complete until it finishes.
+- This is evidence for the current source checks, not completion of the broader
+  production certification gates. The browser E2E could not run locally without
+  seeded instance credentials, so the hosted seeded job is the browser evidence.
+
 ## Make guided binary publication recover after a hard stop — 2026-11-23
 
 - The guided source installer now serializes publication and records both
