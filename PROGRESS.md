@@ -4625,6 +4625,14 @@ does not close a current-source or power-loss gate.
   package installation remains unproven until the manual preflight passes on a
   committed source; this change does not publish a release or certify the
   production gates.
+- First hosted preflight `45134395215` failed in the archive-build step before
+  host setup because an untagged manual-dispatch checkout had no local tag for
+  GoReleaser. The smoke and preflight now create the validated candidate tag
+  locally at the checked-out commit (or verify an existing tag resolves to the
+  same commit); nothing is pushed. YAML parsing, action pin checks,
+  `make release-check`, and `git diff --check` passed after this correction.
+  Rerun the hosted preflight before treating the exact-tag package path as
+  validated.
 - The first integration attempt failed only its documentation-reference check
   because the progress note linked to generated release evidence. That link
   has been corrected; documentation, CodeQL, and release-evidence workflows

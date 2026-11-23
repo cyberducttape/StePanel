@@ -17,6 +17,8 @@ require_fixed() {
 }
 
 require_fixed "$smoke" '      release_tag:'
+require_fixed "$smoke" '      - name: Prepare exact local release tag'
+require_fixed "$smoke" 'git tag "$RELEASE_TAG" "$GITHUB_SHA"'
 require_fixed "$smoke" "args: \${{ inputs.release_tag != '' && 'release --skip=publish --clean' || 'release --snapshot --clean' }}"
 require_fixed "$smoke" 'GORELEASER_CURRENT_TAG: ${{ inputs.release_tag }}'
 require_fixed "$release" 'release_tag: ${{ github.ref_name }}'
@@ -29,6 +31,7 @@ require_fixed "$preflight" 'args: release --skip=publish --clean'
 require_fixed "$preflight" 'bash scripts/verify-release-artifacts.sh dist/'
 require_fixed "$preflight" 'retention-days: 30'
 require_fixed "$preflight" 'make release-check'
+require_fixed "$preflight" 'git tag "$RELEASE_TAG" "$GITHUB_SHA"'
 
 # This workflow must never acquire publication permissions or invoke the
 # publishing form of GoReleaser. Keep candidate validation safe to dispatch.

@@ -55,6 +55,15 @@ jobs:
             echo 'candidate source must already be reachable from main' >&2
             exit 1
           }
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            tagged_commit=$(git rev-parse "$RELEASE_TAG^{commit}")
+            test "$tagged_commit" = "$GITHUB_SHA" || {
+              echo "existing local tag $RELEASE_TAG points to $tagged_commit, not $GITHUB_SHA" >&2
+              exit 1
+            }
+          else
+            git tag "$RELEASE_TAG" "$GITHUB_SHA"
+          fi
           make release-check
       - name: Build versioned archive without publishing
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
