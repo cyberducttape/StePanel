@@ -11,9 +11,14 @@
   link for two different websites.
 - `npm run test:unit` passed (20/20), `node --check` passed for the changed
   JavaScript, `make build-panel` passed, `git diff --check` passed, and
-  documentation links/references plus `make release-check` passed. The seeded
-  browser regression and exact-source hosted CI are pending this commit; no
-  hosted result is claimed yet.
+  documentation links/references plus `make release-check` passed. Exact-source
+  CI passed on `b59461f5`: seeded browser/accessibility tests, full Go tests,
+  race tests, recovery and ENOSPC drills, MySQL/PostgreSQL integrations,
+  container checks, and infrastructure validation. Documentation, CodeQL, and
+  release evidence also passed ([integration 45126292777](https://github.com/cyberducttape/StePanel/actions/runs/45126292777),
+  [docs 45126292759](https://github.com/cyberducttape/StePanel/actions/runs/45126292759),
+  [CodeQL 45126292768](https://github.com/cyberducttape/StePanel/actions/runs/45126292768),
+  [release evidence 45126471128](https://github.com/cyberducttape/StePanel/actions/runs/45126471128)).
 
 ## Fix a first-paint contrast failure found by hosted browser CI — 2026-11-23
 

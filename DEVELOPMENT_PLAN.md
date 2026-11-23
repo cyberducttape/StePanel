@@ -2533,7 +2533,14 @@ full hosted integration, documentation, CodeQL, and release evidence also pass.
 
 ### M0bd — Make large-file SFTP handoff clear to customers (P2)
 
-**Status:** Implemented locally; focused checks and exact-source CI pending.
+**Status:** Implemented and verified on exact source `b59461f5`. Frontend unit
+tests, documentation checks, and release checks passed locally. Seeded customer
+browser/accessibility tests and the full hosted integration suite passed,
+including Go, race, recovery, ENOSPC, database, container, and infrastructure
+checks. Hosted evidence: [CI integration 45126292777](https://github.com/cyberducttape/StePanel/actions/runs/45126292777),
+[Documentation 45126292759](https://github.com/cyberducttape/StePanel/actions/runs/45126292759),
+[CodeQL 45126292768](https://github.com/cyberducttape/StePanel/actions/runs/45126292768),
+and [release evidence 45126471128](https://github.com/cyberducttape/StePanel/actions/runs/45126471128).
 When a customer opens Files, the page can show the account Unix username and
 selected site's document root, with a direct link to that site's SFTP settings.
 The guidance identifies the hosting administrator as the source for host and
@@ -2549,6 +2556,6 @@ limits and handoff.
   updates both folder and link.
 - Guidance states that host/port and SFTP availability are host-policy-specific
   and does not request private-key disclosure.
-- Frontend checks, browser regression, documentation checks, and exact-source
-  hosted CI pass.
+- Frontend checks, seeded browser regression, documentation checks, and
+  exact-source hosted CI pass.
 
