@@ -29,8 +29,18 @@
 - Added a seeded browser regression using a synthetic oversized-file entry;
   it checks the fallback without allocating a 100 MiB test artifact.
 - Frontend unit tests passed (20/20), JavaScript syntax checks passed, and
-  `make build-panel` passed. Exact-source browser CI and documentation checks
-  are pending the next commit.
+  `make build-panel` passed. Exact-source integration passed on `07f83f2a`,
+  including the seeded browser/accessibility suite, full Go suite, race tests,
+  recovery and ENOSPC drills, database restore checks, static analysis,
+  container checks, and infrastructure validation. Documentation, CodeQL, and
+  release-evidence workflows also passed ([integration
+  45129625487](https://github.com/cyberducttape/StePanel/actions/runs/45129625487),
+  [docs 45129625591](https://github.com/cyberducttape/StePanel/actions/runs/45129625591),
+  [CodeQL 45129625495](https://github.com/cyberducttape/StePanel/actions/runs/45129625495),
+  [release evidence 45132709532](https://github.com/cyberducttape/StePanel/actions/runs/45132709532)).
+  A separate packaged Ubuntu 24.04 + Caddy + MariaDB install and WordPress
+  recovery smoke on parent source `2e9e06e9` is still running; it does not
+  include this final UI-only improvement.
 
 ## Fix a first-paint contrast failure found by hosted browser CI — 2026-11-23
 
