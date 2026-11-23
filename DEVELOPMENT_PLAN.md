@@ -62,7 +62,7 @@ pair before compiling if the previous process was killed between the two
 renames. A forced-kill regression verifies the restored build identities
 before the fake compiler runs. The cancellation message identifies the saved,
 secured settings path and accurately says system services were not changed.
-Exact-source CI passed on `64bb74a4`: the [integration workflow](https://github.com/cyberducttape/StePanel/actions/runs/45094688816), including shell, full Go/race, and recovery checks; [documentation](https://github.com/cyberducttape/StePanel/actions/runs/45094688982); [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/45094688849); and the seeded customer browser job all passed. The [Ubuntu 24.04 installed-host smoke](https://github.com/cyberducttape/StePanel/actions/runs/45094688912) is still running.
+Exact-source CI passed on `64bb74a4`: the [integration workflow](https://github.com/cyberducttape/StePanel/actions/runs/45094688816), including shell, full Go/race, and recovery checks; [documentation](https://github.com/cyberducttape/StePanel/actions/runs/45094688982); [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/45094688849); and the seeded customer browser job all passed. The [Ubuntu 24.04 installed-host smoke](https://github.com/cyberducttape/StePanel/actions/runs/45094688912) also passed: install and cleanup completed, a WordPress HTTPS/database restore measured 4,407 ms, and one recovery-matrix iteration passed. The scoped result and limitations are in [`2026-11-23-ubuntu-packaged-first-host-smoke-64bb74a.md`](docs/lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-64bb74a.md).
 
 **Acceptance criteria**
 
@@ -82,8 +82,10 @@ and installer-contract tests pass. The read-only host preflight now runs all
 independent OS/package-manager, systemd, quota, and offsite-tool checks, prints
 each blocker with a fix, then gives an exact recheck command. Quota and remote
 backup requirements remain required; this does not modify mount settings or
-configure a remote. Exact-source integration, docs, CodeQL, and browser checks
-passed on `64bb74a4`; the Ubuntu 24.04 installed-host smoke remains in progress.
+configure a remote. Exact-source integration, docs, CodeQL, seeded browser E2E,
+and the Ubuntu 24.04 installed-host smoke passed on `64bb74a4`. The smoke
+proved clean installation and one recovery-matrix iteration, but not repeated
+host certification or project-quota enforcement.
 
 **Acceptance criteria**
 
@@ -2283,14 +2285,20 @@ the documentation and CodeQL workflows passed on documentation-only descendant
 
 ### M0as — Gate tagged packages on a real fresh-host install (P1)
 
-**Status:** Implemented locally; release and workflow contracts are pending.
+**Status:** Release gate and packaged smoke are implemented; tag-path
+validation remains pending.
 The tag-triggered release workflow now calls the packaged Ubuntu 24.04 +
 Caddy + MariaDB install-smoke workflow and waits for its database-backed
 WordPress HTTPS recovery proof before building or publishing release assets.
 The check-release contract prevents removing the prerequisite unnoticed.
 This improves the package onboarding gate but does not certify production or
 replace repeated failure-recovery, quota, power-loss, capacity, and security
-gates.
+gates. The packaged install smoke passed on source `64bb74a4`: installation
+and cleanup completed, WordPress HTTPS/database recovery measured 4,407 ms,
+and one recovery-matrix iteration passed. See the
+[`first-host smoke report`](docs/lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-64bb74a.md).
+The run used a disposable systemd container and does not prove the tag-triggered
+release path or production certification.
 
 **Acceptance criteria**
 

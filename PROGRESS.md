@@ -4391,3 +4391,26 @@ does not close a current-source or power-loss gate.
   the table header. This protects the file listing's layout while continuing
   the usability work. `npm run test:unit` passed (19/19), JavaScript syntax
   checks and `git diff --check` passed. The new assertion awaits hosted E2E.
+
+## Verify guided installer publication recovery and first-host smoke — 2026-11-23
+
+- Reviewed INS-02 and INS-03 against the current source. The guided builder
+  already stages both binaries and writes a durable rollback journal before
+  publishing either one. On restart, it restores the prior pair before
+  rebuilding. Cancellation accurately reports that system services were not
+  changed and that saved settings were secured for reuse.
+- Regression coverage injects failure on the second binary rename and kills
+  the process after the first rename. It verifies restoration of the prior
+  pair before the next build and matching binary identity after that build.
+  `scripts/test-install-guided.sh`,
+  `scripts/test-install-guided-settings.sh`, Bash syntax checks, and ShellCheck
+  all passed.
+- Packaged Ubuntu 24.04 + Caddy + MariaDB smoke
+  [45094688912](https://github.com/cyberducttape/StePanel/actions/runs/45094688912)
+  passed on source `64bb74a4`. Installation and cleanup completed, the
+  installed WordPress HTTPS/database restore proof measured 4,407 ms, and one
+  recovery-matrix iteration passed. See the
+  [evidence report](docs/lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-64bb74a.md).
+  It was a disposable systemd container run; physical power-loss recovery,
+  quota enforcement, repeated certification, and the tag-triggered release
+  path remain unproven.
