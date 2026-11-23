@@ -18,7 +18,7 @@ echo 'Checking host requirements before downloading the Go toolchain or building
 INSTALL_DOCTOR_FAILURES=0
 install_doctor_check \
   'Linux distribution detected and package manager available' \
-  'Use a systemd Linux distribution supported by the installer; review docs/INSTALLATION.md#supported-platforms.' \
+  'Use a systemd Linux distribution supported by the installer; review docs/INSTALLATION.md#supported-operating-systems.' \
   install_guided_host_support || true
 install_doctor_check \
   'Running systemd manager' \

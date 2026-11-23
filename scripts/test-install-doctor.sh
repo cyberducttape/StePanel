@@ -23,6 +23,8 @@ grep -Fq 'NEEDS ACTION: first prerequisite' "$tmp/report"
 grep -Fq 'Fix: run the documented repair' "$tmp/report"
 grep -Fq 'PASS: second prerequisite' "$tmp/report"
 grep -Fq "sudo bash $ROOT_DIR/scripts/install-host-preflight.sh" "$tmp/report"
+grep -Fq 'docs/INSTALLATION.md#supported-operating-systems' "$ROOT_DIR/scripts/install-host-preflight.sh"
+grep -Fq 'docs/INSTALLATION.md#prepare-filesystem-quotas' "$ROOT_DIR/scripts/install-host-preflight.sh"
 
 INSTALL_DOCTOR_FAILURES=0
 if ! install_doctor_check 'all clear' 'none' check_pass >"$tmp/pass-report"; then

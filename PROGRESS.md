@@ -15,8 +15,9 @@
   contract: the new retry fixture inherited CI's `GOTOOLCHAIN=local` and
   unintentionally entered the bootstrap path without a download-log mock.
   The fixture now sets `GOTOOLCHAIN=auto` for its injected publish-failure and
-  restart cases. Reproduction with CI's environment passes locally. The fix
-  and doctor changes are not yet pushed; exact-source CI is pending.
+  restart cases. Reproduction with CI's environment passes locally. The fix,
+  doctor, and release-archive requirement were pushed as `5c0f842f`; exact-source
+  integration, documentation, CodeQL, and installed-host CI are running.
 
 ## Require current credentials for customer credential changes — 2026-11-22
 
