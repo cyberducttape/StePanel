@@ -2328,3 +2328,19 @@ workflows passed.
 - Initial administrator enrollment can scan the terminal QR or use either
   fallback; the setup guide test confirms these instructions are present.
 
+### M0au — Make the first customer site follow the supported WordPress path (P2)
+
+**Status:** Implemented locally; `make check` passed. Customer-panel browser
+coverage and exact-source CI remain to be run. When an account has no assigned sites, the customer site
+form selects WordPress by default and exposes the WordPress fields. Blank PHP
+remains available for customers deploying another application, with concise
+guidance explaining that choice. Existing mandatory domain-ownership
+verification is unchanged.
+
+**Acceptance criteria**
+
+- A new customer account sees WordPress selected and its setup fields visible.
+- Blank PHP remains selectable and explains when it is appropriate.
+- Browser coverage verifies the empty-account first-site state; frontend unit
+  tests, full local checks, and exact-source CI pass.
+

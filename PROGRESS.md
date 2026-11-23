@@ -4322,3 +4322,17 @@ does not close a current-source or power-loss gate.
   unit tests (19/19), and `git diff --check` passed. Exact-source integration,
   documentation, CodeQL, release-evidence, and installed-host workflows
   passed on `d2695cd0`.
+
+## Make first customer-site setup easier — 2026-11-22
+
+- For accounts with no assigned sites, the customer website form now selects
+  WordPress and reveals its setup fields by default. Blank PHP remains available
+  with short guidance for customers who intend to upload or deploy another app.
+  Mandatory domain ownership verification remains in place.
+- Added customer-panel browser assertions for the empty-account default.
+  `npm run test:unit` passed (19/19), `make check` passed (including `go vet`
+  and the complete Go suite), and `git diff --check` passed. Browser E2E and
+  exact-source hosted CI have not yet run for this change.
+- This removes one first-use decision for the common WordPress path. Overall
+  first-install and operational simplicity remain in progress; production
+  certification gates are tracked separately above.
