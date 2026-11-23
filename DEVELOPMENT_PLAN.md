@@ -2533,11 +2533,12 @@ full hosted integration, documentation, CodeQL, and release evidence also pass.
 
 ### M0bd — Make large-file SFTP handoff clear to customers (P2)
 
-**Status:** Implemented and verified on exact source `b59461f5`. Frontend unit
-tests, documentation checks, and release checks passed locally. Seeded customer
-browser/accessibility tests and the full hosted integration suite passed,
-including Go, race, recovery, ENOSPC, database, container, and infrastructure
-checks. Hosted evidence: [CI integration 45126292777](https://github.com/cyberducttape/StePanel/actions/runs/45126292777),
+**Status:** The SFTP guide is verified on exact source `b59461f5`. The latest
+oversized-upload path now opens the guide automatically; its browser regression
+and exact-source CI are pending. The prior guide's frontend unit tests,
+documentation checks, seeded browser/accessibility tests, and full hosted
+integration suite passed, including Go, race, recovery, ENOSPC, database,
+container, and infrastructure checks. Hosted evidence: [CI integration 45126292777](https://github.com/cyberducttape/StePanel/actions/runs/45126292777),
 [Documentation 45126292759](https://github.com/cyberducttape/StePanel/actions/runs/45126292759),
 [CodeQL 45126292768](https://github.com/cyberducttape/StePanel/actions/runs/45126292768),
 and [release evidence 45126471128](https://github.com/cyberducttape/StePanel/actions/runs/45126471128).
@@ -2556,6 +2557,9 @@ limits and handoff.
   updates both folder and link.
 - Guidance states that host/port and SFTP availability are host-policy-specific
   and does not request private-key disclosure.
+- Attempting to upload a file above 100 MiB opens the guide and points to the
+  current site's details; if details are unavailable, the UI directs the
+  customer to the hosting administrator.
 - Frontend checks, seeded browser regression, documentation checks, and
   exact-source hosted CI pass.
 

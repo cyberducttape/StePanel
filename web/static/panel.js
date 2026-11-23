@@ -482,6 +482,13 @@
       sftpRoot.textContent = selected.doc_root || '';
       sftpSettings.href = `#site=${encodeURIComponent(selected.site)}&tab=security`;
     };
+    const revealSFTPGuide = () => {
+      updateSFTPGuide();
+      if (sftpGuide && !sftpGuide.hidden) {
+        sftpGuide.open = true;
+        sftpGuide.scrollIntoView({ block: 'nearest' });
+      }
+    };
     const setStatus = (message, state = '') => ui.setStatus(status, message, state);
     const isCurrent = (context) => Boolean(context && context.token === token && context.generation === contextGeneration && context.site === site && context.path === path);
     const isCurrentEditor = (session) => Boolean(session && session.generation === contextGeneration && session.site === site && session.directory === path);
@@ -625,7 +632,14 @@
       }
       const body = new Blob([editorText.value], { type: 'application/octet-stream' });
       if (body.size > MAX_WRITE) {
-        ui.setStatus(editorStatus, 'The file is larger than 4 MB; upload it over SFTP instead.', 'error');
+        revealSFTPGuide();
+        ui.setStatus(
+          editorStatus,
+          sftpGuide && !sftpGuide.hidden
+            ? 'The file is larger than 4 MiB. SFTP details are shown below.'
+            : 'The file is larger than 4 MiB. Contact your hosting administrator to arrange SFTP access.',
+          'error',
+        );
         return;
       }
       editorSave.disabled = true;
@@ -740,7 +754,13 @@
       upload.value = '';
       for (const file of files) {
         if (file.size > MAX_RESUMABLE_UPLOAD) {
-          setStatus(`${file.name} is larger than the 100 MiB upload limit.`, 'error');
+          revealSFTPGuide();
+          setStatus(
+            sftpGuide && !sftpGuide.hidden
+              ? `${file.name} exceeds the 100 MiB browser upload limit. SFTP details are shown below.`
+              : `${file.name} exceeds the 100 MiB browser upload limit. Contact your hosting administrator to arrange SFTP access.`,
+            'error',
+          );
           return;
         }
         if (!validName(file.name)) {

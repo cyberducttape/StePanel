@@ -122,7 +122,9 @@ document-root folder, and links directly to that website's **Security** page
 for SFTP access and SSH-key settings. Ask the hosting administrator for the
 SFTP hostname and port; availability depends on the host's access policy. Add
 your public key there when key authentication is enabled. Keep the private key
-on your device and never send it to the panel or another person.
+on your device and never send it to the panel or another person. If you select
+a file above the browser limit, StePanel opens these SFTP instructions
+automatically.
 
 API tokens need `files:read` to list, read and download, and `files:write`
 to change files. Viewers can read files; developers can also change them.

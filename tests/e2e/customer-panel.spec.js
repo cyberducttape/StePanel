@@ -432,6 +432,17 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await expect(page.locator('#fileSftpRoot')).toHaveText(`/home/${testCustomer.username}/public_html`);
   await expect(page.locator('#fileSftpSettings')).toHaveAttribute('href', '#site=e2e-main&tab=security');
   await expect(page.locator('#fileStatus')).toContainText('temporary listing failure');
+  await sftpGuide.locator('summary').click();
+  await page.locator('#fileUpload').evaluate((input) => {
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: [{ name: 'large-backup.tar.gz', size: 100 * 1024 * 1024 + 1 }],
+    });
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    delete input.files;
+  });
+  await expect(sftpGuide).toHaveJSProperty('open', true);
+  await expect(page.locator('#fileStatus')).toContainText('SFTP details are shown below.');
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Websites' }).click();
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Files' }).click();
   await expect(page.getByRole('button', { name: 'index.php', exact: true })).toBeVisible();

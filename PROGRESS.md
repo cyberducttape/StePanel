@@ -20,6 +20,18 @@
   [CodeQL 45126292768](https://github.com/cyberducttape/StePanel/actions/runs/45126292768),
   [release evidence 45126471128](https://github.com/cyberducttape/StePanel/actions/runs/45126471128)).
 
+## Open SFTP guidance when a browser upload exceeds its limit — 2026-11-23
+
+- Selecting a file over 100 MiB now opens the SFTP guide automatically and
+  keeps the selected website's username, document root, and Security link in
+  view. If those details are unavailable, the error directs the customer to
+  the hosting administrator. Oversized editor saves also reveal the guide.
+- Added a seeded browser regression using a synthetic oversized-file entry;
+  it checks the fallback without allocating a 100 MiB test artifact.
+- Frontend unit tests passed (20/20), JavaScript syntax checks passed, and
+  `make build-panel` passed. Exact-source browser CI and documentation checks
+  are pending the next commit.
+
 ## Fix a first-paint contrast failure found by hosted browser CI — 2026-11-23
 
 - CI for `db39eb83` failed the seeded customer-panel axe check: the default
