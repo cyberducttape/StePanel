@@ -1,3 +1,20 @@
+## Current-source install and abrupt-loss checks are running — 2026-11-23
+
+- The manually dispatched `v0.9.0` candidate preflight
+  [45146220535](https://github.com/cyberducttape/StePanel/actions/runs/45146220535)
+  builds the exact versioned archive from source
+  `2012d87cf5ec2f9f590433524b050f92017f7f75`.
+  Archive verification and disposable-host startup passed; the install and
+  recovery smoke remains active. It has no result yet and no release is being
+  published.
+- The uncushioned Rocky Linux 9 KVM interruption workflow
+  [45150861029](https://github.com/cyberducttape/StePanel/actions/runs/45150861029)
+  runs source `edd11d472dd856a4da1997118db34fc9b5950c2c`, with file restore,
+  database restore, Git deploy, retention, control-plane write, and interrupted
+  backup scenarios. KVM setup and verified image download passed; the boot,
+  install, and interruption drill remains active. No recovery result is counted
+  yet.
+
 ## Reverify first-run installer safety — 2026-11-23
 
 - On current `main` (`dd030b6f`), reran `scripts/test-install-guided.sh` and
