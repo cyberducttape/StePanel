@@ -2595,13 +2595,16 @@ limit.
 
 ### M0be — Keep the mobile operator first-run view readable (P2)
 
-**Status:** Implemented locally. The screenshot evidence test now waits for the
-mobile navigation drawer's closed transition before capture, and the security
-posture rows switch to a two-column mobile layout so each check's evidence sits
-under its heading instead of competing for a narrow third column. A rebuilt
-current-source panel passed the focused seeded Chromium screenshot journey;
-the saved 390px screenshot was visually inspected. Frontend unit tests passed
-(20/20). Exact-source hosted CI is pending.
+**Status:** Implemented and verified on exact source `2012d87c`. The screenshot
+evidence test waits for the mobile navigation drawer's closed transition before
+capture, and security-posture rows switch to a two-column mobile layout so each
+check's evidence sits under its heading instead of competing for a narrow third
+column. The seeded Chromium screenshot journey passes; the 390px artifact was
+visually inspected. The exact-source integration workflow passed, including the
+full Go suite, race tests, recovery and ENOSPC drills, database restore
+integrations, and browser/accessibility E2E in
+[run 45146201250](https://github.com/cyberducttape/StePanel/actions/runs/45146201250).
+Documentation, CodeQL, and release-evidence workflows also passed.
 
 **Acceptance criteria**
 

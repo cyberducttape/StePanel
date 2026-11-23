@@ -13,7 +13,15 @@
   screenshot journey: 1/1 passed. Visually inspected the saved mobile image;
   navigation no longer obscures content and security labels are readable.
   `npm run test:unit` passed (20/20), JavaScript syntax check and `git diff
-  --check` passed. Hosted exact-source CI is pending.
+  --check` passed. Exact-source CI [45146201250](https://github.com/cyberducttape/StePanel/actions/runs/45146201250)
+  passed: full Go suite, race tests, recovery and ENOSPC drills, database
+  restore integrations, and seeded browser/accessibility E2E. Documentation
+  [45146201189](https://github.com/cyberducttape/StePanel/actions/runs/45146201189),
+  CodeQL [45146201216](https://github.com/cyberducttape/StePanel/actions/runs/45146201216),
+  and release evidence [45146221785](https://github.com/cyberducttape/StePanel/actions/runs/45146221785)
+  passed. The exact-source versioned `v0.9.0` install preflight is still
+  running ([45146220535](https://github.com/cyberducttape/StePanel/actions/runs/45146220535));
+  its host result is not yet counted.
 
 ## Mark stale integrity evidence in operator doctor output — 2026-11-23
 
