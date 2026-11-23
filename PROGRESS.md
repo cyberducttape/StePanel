@@ -4941,3 +4941,10 @@ does not close a current-source or power-loss gate.
   `git diff --check` passed.
 - Hosted checks remain pending for the current source; no host state was
   changed by this read-only flow.
+- On exact pushed source `788882f3`, `make check` passed: generated API
+  artifacts, the full shell-contract suite (including interrupted publication
+  and installer cancellation contracts), `go vet ./...`, and all Go packages.
+  The actual non-root command exited before host inspection and printed the
+  correctly shell-quoted sudo command. Hosted CI and the non-publishing
+  versioned candidate preflight are queued; GitHub currently reports zero
+  self-hosted runners, so they provide no result yet.

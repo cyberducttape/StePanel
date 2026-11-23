@@ -106,8 +106,9 @@ install is recorded under M0ay.
 
 ### M0ax — Report first-install blockers together (P1)
 
-**Status:** Implemented locally; aggregation, ordering, shell syntax, ShellCheck,
-and installer-contract tests pass. The read-only host preflight now runs all
+**Status:** Implemented and locally verified on `788882f3`; aggregation,
+ordering, shell syntax, ShellCheck, installer-contract tests, and full `make
+check` pass. The read-only host preflight now runs all
 independent OS/package-manager, systemd, quota, and offsite-tool checks, prints
 each blocker with a fix, then gives an exact recheck command. Quota and remote
 backup requirements remain required; this does not modify mount settings or
