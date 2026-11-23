@@ -2484,3 +2484,27 @@ suspension endpoints.
 - Seeded owner browser coverage proves request counts and first-site behavior;
   full browser E2E, unit tests, local checks, and exact-source CI pass.
 
+### M0bb — Prove the 100 MiB customer upload path end to end (P2)
+
+**Status:** Implemented locally. The browser file manager already supports
+resumable uploads up to 100 MiB in ordered 4 MiB chunks with capacity
+reservation, tenant checks, checksum verification, and atomic publication.
+The customer API regression now transfers the full limit, recreates the App
+between chunks to model a control-plane restart, resumes from durable session
+state, and hashes the published file as a stream. Its fixture uses one chunk
+buffer rather than retaining the full artifact and output in memory. Focused
+Go tests and the sitefiles race test pass; full repository checks and
+exact-source hosted CI for this test change remain pending.
+
+**Acceptance criteria**
+
+- A 100 MiB transfer uses requests no larger than 4 MiB and resumes from
+  persisted session metadata after App/manager reconstruction.
+- Published bytes match the expected SHA-256; wrong-tenant access and paths
+  outside the document root are refused.
+- Capacity exhaustion is rejected before session admission, and upload
+  concurrency remains tenant-bounded.
+- The seeded customer E2E verifies chunk ordering and multi-request upload
+  behavior; the 100 MiB durable-session path is exercised through the API.
+- Focused and full Go checks, browser tests, and exact-source hosted CI pass.
+

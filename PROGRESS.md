@@ -1,3 +1,23 @@
+## Verify full-size resumable customer uploads with bounded test memory — 2026-11-23
+
+- The existing customer file manager accepts resumable uploads through 100 MiB
+  in 4 MiB chunks, checks capacity before admission, scopes sessions to the
+  authorized tenant/site, verifies SHA-256 before publishing, and uses the
+  rooted store for final path confinement. Existing tests cover quota rejection,
+  tenant concurrency, and refusal to overwrite or escape the site root.
+- Strengthened the API-path regression to transfer the full 100 MiB limit,
+  construct a fresh `App` after 12 chunks, resume from the durable session,
+  and stream-hash the published file. The test now holds one 4 MiB chunk in
+  memory instead of the 100 MiB input and output buffers. Added explicit
+  traversal rejection at upload-session creation.
+- `go test . -run '^TestSiteFilesResumableUploadPublishesVerifiedLargeFile$'`
+  and `go test ./internal/sitefiles -run
+  '^TestResumableUploadSurvivesManagerRestartAndPublishesVerifiedBytes$'`
+  passed. `go test -race ./internal/sitefiles -count=1` passed. The full
+  `make check` and exact-source hosted workflow for this test change are still
+  pending. The test reconstructs the app/manager over durable staging; it does
+  not claim a physical power-loss or installed-host certification result.
+
 ## Reduce first-load work in the site lifecycle workspace — 2026-11-22
 
 - Both site overview and guided lifecycle views use their recovery summary for

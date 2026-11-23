@@ -9,25 +9,30 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestResumableUploadSurvivesManagerRestartAndPublishesVerifiedBytes(t *testing.T) {
 	root := t.TempDir()
-	content := bytes.Repeat([]byte("s"), int(MaxResumableUploadBytes))
-	digest := sha256.Sum256(content)
+	chunk := bytes.Repeat([]byte("s"), int(MaxUploadChunkBytes))
+	digest := sha256.New()
+	for i := int64(0); i < MaxResumableUploadBytes/MaxUploadChunkBytes; i++ {
+		_, _ = digest.Write(chunk)
+	}
+	expectedDigest := hex.EncodeToString(digest.Sum(nil))
 	m, err := NewUploadManager(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := m.Begin("shop", "tenant-a", "wp-content/archive.bin", int64(len(content)), hex.EncodeToString(digest[:]), "")
+	session, err := m.Begin("shop", "tenant-a", "wp-content/archive.bin", MaxResumableUploadBytes, expectedDigest, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 12; i++ {
 		start := int64(i) * MaxUploadChunkBytes
-		session, err = m.Append(context.Background(), session.ID, "shop", "tenant-a", start, session.Size, bytes.NewReader(content[start:start+MaxUploadChunkBytes]))
+		session, err = m.Append(context.Background(), session.ID, "shop", "tenant-a", start, session.Size, bytes.NewReader(chunk))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -42,24 +47,30 @@ func TestResumableUploadSurvivesManagerRestartAndPublishesVerifiedBytes(t *testi
 		if end > session.Size {
 			end = session.Size
 		}
-		session, err = m.Append(context.Background(), session.ID, "shop", "tenant-a", start, session.Size, bytes.NewReader(content[start:end]))
+		if end-start != int64(len(chunk)) {
+			t.Fatalf("test chunk has unexpected size %d", end-start)
+		}
+		session, err = m.Append(context.Background(), session.ID, "shop", "tenant-a", start, session.Size, bytes.NewReader(chunk))
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
-	var published []byte
+	var publishedDigest string
+	var publishedBytes int64
 	err = m.Complete(context.Background(), session.ID, "shop", "tenant-a", func(got UploadSession, r io.Reader) error {
-		if got.Path != session.Path || got.SHA256 != hex.EncodeToString(digest[:]) {
+		if got.Path != session.Path || got.SHA256 != expectedDigest {
 			t.Fatal("published metadata changed")
 		}
-		published, err = io.ReadAll(r)
+		hash := sha256.New()
+		publishedBytes, err = io.Copy(hash, r)
+		publishedDigest = hex.EncodeToString(hash.Sum(nil))
 		return err
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(published, content) {
-		t.Fatal("published content mismatch")
+	if publishedBytes != MaxResumableUploadBytes || publishedDigest != expectedDigest {
+		t.Fatalf("published stream size=%d digest=%s; want size=%d digest=%s", publishedBytes, publishedDigest, MaxResumableUploadBytes, expectedDigest)
 	}
 	if _, err := m.Info(session.ID, "shop", "tenant-a"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("completed session remains: %v", err)
@@ -70,6 +81,9 @@ func TestResumableUploadEnforcesTenantOffsetAndChecksum(t *testing.T) {
 	m, err := NewUploadManager(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, err := m.Begin("shop", "tenant-a", "../outside.bin", 1, strings.Repeat("0", sha256.Size*2), ""); err == nil {
+		t.Fatal("upload session accepted a path outside the site document root")
 	}
 	data := []byte("verified content")
 	digest := sha256.Sum256(data)

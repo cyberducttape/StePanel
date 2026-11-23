@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -190,9 +191,13 @@ func TestSiteFilesRejectsStaleEditorRevision(t *testing.T) {
 func TestSiteFilesResumableUploadPublishesVerifiedLargeFile(t *testing.T) {
 	a, docRoot := newSiteFilesApp(t)
 	a.Config.ImportRoot = filepath.Join(t.TempDir(), "imports")
-	content := bytes.Repeat([]byte("u"), sitefiles.MaxWriteBytes+19)
-	digest := sha256.Sum256(content)
-	beginBody, _ := json.Marshal(map[string]any{"path": "large.bin", "size": len(content), "sha256": hex.EncodeToString(digest[:])})
+	chunk := bytes.Repeat([]byte("u"), int(sitefiles.MaxUploadChunkBytes))
+	digest := sha256.New()
+	for i := int64(0); i < sitefiles.MaxResumableUploadBytes/sitefiles.MaxUploadChunkBytes; i++ {
+		_, _ = digest.Write(chunk)
+	}
+	expectedDigest := hex.EncodeToString(digest.Sum(nil))
+	beginBody, _ := json.Marshal(map[string]any{"path": "large.bin", "size": sitefiles.MaxResumableUploadBytes, "sha256": expectedDigest})
 	begin := siteFilesRequest(a, "alice", http.MethodPost, "/api/sites/files/alice/uploads", beginBody)
 	if begin.Code != http.StatusCreated {
 		t.Fatalf("begin = %d %s", begin.Code, begin.Body)
@@ -207,7 +212,7 @@ func TestSiteFilesResumableUploadPublishesVerifiedLargeFile(t *testing.T) {
 	if err := json.Unmarshal(begin.Body.Bytes(), &session); err != nil {
 		t.Fatal(err)
 	}
-	if session.ID == "" || session.Path != "large.bin" || session.Size != int64(len(content)) {
+	if session.ID == "" || session.Path != "large.bin" || session.Size != sitefiles.MaxResumableUploadBytes {
 		t.Fatalf("begin response leaked or omitted expected metadata: %+v", session)
 	}
 	put := func(offset int64, part []byte) *httptest.ResponseRecorder {
@@ -218,19 +223,27 @@ func TestSiteFilesResumableUploadPublishesVerifiedLargeFile(t *testing.T) {
 		a.siteFiles(w, r.WithContext(ctx))
 		return w
 	}
-	first := put(0, content[:sitefiles.MaxWriteBytes])
-	if first.Code != http.StatusOK {
-		t.Fatalf("first chunk = %d %s", first.Code, first.Body)
+	for i := 0; session.Offset < 12*sitefiles.MaxUploadChunkBytes; i++ {
+		response := put(session.Offset, chunk)
+		if response.Code != http.StatusOK {
+			t.Fatalf("chunk %d = %d %s", i, response.Code, response.Body)
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &session); err != nil {
+			t.Fatalf("decode chunk %d progress: %v", i, err)
+		}
 	}
-	var progress struct {
-		Offset int64 `json:"offset"`
-	}
-	if err := json.Unmarshal(first.Body.Bytes(), &progress); err != nil || progress.Offset != sitefiles.MaxWriteBytes {
-		t.Fatalf("chunk progress = %+v, %v", progress, err)
-	}
-	second := put(progress.Offset, content[progress.Offset:])
-	if second.Code != http.StatusOK {
-		t.Fatalf("second chunk = %d %s", second.Code, second.Body)
+	// A new App models a panel process restart: the upload manifest and staged
+	// bytes must be sufficient to resume without process-local manager state.
+	previous := a
+	a = &App{Config: previous.Config, Auth: previous.Auth, Accounts: previous.Accounts}
+	for i := 12; session.Offset < session.Size; i++ {
+		response := put(session.Offset, chunk)
+		if response.Code != http.StatusOK {
+			t.Fatalf("resumed chunk %d = %d %s", i, response.Code, response.Body)
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &session); err != nil {
+			t.Fatalf("decode resumed chunk %d progress: %v", i, err)
+		}
 	}
 	wrongTenant := siteFilesRequest(a, "bob", http.MethodGet, "/api/sites/files/alice/uploads/"+session.ID, nil)
 	if wrongTenant.Code != http.StatusForbidden && wrongTenant.Code != http.StatusNotFound {
@@ -240,9 +253,15 @@ func TestSiteFilesResumableUploadPublishesVerifiedLargeFile(t *testing.T) {
 	if complete.Code != http.StatusOK {
 		t.Fatalf("complete = %d %s", complete.Code, complete.Body)
 	}
-	got, err := os.ReadFile(filepath.Join(docRoot, "large.bin"))
-	if err != nil || !bytes.Equal(got, content) {
-		t.Fatalf("published upload length=%d err=%v", len(got), err)
+	file, err := os.Open(filepath.Join(docRoot, "large.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	gotDigest := sha256.New()
+	gotBytes, err := io.Copy(gotDigest, file)
+	if err != nil || gotBytes != sitefiles.MaxResumableUploadBytes || hex.EncodeToString(gotDigest.Sum(nil)) != expectedDigest {
+		t.Fatalf("published upload bytes=%d digest=%s err=%v", gotBytes, hex.EncodeToString(gotDigest.Sum(nil)), err)
 	}
 	if _, err := os.Stat(filepath.Join(a.Config.ImportRoot, "site-file-uploads", session.ID+".part")); !os.IsNotExist(err) {
 		t.Fatalf("staging file remains: %v", err)
