@@ -14,8 +14,11 @@ successful one-off smoke does not close a host-certification gate.
 
 ### M0au — Gate customer WordPress credentials on verified ownership (P1)
 
-**Status:** Implemented locally; focused browser, frontend-unit, and syntax
-checks pass. Exact-source hosted CI for the latest UI refinement is pending.
+**Status:** Implemented and verified on exact source `07726007`; the hosted
+integration and customer UI E2E jobs passed in
+[run 45108095198](https://github.com/cyberducttape/StePanel/actions/runs/45108095198).
+The seeded browser flow covers customer-side DNS proof before WordPress
+credentials and site creation.
 Customers first claim and verify a DNS TXT record; only then are the WordPress
 title and credentials shown. Copy controls are available for the DNS record,
 and editing the site or domain invalidates the proof. The backend continues to
@@ -35,8 +38,10 @@ accurately distinguishes securing saved settings from changing host services.
 ### M0av — Reauthenticate customer credential mutations (P1)
 
 **Status:** Implemented and locally verified. `make check`, full browser E2E
-(33 passed, one expected skip), API/release/documentation checks pass. Hosted
-CI for this combined source is pending. Password changes and MFA
+(33 passed, one expected skip), API/release/documentation checks pass. The
+exact-source Go and customer UI E2E jobs passed in
+[run 45108095198](https://github.com/cyberducttape/StePanel/actions/runs/45108095198).
+Password changes and MFA
 enrollment/replacement require the current password and, if an authenticator
 is already configured, a fresh current-factor code. A per-account/client
 limiter bounds guesses; the existing TOTP replay store prevents reusing a

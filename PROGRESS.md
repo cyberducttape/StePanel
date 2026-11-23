@@ -1,5 +1,17 @@
 # Production-readiness progress
 
+## Verify customer setup flows on exact source — 2026-11-23
+
+- The exact-source integration workflow passed on `07726007`, including Go
+  tests and the seeded browser end-to-end/accessibility job
+  ([45108095198](https://github.com/cyberducttape/StePanel/actions/runs/45108095198)).
+  This verifies that customer WordPress setup requires the DNS ownership proof
+  before collecting credentials and submitting creation, and that the
+  current-password/MFA reauthentication flows remain covered in the same
+  source snapshot.
+- This closes hosted code/UI verification for those workflows. Installed-host
+  support and production certification are separate gates and remain open.
+
 ## Fix EL 9 fresh-install package detection — 2026-11-23
 
 - The six-host recovery run on source `0cadd0ab` uncovered four EL 9.9
