@@ -2458,11 +2458,12 @@ that choice. Existing mandatory domain-ownership verification is unchanged.
 
 ### M0ba — Defer empty-customer inventory work (P2)
 
-**Status:** Implemented locally. The seeded account-owner journey passes on a
-rebuilt panel binary, and the full browser suite passes (33 passed, one expected
-skip). Frontend unit tests pass (19/19), `make check`, release checks, and
-documentation validation pass. Exact-source hosted CI for this follow-up is
-pending.
+**Status:** Implemented and verified on exact source `e7a48b75`. The seeded
+account-owner journey passes on a rebuilt panel binary, and the full browser
+suite passes (33 passed, one expected skip). Frontend unit tests pass (19/19),
+`make check`, release checks, and documentation validation pass. Hosted
+integration, browser E2E, documentation, CodeQL, and release-evidence workflows
+passed; see [integration run 45123113734](https://github.com/cyberducttape/StePanel/actions/runs/45123113734).
 
 The customer home page should not enumerate sites or backups when the account
 has no sites, and the hidden site grid should not load its own inventory before
@@ -2486,15 +2487,18 @@ suspension endpoints.
 
 ### M0bb — Prove the 100 MiB customer upload path end to end (P2)
 
-**Status:** Implemented locally. The browser file manager already supports
+**Status:** Implemented and verified on exact source `e7a48b75`. The browser
+file manager already supports
 resumable uploads up to 100 MiB in ordered 4 MiB chunks with capacity
 reservation, tenant checks, checksum verification, and atomic publication.
 The customer API regression now transfers the full limit, recreates the App
 between chunks to model a control-plane restart, resumes from durable session
 state, and hashes the published file as a stream. Its fixture uses one chunk
 buffer rather than retaining the full artifact and output in memory. Focused
-Go tests and the sitefiles race test pass; full repository checks and
-exact-source hosted CI for this test change remain pending.
+Go tests, full `make check`, sitefiles race test, and exact-source hosted CI
+pass. The CI run includes race tests, recovery, ENOSPC, MySQL/PostgreSQL
+integration, and browser E2E. This does not certify physical power-loss
+recovery or a production host.
 
 **Acceptance criteria**
 
@@ -2510,13 +2514,15 @@ exact-source hosted CI for this test change remain pending.
 
 ### M0bc — Keep themed primary actions accessible on first paint (P2)
 
-**Status:** Fix and theme-color contract test implemented locally; hosted
-browser verification is pending. CI for `db39eb83` found that the global button
+**Status:** Implemented and verified on exact source `e7a48b75`. CI for
+`db39eb83` found that the global button
 color transition briefly rendered “Add website” at 4.16:1 contrast while the
 light theme initialized. The appearance stylesheet now applies primary-action
 colors without an intermediate animation and sets a contrasting foreground,
 including the Windows 95/3.1 palettes. A unit test checks the foreground and
 accent contrast across all ten themes and prohibits the first-paint tween.
+Frontend unit tests and the seeded customer browser accessibility suite pass;
+full hosted integration, documentation, CodeQL, and release evidence also pass.
 
 **Acceptance criteria**
 

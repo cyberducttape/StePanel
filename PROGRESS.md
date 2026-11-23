@@ -9,10 +9,14 @@
   use a dedicated foreground token. Windows 95/3.1 use white text on navy;
   other palettes use their dark foreground token. Added a unit test that
   evaluates all ten themes plus light default mode and requires at least 4.5:1.
-- `npm run test:unit` passed (20/20). Documentation and CodeQL workflows pass
-  for the upload-test commit. The complete integration workflow for that
-  commit was still running when this fix was prepared; this CSS correction's
-  exact-source hosted CI remains pending.
+- `npm run test:unit` passed (20/20). Exact-source integration passed on
+  `e7a48b75` ([run 45123113734](https://github.com/cyberducttape/StePanel/actions/runs/45123113734)),
+  including the seeded browser accessibility job. Documentation
+  ([45123113695](https://github.com/cyberducttape/StePanel/actions/runs/45123113695)),
+  CodeQL ([45123113691](https://github.com/cyberducttape/StePanel/actions/runs/45123113691)),
+  and release evidence ([45123348368](https://github.com/cyberducttape/StePanel/actions/runs/45123348368))
+  also passed. The initial failure on `db39eb83` was fixed and remains visible
+  in the evidence history.
 
 ## Verify full-size resumable customer uploads with bounded test memory — 2026-11-23
 
@@ -29,10 +33,13 @@
 - `go test . -run '^TestSiteFilesResumableUploadPublishesVerifiedLargeFile$'`
   and `go test ./internal/sitefiles -run
   '^TestResumableUploadSurvivesManagerRestartAndPublishesVerifiedBytes$'`
-  passed. `go test -race ./internal/sitefiles -count=1` passed. The full
-  `make check` and exact-source hosted workflow for this test change are still
-  pending. The test reconstructs the app/manager over durable staging; it does
-  not claim a physical power-loss or installed-host certification result.
+  passed. `go test -race ./internal/sitefiles -count=1` passed, and full
+  `make check` passed (root package 120.4s). Exact-source CI on `e7a48b75`
+  passed full Go, race, recovery, ENOSPC, database integration, and browser
+  checks ([run 45123113734](https://github.com/cyberducttape/StePanel/actions/runs/45123113734));
+  docs, CodeQL, and release-evidence checks passed as well. The test
+  reconstructs the app/manager over durable staging; it does not claim a
+  physical power-loss or installed-host certification result.
 
 ## Reduce first-load work in the site lifecycle workspace — 2026-11-22
 
@@ -69,9 +76,10 @@
 - The focused customer E2E passed; the full rebuilt browser suite passed (33
   passed, one expected skip), frontend unit tests passed (19/19), and JavaScript
   syntax and diff checks passed. `make check`, release checks, documentation
-  links, and documentation-reference validation all passed locally. The prior
-  source's hosted integration passed; exact-source hosted CI for this follow-up
-  is pending. No host certification is implied.
+  links, and documentation-reference validation all passed locally. Exact
+  source `e7a48b75` passed integration ([run 45123113734](https://github.com/cyberducttape/StePanel/actions/runs/45123113734)),
+  documentation, CodeQL, and release-evidence workflows. No host certification
+  is implied.
 
 # Production-readiness progress
 
