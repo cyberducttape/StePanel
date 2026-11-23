@@ -4929,3 +4929,15 @@ does not close a current-source or power-loss gate.
   Go packages).
 - Exact-source hosted checks are pending; local `make check` is not a substitute
   for that evidence.
+
+## Make the read-only host doctor easier to rerun — 2026-11-23
+
+- A non-root invocation previously said only to run the preflight through
+  sudo, leaving a first-time operator to reconstruct the command. It now
+  prints a copyable `sudo bash` invocation and safely quotes paths containing
+  spaces.
+- Added a doctor contract for the non-root remediation and the root success
+  path. `make shell-contract-check`, `make release-check`, shell syntax, and
+  `git diff --check` passed.
+- Hosted checks remain pending for the current source; no host state was
+  changed by this read-only flow.

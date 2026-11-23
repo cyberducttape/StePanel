@@ -4,9 +4,18 @@ set -Eeuo pipefail
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=../deploy/lib/install-doctor.sh
 . "$ROOT_DIR/deploy/lib/install-doctor.sh"
-
 tmp=$(mktemp -d)
 trap 'rm -rf -- "$tmp"' EXIT
+
+if install_doctor_require_root "$tmp/preflight with spaces.sh" 1000 2>"$tmp/root-hint"; then
+  echo 'doctor allowed host preflight without root' >&2
+  exit 1
+fi
+expected_command=$(printf '  sudo bash %q' "$tmp/preflight with spaces.sh")
+grep -Fxq 'This read-only preflight needs root to inspect host requirements. Rerun it with:' "$tmp/root-hint"
+grep -Fxq "$expected_command" "$tmp/root-hint"
+install_doctor_require_root "$tmp/preflight.sh" 0
+
 INSTALL_DOCTOR_FAILURES=0
 check_pass() { printf 'check-ran\n' >> "$CHECK_LOG"; printf 'verified\n'; }
 check_fail() { printf 'check-ran\n' >> "$CHECK_LOG"; printf 'missing prerequisite\n' >&2; return 1; }

@@ -129,7 +129,8 @@ certification.
   guided pre-question and full installer reports must both use that label,
   and the post-package check must still block before hosted-site provisioning.
 - No privileged host setting is changed by the doctor. The installer repeats
-  prerequisite checks before mutation.
+  prerequisite checks before mutation. A non-root invocation prints a
+  copyable, shell-quoted sudo command for the read-only preflight.
 - Aggregation tests, shell syntax, ShellCheck, documentation checks, and
   exact-source hosted CI pass.
 

@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-if [[ $EUID -ne 0 ]]; then
-  echo 'Run this host preflight through sudo.' >&2
-  exit 1
-fi
-
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 . "$repo_root/deploy/lib/install-support-tier.sh"
 . "$repo_root/deploy/lib/install-systemd-preflight.sh"
@@ -13,6 +8,10 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 . "$repo_root/deploy/lib/install-doctor.sh"
 . "$repo_root/deploy/integrations/stepanel-quota-state.sh"
 . "$repo_root/deploy/lib/install-quota-preflight.sh"
+
+if ! install_doctor_require_root "$repo_root/scripts/install-host-preflight.sh"; then
+  exit 1
+fi
 
 echo 'Checking host requirements before downloading the Go toolchain or building StePanel.'
 INSTALL_DOCTOR_FAILURES=0

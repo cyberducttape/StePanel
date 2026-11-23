@@ -3,6 +3,16 @@
 # Run a read-only installer prerequisite check and retain all failures so the
 # operator receives one actionable report instead of discovering blockers one
 # at a time. The checked command must not mutate host state.
+install_doctor_require_root() {
+  local preflight=${1:-} effective_uid=${2:-$EUID}
+  if [[ $effective_uid == 0 ]]; then
+    return 0
+  fi
+  printf 'This read-only preflight needs root to inspect host requirements. Rerun it with:\n  sudo bash %q\n' \
+    "$preflight" >&2
+  return 1
+}
+
 install_doctor_check() {
   local label=$1 remediation=$2 output
   shift 2
