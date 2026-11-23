@@ -425,6 +425,12 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Files' }).click();
   await expect(page.locator('#files')).toBeVisible();
   await expect(page.locator('#fileTransferLimits')).toHaveText('Edit files up to 2 MiB. Upload files up to 100 MiB in resumable, checksum-verified chunks; downloads support files up to 40 GiB.');
+  const sftpGuide = page.locator('#fileSftpGuide');
+  await expect(sftpGuide).toBeVisible();
+  await sftpGuide.locator('summary').click();
+  await expect(page.locator('#fileSftpUsername')).toHaveText(testCustomer.username);
+  await expect(page.locator('#fileSftpRoot')).toHaveText(`/home/${testCustomer.username}/public_html`);
+  await expect(page.locator('#fileSftpSettings')).toHaveAttribute('href', '#site=e2e-main&tab=security');
   await expect(page.locator('#fileStatus')).toContainText('temporary listing failure');
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Websites' }).click();
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Files' }).click();
@@ -447,6 +453,8 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   expect(resumableUploadChunks).toBe(2);
   await page.getByRole('button', { name: 'index.php', exact: true }).click();
   await page.locator('#fileSite').selectOption('e2e-shop');
+  await expect(page.locator('#fileSftpRoot')).toHaveText(`/home/${testCustomer.username}/shop.example.org`);
+  await expect(page.locator('#fileSftpSettings')).toHaveAttribute('href', '#site=e2e-shop&tab=security');
   await expect(page.getByRole('button', { name: 'shop.php', exact: true })).toBeVisible();
   releaseMainRead.done = true;
   releaseMainRead();

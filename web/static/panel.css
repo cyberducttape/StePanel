@@ -92,6 +92,14 @@
 .file-upload-label { cursor: pointer; }
 .file-manager-toolbar input[type="file"]:focus-visible + *,
 .file-upload-label:focus-within { outline: 2px solid var(--cp-accent); outline-offset: 2px; }
+.file-sftp-guide { border: 1px solid var(--cp-line); border-radius: 10px; background: var(--cp-raised); padding: 12px 14px; }
+.file-sftp-guide summary { color: var(--cp-text); font-weight: 650; cursor: pointer; }
+.file-sftp-guide-content { display: grid; gap: 10px; margin-top: 12px; color: var(--cp-muted); font-size: 12px; line-height: 1.6; }
+.file-sftp-guide-content dl { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+.file-sftp-guide-content dt { color: var(--cp-muted); }
+.file-sftp-guide-content dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.file-sftp-guide-content code { overflow-wrap: anywhere; }
+.file-sftp-guide-content a { justify-self: start; }
 .file-name-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
 .file-name-form .field { margin: 0; min-width: 260px; flex: 1 1 260px; }
 

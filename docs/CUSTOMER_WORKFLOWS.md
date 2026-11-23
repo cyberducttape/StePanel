@@ -116,6 +116,14 @@ mutation lock, and is recorded in the account's audit trail
 - Websites from before hosting accounts (in `/var/www/sites`) are not
   available in the file manager.
 
+For files larger than the 100 MiB resumable-upload limit, use SFTP. The Files
+page shows the hosting account's Unix username and the selected website's
+document-root folder, and links directly to that website's **Security** page
+for SFTP access and SSH-key settings. Ask the hosting administrator for the
+SFTP hostname and port; availability depends on the host's access policy. Add
+your public key there when key authentication is enabled. Keep the private key
+on your device and never send it to the panel or another person.
+
 API tokens need `files:read` to list, read and download, and `files:write`
 to change files. Viewers can read files; developers can also change them.
 The endpoints are listed under `/api/sites/files/` in the

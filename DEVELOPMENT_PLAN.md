@@ -2531,3 +2531,24 @@ full hosted integration, documentation, CodeQL, and release evidence also pass.
 - Frontend unit tests and the seeded customer browser accessibility suite pass;
   exact-source hosted CI passes.
 
+### M0bd — Make large-file SFTP handoff clear to customers (P2)
+
+**Status:** Implemented locally; focused checks and exact-source CI pending.
+When a customer opens Files, the page can show the account Unix username and
+selected site's document root, with a direct link to that site's SFTP settings.
+The guidance identifies the hosting administrator as the source for host and
+port details, avoids implying SFTP is enabled everywhere, and warns customers
+to keep private keys private. The customer workflow guide documents the same
+limits and handoff.
+
+**Acceptance criteria**
+
+- A seeded customer sees the SFTP guide with the correct account username and
+  document root for each selected site.
+- The settings link targets that site's Security workspace; switching sites
+  updates both folder and link.
+- Guidance states that host/port and SFTP availability are host-policy-specific
+  and does not request private-key disclosure.
+- Frontend checks, browser regression, documentation checks, and exact-source
+  hosted CI pass.
+

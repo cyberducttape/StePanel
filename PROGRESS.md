@@ -1,3 +1,20 @@
+## Make the large-file SFTP handoff usable — 2026-11-23
+
+- The customer Files page now has an expandable SFTP guide for transfers beyond
+  the resumable browser limit. It shows the hosting account's Unix username,
+  the selected site's document root, and a direct link to that site's Security
+  workspace. It tells customers to ask their administrator for host and port,
+  notes that SFTP depends on host policy, and warns against sharing private
+  keys.
+- The customer workflow documentation now describes the same limits and
+  handoff. Seeded browser coverage verifies the values and security-settings
+  link for two different websites.
+- `npm run test:unit` passed (20/20), `node --check` passed for the changed
+  JavaScript, `make build-panel` passed, `git diff --check` passed, and
+  documentation links/references plus `make release-check` passed. The seeded
+  browser regression and exact-source hosted CI are pending this commit; no
+  hosted result is claimed yet.
+
 ## Fix a first-paint contrast failure found by hosted browser CI — 2026-11-23
 
 - CI for `db39eb83` failed the seeded customer-panel axe check: the default

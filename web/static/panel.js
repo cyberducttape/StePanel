@@ -405,6 +405,10 @@
     const editorStatus = $('#fileEditorStatus');
     const editorSave = $('#fileEditorSave');
     const editorReload = $('#fileEditorReload');
+    const sftpGuide = $('#fileSftpGuide');
+    const sftpUsername = $('#fileSftpUsername');
+    const sftpRoot = $('#fileSftpRoot');
+    const sftpSettings = $('#fileSftpSettings');
     const MAX_WRITE = 4 * 1024 * 1024;
     const MAX_RESUMABLE_UPLOAD = 100 * 1024 * 1024;
     const UPLOAD_CHUNK = 4 * 1024 * 1024;
@@ -468,6 +472,16 @@
     const base = (siteName = site) => `/api/sites/files/${encodeURIComponent(siteName)}`;
     const join = (dir, name) => (dir ? `${dir}/${name}` : name);
     const docRoot = () => (sites.find((entry) => entry.site === site) || {}).doc_root || '';
+    const updateSFTPGuide = () => {
+      const selected = sites.find((entry) => entry.site === site);
+      const username = String(hosting.unix_user || '').trim();
+      if (!sftpGuide) return;
+      sftpGuide.hidden = !selected || !username;
+      if (!selected || !username) return;
+      sftpUsername.textContent = username;
+      sftpRoot.textContent = selected.doc_root || '';
+      sftpSettings.href = `#site=${encodeURIComponent(selected.site)}&tab=security`;
+    };
     const setStatus = (message, state = '') => ui.setStatus(status, message, state);
     const isCurrent = (context) => Boolean(context && context.token === token && context.generation === contextGeneration && context.site === site && context.path === path);
     const isCurrentEditor = (session) => Boolean(session && session.generation === contextGeneration && session.site === site && session.directory === path);
@@ -765,6 +779,7 @@
     });
     siteSelect.addEventListener('change', () => {
       open('', siteSelect.value);
+      updateSFTPGuide();
     });
 
     return {
@@ -783,6 +798,7 @@
           siteSelect.disabled = true;
           toolbar.hidden = true;
           setStatus('None of your websites are in your home directory yet, so there are no files to manage here.');
+          updateSFTPGuide();
           return;
         }
         if (!sites.some((entry) => entry.site === site)) {
@@ -798,6 +814,7 @@
         siteSelect.disabled = false;
         toolbar.hidden = false;
         siteSelect.value = site;
+        updateSFTPGuide();
         if (currentView === 'files') this.activate();
       },
       // Opens a website's root the next time the Files view is shown.
@@ -808,6 +825,7 @@
         contextGeneration++;
         token++;
         siteSelect.value = name;
+        updateSFTPGuide();
         closeEditor();
         hideNameForm();
         rows.replaceChildren();
