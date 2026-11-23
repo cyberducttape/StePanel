@@ -4409,9 +4409,8 @@ does not close a current-source or power-loss gate.
   `scripts/test-install-guided-settings.sh`, `scripts/check-release.sh`,
   `make release-check`, `go test ./cmd/stepanelctl`, shell syntax checks,
   ShellCheck, `git diff --check`, and full `make check` passed locally.
-  GoReleaser produced both Linux archives. The exact-source release-evidence
-  verifier was not applicable to this uncommitted tree because it has no
-  generated `RELEASE_EVIDENCE.md`.
+  GoReleaser produced both Linux archives. Exact-source release-evidence
+  verification is pending a committed source identity and generated evidence.
 - Exact-source hosted CI for the CLI packaging changes remains pending. The
   earlier packaged Ubuntu 24.04 + Caddy + MariaDB smoke
   [45094688912](https://github.com/cyberducttape/StePanel/actions/runs/45094688912)
