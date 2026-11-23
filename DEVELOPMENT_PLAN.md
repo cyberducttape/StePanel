@@ -283,8 +283,10 @@ loads curl. The same run also showed that matching the
 literal version string `9` misclassified real `9.9` hosts as outside the
 matrix. EL support classification now matches the major series while telling
 operators to verify the exact minor release evidence. Four EL jobs failed on
-the old source before this correction; an exact-source Rocky/AlmaLinux rerun
-is required before counting those profiles as passing.
+the old source before this correction. Exact-source integration, documentation,
+CodeQL, and release-evidence checks pass on `07726007`; installed-host reruns
+for Ubuntu 24.04, Rocky Linux 9, and AlmaLinux 9 are in progress. The EL
+profiles remain unverified until their current-source installation jobs finish.
 
 **Acceptance criteria**
 

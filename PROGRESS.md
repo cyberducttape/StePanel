@@ -19,9 +19,18 @@
   (115.7 seconds for the root package). The final shell changes also passed
   `make shell-contract-check`, focused package/support-tier/preflight-order
   tests, shell syntax, and ShellCheck. Fresh Rocky and AlmaLinux package
-  installs verified curl enabled. An exact-source installed-host rerun is
-  still required; the old-source matrix failures do not count as certification
-  results.
+  installs verified curl enabled. Exact-source integration
+  ([45108095198](https://github.com/cyberducttape/StePanel/actions/runs/45108095198)),
+  documentation ([45108095073](https://github.com/cyberducttape/StePanel/actions/runs/45108095073)),
+  CodeQL ([45108095255](https://github.com/cyberducttape/StePanel/actions/runs/45108095255)),
+  and release-evidence checks ([45110032312](https://github.com/cyberducttape/StePanel/actions/runs/45110032312))
+  passed on `07726007`. Exact-source installed-host runs for Ubuntu 24.04,
+  Rocky Linux 9, and AlmaLinux 9 remain in progress
+  ([45108095187](https://github.com/cyberducttape/StePanel/actions/runs/45108095187),
+  [45108134385](https://github.com/cyberducttape/StePanel/actions/runs/45108134385),
+  [45108134199](https://github.com/cyberducttape/StePanel/actions/runs/45108134199));
+  until they finish, the old-source matrix failures do not count as resolved
+  host evidence.
 
 ## Exact-source checks for resumable uploads and setup recovery — 2026-11-23
 
