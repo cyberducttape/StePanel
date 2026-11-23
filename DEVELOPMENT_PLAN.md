@@ -1370,9 +1370,10 @@ recovery.
 **Status:** Implemented; local full-suite and focused race verification passed.
 The pinned Prometheus 3.5.0 `promtool` also reports all 44 alert rules valid
 and passes `observability/alerts_test.yml` on current source. Exact-source
-hosted CI is running in [integration run
+hosted integration on code-equivalent source `993a4079` is running in [run
 45179420668](https://github.com/cyberducttape/StePanel/actions/runs/45179420668);
-keep this item open until that run completes.
+the current `main` differs only in documentation. Keep this item open until
+the run completes.
 
 Production authentication is validated from trusted startup configuration
 before route construction. Disabled authentication requires an explicit
