@@ -19,6 +19,38 @@ install_preflight_packages() {
   printf 'all %d required and selected optional packages are available in repository metadata.' "$#"
 }
 
+# Debian-family releases package the PHP curl extension separately. On Rocky
+# and AlmaLinux 9, curl.so and its module configuration ship in php-common;
+# there is no installable php-curl package name in the stock AppStream repo.
+install_php_curl_package() {
+  local package_manager=${1:?package manager required}
+  local checker=${2:-} package
+  case $package_manager in
+    apt) printf '%s\n' php-curl ;;
+    dnf)
+      [[ -n $checker ]] || {
+        printf 'package availability checker required for DNF PHP curl selection\n' >&2
+        return 2
+      }
+      # Current EL 9 AppStream packages curl.so with php-common, while some
+      # other DNF repositories publish a separate php-curl RPM. Prefer the
+      # dedicated package when the configured repositories provide it.
+      for package in php-curl php-common; do
+        if "$checker" "$package"; then
+          printf '%s\n' "$package"
+          return 0
+        fi
+      done
+      printf 'neither php-curl nor php-common is available for the PHP curl extension\n' >&2
+      return 1
+      ;;
+    *)
+      printf 'unsupported package manager for PHP curl: %s\n' "$package_manager" >&2
+      return 2
+      ;;
+  esac
+}
+
 # Return the packages required only by options selected in guided or
 # unattended setup as a NUL-delimited list for mapfile.
 install_preflight_optional_packages() {

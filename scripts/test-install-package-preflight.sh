@@ -4,10 +4,34 @@ set -Eeuo pipefail
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=../deploy/lib/install-package-preflight.sh
 . "$ROOT_DIR/deploy/lib/install-package-preflight.sh"
+[[ $(install_php_curl_package apt) == php-curl ]]
+package_available() {
+  local wanted=$1 package
+  for package in "${available_php_packages[@]}"; do
+    [[ $package == "$wanted" ]] && return 0
+  done
+  return 1
+}
+available_php_packages=(php-common)
+[[ $(install_php_curl_package dnf package_available) == php-common ]]
+available_php_packages=(php-curl php-common)
+[[ $(install_php_curl_package dnf package_available) == php-curl ]]
+available_php_packages=()
+if install_php_curl_package dnf package_available >/dev/null 2>&1; then
+  echo 'DNF PHP curl selection accepted repositories without a provider' >&2
+  exit 1
+fi
+if install_php_curl_package pacman package_available >/dev/null 2>&1; then
+  echo 'unsupported package manager received a PHP curl package mapping' >&2
+  exit 1
+fi
 package_preflight_line=$(grep -n 'install_preflight_packages web_package_available' "$ROOT_DIR/install.sh" | cut -d: -f1)
 optional_package_preflight_line=$(grep -n 'install_preflight_optional_packages "\$PKG"' "$ROOT_DIR/install.sh" | cut -d: -f1)
 package_mutation_line=$(grep -n 'apt-get update; apt-get install' "$ROOT_DIR/install.sh" | cut -d: -f1)
 (( optional_package_preflight_line < package_preflight_line && package_preflight_line < package_mutation_line ))
+grep -Fq 'PHP_CURL_PACKAGE=$(install_php_curl_package "$PKG" web_package_available)' "$ROOT_DIR/install.sh"
+grep -Fq '"$PHP_CURL_PACKAGE"' "$ROOT_DIR/install.sh"
+grep -Fq 'extension_loaded("curl")' "$ROOT_DIR/install.sh"
 missing_package=
 package_available() {
   [[ $1 != "$missing_package" ]]

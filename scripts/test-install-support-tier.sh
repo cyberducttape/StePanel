@@ -31,6 +31,17 @@ for os in 'ubuntu 24.04' 'almalinux 9' 'rocky 9'; do
   done
 done
 
+# Rocky and AlmaLinux report the full minor version in os-release. Classify
+# the supported major-series matrix without incorrectly calling 9.9 an
+# unsupported distribution tuple.
+for os in 'almalinux 9.9' 'rocky 9.9'; do
+  read -r id version <<<"$os"
+  result=$(install_support_tier "$id" "$version" apache mariadb)
+  grep -Fq 'BETA PROFILE — REPEATED ACCEPTANCE PENDING:' <<<"$result"
+  grep -Fq "$id $version + apache + MariaDB" <<<"$result"
+  grep -Fq 'confirm this exact host image in the release evidence' <<<"$result"
+done
+
 for tuple in \
   'ubuntu 24.04 caddy postgresql' \
   'ubuntu 24.04 openlitespeed mariadb' \

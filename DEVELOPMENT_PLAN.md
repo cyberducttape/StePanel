@@ -274,6 +274,18 @@ no currently published stable archive supports a fresh Ubuntu 24.04 install.
 These release and repetition gates keep M0aa partial; the source-based staging
 path is usable, but it is not a production-ready release.
 
+The six-host run on `0cadd0ab` exposed a current EL 9 first-install blocker:
+Rocky and AlmaLinux 9.9 repositories do not provide a package named
+`php-curl`; their `php-common` package supplies and enables `curl.so`. The
+installer now selects `php-curl` when DNF repositories provide it, otherwise
+falls back to `php-common`, and checks that the installed PHP runtime actually
+loads curl. The same run also showed that matching the
+literal version string `9` misclassified real `9.9` hosts as outside the
+matrix. EL support classification now matches the major series while telling
+operators to verify the exact minor release evidence. Four EL jobs failed on
+the old source before this correction; an exact-source Rocky/AlmaLinux rerun
+is required before counting those profiles as passing.
+
 **Acceptance criteria**
 
 - A newcomer can start a loopback-only, no-host-mutation UI evaluation without

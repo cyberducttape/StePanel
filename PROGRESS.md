@@ -1,5 +1,28 @@
 # Production-readiness progress
 
+## Fix EL 9 fresh-install package detection — 2026-11-23
+
+- The six-host recovery run on source `0cadd0ab` uncovered four EL 9.9
+  first-install failures. The installer required a nonexistent `php-curl`
+  RPM, and its support-tier message misclassified version `9.9` as outside
+  the `9` matrix. All four failed before any StePanel services or packages
+  were changed.
+- Confirmed in fresh Rocky and AlmaLinux 9 containers that `dnf list
+  --available php-curl` fails, while `php-common` provides
+  `/usr/lib64/php/modules/curl.so`; after installing `php-common`, PHP reports
+  the curl extension enabled. Installer package selection now maps apt to
+  `php-curl` and uses DNF's `php-curl` package when available, falling back
+  to `php-common`; it verifies the PHP extension after installation. EL
+  support-tier matching recognizes minor versions and asks
+  operators to check exact-host evidence.
+- `make check` passed, including `go vet ./...` and the full Go test suite
+  (115.7 seconds for the root package). The final shell changes also passed
+  `make shell-contract-check`, focused package/support-tier/preflight-order
+  tests, shell syntax, and ShellCheck. Fresh Rocky and AlmaLinux package
+  installs verified curl enabled. An exact-source installed-host rerun is
+  still required; the old-source matrix failures do not count as certification
+  results.
+
 ## Exact-source checks for resumable uploads and setup recovery — 2026-11-23
 
 - Commit `64bb74a4` is pushed to `main` with the requested commit author.

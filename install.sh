@@ -341,6 +341,7 @@ preflight_blockers=()
 . "$ROOT_DIR/deploy/lib/install-systemd-preflight.sh"
 . "$ROOT_DIR/deploy/lib/install-package-preflight.sh"
 . "$ROOT_DIR/deploy/lib/install-database-version-preflight.sh"
+PHP_CURL_PACKAGE=$(install_php_curl_package "$PKG" web_package_available)
 MAIL_EXIM_SERVICE=$([[ "$PKG" == apt ]] && printf exim4 || printf exim)
 MAIL_SPAM_SERVICE=spamd
 INSTALL_HOST_SERVICES=(apache2 httpd caddy lsws "$MAIL_EXIM_SERVICE" dovecot "$MAIL_SPAM_SERVICE")
@@ -365,7 +366,7 @@ if (( UNSAFE_LAB == 0 )); then
   fi
 fi
 preflight_db_package=$DB_PACKAGE
-preflight_packages=(php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl git util-linux sudo logrotate "$PROCPS_PACKAGE")
+preflight_packages=(php php-cli php-fpm "$DB_PHP_PACKAGE" "$PHP_CURL_PACKAGE" php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl git util-linux sudo logrotate "$PROCPS_PACKAGE")
 if [[ "$PKG" == apt ]]; then
   preflight_packages+=(curl)
   if [[ "$DB_ENGINE" == postgresql ]]; then
@@ -427,7 +428,7 @@ for db_service in mysql mariadb postgresql; do
 done
 echo "  unix login accounts (uid >= 1000): $(awk -F: '$3 >= 1000 && $3 < 65534' /etc/passwd | wc -l)"
 echo "PROPOSED CHANGES:"
-echo "  INSTALL packages: php php-cli php-fpm $DB_PHP_PACKAGE php-curl php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl git util-linux sudo logrotate $PROCPS_PACKAGE $WEB_PACKAGE $DB_PACKAGE ${preflight_optional_packages[*]}"
+echo "  INSTALL packages: php php-cli php-fpm $DB_PHP_PACKAGE $PHP_CURL_PACKAGE php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl git util-linux sudo logrotate $PROCPS_PACKAGE $WEB_PACKAGE $DB_PACKAGE ${preflight_optional_packages[*]}"
 db_installed_version=not-installed
 db_candidate_version=unknown
 db_plan_package=$DB_PACKAGE
@@ -575,7 +576,7 @@ install_journal_on_exit() {
 trap install_journal_on_exit EXIT
 
 install_phase "installing base PHP and host utility packages"
-if [[ "$PKG" == "apt" ]]; then export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl curl git util-linux sudo logrotate "$PROCPS_PACKAGE"
+if [[ "$PKG" == "apt" ]]; then export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y php php-cli php-fpm "$DB_PHP_PACKAGE" "$PHP_CURL_PACKAGE" php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl curl git util-linux sudo logrotate "$PROCPS_PACKAGE"
 else
   # Rocky/Alma cloud images may ship the full curl package while minimal
   # images ship curl-minimal. They provide conflicting binaries, so do not
@@ -584,7 +585,11 @@ else
   if rpm -q curl >/dev/null 2>&1 || rpm -q curl-minimal >/dev/null 2>&1; then RHEL_CURL_PACKAGES=(); fi
   RHEL_SELINUX_PACKAGES=()
   if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then RHEL_SELINUX_PACKAGES+=(policycoreutils-python-utils); fi
-  dnf install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl "${RHEL_CURL_PACKAGES[@]}" "${RHEL_SELINUX_PACKAGES[@]}" git util-linux sudo logrotate "$PROCPS_PACKAGE"
+  dnf install -y php php-cli php-fpm "$DB_PHP_PACKAGE" "$PHP_CURL_PACKAGE" php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl "${RHEL_CURL_PACKAGES[@]}" "${RHEL_SELINUX_PACKAGES[@]}" git util-linux sudo logrotate "$PROCPS_PACKAGE"
+fi
+if ! php -r 'exit(extension_loaded("curl") ? 0 : 1);'; then
+  echo 'The installed PHP runtime does not have the curl extension enabled; inspect the PHP package selection and module configuration before retrying.' >&2
+  exit 1
 fi
 install_phase "base PHP and host utility packages installed"
 if (( UNSAFE_LAB == 0 )); then
