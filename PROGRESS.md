@@ -36,13 +36,15 @@
   documentation ([45108095073](https://github.com/cyberducttape/StePanel/actions/runs/45108095073)),
   CodeQL ([45108095255](https://github.com/cyberducttape/StePanel/actions/runs/45108095255)),
   and release-evidence checks ([45110032312](https://github.com/cyberducttape/StePanel/actions/runs/45110032312))
-  passed on `07726007`. Exact-source installed-host runs for Ubuntu 24.04,
-  Rocky Linux 9, and AlmaLinux 9 remain in progress
-  ([45108095187](https://github.com/cyberducttape/StePanel/actions/runs/45108095187),
-  [45108134385](https://github.com/cyberducttape/StePanel/actions/runs/45108134385),
+  passed on `07726007`. The exact-source Ubuntu 24.04 + Caddy + MariaDB
+  installed-host smoke passed ([45108095187](https://github.com/cyberducttape/StePanel/actions/runs/45108095187));
+  WordPress database/HTTPS recovery measured 4,380 ms and one recovery-matrix
+  iteration passed. Its scope and limits are recorded in
+  [`the host report`](docs/lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-07726007.md).
+  Exact-source Rocky Linux 9 and AlmaLinux 9 installed-host reruns remain in
+  progress ([45108134385](https://github.com/cyberducttape/StePanel/actions/runs/45108134385),
   [45108134199](https://github.com/cyberducttape/StePanel/actions/runs/45108134199));
-  until they finish, the old-source matrix failures do not count as resolved
-  host evidence.
+  the old-source EL failures do not count as resolved host evidence.
 
 ## Exact-source checks for resumable uploads and setup recovery — 2026-11-23
 

@@ -17,21 +17,17 @@ record of each gate's status and remaining work.
 ### Release evidence
 
 The latest packaged Ubuntu 24.04 + Caddy + MariaDB installed-host smoke passed
-on source `df838fa9` ([host run
-45100771925](https://github.com/cyberducttape/StePanel/actions/runs/45100771925)).
-The GoReleaser snapshot installed in a disposable systemd container, installer
-cleanup completed, and the smoke confirmed `/usr/local/bin/stepanelctl` is
-root-owned and runs its help command. The installed WordPress database/HTTPS
-recovery proof measured **4,435 ms**; one recovery-matrix iteration passed.
-The matching full integration run passed on code-identical source `237d1d16`
-([run 45103029684](https://github.com/cyberducttape/StePanel/actions/runs/45103029684)),
-including Go/race tests, ENOSPC and database restore checks, static analysis,
-container smoke, and browser E2E. The current source `5237f03c` has only later
-documentation changes relative to those code checks. The clean source guided
-bootstrap was also run from `c4870e6f` with Go unavailable: it downloaded and
-verified the pinned Go 1.26.11 toolchain, built all three executables, ran the
-CLI help command, and reached a mocked installer handoff. That local check did
-not mutate a host. See the [scoped installed-host report](./lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-df838fa.md).
+on source `07726007b1c835b2fa34b55ba6bb7e806ccff196` ([host run
+45108095187](https://github.com/cyberducttape/StePanel/actions/runs/45108095187)).
+The GoReleaser snapshot installed in a disposable systemd container and
+cleanup completed. Installed control-plane database outage recovery and the
+WordPress database/HTTPS recovery proof passed; measured RTO was **4,380 ms**.
+One recovery-matrix iteration passed. Matching exact-source integration
+([45108095198](https://github.com/cyberducttape/StePanel/actions/runs/45108095198)),
+documentation ([45108095073](https://github.com/cyberducttape/StePanel/actions/runs/45108095073)),
+CodeQL ([45108095255](https://github.com/cyberducttape/StePanel/actions/runs/45108095255)),
+and release-evidence ([45110032312](https://github.com/cyberducttape/StePanel/actions/runs/45110032312))
+checks passed. See the [scoped installed-host report](./lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-07726007.md).
 
 This is one disposable-host smoke, not repeated certification; quota
 enforcement was skipped in lab mode. Repeated recovery, physical-host and
