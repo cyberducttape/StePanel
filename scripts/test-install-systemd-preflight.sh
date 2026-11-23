@@ -24,13 +24,13 @@ if message=$(install_preflight_systemd "$tmp/missing" 2>&1); then
   echo 'missing systemd runtime directory was accepted' >&2
   exit 1
 fi
-grep -Fq 'use `make evaluate` for a local UI-only demo' <<<"$message"
+grep -Fq 'use `bash scripts/evaluate-local.sh` for a local UI-only demo' <<<"$message"
 
 if message=$(install_preflight_systemd "$tmp/systemd" missing-stepanel-systemctl 2>&1); then
   echo 'missing systemctl was accepted' >&2
   exit 1
 fi
 grep -Fq 'systemctl is missing' <<<"$message"
-grep -Fq 'use `make evaluate` for a local UI-only demo' <<<"$message"
+grep -Fq 'use `bash scripts/evaluate-local.sh` for a local UI-only demo' <<<"$message"
 
 echo 'installer systemd preflight contract passed'

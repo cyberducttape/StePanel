@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 if (( EUID == 0 )); then
-  echo 'Local evaluation must not run as root. Run make evaluate as your normal user.' >&2
+  echo 'Local evaluation must not run as root. Run bash scripts/evaluate-local.sh as your normal user.' >&2
   exit 1
 fi
 [[ -f $ROOT_DIR/go.mod ]] || {

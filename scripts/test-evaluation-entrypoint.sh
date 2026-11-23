@@ -11,15 +11,15 @@ evaluation_docs=$(awk '
   /^### / && in_evaluation && $0 != "### Local evaluation" { exit }
   in_evaluation { print }
 ' "$ROOT_DIR/README.md")
-grep -Fq 'Requirements: Git and either Go 1.21 or later' <<<"$evaluation_docs" || {
+grep -Fq 'Requirements: Git and Bash' <<<"$evaluation_docs" || {
   echo 'README local evaluation instructions omit the supported compiler/bootstrap prerequisites' >&2
   exit 1
 }
-grep -Fq 'make evaluate` downloads the repository-pinned Go 1.26.11 toolchain' <<<"$evaluation_docs" || {
+grep -Fq 'launcher downloads the repository-pinned Go 1.26.11 toolchain' <<<"$evaluation_docs" || {
   echo 'README local evaluation instructions omit the temporary toolchain bootstrap behavior' >&2
   exit 1
 }
-grep -Fxq 'make evaluate' <<<"$evaluation_docs" || {
+grep -Fxq 'bash scripts/evaluate-local.sh' <<<"$evaluation_docs" || {
   echo 'README local evaluation instructions omit the one-command launcher' >&2
   exit 1
 }
@@ -52,7 +52,7 @@ if EVALUATION_TEST_MAKE_MARKER="$tmp/make-invoked" PATH="$tmp/bin:$PATH" \
   exit 1
 fi
 grep -Fq 'binary is not executable' "$tmp/missing-output"
-grep -Fq "run \`make evaluate\` from the checkout" "$tmp/missing-output"
+grep -Fq "run \`bash scripts/evaluate-local.sh\` from the checkout" "$tmp/missing-output"
 [[ ! -e $tmp/make-invoked ]] || {
   echo 'evaluation error message unexpectedly executed make' >&2
   exit 1

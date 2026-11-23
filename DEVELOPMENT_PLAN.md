@@ -211,6 +211,13 @@ the platform matrix. The API workflow guide also clarifies that restore-to-
 staging returns a queued job and that the operator must wait for completion.
 These documentation changes reduce ambiguity but do not create a supported
 fresh-install archive.
+The local preview's primary command is now `bash scripts/evaluate-local.sh`,
+so a newcomer does not need GNU Make. `make evaluate` remains a convenience
+alias. README and installation guidance list Bash and distinguish optional
+Make; preflight help points to the direct command. Shell contracts exercise
+the Bash path with a deliberately failing `make` shim and still exercise the
+Make target separately. Focused contracts, the complete shell-contract suite,
+documentation links/references, and `make check` pass locally.
 The `stepanelctl doctor` command now presents readiness failures as a readable
 checklist by default, includes the diagnostic and suggested next step, retains
 JSON output for automation, and exits nonzero for critical/not-ready or

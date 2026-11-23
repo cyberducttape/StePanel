@@ -149,17 +149,19 @@ Open <http://localhost:8080>. Local development uses `data/imports` and `data/ww
 To look around without installing services or changing a host, use the
 development server from a checkout:
 
-Requirements: Git and either Go 1.21 or later with automatic toolchain
-selection, or `curl`/`wget`, `tar`, and `sha256sum`. If Go is missing or too
-old, `make evaluate` downloads the repository-pinned Go 1.26.11 toolchain to a
-temporary directory, verifies its SHA-256, builds the preview, and removes the
-compiler when you stop it. The initial download requires internet access.
+Requirements: Git and Bash, plus either Go 1.21 or later with automatic
+toolchain selection, or `curl`/`wget`, `tar`, and `sha256sum`. If Go is missing
+or too old, the launcher downloads the repository-pinned Go 1.26.11 toolchain
+to a temporary directory, verifies its SHA-256, builds the preview, and removes
+the compiler when you stop it. The initial download requires internet access.
 
 ```sh
 git clone --depth 1 https://github.com/cyberducttape/StePanel.git
 cd StePanel
-make evaluate
+bash scripts/evaluate-local.sh
 ```
+
+If GNU Make is installed, `make evaluate` is a shorter equivalent.
 
 This builds with the repository's pinned Go toolchain and opens
 <http://127.0.0.1:8080>. Stop it with Ctrl-C. This is a local UI and workflow
@@ -256,7 +258,7 @@ This is an Operator Beta path, not a production-certified release. Its
 recommended profile is Ubuntu 24.04 + Caddy + MariaDB; review the current
 [platform evidence and prerequisites](docs/INSTALLATION.md#supported-operating-systems)
 before using a host. To explore only the interface without host changes, use
-[`make evaluate`](#local-evaluation) instead.
+[`bash scripts/evaluate-local.sh`](#local-evaluation) instead.
 
 The installer records the selected database engine/version, creates a restricted `stepanel` service account, writes the requested panel hostname into the selected webserver, and binds the control plane to `127.0.0.1:8090`. Caddy provisions HTTPS automatically; Apache installations must complete TLS termination before signing in.
 

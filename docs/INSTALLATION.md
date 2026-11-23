@@ -4,7 +4,7 @@
 
 | If you want to… | Start here |
 | --- | --- |
-| Preview the interface without changing a host | [Local evaluation](../README.md#local-evaluation). It needs Git and either Go 1.21+ with automatic toolchain selection or curl/wget, tar, and sha256sum to bootstrap the pinned compiler. |
+| Preview the interface without changing a host | [Local evaluation](../README.md#local-evaluation). It needs Git, Bash, and either Go 1.21+ with automatic toolchain selection or curl/wget, tar, and sha256sum to bootstrap the pinned compiler. GNU Make is optional. |
 | Try real host integration | Use the [current-source Operator Beta path](#guided-install-from-current-source) on a disposable or staging server. Recommended profile: Ubuntu 24.04 + Caddy + MariaDB. |
 | Install customer production workloads | **Stop here for now.** No published stable archive is certified for a fresh install; production remains NO-GO pending the gates below. |
 
@@ -90,7 +90,7 @@ filesystem-specific recovery steps. Follow the [RHEL ext4 quota procedure](https
 or [RHEL XFS quota procedure](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/managing_file_systems/assembly_limiting-storage-space-usage-on-xfs-with-quotas_managing-file-systems)
 for the matching filesystem, adapted to your distribution. Then rerun the
 installer preflight. If you cannot enable quotas safely, stop and use a
-loopback-only `make evaluate` preview; it does not install host services or
+loopback-only `bash scripts/evaluate-local.sh` preview; it does not install host services or
 manage real websites. Do not bypass production quota checks.
 
 The default is `STEPANEL_WEBSERVER=caddy`. Set `STEPANEL_WEBSERVER=apache` or
@@ -194,7 +194,7 @@ ports 80 and 443 to StePanel. The preflight lists services and files it will
 change, and the installer asks before taking over an existing web server.
 
 If you only want to explore the interface, stop before this step and run
-`make evaluate` from the checkout. It is a loopback-only demo and does not
+`bash scripts/evaluate-local.sh` from the checkout. It is a loopback-only demo and does not
 install host services, require offsite storage, or change the server. It has no
 production login and must never receive customer data or be exposed to a
 network. The native guided installer below is for a real host and requires
@@ -368,7 +368,7 @@ Before changing anything, the installer prints a host preflight:
 
 - **HOST REQUIREMENT**: confirms that `systemctl` and a running systemd
   manager are present before package or service changes. For a local UI-only
-  evaluation without host integration, use `make evaluate` instead. It also
+  evaluation without host integration, use `bash scripts/evaluate-local.sh` instead. It also
   checks user-quota mount configuration on `/var/www` and the filesystem
   containing `/home` before package changes. If quota tools are already
   installed, it also checks enforcement now; otherwise it reports that check

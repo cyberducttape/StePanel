@@ -4769,3 +4769,18 @@ does not close a current-source or power-loss gate.
   actual `stepanelctl help`, and reached the mocked `sudo ./install.sh --guided`
   handoff. The fake sudo prevented all host mutation; the separate packaged
   installed-host result above supplies host-install evidence.
+
+## Remove GNU Make from the local preview path — 2026-11-23
+
+- Changed the README quick start and setup diagnostics to launch the preview
+  directly with `bash scripts/evaluate-local.sh`; GNU Make is now explicitly
+  optional. The pinned compiler bootstrap and loopback-only evaluation
+  protections are unchanged.
+- Added a regression that runs the direct path while a fake `make` executable
+  would fail if called, while retaining coverage for the `make evaluate`
+  convenience target.
+- The focused evaluation and installer-preflight contracts, complete
+  `make shell-contract-check`, documentation links/references (93 documents),
+  `go vet ./...`, full `go test ./...`, and `make check` passed. This is a
+  first-run convenience improvement; it does not alter the Operator Beta or
+  production-certification status.

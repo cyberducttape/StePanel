@@ -33,6 +33,23 @@ chmod 0755 "$output"
 GO
 chmod 0755 "$tmp/bin/go"
 
+cat > "$tmp/bin/make" <<'MAKE'
+#!/usr/bin/env bash
+printf 'unexpected make invocation\n' > "$EVALUATION_NO_MAKE_MARKER"
+exit 99
+MAKE
+chmod 0755 "$tmp/bin/make"
+
+# The documented Bash command must work even when GNU Make is not available.
+output=$(cd "$repo" && PATH="$tmp/bin:$PATH" \
+  EVALUATION_NO_MAKE_MARKER="$tmp/make-invoked" \
+  EVALUATION_GO_LOG="$tmp/direct-go.log" TMPDIR="$tmp/build" \
+  GOTOOLCHAIN=auto bash scripts/evaluate-local.sh 2>&1)
+grep -Fq 'evaluation binary started' <<<"$output"
+grep -Fq './cmd/stepanel' "$tmp/direct-go.log"
+[[ ! -e $tmp/make-invoked ]]
+[[ -z $(find "$tmp/build" -mindepth 1 -maxdepth 1 -print -quit) ]]
+
 output=$(cd "$repo" && EVALUATION_GO_LOG="$tmp/go.log" TMPDIR="$tmp/build" \
   GOTOOLCHAIN=auto \
   make evaluate GO="$tmp/bin/go" 2>&1)

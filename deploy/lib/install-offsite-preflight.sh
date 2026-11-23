@@ -6,7 +6,7 @@
 install_preflight_offsite() {
   local rclone_cmd=${1:-rclone} remotes config_output config_path config_bytes
   if ! command -v "$rclone_cmd" >/dev/null 2>&1; then
-    printf '%s' 'rclone is not installed. Install it with `sudo apt-get install -y rclone` (or `sudo dnf install -y rclone`), then rerun setup; the guided wizard can configure the remote. For a local UI preview, use `make evaluate`.'
+    printf '%s' 'rclone is not installed. Install it with `sudo apt-get install -y rclone` (or `sudo dnf install -y rclone`), then rerun setup; the guided wizard can configure the remote. For a local UI preview, use `bash scripts/evaluate-local.sh`.'
     return 1
   fi
   if ! remotes=$("$rclone_cmd" listremotes 2>/dev/null); then
