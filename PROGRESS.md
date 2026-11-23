@@ -4963,3 +4963,11 @@ does not close a current-source or power-loss gate.
   evidence, SBOM, archive verification, and disposable-host installation.
 - Exact-source `make check`, documentation links/references, and release
   contract checks passed on `72f891fd`; no release was published.
+- The exact-source `v0.9.0` Linux amd64 and arm64 archives passed
+  `scripts/verify-release-artifacts.sh` on `927c6571`. The local workflow steps
+  generated an exact-source release evidence report and an SPDX JSON SBOM,
+  verified SHA-256 checksums and required package contents, and ran the
+  packaged setup and CLI
+  help commands. The disposable-host install job
+  [45197434678](https://github.com/cyberducttape/StePanel/actions/runs/45197434678)
+  remains queued; package verification is not install evidence.
