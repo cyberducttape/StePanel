@@ -563,9 +563,8 @@
 
   async function renderOverviewTab(site, panel, ctx) {
     const observe = (promise) => promise.then((value) => ({ ok: true, value }), (error) => ({ ok: false, error }));
-    const [overview, backups, deploymentList, usage, php, recoveryResult, resourceResult, webLogResult, phpLogResult, accessLogResult, activityResult, databaseResult, siteDiagnosticResult] = await Promise.all([
+    const [overview, deploymentList, usage, php, recoveryResult, resourceResult, webLogResult, phpLogResult, accessLogResult, activityResult, databaseResult, siteDiagnosticResult] = await Promise.all([
       ctx.getJSON(`/api/sites/overview/${encodeURIComponent(site)}`),
-      observe(ctx.getJSON(`/api/backups?site=${encodeURIComponent(site)}&limit=500`)),
       observe(ctx.getJSON(`/api/deployments?site=${encodeURIComponent(site)}`)),
       observe(ctx.getJSON(`/api/sites/usage/${encodeURIComponent(site)}`)),
       observe(ctx.getJSON(`/api/sites/php/${encodeURIComponent(site)}`)),
@@ -581,12 +580,13 @@
 
     const routes = overview.routes || [];
     const apps = overview.applications || [];
-    const backupData = backups.ok ? backups.value : null;
     const deploymentData = deploymentList.ok ? deploymentList.value : null;
     const usageData = usage.ok ? usage.value : null;
     const phpData = php.ok ? php.value : null;
     const resourceData = resourceResult.ok ? resourceResult.value : null;
-    const backup = latestBackup(backupData?.backups, site);
+    // Recovery status already carries the newest integrity-verified backup;
+    // avoid enumerating up to 500 backup directories for this summary card.
+    const backup = recoveryResult && recoveryResult.ok ? recoveryResult.value.last_backup : null;
     const deployments = (deploymentData?.deployments || []).slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     const lastDeployment = deployments[0];
 
@@ -601,10 +601,14 @@
     const phpNote = !php.ok
       ? 'PHP runtime API unavailable; retry to determine health.'
       : phpData && phpData.configured ? `OPcache ${phpData.profile.opcache ? 'on' : 'off'}` : 'Configure in Runtime';
-    const backupValue = !backups.ok ? unavailable('Unavailable') : backup ? ctx.formatAge(backup.verified_at) : 'None yet';
-    const backupNote = !backups.ok
-      ? 'Backup API unavailable; retry to determine backup state.'
-      : backup ? `${plural(backup.databases ? backup.databases.length : 0, 'database')} included` : 'Create one from the Backups tab';
+    const backupValue = !ctx.can('backup:read') || !recoveryResult?.ok
+      ? unavailable('Unavailable')
+      : backup?.verified_at ? ctx.formatAge(backup.verified_at) : 'None verified';
+    const backupNote = !ctx.can('backup:read')
+      ? 'Backup evidence is not available to this role.'
+      : !recoveryResult?.ok
+        ? 'Recovery summary unavailable; retry to determine backup state.'
+        : backup ? `${backup.name || 'Latest backup'} integrity verified; application recovery evidence is shown separately.` : 'No verified backup recorded; create one from the Backups tab';
     const deploymentValue = !deploymentList.ok
       ? unavailable('Unavailable')
       : lastDeployment ? `${lastDeployment.stage} · ${lastDeployment.state}` : 'None recorded';

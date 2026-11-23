@@ -380,8 +380,13 @@ test('site overview makes backup failures explicit', async ({ page }) => {
       body: JSON.stringify({ site: 'e2e-site', routes: [], applications: [], database_count: 0 }),
     });
   });
-  await page.route('**/api/backups?site=*&limit=500', async (route) => {
-    await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'backup service unavailable' }) });
+  let backupInventoryRequests = 0;
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === '/api/backups' && url.searchParams.get('site') === 'e2e-site' && url.searchParams.get('limit') === '500') backupInventoryRequests++;
+  });
+  await page.route('**/api/sites/recovery/e2e-site', async (route) => {
+    await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'recovery summary unavailable' }) });
   });
   // The common login fixture has already loaded the overview once. Reload so
   // both routes above participate in the initial site-grid request rather
@@ -393,7 +398,8 @@ test('site overview makes backup failures explicit', async ({ page }) => {
   await expect(manage).toBeVisible();
   await manage.click();
   await expect(page.locator('.overview-stat').filter({ hasText: 'Last verified backup' })).toContainText('Unavailable');
-  await expect(page.locator('.overview-stat').filter({ hasText: 'Last verified backup' })).toContainText('Backup API unavailable');
+  await expect(page.locator('.overview-stat').filter({ hasText: 'Last verified backup' })).toContainText('Recovery summary unavailable');
+  expect(backupInventoryRequests).toBe(0);
 });
 
 test('site inventory failure can be retried without reloading', async ({ page }) => {

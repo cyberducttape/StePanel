@@ -12,12 +12,13 @@ successful one-off smoke does not close a host-certification gate.
 
 ## Milestones
 
-### M0az — Make the site lifecycle workspace lighter on first load (P2)
+### M0az — Make the site workspace lighter on first load (P2)
 
 **Status:** Implemented in commit `8e54ebb4` and locally verified. The
-lifecycle view now uses its recovery summary for the latest backup instead of
-performing a second backup inventory scan. Recent web-server and PHP-FPM error
-samples are loaded only when an operator asks to inspect them. `make check`
+lifecycle and overview views use their recovery summary for the latest backup
+instead of scanning hundreds of backup records. Recent web-server and PHP-FPM
+error samples in the lifecycle view are loaded only when an operator asks to
+inspect them. `make check`
 passed, including `go vet ./...` and the full Go suite. The seeded lifecycle
 browser journey and full browser suite passed against a freshly built panel
 binary with embedded assets; frontend unit tests passed (19/19). Hosted CI for
@@ -25,12 +26,15 @@ this source is tracked in `PROGRESS.md`.
 
 **Acceptance criteria**
 
-- Opening the lifecycle view does not issue a separate backup-list request.
+- Opening the overview and lifecycle views does not issue an additional backup
+  inventory request; the summary uses the recovery endpoint’s latest-backup
+  evidence.
 - Opening the lifecycle view does not read log files; requesting recent errors
   loads bounded web-server and PHP-FPM samples and displays the evidence.
-- Recovery and log-query failures remain distinguishable from an empty result.
-- Frontend unit tests, the lifecycle browser journey, and full browser E2E pass
-  against the freshly built frontend assets.
+- Missing permissions and failed recovery/log queries remain distinct from an
+  empty inventory or clean log sample.
+- Frontend unit tests, focused overview and lifecycle journeys, the full browser
+  E2E suite, and `make check` pass against the current frontend assets.
 
 ### M0au — Gate customer WordPress credentials on verified ownership (P1)
 

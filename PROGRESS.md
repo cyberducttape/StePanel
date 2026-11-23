@@ -1,18 +1,20 @@
 ## Reduce first-load work in the site lifecycle workspace — 2026-11-22
 
-- The guided lifecycle view now uses the latest-backup evidence already present
-  in its recovery summary rather than running a second backup inventory scan.
-  Web-server and PHP-FPM error samples load on demand from a bounded sample,
-  with visible loading, unavailable, and result states.
-- Regression coverage confirms opening the view makes no backup-list request or
-  log reads, and explicitly loading errors requests both log sources.
+- Both site overview and guided lifecycle views use their recovery summary for
+  the newest integrity-verified backup, avoiding a separate backup inventory
+  scan (up to 500 entries in overview). Lifecycle web-server/PHP-FPM error
+  samples load on demand from bounded requests, with visible loading, failure,
+  and result states.
+- Browser regressions confirm backup/recovery failure remains visible, the
+  500-entry inventory is not requested, and lifecycle log sources are fetched
+  only after the operator selects “Load recent errors.”
 - `npm run test:unit` passed (19/19). `make check` passed, including `go vet`
-  and the full Go suite (root package 120.3 seconds). The rebuilt embedded
-  panel passed the complete Playwright suite: 33 passed, one expected skip; the
-  targeted lifecycle/accessibility journey passed independently. Changes were
-  committed and pushed to `main` as `8e54ebb4` by Stephan Loesevitz. Hosted
-  integration CI for that exact source is still running; this is UI/workload
-  evidence, not host certification.
+  and the full Go suite (root package 115.1 seconds). The rebuilt embedded
+  panel passed the complete Playwright suite: 33 passed, one expected skip;
+  focused overview and lifecycle journeys also passed. The first lifecycle
+  change was pushed as `8e54ebb4`; its hosted integration is still running.
+  This follow-up adds the overview inventory removal and needs its own exact-source
+  hosted integration. This is UI/workload evidence, not host certification.
 
 # Production-readiness progress
 
