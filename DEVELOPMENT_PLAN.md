@@ -224,6 +224,11 @@ Make; preflight help points to the direct command. Shell contracts exercise
 the Bash path with a deliberately failing `make` shim and still exercise the
 Make target separately. Focused contracts, the complete shell-contract suite,
 documentation links/references, and `make check` pass locally.
+The current code tree was freshly checked out at `4405dfe3` and launched with
+`bash scripts/evaluate-local.sh`: the UI returned HTTP 200, `/livez` returned
+204, and `ss` showed only `127.0.0.1:8080`. The preview printed the no-login
+and no-customer-data warning. Ctrl-C stopped it and the temporary worktree
+was removed. This confirms safe local UI evaluation, not native installation.
 The native source wrapper also accepts `--config FILE` and `--dry-run` and
 passes those arguments, preserving path boundaries, to `install.sh`. A saved
 setup file can now use the same pinned build and preflight path without a

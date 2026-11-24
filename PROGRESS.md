@@ -1,3 +1,14 @@
+## Recheck the clean-checkout local preview — 2026-11-24
+
+- In a detached temporary worktree at `4405dfe3`, ran the documented
+  `bash scripts/evaluate-local.sh` command. The UI returned HTTP 200, `/livez`
+  returned 204, and `ss` confirmed the process listened only on
+  `127.0.0.1:8080`.
+- The launcher clearly warned that login is disabled and the listener must
+  not be exposed or used with customer data. Ctrl-C stopped the app; the
+  temporary worktree and local state were removed, and the main checkout
+  remained clean. This verifies local evaluation only, not host installation.
+
 ## Verify current-source versioned first-install candidate — 2026-11-24
 
 - The non-publishing `v0.9.0` preflight
