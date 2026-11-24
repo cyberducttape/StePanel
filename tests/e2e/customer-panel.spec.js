@@ -309,11 +309,17 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await expect(page.locator('#siteDetail')).toContainText('e2e-main workspace');
   await expect(page.locator('#siteDetail').getByRole('tablist', { name: 'e2e-main everyday sections' })).toBeVisible();
   await expect(page.locator('#siteDetail').getByRole('tab', { name: 'Overview' })).toBeVisible();
+  await expect(page.locator('#siteDetail').getByRole('tab', { name: 'Databases' })).toBeVisible();
   await expect(page.locator('#siteDetail').getByRole('tab', { name: 'Runtime' })).toBeHidden();
+  const domainTab = page.locator('#siteDetail').getByRole('tab', { name: 'Domains' });
+  await domainTab.focus();
+  await domainTab.press('ArrowRight');
+  await expect(page.locator('#siteDetail').getByRole('tab', { name: 'Databases' })).toHaveAttribute('aria-selected', 'true');
   await page.locator('#siteDetail .workspace-advanced summary').click();
   await expect(page.locator('#siteDetail').getByRole('tab', { name: 'Runtime' })).toBeVisible();
+  await page.locator('#siteDetail .workspace-advanced summary').click();
   await page.evaluate(() => { location.hash = '#site=e2e-main&tab=databases'; });
-  await expect(page.locator('#siteDetail .workspace-advanced')).toHaveJSProperty('open', true);
+  await expect(page.locator('#siteDetail .workspace-advanced')).toHaveJSProperty('open', false);
   await expect(page.locator('#siteDetail').getByRole('tab', { name: 'Databases' })).toHaveAttribute('aria-selected', 'true');
   await checkA11y(page);
   await expect.poll(() => pageErrors).toEqual([]);

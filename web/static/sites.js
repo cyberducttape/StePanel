@@ -223,7 +223,10 @@
     }, { className: 'quiet-action' });
     const headingRow = el('div', { className: 'section-heading' }, [heading, closeButton]);
 
-    const primaryTabIDs = new Set(['overview', 'journey', 'domains', 'backups']);
+    // Keep the everyday workflow visible together: operators and customers
+    // routinely inspect databases alongside domains and recovery points.
+    // Specialist controls remain available under Advanced administration.
+    const primaryTabIDs = new Set(['overview', 'journey', 'domains', 'databases', 'backups']);
     const primaryTabs = TABS.filter((tab) => primaryTabIDs.has(tab.id));
     const advancedTabs = TABS.filter((tab) => !primaryTabIDs.has(tab.id));
     const tablist = el('div', { className: 'workspace-tablist', role: 'tablist', 'aria-label': isAdministrator ? `${site} sections` : `${site} everyday sections` });

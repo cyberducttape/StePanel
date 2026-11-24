@@ -5615,3 +5615,19 @@ does not close a current-source or power-loss gate.
   [45393107958](https://github.com/cyberducttape/StePanel/actions/runs/45393107958)
   passed with a 7,781 ms WordPress recovery proof. The fix and evidence record
   are pushed to `main` as `9594ee7b`, `16518297`, and `c57b602b`.
+
+## Make database tasks easier to find in the site workspace — 2026-11-24
+
+- Moved the Databases tab into the everyday site-workspace tab row, beside
+  Overview, Domains, and Backups. Runtime tuning and other specialist controls
+  stay under Advanced administration.
+- Updated the customer workspace regression to check Databases is visible
+  without expanding Advanced, and that a direct `tab=databases` link selects
+  it without opening the advanced group. ArrowRight navigation from Domains
+  selects Databases, and the full workspace accessibility scan now expects
+  five everyday tabs.
+- `node --check web/static/sites.js`, frontend unit tests (20/20), and the
+  seeded customer Playwright/accessibility journey passed against a fresh
+  panel build. Both workspace axe scans passed with unavailable and empty
+  inventories. `git diff --check` passed. Full Go checks and hosted CI for
+  this UI adjustment have not yet run.

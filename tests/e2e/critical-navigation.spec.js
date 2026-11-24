@@ -728,7 +728,7 @@ async function scanSiteWorkspaceTabs(page, siteName) {
   await page.getByRole('link', { name: 'Sites', exact: true }).click();
   await page.getByRole('button', { name: /Manage site/ }).first().click();
   const everyday = page.getByRole('tablist', { name: `${siteName} sections` });
-  await expect(everyday.getByRole('tab')).toHaveCount(4);
+  await expect(everyday.getByRole('tab')).toHaveCount(5);
   await expect(everyday.getByRole('tab', { name: 'Overview' })).toBeVisible();
   await expect(page.locator('#siteDetail').getByRole('tab', { name: 'Settings' })).toBeHidden();
   await page.locator('#siteDetail .workspace-advanced summary').click();

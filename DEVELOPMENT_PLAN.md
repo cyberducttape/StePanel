@@ -3146,3 +3146,22 @@ complete N-1 matrix passed.
   guests, alongside normal upgrade and rollback cases.
 - `make check` and the exact-source guest-loss upgrade matrix pass.
 
+### M0br — Put database management among everyday site tasks (P2)
+
+**Status:** Implemented on the current working tree. Database management is
+now in the site workspace's everyday tab row alongside Overview, Domains, and
+Backups. Runtime, Deployments, Logs, Workers, Tasks, Security, and Settings
+remain available under Advanced administration. Frontend unit tests passed
+20/20, and the seeded customer panel browser/accessibility journey passed
+against a freshly built panel.
+
+**Acceptance criteria**
+
+- Customers can reach Databases without opening Advanced administration.
+- Existing `#site=NAME&tab=databases` deep links select the correct tab without
+  opening the advanced group.
+- Specialist controls remain available and their tab keyboard navigation,
+  bookmarked links, and accessibility checks continue to work.
+- Frontend unit tests and the seeded customer browser/accessibility journey
+  pass.
+
