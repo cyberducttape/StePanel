@@ -3118,8 +3118,10 @@ download timeout while fetching Prometheus.
 
 ### M0bp — Keep optional alert setup from blocking a first test site (P2)
 
-**Status:** Implemented locally and verified in the focused seeded browser
-journey. When the only operational warning is that no alert destination has
+**Status:** Implemented and verified on current product source `ef0ca96d`.
+The focused seeded browser journey and full hosted integration
+[45404480491](https://github.com/cyberducttape/StePanel/actions/runs/45404480491)
+passed. When the only operational warning is that no alert destination has
 been configured, an operator with no sites now gets the first-site action
 first, while the alert setup remains immediately below it with its repair
 instructions. Broker, storage, audit, recovery, unknown-health, and alert
