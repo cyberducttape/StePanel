@@ -1,3 +1,23 @@
+## Review current-product-source KVM abrupt-loss evidence — 2026-11-24
+
+- KVM run [45332417894](https://github.com/cyberducttape/StePanel/actions/runs/45332417894)
+  passed all six guest-loss operation scenarios, database-filesystem ENOSPC,
+  operator alert delivery/outage/retry, 23 install checks, and installed
+  WordPress HTTP/database recovery (measured RTO 9,138 ms). The results and
+  state invariants are in
+  [`2026-11-24-rocky-kvm-abrupt-loss-17b62c6.md`](docs/lab-results/2026-11-24-rocky-kvm-abrupt-loss-17b62c6.md).
+- Artifact review found `quotaon.service` failed on boot even though `/var/www`
+  and `/home` reported journalled quotas, over-limit Git staging was rejected,
+  and the customer starter quota passed. The report records this unresolved
+  diagnostic. The workflow artifact also omitted its generated environment
+  manifest, so runner/QEMU/image identity is incomplete for this run.
+- Added environment-manifest output and retention to the KVM workflow contract.
+  Follow-up run [45338602976](https://github.com/cyberducttape/StePanel/actions/runs/45338602976)
+  was canceled during QEMU package installation to pick up this artifact fix;
+  no scenarios from that run count. A replacement run will also include the
+  backup/file-restore ENOSPC phase. This KVM pass is one guest-loss iteration,
+  not physical power-loss or repeat-cohort certification.
+
 ## Include backup and file-restore ENOSPC in KVM certification — 2026-11-24
 
 - The current abrupt-loss KVM workflow included database-filesystem ENOSPC but
@@ -5,12 +25,10 @@
   Added that phase to `PHASES` and made `scripts/check-smoke-workflow-bounds.sh`
   enforce both ENOSPC classes for future runs.
 - Shell syntax checks, the smoke-workflow bounds/contract tests, action SHA
-  pinning, and `git diff --check` passed. The already-running KVM run
-  [45332417894](https://github.com/cyberducttape/StePanel/actions/runs/45332417894)
-  is unchanged. Follow-up run
+  pinning, and `git diff --check` passed. The follow-up run
   [45338602976](https://github.com/cyberducttape/StePanel/actions/runs/45338602976)
-  is queued behind it and will use the expanded phase set. No new ENOSPC result
-  is counted yet.
+  was canceled before any guest scenario began so the environment-manifest
+  artifact fix could be included. No extra ENOSPC result is counted yet.
 
 ## Make CLI subcommand help succeed — 2026-11-24
 

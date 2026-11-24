@@ -75,15 +75,18 @@ jobs:
           # takes about five hours, longer than this job's limit.
           CERT_INSTALL_RECOVERY_MATRIX: '0'
         run: bash deploy/lab/local-kvm-certification.sh "$ROCKY_IMAGE_PATH" "$RUN_DIR"
-      - name: Show results
+      - name: Show environment and results
         if: always()
-        run: cat "$RUN_DIR/results.tsv" 2>/dev/null || echo 'no results were recorded'
+        run: |
+          cat "$RUN_DIR/environment.txt" 2>/dev/null || echo 'no environment manifest was recorded'
+          cat "$RUN_DIR/results.tsv" 2>/dev/null || echo 'no results were recorded'
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: abrupt-loss-operations-${{ github.sha }}
           path: |
+            ${{ env.RUN_DIR }}/environment.txt
             ${{ env.RUN_DIR }}/results.tsv
             ${{ env.RUN_DIR }}/*.log
           if-no-files-found: warn

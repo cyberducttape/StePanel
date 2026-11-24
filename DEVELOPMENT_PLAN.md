@@ -1597,24 +1597,28 @@ Product source `5da789bb` later changed setup, installer, and quota-preflight
 paths, so current-main KVM run
 [45305278135](https://github.com/cyberducttape/StePanel/actions/runs/45305278135)
 completed on code source `f6c9e9ab`, but predates additional privileged-broker,
-upload, installer, and durable-job changes. A fresh KVM abrupt-loss run
 [45332417894](https://github.com/cyberducttape/StePanel/actions/runs/45332417894)
-was dispatched from `17b62c6a` (code-equivalent to `a52f9b1a`) for file restore,
-database restore, Git deployment, retention, control-plane writes, interrupted
-backup publication, database ENOSPC, and alert delivery/retry. The workflow
-omitted the separate backup/file-restore ENOSPC phase; that phase is now
-required by the workflow contract and will run in follow-up
-[45338602976](https://github.com/cyberducttape/StePanel/actions/runs/45338602976),
-queued behind the active run in the workflow concurrency group. The current
-run remains in progress and provides no result yet. The six-host 20-repeat cohort
+completed on product source `17b62c6a` with cache-disabled KVM guest-loss
+recovery across file restore, database restore, Git deployment, retention,
+control-plane writes, and interrupted backup publication. Database ENOSPC,
+alert outage/retry, 23 install checks, and the installed WordPress HTTP/database
+proof (9,138 ms RTO) passed. The reviewed
+[report](docs/lab-results/2026-11-24-rocky-kvm-abrupt-loss-17b62c6.md) records
+the missing environment-manifest limitation, a `quotaon.service` boot failure
+despite effective `/var/www` and `/home` quotas, and the fact that guest loss
+is not physical host power loss. Follow-up KVM run
+[45338602976](https://github.com/cyberducttape/StePanel/actions/runs/45338602976)
+was canceled during QEMU-tool installation so the environment manifest could
+be added to the retained artifact. A replacement run will cover backup/file-
+restore ENOSPC and retain the environment manifest. The six-host 20-repeat
+cohort
 [45314551538](https://github.com/cyberducttape/StePanel/actions/runs/45314551538)
 was canceled before its first six-host repetition completed. Its source commit
 was unavailable for comparison with current `main`, so no repetition counts.
 An exact-current-source 20-repeat cohort
 [45335471620](https://github.com/cyberducttape/StePanel/actions/runs/45335471620)
 was dispatched from `9924fbda`; it has not completed a repetition, so no
-evidence is counted yet. The fresh KVM run is in progress; no result is
-available yet. The release
+repetition evidence is counted yet. The release
 gate remains open pending reviewed current-source results,
 repeated recovery iterations, physical-host/power-loss coverage, and remaining
 failure classes.

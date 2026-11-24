@@ -33,6 +33,10 @@ grep -Fq 'VM_DISK_CACHE: none' "$abrupt_loss_workflow" || {
   echo "$abrupt_loss_workflow must bypass the runner page cache for abrupt-loss drills" >&2
   exit 1
 }
+grep -Fq '${{ env.RUN_DIR }}/environment.txt' "$abrupt_loss_workflow" || {
+  echo "$abrupt_loss_workflow must retain the KVM environment manifest with each result artifact" >&2
+  exit 1
+}
 grep -Fq 'writeback|none|directsync|writethrough' deploy/lab/local-kvm-certification.sh || {
   echo 'local KVM certification must keep the supported disk-cache modes explicit' >&2
   exit 1

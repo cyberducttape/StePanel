@@ -800,6 +800,23 @@ with those fixes on both distributions. The five-operation acceptance criteria
 remain open for multi-point failure injection, real disk-exhaustion, actual
 host power-loss, and broader workload and recovery-time evidence.
 
+The current-product-source KVM run
+[45332417894](https://github.com/cyberducttape/StePanel/actions/runs/45332417894)
+completed on `17b62c6a` with QEMU disk cache set to `none`. Six installed-host
+guest-loss scenarios passed (file restore, database restore, Git deployment,
+retention, acknowledged control-plane writes, and interrupted backup
+publication), as did the installed smoke, database-filesystem ENOSPC, and
+operator-alert delivery/outage/retry checks. The installed WordPress recovery
+probe passed with a measured RTO of 9,138 ms. This is one guest-loss iteration,
+not physical host power-loss or repeated certification. The artifact did not
+include the runner's generated environment manifest, so host/QEMU/image
+identity is incomplete; the follow-up workflow now retains it. The console
+also records `quotaon.service` failing during boot, although `/var/www` and
+`/home` mounted with journalled quotas, the Git staging limit rejected an
+over-limit write, and the customer starter quota was enforced. The generic
+quota-service diagnostic remains open. See the reviewed
+[run report](./lab-results/2026-11-24-rocky-kvm-abrupt-loss-17b62c6.md).
+
 The newer [2026-10-11 hosted installation smoke](./lab-results/2026-10-11-hosted-install-smoke.md)
 passed the default installed-host recovery matrix once each on Rocky Linux 9
 and AlmaLinux 9 at commit `a0c0585`. This is privileged systemd-container
@@ -860,7 +877,7 @@ closed device policy still refuses to open it.
 - [x] Multi-point process-kill/restart drills cover all 5 operations at repository level — `crash_drill_test.go` kills a child process with SIGKILL at every instrumented boundary of backup (4), file restore (4), termination (9), and account suspension (2), then runs the production startup recovery (`recoverUncleanShutdown`) or resumes the durable job and verifies the final state; deploy activation is covered by `TestReleaseActivationRecoversAfterProcessKill`. Hosted installed-host runs remain the evidence for real services
 - [x] No mysterious half-states discovered — the drills found two real leaks, both fixed: restore scratch trees under the import root and manager staging trees were never cleaned after a crash
 - [x] Recovery is deterministic at repository level — 114 consecutive SIGKILL drills (6 repetitions of all 19 kill points) recovered to the same verified state
-- [ ] Real disk exhaustion (ENOSPC) and host power loss on a disposable VM (partial: backup and file-restore ENOSPC passed on the 2026-10-24 Rocky 9 KVM run; physical host power loss, publication/import/database-restore ENOSPC, and broader host exhaustion remain. See the [2026-10-24 full recovery report](lab-results/2026-10-24-rocky9-kvm-full-recovery.md), [2026-10-12 Rocky run](lab-results/2026-10-12-rocky9-kvm-certification.md), and [2026-10-14 Ubuntu run](lab-results/2026-10-14-quota-install-smoke.md))
+- [ ] Real disk exhaustion (ENOSPC) and host power loss on a disposable VM (partial: current-source database-restore ENOSPC passed once in [KVM run 45332417894](https://github.com/cyberducttape/StePanel/actions/runs/45332417894); backup/file-restore ENOSPC has historical evidence only and is queued for a current-source KVM run; physical host power loss, import ENOSPC, and broader host exhaustion remain. See the [current-source KVM report](lab-results/2026-11-24-rocky-kvm-abrupt-loss-17b62c6.md), [2026-10-24 full recovery report](lab-results/2026-10-24-rocky9-kvm-full-recovery.md), [2026-10-12 Rocky run](lab-results/2026-10-12-rocky9-kvm-certification.md), and [2026-10-14 Ubuntu run](lab-results/2026-10-14-quota-install-smoke.md))
 - [ ] Repeat the real-host recovery matrix 20–50 times per operation/fault
   combination, with post-boot invariant evidence retained (see
   `docs/REAL_HOST_FAILURE_MATRIX.md`)
@@ -880,7 +897,7 @@ The six-host cohort [44725816245](https://github.com/cyberducttape/StePanel/acti
 - [x] Gate 2: Cross-Process Locks - Lock layer enforced; interrupted-workflow acceptance covered by `workflow_interruption_test.go`
 - [x] Gate 3: Accurate Capabilities - No "available: true" for unimplemented
 - [x] Gate 4: Automated DB Restoration - Transactional end-to-end
-- [ ] Gate 5: Failure Injection - Survives failure at every step (repository-level kill and failure matrix complete; one installed-host matrix, the current Ubuntu packaged install/recovery smoke, and targeted abrupt-loss scenarios passed; 20–50 repeats, additional platform cohorts, broader ENOSPC, and physical host power-loss evidence remain)
+- [ ] Gate 5: Failure Injection - Survives failure at every step (repository-level kill and failure matrix complete; one current-source installed-host matrix, one current-product-source KVM guest-loss run, the current Ubuntu packaged install/recovery smoke, and targeted abrupt-loss scenarios passed; the six-host 20–50-repeat cohort is running; current-source backup/file-restore ENOSPC, additional platform cohorts, and physical host power-loss evidence remain)
 
 ### Testing
 - [x] Adversarial concurrency tests (5 scenarios) — the five conflicting lock pairs across two SQLite connections (`TestAdversarialMutationLockScenariosSerializeAcrossConnections`) and across OS processes (`TestDBLocksAcrossOSProcesses`); the real restore, termination, resource-update, and suspension entry points are proven to wait for a lock held by another process without mutating (`cross_process_workflow_test.go`); deploy and route updates are covered at the lock-key level
