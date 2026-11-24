@@ -24,8 +24,10 @@
   CodeQL [45326445007](https://github.com/cyberducttape/StePanel/actions/runs/45326445007)
   and documentation validation
   [45326444955](https://github.com/cyberducttape/StePanel/actions/runs/45326444955)
-  passed. The six-host recovery cohort remains in progress and is independent
-  of this CLI change.
+  passed. The six-host recovery cohort
+  [45314551538](https://github.com/cyberducttape/StePanel/actions/runs/45314551538)
+  was canceled before its first complete repetition; its source commit was
+  unavailable for comparison with current `main`, so no repetition counts.
 
 ## Revalidate the current first-run source and repository checks — 2026-11-24
 
@@ -44,13 +46,10 @@
   documentation-only.
 - The six-host, 20-repeat installed-host cohort
   [45314551538](https://github.com/cyberducttape/StePanel/actions/runs/45314551538)
-  remains in progress at repetition 1. All six host jobs are still active and
-  GitHub has not published their logs or artifacts, so no repetition is
-  counted yet. The cohort source `47386470` predates the later `stepanelctl`
-  help-path code change in `cmd/stepanelctl`; results will be useful installed-
-  host evidence but cannot, by themselves, close an exact-current-candidate
-  gate. The candidate archive remains unpublished and production is still
-  **NO-GO**.
+  was canceled before its first complete repetition. It had run for nearly
+  three hours on its first six-host shard, and GitHub no longer exposed its
+  source commit for comparison with current `main`. No repetition counts. The
+  candidate archive remains unpublished and production is still **NO-GO**.
 
 ## Record the 500-site capacity pass after overview optimization — 2026-11-24
 
@@ -101,8 +100,9 @@
   [candidate report](docs/lab-results/2026-11-24-v0.9.0-ubuntu-install-45317837019.md).
 - `scripts/check-docs-links.sh docs`, the 93-document reference check, and
   `git diff --check` passed after the report and installation-guide update.
-  Current-main six-host recovery cohort [45314551538](https://github.com/cyberducttape/StePanel/actions/runs/45314551538)
-  is still running; it has not yet produced repetition evidence.
+  The six-host recovery cohort [45314551538](https://github.com/cyberducttape/StePanel/actions/runs/45314551538)
+  was canceled before its first complete repetition; no repetition evidence
+  is counted.
 - The exact-source-equivalent integration run
   [45313583538](https://github.com/cyberducttape/StePanel/actions/runs/45313583538)
   passed both jobs: full Go integration/race tests and seeded browser E2E.
@@ -5236,9 +5236,10 @@ does not close a current-source or power-loss gate.
   No tag or release was published.
 - The six-host, 20-repeat recovery cohort
   [45314551538](https://github.com/cyberducttape/StePanel/actions/runs/45314551538)
-  is still running on source `47386470`. It predates the current CLI code and
-  cannot close exact-current-source recovery certification. Production remains
-  NO-GO pending the documented host recovery and capacity gates.
+  was canceled before its first complete repetition. Its source commit was
+  unavailable for comparison with current `main`; no repetitions count.
+  Production remains NO-GO pending the documented host recovery and capacity
+  gates.
 - Dispatched current-main KVM abrupt-loss run
   [45332417894](https://github.com/cyberducttape/StePanel/actions/runs/45332417894)
   on `17b62c6a` (code-equivalent to `a52f9b1a`). It covers six guest-loss

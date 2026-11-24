@@ -1604,8 +1604,9 @@ database restore, Git deployment, retention, control-plane writes, interrupted
 backup publication, database ENOSPC, and alert delivery/retry. It is in progress
 and provides no result yet. The six-host 20-repeat cohort
 [45314551538](https://github.com/cyberducttape/StePanel/actions/runs/45314551538)
-is also in progress but uses older source `47386470` and cannot certify current
-code. The fresh KVM run is in progress; no result is available yet. The release
+was canceled before its first six-host repetition completed. Its source commit
+was unavailable for comparison with current `main`, so no repetition counts.
+The fresh KVM run is in progress; no result is available yet. The release
 gate remains open pending reviewed current-source results,
 repeated recovery iterations, physical-host/power-loss coverage, and remaining
 failure classes.
