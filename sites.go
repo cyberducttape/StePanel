@@ -322,13 +322,39 @@ func (a *App) buildSiteOverviewSnapshot() ([]siteOverview, error) {
 		}
 	}
 
+	// List the route and proxy directories at most once per rebuild; per-site
+	// lookups then binary-search the sorted listing instead of rescanning a
+	// directory that grows with the site count.
+	var routeEntries, proxyEntries []os.DirEntry
+	routesListed, proxiesListed := false, false
+	routesFor := func(site string) ([]siteRoute, error) {
+		if !routesListed {
+			var err error
+			if routeEntries, err = readManagedConfigDir(a.Config.VHostRoot); err != nil {
+				return nil, err
+			}
+			routesListed = true
+		}
+		return siteRoutesFromEntries(a.Config.VHostRoot, routeEntries, site)
+	}
+	proxiesFor := func(site string) ([]proxyInfo, error) {
+		if !proxiesListed {
+			var err error
+			if proxyEntries, err = readManagedConfigDir(a.Config.ProxyRoot); err != nil {
+				return nil, err
+			}
+			proxiesListed = true
+		}
+		return siteProxiesFromEntries(a.Config.ProxyRoot, proxyEntries, site)
+	}
+
 	result := make([]siteOverview, 0, len(sites))
 	for _, site := range sites {
 		if a.MetadataCache != nil {
 			if cached, ok := a.MetadataCache.GetRoutes(site.Site); ok {
 				site.Routes = cached
 			} else {
-				routes, err := siteRoutesForWithError(a.Config.VHostRoot, site.Site)
+				routes, err := routesFor(site.Site)
 				if err != nil {
 					return nil, fmt.Errorf("inspect managed site routes: %w", err)
 				}
@@ -338,7 +364,7 @@ func (a *App) buildSiteOverviewSnapshot() ([]siteOverview, error) {
 			if cached, ok := a.MetadataCache.GetProxies(site.Site); ok {
 				site.Proxies = cached
 			} else {
-				proxies, err := siteProxiesForWithError(a.Config.ProxyRoot, site.Site)
+				proxies, err := proxiesFor(site.Site)
 				if err != nil {
 					return nil, fmt.Errorf("inspect proxy configurations: %w", err)
 				}
@@ -347,11 +373,11 @@ func (a *App) buildSiteOverviewSnapshot() ([]siteOverview, error) {
 			}
 		} else {
 			var err error
-			site.Routes, err = siteRoutesForWithError(a.Config.VHostRoot, site.Site)
+			site.Routes, err = routesFor(site.Site)
 			if err != nil {
 				return nil, fmt.Errorf("inspect managed site routes: %w", err)
 			}
-			site.Proxies, err = siteProxiesForWithError(a.Config.ProxyRoot, site.Site)
+			site.Proxies, err = proxiesFor(site.Site)
 			if err != nil {
 				return nil, fmt.Errorf("inspect proxy configurations: %w", err)
 			}
@@ -509,17 +535,42 @@ func siteOverviewAt(cfg Config, site, siteRoot string, err error) (*siteOverview
 	return &siteOverview{Site: site, DocumentRoot: root, Routes: []siteRoute{}, Applications: []AppManifest{}, Proxies: []proxyInfo{}, Exists: exists}, nil
 }
 
-func siteRoutesForWithError(root, site string) ([]siteRoute, error) {
+// readManagedConfigDir lists a managed route or proxy directory once. A
+// missing directory has no entries. os.ReadDir returns names sorted, which
+// entriesWithPrefix relies on.
+func readManagedConfigDir(root string) ([]os.DirEntry, error) {
 	entries, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	return entries, err
+}
+
+// entriesWithPrefix returns the contiguous run of sorted entries whose names
+// start with prefix, so per-site lookups do not rescan the whole directory.
+func entriesWithPrefix(entries []os.DirEntry, prefix string) []os.DirEntry {
+	start := sort.Search(len(entries), func(i int) bool { return entries[i].Name() >= prefix })
+	end := start
+	for end < len(entries) && strings.HasPrefix(entries[end].Name(), prefix) {
+		end++
+	}
+	return entries[start:end]
+}
+
+func siteRoutesForWithError(root, site string) ([]siteRoute, error) {
+	entries, err := readManagedConfigDir(root)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return []siteRoute{}, nil
-		}
 		return nil, err
 	}
+	return siteRoutesFromEntries(root, entries, site)
+}
+
+// siteRoutesFromEntries matches one site's managed routes in a sorted
+// listing of root.
+func siteRoutesFromEntries(root string, entries []os.DirEntry, site string) ([]siteRoute, error) {
 	routes := []siteRoute{}
 	prefix := "site-" + site + "-"
-	for _, entry := range entries {
+	for _, entry := range entriesWithPrefix(entries, prefix) {
 		name := entry.Name()
 		if entry.IsDir() || !siteVHostNamePattern.MatchString(name) || !strings.HasPrefix(name, prefix) {
 			continue
@@ -542,16 +593,19 @@ func siteRoutesForWithError(root, site string) ([]siteRoute, error) {
 }
 
 func siteProxiesForWithError(root, site string) ([]proxyInfo, error) {
-	entries, err := os.ReadDir(root)
+	entries, err := readManagedConfigDir(root)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return []proxyInfo{}, nil
-		}
 		return nil, err
 	}
+	return siteProxiesFromEntries(root, entries, site)
+}
+
+// siteProxiesFromEntries matches one site's managed proxies in a sorted
+// listing of root.
+func siteProxiesFromEntries(root string, entries []os.DirEntry, site string) ([]proxyInfo, error) {
 	proxies := []proxyInfo{}
 	prefix := site + "-"
-	for _, entry := range entries {
+	for _, entry := range entriesWithPrefix(entries, prefix) {
 		name := entry.Name()
 		if entry.IsDir() || !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, ".conf") && !strings.HasSuffix(name, ".caddy") {
 			continue
