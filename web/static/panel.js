@@ -308,7 +308,29 @@
     ])));
   };
 
+  const renderWelcome = () => {
+    const welcomeHeading = $('#home-heading');
+    const welcomeMessage = $('#panelWelcomeMessage');
+    const firstSiteSetup = hostingLoaded && !hostingError && hosting.sites.length === 0 &&
+      siteCreationState() === 'available' && Boolean($('#siteCreateForm'));
+    if (welcomeHeading) {
+      welcomeHeading.textContent = firstSiteSetup
+        ? 'Create your first website'
+        : !hostingLoaded || hostingError
+          ? 'Your hosting account'
+          : welcomeHeading.dataset.returningText || welcomeHeading.textContent;
+    }
+    if (welcomeMessage) {
+      welcomeMessage.textContent = firstSiteSetup
+        ? 'Start with WordPress. StePanel guides you through domain verification, HTTPS, and your first recovery point.'
+        : !hostingLoaded || hostingError
+          ? 'Website status could not be confirmed. Retry below to load your hosting details.'
+          : welcomeMessage.dataset.returningText || welcomeMessage.textContent;
+    }
+  };
+
   const renderSummaries = () => {
+    renderWelcome();
     $('#panelAccount').textContent = hosting.account || '—';
     $('#panelUnixUser').textContent = hosting.unix_user || 'Not yet created';
     $('#panelHome').textContent = hosting.home || '—';
@@ -415,6 +437,7 @@
     }
     if (!hostingLoaded) {
       const message = hostingError || 'Your hosting account is unavailable';
+      renderWelcome();
       $('#panelSitesStatus').hidden = false;
       $('#panelSitesStatus').replaceChildren(retryNotice(`Website assignments are unavailable: ${message}`));
       $('#panelDomainsStatus').hidden = false;

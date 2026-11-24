@@ -207,7 +207,8 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
 
   // Home for a new tenant: show the first WordPress action without scanning
   // site, backup, or administrator-only suspension inventories.
-  await expect(page.getByRole('heading', { name: `Welcome back, ${testCustomer.username}` })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Create your first website' })).toBeVisible();
+  await expect(page.locator('#panelWelcomeMessage')).toContainText('domain verification, HTTPS, and your first recovery point');
   await expect(page.locator('#panelHome')).toHaveText(`/home/${testCustomer.username}`);
   await expect(page.locator('#panelOnboardingList')).toContainText('Create your first WordPress site');
   await expect(page.locator('#panelOnboardingProgress')).toContainText('0 of 3 essentials complete');
@@ -557,5 +558,11 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await page.locator('#panelPrimaryAction').click();
   await expect(page.locator('#siteCreateTemplate')).toHaveValue('wordpress');
   await expect(page.locator('#wordpressCreateFields')).toBeVisible();
+  await page.route('**/api/account/hosting', (route) => route.fulfill({ status: 503, contentType: 'text/plain', body: 'temporary account outage' }));
+  await page.evaluate(() => { location.hash = '#home'; });
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Your hosting account' })).toBeVisible();
+  await expect(page.locator('#panelWelcomeMessage')).toContainText('Website status could not be confirmed');
+  await expect(page.locator('#panelSitesStatus')).toContainText('temporary account outage');
   await context.close();
 });

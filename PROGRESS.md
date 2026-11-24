@@ -5658,3 +5658,14 @@ does not close a current-source or power-loss gate.
   build, and the focused browser test passed. Exact-source hosted integration
   and UI E2E passed on `da28c813`; see
   [CI integration run 45416270600](https://github.com/cyberducttape/StePanel/actions/runs/45416270600).
+
+## Make the customer first-login action explicit — 2026-11-24
+
+- Eligible customers with no sites now see “Create your first website” as the
+  home heading, with a concise explanation of domain verification, HTTPS, and
+  the first recovery point. When hosting status cannot load, the hero switches
+  to neutral wording and says that status is unconfirmed.
+- Added customer browser assertions for the new-account and unavailable-status
+  states. `node --check`, frontend unit tests (20/20), an embedded-asset Go
+  build, `git diff --check`, and the focused customer Chromium/accessibility
+  journey passed. Exact-source hosted CI is pending.

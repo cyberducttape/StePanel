@@ -35,7 +35,7 @@
     <main class="content" id="main">
       <section class="panel-view" id="home" aria-labelledby="home-heading" data-view="home">
         <div class="hero">
-          <div><p class="eyebrow">Your hosting account</p><h1 id="home-heading">Welcome back, {{ .Username }}</h1><p class="lede">Your websites, files, domains, databases and backups in one place.</p><p class="import-note">{{ .Account.Plan }} plan · {{ .AccountSiteCount }} website{{ if ne .AccountSiteCount 1 }}s{{ end }}</p></div>
+          <div><p class="eyebrow">Your hosting account</p><h1 id="home-heading" data-returning-text="Welcome back, {{ .Username }}">{{ if and (eq .AccountSiteCount 0) (eq .SiteCreationState "available") }}Create your first website{{ else }}Welcome back, {{ .Username }}{{ end }}</h1><p class="lede" id="panelWelcomeMessage" data-returning-text="Your websites, files, domains, databases and backups in one place.">{{ if and (eq .AccountSiteCount 0) (eq .SiteCreationState "available") }}Start with WordPress. StePanel guides you through domain verification, HTTPS, and your first recovery point.{{ else }}Your websites, files, domains, databases and backups in one place.{{ end }}</p><p class="import-note">{{ .Account.Plan }} plan · {{ .AccountSiteCount }} website{{ if ne .AccountSiteCount 1 }}s{{ end }}</p></div>
           <a class="primary-action button-link" id="panelPrimaryAction" href="#websites">Manage my websites</a>
         </div>
         <section class="panel-onboarding" aria-labelledby="panelOnboardingHeading">

@@ -3205,3 +3205,22 @@ in [CI run 45416270600](https://github.com/cyberducttape/StePanel/actions/runs/4
 - The browser regression checks both observed failures and incomplete
   evidence; frontend syntax, seeded E2E, and exact-source CI pass.
 
+### M0bt — Make the customer first-login action explicit (P2)
+
+**Status:** Implemented locally; focused customer browser regression passes.
+An eligible account with no websites now sees “Create your first website” and
+one sentence explaining domain verification, HTTPS, and the first recovery
+point. If live account status cannot be loaded, the hero switches to neutral
+wording and points out that status is unconfirmed. Existing accounts retain
+their returning-user greeting.
+
+**Acceptance criteria**
+
+- A new customer who can create a site sees an explicit first-site headline
+  and a brief explanation of the WordPress setup steps.
+- When hosting status is unavailable, the hero does not claim the account is
+  ready or that no sites exist; the existing retry/error state remains visible.
+- Existing-site and non-eligible account greetings remain unchanged.
+- Frontend unit tests, customer browser/accessibility coverage, embedded Go
+  build, and exact-source CI pass.
+
