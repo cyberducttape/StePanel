@@ -5226,11 +5226,14 @@ does not close a current-source or power-loss gate.
   file-editor context protection, migration/change previews, and recovery
   evidence views.
 - The nonpublishing `v0.9.0` release-candidate preflight for this exact source
-  is [45329483748](https://github.com/cyberducttape/StePanel/actions/runs/45329483748).
-  Archive generation, package validation, fixture staging, and disposable
-  systemd host startup passed. Its Ubuntu 24.04 + Caddy + MariaDB install and
-  recovery smoke is still running; no result is claimed yet. No release or tag
-  was published.
+  [45329483748](https://github.com/cyberducttape/StePanel/actions/runs/45329483748)
+  passed. Both versioned archives, checksums, package contents, exact-source
+  evidence, and SPDX SBOM verified. The Ubuntu 24.04 + Caddy + MariaDB
+  installed-host smoke completed cleanup and passed one recovery-matrix
+  iteration; WordPress HTTPS/database recovery measured 4,409 ms. See the
+  [reviewed result](docs/lab-results/2026-11-24-v0.9.0-ubuntu-install-45329483748.md).
+  The disposable host lacked project quotas, so Git deployment refused safely.
+  No tag or release was published.
 - The six-host, 20-repeat recovery cohort
   [45314551538](https://github.com/cyberducttape/StePanel/actions/runs/45314551538)
   is still running on source `47386470`. It predates the current CLI code and
@@ -5239,6 +5242,6 @@ does not close a current-source or power-loss gate.
 - Dispatched current-main KVM abrupt-loss run
   [45332417894](https://github.com/cyberducttape/StePanel/actions/runs/45332417894)
   on `17b62c6a` (code-equivalent to `a52f9b1a`). It covers six guest-loss
-  operation scenarios plus database ENOSPC and alert outage/retry. It is queued;
-  no result is counted. `cache=none` removes guest page-cache cushioning but
-  does not constitute physical host power-loss evidence.
+  operation scenarios plus database ENOSPC and alert outage/retry. It is in
+  progress; no result is counted. `cache=none` removes guest page-cache
+  cushioning but does not constitute physical host power-loss evidence.

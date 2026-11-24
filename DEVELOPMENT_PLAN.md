@@ -1597,11 +1597,12 @@ upload, installer, and durable-job changes. A fresh KVM abrupt-loss run
 [45332417894](https://github.com/cyberducttape/StePanel/actions/runs/45332417894)
 was dispatched from `17b62c6a` (code-equivalent to `a52f9b1a`) for file restore,
 database restore, Git deployment, retention, control-plane writes, interrupted
-backup publication, database ENOSPC, and alert delivery/retry. It is still
-queued and provides no result yet. The six-host 20-repeat cohort
+backup publication, database ENOSPC, and alert delivery/retry. It is in progress
+and provides no result yet. The six-host 20-repeat cohort
 [45314551538](https://github.com/cyberducttape/StePanel/actions/runs/45314551538)
 is also in progress but uses older source `47386470` and cannot certify current
-code. The release gate remains open pending reviewed current-source results,
+code. The fresh KVM run is in progress; no result is available yet. The release
+gate remains open pending reviewed current-source results,
 repeated recovery iterations, physical-host/power-loss coverage, and remaining
 failure classes.
 **Current evidence update (2026-11-21):** The cache-disabled KVM abrupt-loss
@@ -2522,16 +2523,16 @@ the documentation and CodeQL workflows passed on documentation-only descendant
 
 ### M0as — Gate tagged packages on a real fresh-host install (P1)
 
-**Status:** The latest non-publishing exact-source `v0.9.0` candidate preflight
-[45317837019](https://github.com/cyberducttape/StePanel/actions/runs/45317837019)
-passed on `93c60aa581e5339ca0fbc9f78da1d3eaa0c81cb9`: both architecture
-archives and the SBOM verified; the Ubuntu 24.04 + Caddy + MariaDB package
-installed, cleanup completed, one recovery iteration passed, and WordPress
-HTTPS/database recovery measured 4,367 ms. See the
-[current candidate report](docs/lab-results/2026-11-24-v0.9.0-ubuntu-install-45317837019.md).
+**Status:** The nonpublishing exact-source `v0.9.0` preflight
+[45329483748](https://github.com/cyberducttape/StePanel/actions/runs/45329483748)
+passed on `a52f9b1a9f003117f35d2947eb247c70909877c5`: both architecture
+archives, exact-source evidence, checksums, package contents, and SPDX SBOM
+verified; the Ubuntu 24.04 + Caddy + MariaDB package installed and cleaned up;
+one recovery iteration passed; and WordPress HTTPS/database recovery measured
+4,409 ms. See the [reviewed candidate report](docs/lab-results/2026-11-24-v0.9.0-ubuntu-install-45329483748.md).
 The candidate was not published. The tag-triggered publication event remains
-unexercised; keep this milestone open until the non-publishing gate is
-accepted and publication is authorized. The earlier non-publishing exact-source `v0.9.0` candidate preflight
+unexercised, and publishing is not authorized; keep this milestone open. The
+previous exact-source `v0.9.0` candidate preflight
 [45202075337](https://github.com/cyberducttape/StePanel/actions/runs/45202075337)
 passed on product source `5da789bb51e6da28e5c94667ebc8cf2f27049462`. The
 Ubuntu 24.04 + Caddy + MariaDB disposable systemd host installed the versioned

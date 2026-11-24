@@ -17,6 +17,18 @@ record of each gate's status and remaining work.
 ### Release evidence
 
 The non-publishing versioned `v0.9.0` candidate
+[45329483748](https://github.com/cyberducttape/StePanel/actions/runs/45329483748)
+passed on exact source `a52f9b1a9f003117f35d2947eb247c70909877c5`. Both
+Linux architecture archives, their checksums and contents, exact-source
+release evidence, and the SPDX SBOM verified. The Ubuntu 24.04 + Caddy +
+MariaDB disposable systemd host installed the versioned archive, completed
+cleanup, and passed the database-backed WordPress HTTPS recovery proof with a
+measured RTO of **4,409 ms**. One recovery-matrix iteration passed. The
+disposable host did not enforce project quotas; Git deployment refused safely.
+See the [reviewed candidate report](./lab-results/2026-11-24-v0.9.0-ubuntu-install-45329483748.md).
+The candidate was retained for review and was not published.
+
+The preceding non-publishing versioned `v0.9.0` candidate
 [45317837019](https://github.com/cyberducttape/StePanel/actions/runs/45317837019)
 passed on exact source `93c60aa581e5339ca0fbc9f78da1d3eaa0c81cb9`. The Ubuntu
 24.04 + Caddy + MariaDB disposable systemd container installed the archive,
@@ -29,8 +41,8 @@ quotas; Git deployment refused safely. See the [candidate report](./lab-results/
 The previous exact-source candidate
 [45202075337](https://github.com/cyberducttape/StePanel/actions/runs/45202075337)
 also passed its packaged Ubuntu install and recovery smoke on product source
-`5da789bb`; its earlier RTO was **7,668 ms**. The later candidate is the
-current first-install evidence. Neither candidate was published.
+`5da789bb`; its earlier RTO was **7,668 ms**. These candidates were not
+published; the current nonpublishing result is documented above.
 
 A separate quota-enabled Ubuntu 24.04/ext4 install smoke [45203221241](https://github.com/cyberducttape/StePanel/actions/runs/45203221241)
 passed on the same product source. It verified active user/project quotas on
