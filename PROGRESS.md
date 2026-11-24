@@ -4,10 +4,15 @@
   passed. This includes the API artifact check, installer and local-evaluation
   bootstrap contracts, `go vet ./...`, and `GOMAXPROCS=2 go test -p 1
   -timeout 10m ./...`; the root package completed in 119.5 seconds.
+- On the follow-up documentation-only source `a4369282`, frontend unit tests
+  passed (20/20). A fresh panel binary built from that checkout passed the
+  seeded Playwright and accessibility suite (33 passed, one expected skip).
+  The browser run covered first-run readiness and storage guidance, customer
+  panel workflows, migration preview, site diagnostics, and recovery evidence.
 - Current-source CodeQL, documentation, and release-evidence workflows passed
-  on this commit. The full integration/race and seeded browser run passed on
-  code-equivalent source `47386470`; the current commit's tracked changes since
-  that run are documentation-only.
+  on `a4369282`. The full integration/race workflow passed on code-equivalent
+  source `47386470`; the current commit's tracked changes since that run are
+  documentation-only.
 - The six-host, 20-repeat installed-host cohort
   [45314551538](https://github.com/cyberducttape/StePanel/actions/runs/45314551538)
   remains in progress at repetition 1. All six host jobs are still active and
