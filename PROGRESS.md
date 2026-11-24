@@ -1,3 +1,17 @@
+## Record installed SMTP alert outage and retry evidence — 2026-11-24
+
+- Reviewed Rocky Linux 9 KVM run
+  [45332417894](https://github.com/cyberducttape/StePanel/actions/runs/45332417894)
+  and its [retained report](docs/lab-results/2026-11-24-rocky-kvm-abrupt-loss-17b62c6.md).
+  A real failed-job alert was delivered over verified STARTTLS; stopping the
+  SMTP sink produced visible failure state, and restoring it delivered the
+  pending event on retry.
+- The tested alert/outbox code, relevant config, job path, and smoke script
+  match the current candidate source. This is one installed KVM iteration for
+  SMTP only. The live webhook path, repeated outage/backlog recovery, and
+  webhook receiver evidence remain open. Updated M3 and the authoritative P0
+  notification row accordingly; production remains NO-GO.
+
 ## Refresh the published install guide from the latest package evidence — 2026-11-24
 
 - Exact-source non-publishing `v0.9.0` preflight

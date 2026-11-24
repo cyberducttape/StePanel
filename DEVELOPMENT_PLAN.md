@@ -1844,14 +1844,23 @@ for restore steps, HTTP result, measured recovery time, and excluded state.
 
 ### M3 — Prove operational alert delivery (P0)
 
-**Status:** Implemented; live delivery/outage evidence remains open.
+**Status:** Partially proven. The installed Rocky Linux 9 KVM run
+[45332417894](https://github.com/cyberducttape/StePanel/actions/runs/45332417894)
+passed a real failed-job alert over verified SMTP STARTTLS, visible delivery
+failure while the SMTP endpoint was stopped, and retry after recovery. The
+reviewed [KVM report](docs/lab-results/2026-11-24-rocky-kvm-abrupt-loss-17b62c6.md)
+records this one guest-loss iteration. The SMTP/outbox implementation,
+configuration, job creation, and installed smoke files are unchanged between
+that source and the current candidate source `9f041573`. Live webhook delivery
+through a public receiver, plus repeat evidence, remain open.
 
 The alert outbox now has a regression that records an endpoint failure, closes
 and reopens the control-plane SQLite database, checks that failure/attempt
 state remains visible, and verifies the same event becomes retryable and can be
 marked delivered. Normal and race-enabled focused runs and full `make check`
-pass. This proves store-level restart persistence only; delivery through the
-installed service against configured SMTP/webhook endpoints remains open.
+pass. This proves store-level restart persistence; the installed SMTP run adds
+one end-to-end channel result but does not prove webhook delivery or repeated
+service-outage recovery.
 
 Exercise configured webhook and SMTP endpoints on an installed host, including
 endpoint outage, retry, restart, backlog recovery, redaction, and operator
