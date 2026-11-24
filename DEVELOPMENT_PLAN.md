@@ -414,6 +414,19 @@ refused to proceed. See
 [`the current candidate report`](docs/lab-results/2026-11-24-v0.9.0-ubuntu-install-45317837019.md).
 This improves current-source install evidence but does not make a published
 stable archive available or close repeated/physical-host certification.
+The latest nonpublishing preflight on exact source `9f041573`
+([run 45365861546](https://github.com/cyberducttape/StePanel/actions/runs/45365861546))
+passed end to end: it built and checksum-verified amd64/arm64 `v0.9.0` archives,
+generated source-matched release evidence and an SPDX SBOM, installed the
+versioned archive on a disposable Ubuntu 24.04 + Caddy + MariaDB systemd host,
+completed cleanup, passed one recovery-matrix iteration, and proved HTTPS and
+database-backed WordPress recovery in 7,236 ms. Database-outage and root-broker
+outage recovery also passed. The host lacked project quotas, so Git deployment
+was correctly refused; this is not quota-enforcement evidence. The verified
+candidate and diagnostics remain available as workflow artifacts. No tag was
+pushed and no release was published. This closes the current-source packaged
+install test, but a publicly available stable archive still needs explicit
+release authorization, and the production certification gates remain open.
 
 **Acceptance criteria**
 

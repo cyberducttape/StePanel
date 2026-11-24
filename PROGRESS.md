@@ -5425,3 +5425,20 @@ does not close a current-source or power-loss gate.
   [CI](https://github.com/cyberducttape/StePanel/actions/runs/45362207905)
   passed, including the full seeded browser/accessibility suite, Go tests, race
   tests, coverage, ENOSPC, and recovery checks.
+
+## Verify the versioned first-install archive — 2026-11-24
+
+- Nonpublishing release preflight
+  [45365861546](https://github.com/cyberducttape/StePanel/actions/runs/45365861546)
+  passed against source `9f041573`. It built amd64/arm64 `v0.9.0` archives,
+  verified checksums, exact-source evidence and SPDX SBOM, then installed the
+  archive on a disposable Ubuntu 24.04 + Caddy + MariaDB systemd host.
+- Installer cleanup completed, the one-iteration recovery matrix passed, and
+  application-level WordPress recovery verified HTTPS plus database-backed
+  HTTP behavior with measured RTO 7,236 ms. Database outage and root-broker
+  outage recovery also passed.
+- The disposable host lacked project quotas, so Git deployment remained
+  correctly fail-closed; this does not certify quota enforcement. The
+  candidate and host diagnostics remain in workflow artifacts. No tag was
+  pushed and no release was published; public availability requires explicit
+  release authorization.
