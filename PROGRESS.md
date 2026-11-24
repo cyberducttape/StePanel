@@ -1,3 +1,28 @@
+## Make CLI subcommand help succeed — 2026-11-24
+
+- `stepanelctl doctor --help` previously printed its option list but returned
+  `flag.ErrHelp`, which `main` treated as an error exit. Flag-based subcommands
+  had the same behavior. The CLI now treats that sentinel as successful help
+  output at its command boundary.
+- Regression tests cover `site create`, `backup list`, and `migration inspect`
+  help without a reachable panel; doctor help has a separate no-request test.
+  A freshly built `stepanelctl site create --help` printed its usage and exited
+  zero.
+- On exact code source `18d36eeb`, focused CLI tests, `go test -race
+  ./cmd/stepanelctl -count=1`, and full `make check` passed. `make check`
+  included `go vet ./...` and all Go package tests; the root package completed
+  in 121.0 seconds. Documentation links and code-reference checks passed.
+- Exact-source CI run
+  [45326445817](https://github.com/cyberducttape/StePanel/actions/runs/45326445817)
+  has passed formatting, release checks, installer contracts, vet, full Go
+  tests and coverage floors, real ENOSPC drills, load benchmarks, and seeded
+  browser/accessibility E2E. Its race-test step remains in progress.
+  CodeQL [45326445007](https://github.com/cyberducttape/StePanel/actions/runs/45326445007)
+  and documentation validation
+  [45326444955](https://github.com/cyberducttape/StePanel/actions/runs/45326444955)
+  passed. The six-host recovery cohort remains in progress and is independent
+  of this CLI change.
+
 ## Revalidate the current first-run source and repository checks — 2026-11-24
 
 - On `main` at `49c486b6a5d6332ca00e3ccd08f8628cf9bc577a`, `make check`
