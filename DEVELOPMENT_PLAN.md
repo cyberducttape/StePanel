@@ -1560,10 +1560,14 @@ On 2026-11-23, Rocky Linux 9 KVM drill [45150861029](https://github.com/cyberduc
 passed six guest-loss operation scenarios plus database ENOSPC and alert
 delivery/retry on source `edd11d47`; the detailed [reviewed report](docs/lab-results/2026-11-23-rocky-kvm-abrupt-loss-edd11d47.md)
 links the retained artifact and records that it is one guest-loss pass, not
-physical power-loss certification. The exact-current-source KVM follow-up
-[45158813904](https://github.com/cyberducttape/StePanel/actions/runs/45158813904)
-is running. The release gate remains open pending review of that artifact,
-repeated recovery iterations, real-host/power-loss coverage, and remaining
+physical power-loss certification. The source-current-at-run-time KVM
+follow-up [45158813904](https://github.com/cyberducttape/StePanel/actions/runs/45158813904)
+passed; see the [reviewed report](docs/lab-results/2026-11-23-rocky-kvm-abrupt-loss-4e9ca58.md).
+Product source `5da789bb` later changed setup, installer, and quota-preflight
+paths, so current-main KVM run
+[45305278135](https://github.com/cyberducttape/StePanel/actions/runs/45305278135)
+is underway. The release gate remains open pending current-source results,
+repeated recovery iterations, physical-host/power-loss coverage, and remaining
 failure classes.
 **Current evidence update (2026-11-21):** The cache-disabled KVM abrupt-loss
 run [44735170833](https://github.com/cyberducttape/StePanel/actions/runs/44735170833)
@@ -2477,9 +2481,14 @@ recovery proof with measured RTO 7,668 ms. One recovery-matrix iteration
 passed. The amd64/arm64 archives, checksums, package contents, exact-source
 evidence, SPDX SBOM, and packaged setup/CLI checks all passed. Full run evidence
 and artifact checksums are in the [reviewed result](docs/lab-results/2026-11-23-v0.9.0-ubuntu-install-45202075337.md).
-The disposable container lacks project-quota enforcement, so Git deployment
-refused safely and quota certification remains open. A single iteration does
-not satisfy repeated recovery or physical power-loss gates. This is not
+The candidate container lacks project-quota enforcement, so Git deployment
+refused safely. A separate ext4 quota-enabled installed-host smoke on the same
+product source [45203221241](https://github.com/cyberducttape/StePanel/actions/runs/45203221241)
+verified active user/project quotas before and after abrupt QEMU loss and
+exercised a real project-quota rejection; see its [scoped report](docs/lab-results/2026-11-23-ubuntu-ext4-quota-install-45203221241.md).
+This is one Ubuntu/ext4 run; XFS, production mounts, and repeated quota/recovery
+evidence remain open. A single iteration does not satisfy repeated recovery or
+physical power-loss gates. This is not
 production certification; no tag or public release was created. The tag-triggered
 publication event remains unexercised.
 The tag-triggered release workflow passes the tag into the packaged Ubuntu

@@ -30,6 +30,10 @@ power-loss evidence, and not a repeated recovery cohort. The tested source
 predates the release-evidence collector change. Comparing the exact commits
 shows the only non-documentation source changes are `internal/evidence/evidence.go`
 and its tests; the site, database, backup, installer, and broker paths exercised
-by this workflow are unchanged. An exact-current-source KVM rerun was dispatched
-as [45158813904](https://github.com/cyberducttape/StePanel/actions/runs/45158813904)
-and remains the current-source evidence gate until its artifact is reviewed.
+by this workflow are unchanged. The exact-source follow-up
+[45158813904](https://github.com/cyberducttape/StePanel/actions/runs/45158813904)
+passed on source `4e9ca58a`; its reviewed results are in the [follow-up report](./2026-11-23-rocky-kvm-abrupt-loss-4e9ca58.md).
+The later source includes installer/setup/quota-preflight changes, so a current-
+main KVM rerun [45305278135](https://github.com/cyberducttape/StePanel/actions/runs/45305278135)
+is in progress. Neither run is physical host power-loss or repeated recovery
+certification.

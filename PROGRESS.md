@@ -1,3 +1,25 @@
+## Verify installed ext4 quota enforcement after abrupt guest loss — 2026-11-24
+
+- Reviewed the successful quota-enabled Ubuntu workflow
+  [45203221241](https://github.com/cyberducttape/StePanel/actions/runs/45203221241)
+  on product source `5da789bb51e6da28e5c94667ebc8cf2f27049462`. It installed
+  in a disposable Ubuntu 24.04 QEMU guest with ext4 user/project quotas on
+  `/var/www` and user quotas on `/home`, checked effective quota state before
+  and after reboot, rejected a Git staging write over the project limit, and
+  passed the customer starter-quota smoke.
+- The workflow killed QEMU, rebooted the same disks, and verified systemd,
+  readiness, and quota state recovered. WordPress HTTPS/database recovery
+  passed with measured RTO 188,757 ms under TCG; backup and file-restore ENOSPC
+  drills passed. This is one emulated ext4 run, not physical host power-loss,
+  XFS, or repeated certification. The guest console also showed a generic
+  `quotaon.service` boot failure even though explicit pre/post quota checks
+  passed; this is recorded as a follow-up diagnostic in the report.
+- Added the scoped [quota result](docs/lab-results/2026-11-23-ubuntu-ext4-quota-install-45203221241.md)
+  and reconciled the current candidate/quota evidence in
+  [`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md) and the authoritative
+  [`V1_PRODUCTION_GATES.md`](docs/V1_PRODUCTION_GATES.md). Production remains
+  **NO-GO**; no tag or release was published.
+
 ## Complete the exact-source v0.9.0 install preflight — 2026-11-23
 
 - The non-publishing candidate preflight
@@ -88,10 +110,14 @@
   selected guest-loss scenarios passed, as did database ENOSPC and operator
   alert delivery/retry. The reviewed [report](docs/lab-results/2026-11-23-rocky-kvm-abrupt-loss-edd11d47.md)
   links the retained logs and records the source relationship and limitations.
-  An exact-current-source rerun [45158813904](https://github.com/cyberducttape/StePanel/actions/runs/45158813904)
-  is actively running the same KVM matrix on code source `4e9ca58a` (the
-  subsequent `046af5ee` commit changes documentation only); one older-source
-  pass is not counted as repeated or physical power-loss certification.
+  The source-current-at-run-time rerun [45158813904](https://github.com/cyberducttape/StePanel/actions/runs/45158813904)
+  passed on `4e9ca58a`: six guest-loss scenarios, database ENOSPC, alert
+  outage/retry, and WordPress HTTPS/database recovery (8,831 ms). See the
+  [reviewed report](docs/lab-results/2026-11-23-rocky-kvm-abrupt-loss-4e9ca58.md).
+  Later installer/setup/quota-preflight changes mean current-main run
+  [45305278135](https://github.com/cyberducttape/StePanel/actions/runs/45305278135)
+  is running; neither one-pass run proves physical power-loss or repeated
+  certification.
 - The ext4 quota-enabled install workflow
   [45151625662](https://github.com/cyberducttape/StePanel/actions/runs/45151625662)
   is running on the same current source. It boots a disposable quota-enabled
