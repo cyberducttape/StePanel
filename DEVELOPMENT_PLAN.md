@@ -3000,14 +3000,18 @@ and served the dashboard; it was stopped cleanly.
 
 ### M0bo — Make customer site-cap limits actionable (P2)
 
-**Status:** Implemented locally. The customer panel now uses the account's
+**Status:** Implemented and pushed on `bbe33b7c`. The customer panel now uses the account's
 current plan and assigned-site count before rendering its create form. At the
 limit it explains the exact included count, removes the doomed form, and sends
 the onboarding primary action to plan usage with a recommendation to contact
 the hosting operator. An unavailable assignment record fails closed. Account
-assignment remains the authoritative transactional enforcement. Focused Go
-regressions, frontend syntax and unit tests, and `make check` pass. The seeded
-browser regression is added; hosted E2E is pending.
+assignment remains the authoritative transactional enforcement. The onboarding
+checklist reads eligibility from the current server-rendered state on each
+refresh, rather than keeping a stale startup snapshot. Focused Go regressions,
+frontend syntax and unit tests, `make check`, and the seeded browser test pass.
+Exact-source [hosted CI](https://github.com/cyberducttape/StePanel/actions/runs/45354313178)
+passed on retry; its first attempt was blocked only by a transient GitHub
+download timeout while fetching Prometheus.
 
 **Acceptance criteria**
 
@@ -3018,5 +3022,5 @@ browser regression is added; hosted E2E is pending.
 - A customer under the limit retains the first-site WordPress path, and
   assignment-store errors do not advertise site creation as available.
 - Focused server-rendered tests, seeded browser regression, frontend unit
-  tests, and `make check` pass; hosted E2E confirms the customer journey.
+  tests, `make check`, and hosted CI confirm the customer journey.
 

@@ -5399,6 +5399,12 @@ does not close a current-source or power-loss gate.
   JavaScript syntax checks, and frontend unit tests (20/20) passed. Full
   `make check` passed, including `go vet ./...`, all Go tests (root package
   121.478 s), installer contracts, and the README local-evaluation contract.
-- The customer browser journey could not be executed locally without its
-  disposable seeded-panel credentials; the added regression must pass in
-  hosted CI before this milestone is closed.
+- The first hosted E2E run exposed a stale JavaScript snapshot when onboarding
+  eligibility changed during a refresh. The panel now reads the eligibility
+  and plan cap from the current document state whenever it renders. The seeded
+  customer browser test passes locally against a freshly built panel.
+- Commit `bbe33b7c` was pushed to `main` as Stephan Loesevitz. Exact-source
+  [CI](https://github.com/cyberducttape/StePanel/actions/runs/45354313178)
+  passed on retry, including hosted browser E2E, Go tests, race tests, recovery
+  and ENOSPC drills. The first attempt's only failure was a transient network
+  timeout downloading Prometheus for alert-rule validation.
