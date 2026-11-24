@@ -527,6 +527,9 @@ func doctor(c *stepanel.Client, ctx context.Context, args []string, out, errOut 
 	jsonOutput := fs.Bool("json", false, "write the readiness report as JSON")
 	_ = fs.Bool("production", false, "check production readiness (the default)")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 	if fs.NArg() != 0 {

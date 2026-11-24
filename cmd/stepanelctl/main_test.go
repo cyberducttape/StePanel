@@ -111,3 +111,16 @@ func TestDoctorShowsReadableAndJSONReportsAndFailsNotReady(t *testing.T) {
 		})
 	}
 }
+
+func TestDoctorHelpExitsSuccessfullyWithoutRequest(t *testing.T) {
+	var output, errorsOut bytes.Buffer
+	err := doctor(nil, context.Background(), []string{"--help"}, &output, &errorsOut)
+	if err != nil {
+		t.Fatalf("doctor --help error = %v", err)
+	}
+	for _, want := range []string{"Usage of doctor:", "-production", "-json"} {
+		if !strings.Contains(errorsOut.String(), want) {
+			t.Errorf("doctor help missing %q:\n%s", want, errorsOut.String())
+		}
+	}
+}
