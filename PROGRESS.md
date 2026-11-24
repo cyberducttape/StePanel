@@ -46,8 +46,11 @@
   [45314551538](https://github.com/cyberducttape/StePanel/actions/runs/45314551538)
   remains in progress at repetition 1. All six host jobs are still active and
   GitHub has not published their logs or artifacts, so no repetition is
-  counted yet. The candidate archive remains unpublished and production is
-  still **NO-GO**.
+  counted yet. The cohort source `47386470` predates the later `stepanelctl`
+  help-path code change in `cmd/stepanelctl`; results will be useful installed-
+  host evidence but cannot, by themselves, close an exact-current-candidate
+  gate. The candidate archive remains unpublished and production is still
+  **NO-GO**.
 
 ## Record the 500-site capacity pass after overview optimization — 2026-11-24
 
