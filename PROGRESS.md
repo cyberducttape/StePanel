@@ -1,3 +1,20 @@
+## Revalidate the current first-run source and repository checks — 2026-11-24
+
+- On `main` at `49c486b6a5d6332ca00e3ccd08f8628cf9bc577a`, `make check`
+  passed. This includes the API artifact check, installer and local-evaluation
+  bootstrap contracts, `go vet ./...`, and `GOMAXPROCS=2 go test -p 1
+  -timeout 10m ./...`; the root package completed in 119.5 seconds.
+- Current-source CodeQL, documentation, and release-evidence workflows passed
+  on this commit. The full integration/race and seeded browser run passed on
+  code-equivalent source `47386470`; the current commit's tracked changes since
+  that run are documentation-only.
+- The six-host, 20-repeat installed-host cohort
+  [45314551538](https://github.com/cyberducttape/StePanel/actions/runs/45314551538)
+  remains in progress at repetition 1. All six host jobs are still active and
+  GitHub has not published their logs or artifacts, so no repetition is
+  counted yet. The candidate archive remains unpublished and production is
+  still **NO-GO**.
+
 ## Record the 500-site capacity pass after overview optimization — 2026-11-24
 
 - Reviewed capacity profile
