@@ -11,8 +11,8 @@
   if (!api || !document.body.classList.contains('customer-panel')) return;
 
   const accountRole = document.body.dataset.accountRole || 'owner';
-  const siteCreationState = document.body.dataset.siteCreationState || 'unavailable';
-  const siteLimit = Number(document.body.dataset.siteLimit || 0);
+  const siteCreationState = () => document.body.dataset.siteCreationState || 'unavailable';
+  const siteLimit = () => Number(document.body.dataset.siteLimit || 0);
   const roleScopes = {
     developer: new Set(['site:read', 'site:deploy', 'deploy:write', 'environment:read', 'environment:write', 'logs:read', 'backup:read', 'backup:create', 'database:read', 'redis:read', 'files:read', 'files:write']),
     viewer: new Set(['site:read', 'environment:read', 'backup:read', 'database:read', 'redis:read', 'logs:read', 'files:read']),
@@ -135,19 +135,19 @@
         detail: `${ui.plural(hosting.sites.length, 'website')} available. Manage its domain, files, PHP, databases, and application health from one workspace.`,
         href: '#websites', label: 'Open websites', state: 'done',
       });
-    } else if (siteCreationState === 'limit') {
+    } else if (siteCreationState() === 'limit') {
       steps.push({
         title: 'Your plan’s website limit is reached',
-        detail: `Your plan includes ${siteLimit} website${siteLimit === 1 ? '' : 's'}, and all slots are in use. Contact your hosting operator to review plan capacity or remove an unused website before creating another.`,
+        detail: `Your plan includes ${siteLimit()} website${siteLimit() === 1 ? '' : 's'}, and all slots are in use. Contact your hosting operator to review plan capacity or remove an unused website before creating another.`,
         href: '#account', label: 'Review plan usage', state: 'attention',
       });
-    } else if (siteCreationState === 'suspended') {
+    } else if (siteCreationState() === 'suspended') {
       steps.push({
         title: 'Website creation is unavailable',
         detail: 'This hosting account is suspended. Contact your hosting operator to restore access before creating a website.',
         href: '#account', label: 'Review account access', state: 'attention',
       });
-    } else if (siteCreationState === 'unavailable') {
+    } else if (siteCreationState() === 'unavailable') {
       steps.push({
         title: 'Website eligibility could not be checked',
         detail: 'StePanel could not confirm your plan or site assignments. Refresh this page to retry; contact your hosting operator if this continues.',
@@ -173,19 +173,19 @@
         detail: `Domain routes could not be checked: ${overviewError || hostingError || 'website assignments are still loading'}. A configured route also does not prove public DNS or HTTPS is working.`,
         href: '#websites', label: 'Review domain status', state: 'unknown',
       });
-    } else if (!hosting.sites.length && siteCreationState === 'limit') {
+    } else if (!hosting.sites.length && siteCreationState() === 'limit') {
       steps.push({
         title: 'Connect your domain',
         detail: 'After the plan has an available website slot, create the site and then check its DNS and HTTPS in the workspace.',
         href: '#account', label: 'Review plan usage', state: 'next',
       });
-    } else if (!hosting.sites.length && siteCreationState === 'suspended') {
+    } else if (!hosting.sites.length && siteCreationState() === 'suspended') {
       steps.push({
         title: 'Connect your domain',
         detail: 'Domain and HTTPS setup will be available after the hosting operator restores account access.',
         href: '#account', label: 'Review account access', state: 'next',
       });
-    } else if (!hosting.sites.length && siteCreationState === 'unavailable') {
+    } else if (!hosting.sites.length && siteCreationState() === 'unavailable') {
       steps.push({
         title: 'Connect your domain',
         detail: 'Domain and HTTPS steps will appear after StePanel can confirm your account and site eligibility.',
