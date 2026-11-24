@@ -3031,8 +3031,9 @@ journey. When the only operational warning is that no alert destination has
 been configured, an operator with no sites now gets the first-site action
 first, while the alert setup remains immediately below it with its repair
 instructions. Broker, storage, audit, recovery, unknown-health, and alert
-delivery failures still keep health review first. The exact-source hosted CI
-run remains pending.
+delivery failures still keep health review first. Exact-source hosted
+[CI](https://github.com/cyberducttape/StePanel/actions/runs/45362207905)
+passed, including browser accessibility, Go, race, and recovery checks.
 
 **Acceptance criteria**
 

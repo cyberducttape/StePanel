@@ -5421,4 +5421,7 @@ does not close a current-source or power-loss gate.
 - Added a seeded browser regression for both the nonblocking alert-only case
   and the existing critical-broker case. `node --check`, frontend unit tests
   (20/20), and the focused seeded Chromium journey passed locally.
-- `make release-check` passed. Hosted CI for this new change is pending.
+- `make release-check` passed. Exact-source hosted
+  [CI](https://github.com/cyberducttape/StePanel/actions/runs/45362207905)
+  passed, including the full seeded browser/accessibility suite, Go tests, race
+  tests, coverage, ENOSPC, and recovery checks.
