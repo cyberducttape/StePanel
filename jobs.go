@@ -1981,7 +1981,7 @@ func (j *Jobs) persistAdmittedItem(item *Job) error {
 	committed := false
 	defer func() {
 		if !committed {
-			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK") // best-effort: abandoning an uncommitted transaction; the original error is returned
 		}
 	}()
 	var pending int64

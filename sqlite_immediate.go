@@ -50,7 +50,7 @@ func (t *immediateTx) Commit() error {
 	defer t.conn.Close()
 	if _, err := t.conn.ExecContext(t.ctx, "COMMIT"); err != nil {
 		// Never return a connection to the pool with the transaction open.
-		_, _ = t.conn.ExecContext(context.Background(), "ROLLBACK")
+		_, _ = t.conn.ExecContext(context.Background(), "ROLLBACK") // best-effort: COMMIT already failed and its error is returned
 		return err
 	}
 	return nil

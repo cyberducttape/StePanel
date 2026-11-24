@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -192,7 +193,10 @@ func (s *siteSuspensionStore) recordError(site string, cause error) {
 	if len(message) > 1000 {
 		message = message[:1000]
 	}
-	_, _ = s.db.Exec(`UPDATE site_suspensions SET last_error = ?, updated_at = ? WHERE site = ?`, message, time.Now().UTC().Unix(), site)
+	if _, err := s.db.Exec(`UPDATE site_suspensions SET last_error = ?, updated_at = ? WHERE site = ?`, message, time.Now().UTC().Unix(), site); err != nil {
+		// The caller is already reporting cause; keep the lost diagnostic visible.
+		log.Printf("record suspension error for site %s: %v (original error: %s)", site, err, message)
+	}
 }
 
 var (

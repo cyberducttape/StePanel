@@ -99,7 +99,7 @@ func MigrateExisting(db *sql.DB, webRoot string) error {
 	committed := false
 	defer func() {
 		if !committed {
-			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK") // best-effort: abandoning an uncommitted transaction; the original error is returned
 		}
 	}()
 	index, err := loadIdentityIndex(ctx, conn)

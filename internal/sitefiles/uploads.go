@@ -255,19 +255,19 @@ func (m *UploadManager) Append(ctx context.Context, id, site, tenant string, sta
 	limited := io.LimitReader(chunk, MaxUploadChunkBytes+1)
 	written, err := io.Copy(&fileAtWriter{file: file, offset: session.Offset}, limited)
 	if err != nil {
-		_ = file.Truncate(session.Offset)
+		_ = file.Truncate(session.Offset) // best-effort: the manifest offset is authoritative and the next chunk truncates any tail
 		return session, fmt.Errorf("write upload chunk: %w", err)
 	}
 	if written == 0 || written > MaxUploadChunkBytes || session.Offset+written > session.Size || (written != MaxUploadChunkBytes && session.Offset+written != session.Size) {
-		_ = file.Truncate(session.Offset)
+		_ = file.Truncate(session.Offset) // best-effort: the manifest offset is authoritative and the next chunk truncates any tail
 		return session, errors.New("upload chunks must be full-sized except for the final chunk")
 	}
 	if err := ctx.Err(); err != nil {
-		_ = file.Truncate(session.Offset)
+		_ = file.Truncate(session.Offset) // best-effort: the manifest offset is authoritative and the next chunk truncates any tail
 		return session, err
 	}
 	if err := file.Sync(); err != nil {
-		_ = file.Truncate(session.Offset)
+		_ = file.Truncate(session.Offset) // best-effort: the manifest offset is authoritative and the next chunk truncates any tail
 		return session, fmt.Errorf("sync upload chunk: %w", err)
 	}
 	previousOffset := session.Offset
@@ -275,8 +275,8 @@ func (m *UploadManager) Append(ctx context.Context, id, site, tenant string, sta
 	session.UpdatedAt = time.Now().UTC()
 	if err := m.save(session); err != nil {
 		session.Offset = previousOffset
-		_ = file.Truncate(previousOffset)
-		_ = file.Sync()
+		_ = file.Truncate(previousOffset) // best-effort: the manifest was not advanced and the next chunk truncates any tail
+		_ = file.Sync()                   // best-effort: see above
 		return session, err
 	}
 	return session, nil

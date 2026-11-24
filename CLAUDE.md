@@ -380,6 +380,7 @@ The extraction happens **one domain at a time**, with clear interfaces between r
 
 - **Pre-commit hook** (planned): Syntax check, format check
 - **CI gates**: Code review checklist automated where possible
+- **Ignored durable errors**: `TestDurableMutationErrorsAreChecked` (`ignored_errors_contract_test.go`) fails when production code discards the error from a filesystem create/write/rename/permission call or a `Sync`/`Commit`/`Exec`/`Truncate`. Cleanup on an already-failing path must say why on the same or preceding line: `// best-effort: <reason>`
 - **Merge requirements**: Code review approval required
 - **Rollout**: Apply Tier 1 standards to all new code; refactor Tier 2 subsystems incrementally
 
