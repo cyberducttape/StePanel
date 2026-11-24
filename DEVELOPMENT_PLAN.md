@@ -3024,3 +3024,23 @@ download timeout while fetching Prometheus.
 - Focused server-rendered tests, seeded browser regression, frontend unit
   tests, `make check`, and hosted CI confirm the customer journey.
 
+### M0bp — Keep optional alert setup from blocking a first test site (P2)
+
+**Status:** Implemented locally and verified in the focused seeded browser
+journey. When the only operational warning is that no alert destination has
+been configured, an operator with no sites now gets the first-site action
+first, while the alert setup remains immediately below it with its repair
+instructions. Broker, storage, audit, recovery, unknown-health, and alert
+delivery failures still keep health review first. The exact-source hosted CI
+run remains pending.
+
+**Acceptance criteria**
+
+- With no sites and only the missing alert-destination warning, the checklist
+  and primary action lead to WordPress site creation; alert setup remains
+  visible and explains how to configure delivery.
+- Any other operational failure or unavailable health result continues to
+  prioritize host-health review.
+- Existing-site checklist ordering, frontend unit tests, the focused seeded
+  browser journey, and exact-source hosted CI pass.
+

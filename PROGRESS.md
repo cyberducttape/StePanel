@@ -5408,3 +5408,17 @@ does not close a current-source or power-loss gate.
   passed on retry, including hosted browser E2E, Go tests, race tests, recovery
   and ENOSPC drills. The first attempt's only failure was a transient network
   timeout downloading Prometheus for alert-rule validation.
+
+## Prioritize first-site setup over optional alert configuration — 2026-11-24
+
+- Reviewing the rendered seeded operator first-run screen showed that an
+  unconfigured alert destination could outrank the first-site action even
+  though it does not block creating a test site. The checklist now puts site
+  creation first only for that exact condition. Critical host-health failures,
+  failed/pending alert delivery, and unavailable health evidence still lead
+  with health review. The alert repair remains the second visible checklist
+  step.
+- Added a seeded browser regression for both the nonblocking alert-only case
+  and the existing critical-broker case. `node --check`, frontend unit tests
+  (20/20), and the focused seeded Chromium journey passed locally.
+- `make release-check` passed. Hosted CI for this new change is pending.

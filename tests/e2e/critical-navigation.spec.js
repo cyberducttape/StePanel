@@ -35,8 +35,10 @@ test('login and overview accessibility', async ({ page }) => {
 
 test('first-run primary action follows the next unresolved setup step', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  let hostNeedsAttention = true;
-  let omitHealthChecks = false;
+  let healthResponse = {
+    operational: false,
+    checks: { broker: { ready: false, detail: 'broker is unavailable' } },
+  };
   let currentSites = [];
   let currentBackups = [];
   let currentRecovery = {};
@@ -53,14 +55,9 @@ test('first-run primary action follows the next unresolved setup step', async ({
     body: JSON.stringify(recoveryUnavailable ? { error: 'recovery status unavailable for test' } : currentRecovery),
   }));
   await page.route('**/api/health/operational', (route) => route.fulfill({
-    status: hostNeedsAttention ? 503 : 200,
+    status: healthResponse.operational ? 200 : 503,
     contentType: 'application/json',
-    body: JSON.stringify(omitHealthChecks
-      ? { operational: true }
-      : {
-        operational: !hostNeedsAttention,
-        checks: { broker: { ready: !hostNeedsAttention, detail: hostNeedsAttention ? 'broker is unavailable' : 'broker is ready' } },
-      }),
+    body: JSON.stringify(healthResponse),
   }));
 
   await page.reload();
@@ -78,8 +75,7 @@ test('first-run primary action follows the next unresolved setup step', async ({
   await primary.click();
   await expect(page.locator('#controlPlaneDetails')).toBeVisible();
 
-  hostNeedsAttention = false;
-  omitHealthChecks = true;
+  healthResponse = { operational: true };
   await page.locator('#refreshOnboarding').click();
   const hostStep = page.locator('#onboardingChecklist .setup-step').filter({ hasText: 'Check host and job health' });
   await expect(hostStep).toHaveClass(/setup-step-unknown/);
@@ -100,7 +96,10 @@ test('first-run primary action follows the next unresolved setup step', async ({
   await page.setViewportSize({ width: 1440, height: 1000 });
   await expect(primary).toHaveAttribute('href', '#controlPlaneDetailsToggle');
 
-  omitHealthChecks = false;
+  healthResponse = {
+    operational: true,
+    checks: { broker: { ready: true, detail: 'broker is ready' } },
+  };
   await page.locator('#refreshOnboarding').click();
   await expect(primary).toHaveAttribute('href', '#sites');
   await expect(primary).toHaveText('Create WordPress site');
@@ -124,7 +123,23 @@ test('first-run primary action follows the next unresolved setup step', async ({
   await page.locator('#siteCreateDomain').fill('another.example.test');
   await expect(page.locator('#siteCreateName')).toHaveValue('custom-store');
 
+  healthResponse = {
+    operational: false,
+    checks: { operator_notifications: { ready: false, detail: 'no SMTP or webhook alert destination is configured' } },
+  };
+  await page.locator('#refreshOnboarding').click();
+  const setupSteps = page.locator('#onboardingChecklist .setup-step');
+  await expect(setupSteps.nth(0)).toContainText('Create or migrate your first site');
+  await expect(setupSteps.nth(1)).toContainText('Check host and job health');
+  await expect(setupSteps.nth(1)).toContainText('configure one destination');
+  await expect(primary).toHaveAttribute('href', '#sites');
+  await expect(primary).toHaveText('Create WordPress site');
+
   currentSites = [{ site: 'setup-a' }, { site: 'setup-b' }];
+  healthResponse = {
+    operational: true,
+    checks: { broker: { ready: true, detail: 'broker is ready' } },
+  };
   currentBackups = [{ site: 'setup-a', verified_at: '2026-11-20T12:00:00Z' }];
   currentRecovery = {
     last_backup: { name: 'backup-a' },

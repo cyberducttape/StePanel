@@ -89,6 +89,7 @@
     const generation = ++requestGeneration;
     list.replaceChildren(text('li', 'empty-state', 'Checking your workspace…'));
     progress.textContent = 'Checking your workspace…';
+    let notificationSetupIsOnlyHealthIssue = false;
 
     const [sitesResult, backupsResult, readinessResult] = await Promise.allSettled([
       StepanelAPI.get('/api/sites/overview', { cache: 'no-store', signal }),
@@ -133,6 +134,10 @@
           : [];
         const failed = checks.filter(([, check]) => !check || !check.ready);
         const ready = readiness.operational === true && checks.length > 0 && failed.length === 0;
+        notificationSetupIsOnlyHealthIssue = failed.length > 0 && failed.every(([name, check]) => (
+          name === 'operator_notifications' &&
+          check.detail === 'no SMTP or webhook alert destination is configured'
+        ));
         const details = failed.slice(0, 2).map(([name, check]) => readinessFailure(name, check));
         steps.push({
           title: 'Check host and job health',
@@ -241,6 +246,14 @@
         label: applicationProven ? 'Review restore proof' : `Rehearse ${recoverySite.site} restore`,
         state,
       });
+    }
+
+    // Alert delivery must be configured before customer-facing production, but
+    // an unconfigured destination does not prevent an operator from creating
+    // and validating their first site. Keep all other health failures first.
+    if (isAdmin && sites?.length === 0 && notificationSetupIsOnlyHealthIssue) {
+      const siteStepIndex = steps.findIndex((step) => step.title === 'Create or migrate your first site');
+      if (siteStepIndex > 0) steps.unshift(steps.splice(siteStepIndex, 1)[0]);
     }
 
     list.replaceChildren();
