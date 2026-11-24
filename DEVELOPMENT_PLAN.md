@@ -3122,15 +3122,17 @@ passed, including browser accessibility, Go, race, and recovery checks.
 
 ### M0bq — Resume an interrupted upgrade without leaving mutations paused (P1)
 
-**Status:** Implemented and pushed as `9594ee7b`; `make check` and exact-source
-hosted CI passed. An exact-source N-1 QEMU upgrade run exposed that a host rebooted during installation could restart
-with both StePanel services down. The resumed installer then did not consider
-the persisted upgrade drain its own and left customer mutations rejected with
-HTTP 503. Successful installation now clears any persisted drain, including
-one left by an earlier interrupted attempt. The installed-host upgrade smoke
-asserts that no drain remains after recovery. The v0.7.0 filesystem-migration
-guest-loss case passed on the fix; the remaining N-1 matrix jobs are still
-running.
+**Status:** Complete on code commit `9594ee7b`. Exact-source N-1 upgrade run
+[45393139799](https://github.com/cyberducttape/StePanel/actions/runs/45393139799)
+passed all eight cases, including both v0.6.0 and v0.7.0 QEMU guest-loss
+upgrades at `filesystem_migration`. The run exposed that a host rebooted during
+installation could restart with both StePanel services down. The resumed
+installer then did not consider the persisted upgrade drain its own and left
+customer mutations rejected with HTTP 503. Successful installation now clears
+any persisted drain, including one left by an earlier interrupted attempt.
+The installed-host upgrade smoke asserts that no drain remains after recovery.
+Exact-source `make check`, hosted integration CI, install smoke, and the
+complete N-1 matrix passed.
 
 **Acceptance criteria**
 
@@ -3140,5 +3142,7 @@ running.
   even when services were inactive when the resumed installer started.
 - The upgrade drain refusal test still proves a currently running job is not
   interrupted by an ordinary refused upgrade.
+- Guest-loss upgrade recovery passes for v0.6.0 and v0.7.0 on disposable QEMU
+  guests, alongside normal upgrade and rollback cases.
 - `make check` and the exact-source guest-loss upgrade matrix pass.
 

@@ -5580,8 +5580,11 @@ does not close a current-source or power-loss gate.
   row is absent before continuing.
 - `make check` passed locally, including `go vet ./...`, the full Go suite
   (root package 121.627 s), and installer contracts. `bash -n` and
-  `git diff --check` passed. The v0.7.0 guest-loss upgrade case passed on the
-  exact fix commit; the remaining QEMU matrix cases are in progress.
+  `git diff --check` passed. Exact-source hosted CI and installed-host smoke
+  passed. N-1 upgrade run
+  [45393139799](https://github.com/cyberducttape/StePanel/actions/runs/45393139799)
+  passed all eight cases, including both v0.6.0 and v0.7.0 QEMU guest-loss
+  recovery at `filesystem_migration`, ordinary upgrades, and rollback checks.
 - Release preflight [45389788023](https://github.com/cyberducttape/StePanel/actions/runs/45389788023)
   was still running at the time of this note; it uses an earlier commit and
   is not evidence for this fix. No release was published.
@@ -5607,5 +5610,8 @@ does not close a current-source or power-loss gate.
   repeated certification.
 - On exact source `9594ee7b`, local `make check` passed. Hosted integration,
   CodeQL, documentation, and exact-source recovery checks passed. The N-1
-  matrix's v0.7.0 QEMU guest-loss case passed with the drain-recovery fix;
-  the remaining QEMU jobs and the installed-host smoke are still in progress.
+  matrix [45393139799](https://github.com/cyberducttape/StePanel/actions/runs/45393139799)
+  passed all eight cases; the installed-host smoke
+  [45393107958](https://github.com/cyberducttape/StePanel/actions/runs/45393107958)
+  passed with a 7,781 ms WordPress recovery proof. The fix and evidence record
+  are pushed to `main` as `9594ee7b`, `16518297`, and `c57b602b`.
