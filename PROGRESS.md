@@ -20,6 +20,12 @@
   `git diff --check` passed after the report and installation-guide update.
   Current-main six-host recovery cohort [45314551538](https://github.com/cyberducttape/StePanel/actions/runs/45314551538)
   is still running; it has not yet produced repetition evidence.
+- The exact-source-equivalent integration run
+  [45313583538](https://github.com/cyberducttape/StePanel/actions/runs/45313583538)
+  passed both jobs: full Go integration/race tests and seeded browser E2E.
+  This closes the stale hosted-validation item for typed durable operation
+  extraction (M0e); current main differs from that code tree only in
+  documentation.
 
 ## Review completed Rocky KVM drills and current integration CI — 2026-11-24
 

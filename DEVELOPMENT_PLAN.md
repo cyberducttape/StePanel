@@ -1322,7 +1322,11 @@ unverified where they cannot establish application-level behavior.
 
 ### M0e — Continue typed durable operation extraction (P1)
 
-**Status:** Implementation complete; exact-source hosted validation is pending.
+**Status:** Implemented and verified on code-equivalent source `47386470` in
+hosted integration [45313583538](https://github.com/cyberducttape/StePanel/actions/runs/45313583538).
+Both integration jobs passed, including the Go suite/race tests and seeded
+browser E2E. Current `main` has the same non-Markdown source tree; the later
+commits only update evidence documentation.
 All ten `site.operation` routes have typed executors, and the worker invokes
 those services directly. The remaining routes were completed under M0s;
 Node tooling, Python deployment, Composer install, sandboxed runner builds, and
@@ -1330,9 +1334,9 @@ Node deployment also use typed worker services. Node deployment revalidates
 the queuing token, checkpoints recovery state, and refuses compensation after
 lease loss. Static inspection confirms no worker synthesizes an HTTP request or
 invokes a route handler. The focused executor/token/lease tests and full local
-`make check` pass on `b633dbea`; hosted integration for the code-equivalent
-`993a4079` source remains queued. Keep this validation item open until hosted
-CI completes.
+`make check` passed on `b633dbea`; hosted validation now passes on the
+code-equivalent current source. Host-level recovery certification remains a
+separate gate.
 
 **Acceptance criteria**
 
