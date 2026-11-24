@@ -2181,7 +2181,11 @@ Installer cancellation now prints its reuse command with Bash-safe quoting, so
 saved configuration paths containing spaces or shell metacharacters remain
 copyable. A regression checks the rendered command and round-trips a path with
 spaces and quotes. Local installer settings and full shell-contract checks
-pass; exact-source hosted CI for this follow-up is pending.
+passed; the follow-up is included in product source `5da789bb`, whose hosted
+integration [45201896488](https://github.com/cyberducttape/StePanel/actions/runs/45201896488),
+documentation [45201896612](https://github.com/cyberducttape/StePanel/actions/runs/45201896612),
+and CodeQL [45201896556](https://github.com/cyberducttape/StePanel/actions/runs/45201896556)
+all passed.
 
 The documented `stepanel setup` flow must continue successfully into the
 installer. Treat its generated settings as the supported contract: promote a
@@ -2565,13 +2569,19 @@ workflows passed.
 
 ### M0au — Make the first customer site follow the supported WordPress path (P2)
 
-**Status:** Implemented and pushed as `2c1b4693`; `make check`, frontend unit
-tests, and the customer-panel browser E2E/accessibility job passed. The exact
-source integration workflow was still running its race suite at the latest
-check. When an account has no assigned sites, the customer site form selects
-WordPress by default and exposes its setup fields. Blank PHP remains available
-for customers deploying another application, with concise guidance explaining
-that choice. Existing mandatory domain-ownership verification is unchanged.
+**Status:** Implemented and pushed as `2c1b4693`; the feature and its follow-up
+are included in product source `5da789bb`. When an account has no assigned
+sites, the customer site form selects WordPress by default and exposes its
+setup fields. Blank PHP remains available for customers deploying another
+application, with concise guidance explaining that choice. Existing mandatory
+domain-ownership verification is unchanged. `make check`, frontend unit tests,
+and the customer-panel browser E2E/accessibility job passed. Exact-source
+hosted integration [45201896488](https://github.com/cyberducttape/StePanel/actions/runs/45201896488),
+documentation [45201896612](https://github.com/cyberducttape/StePanel/actions/runs/45201896612),
+and CodeQL [45201896556](https://github.com/cyberducttape/StePanel/actions/runs/45201896556)
+passed; the later packaged candidate install [45202075337](https://github.com/cyberducttape/StePanel/actions/runs/45202075337)
+also passed. Its one recovery iteration and missing quota enforcement remain
+limited evidence, not production certification.
 
 **Acceptance criteria**
 
@@ -2713,13 +2723,18 @@ Documentation, CodeQL, and release-evidence workflows also passed.
 
 ### M0bf — Make setup cancellation honest about rclone changes (P2)
 
-**Status:** Implemented locally. The setup guide now says that choosing to
-configure an offsite remote updates the current user's rclone configuration
-immediately and that it remains if setup is later canceled. The cancellation
-error distinguishes unsaved installer settings from that retained rclone
-configuration. Focused setup tests, `make check`, and
-`go test -race ./internal/setup -count=1` pass locally. Exact-source hosted
-checks remain pending on current main.
+**Status:** Implemented and verified on product source `5da789bb`. The setup
+guide says choosing an offsite remote updates the current user's rclone
+configuration immediately and that it remains if setup is canceled. The
+cancellation error distinguishes unsaved installer settings from that
+retained configuration. Focused setup tests, `make check`, and
+`go test -race ./internal/setup -count=1` passed locally. Exact-source hosted
+integration [45201896488](https://github.com/cyberducttape/StePanel/actions/runs/45201896488),
+documentation [45201896612](https://github.com/cyberducttape/StePanel/actions/runs/45201896612),
+and CodeQL [45201896556](https://github.com/cyberducttape/StePanel/actions/runs/45201896556)
+passed. The later packaged install preflight [45202075337](https://github.com/cyberducttape/StePanel/actions/runs/45202075337)
+also passed, with quota/repeated-certification limitations recorded in its
+scoped report.
 
 **Acceptance criteria**
 
@@ -2733,11 +2748,14 @@ checks remain pending on current main.
 
 ### M0bg — Keep evaluation instructions consistent in the setup wizard (P2)
 
-**Status:** Implemented locally. The setup wizard now points first-time
-evaluators to `bash scripts/evaluate-local.sh`, matching the no-Make command
-in the README and installation guide. The setup regression checks the exact
-wizard text. `make check` passes locally; exact-source hosted checks are
-pending.
+**Status:** Implemented and verified on product source `5da789bb`. The setup
+wizard points first-time evaluators to `bash scripts/evaluate-local.sh`,
+matching the README and installation guide. The setup regression checks the
+wizard text, and `make check` passed locally. Exact-source hosted integration
+[45201896488](https://github.com/cyberducttape/StePanel/actions/runs/45201896488),
+documentation [45201896612](https://github.com/cyberducttape/StePanel/actions/runs/45201896612),
+and CodeQL [45201896556](https://github.com/cyberducttape/StePanel/actions/runs/45201896556)
+passed.
 
 **Acceptance criteria**
 
@@ -2748,12 +2766,16 @@ pending.
 
 ### M0bh — Make the native install guide scannable (P2)
 
-**Status:** Implemented locally. The current-source install guide presents the
-guided flow as four ordered steps—read-only preflight, user-level build,
-credential setup, and host installation—and removes repeated explanations of
-the same checks and rclone setup. It keeps the support limits, safe local
-preview, package prerequisites, and host-change consent. Documentation link
-and reference checks pass; exact-source documentation CI is pending.
+**Status:** Implemented and documentation-checked on product source
+`5da789bb`. The install guide presents the guided flow as four ordered
+steps—read-only preflight, user-level build, credential setup, and host
+installation—and removes repeated explanations of the same checks and rclone
+setup. It keeps the support limits, safe local preview, package prerequisites,
+and host-change consent. Documentation links/references and hosted
+documentation CI [45201896612](https://github.com/cyberducttape/StePanel/actions/runs/45201896612)
+passed. The separate installed-host candidate [45202075337](https://github.com/cyberducttape/StePanel/actions/runs/45202075337)
+passed on Ubuntu 24.04 + Caddy + MariaDB; it does not close the documented
+quota or repeated recovery gates.
 
 **Acceptance criteria**
 
@@ -2768,17 +2790,17 @@ and reference checks pass; exact-source documentation CI is pending.
 
 ### M0bi — Keep first-run checklist actions readable (P2)
 
-**Status:** Implemented on `5da789bb`. Setup checklist actions now sit below
-their explanations instead of competing for a narrow third grid column. The
-seeded browser regression checks the explanation/action geometry at desktop
-and mobile widths. The exact-source seeded browser/accessibility job passed in
+**Status:** Implemented and verified on `5da789bb`. Setup checklist actions
+now sit below their explanations instead of competing for a narrow third grid
+column. The seeded browser regression checks the explanation/action geometry
+at desktop and mobile widths. The exact-source seeded browser/accessibility job passed in
 [run 45201896488](https://github.com/cyberducttape/StePanel/actions/runs/45201896488),
 as did the full integration job in the same run, documentation
 [45201896612](https://github.com/cyberducttape/StePanel/actions/runs/45201896612),
 and CodeQL [45201896556](https://github.com/cyberducttape/StePanel/actions/runs/45201896556).
 Local `make check` and frontend unit tests pass. The separate packaged
 installed-host candidate [45202075337](https://github.com/cyberducttape/StePanel/actions/runs/45202075337)
-is still running; it is required before the fresh-host gate is counted.
+also passed; the scoped report records its limits and remaining release gates.
 
 **Acceptance criteria**
 
