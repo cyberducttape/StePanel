@@ -1,3 +1,18 @@
+## Run current-source installation and capacity gates — 2026-11-24
+
+- The six-host installed recovery iteration remains in progress on source
+  `5b9b8586861b0b2a341e42f387327402341eb68f`:
+  [run 45372107757](https://github.com/cyberducttape/StePanel/actions/runs/45372107757).
+  All six Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 Apache/Caddy jobs are
+  still running; no result is counted yet.
+- Dispatched the 500-site, 600-second KVM capacity profile against current
+  `main` at `3e976141a6fa92d7f31be32d69d14374af70968d`:
+  [run 45380135916](https://github.com/cyberducttape/StePanel/actions/runs/45380135916).
+  It is queued. This profile measures one runner VM and cannot certify a
+  generally supported site limit by itself.
+- No new test result is claimed in this entry. Production remains NO-GO until
+  the authoritative release gates are satisfied and reviewed.
+
 ## Record installed SMTP alert outage and retry evidence — 2026-11-24
 
 - Reviewed Rocky Linux 9 KVM run
