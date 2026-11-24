@@ -3207,7 +3207,8 @@ in [CI run 45416270600](https://github.com/cyberducttape/StePanel/actions/runs/4
 
 ### M0bt — Make the customer first-login action explicit (P2)
 
-**Status:** Implemented locally; focused customer browser regression passes.
+**Status:** Complete; exact-source hosted integration and browser E2E passed on
+`70210e13` in [CI run 45424095220](https://github.com/cyberducttape/StePanel/actions/runs/45424095220).
 An eligible account with no websites now sees “Create your first website” and
 one sentence explaining domain verification, HTTPS, and the first recovery
 point. If live account status cannot be loaded, the hero switches to neutral
@@ -3222,5 +3223,6 @@ their returning-user greeting.
   ready or that no sites exist; the existing retry/error state remains visible.
 - Existing-site and non-eligible account greetings remain unchanged.
 - Frontend unit tests, customer browser/accessibility coverage, embedded Go
-  build, and exact-source CI pass.
+  build, and exact-source CI pass. Local `make check`, customer browser E2E,
+  hosted integration, UI E2E, documentation, and CodeQL passed.
 

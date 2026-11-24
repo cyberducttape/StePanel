@@ -5668,4 +5668,6 @@ does not close a current-source or power-loss gate.
 - Added customer browser assertions for the new-account and unavailable-status
   states. `node --check`, frontend unit tests (20/20), an embedded-asset Go
   build, `git diff --check`, and the focused customer Chromium/accessibility
-  journey passed. Exact-source hosted CI is pending.
+  journey passed. Exact-source hosted integration and UI E2E, documentation,
+  and CodeQL passed on `70210e13`; see
+  [CI run 45424095220](https://github.com/cyberducttape/StePanel/actions/runs/45424095220).
