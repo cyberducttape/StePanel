@@ -26,6 +26,11 @@
   [run 45380135916](https://github.com/cyberducttape/StePanel/actions/runs/45380135916).
   It is queued. This profile measures one runner VM and cannot certify a
   generally supported site limit by itself.
+- The prior 20-repeat cohort on `9924fbda` was canceled after the report
+  confirmed it was no longer code-equivalent; 9/15 jobs had completed, but no
+  unfinished repetition is counted for current code. A replacement 20-repeat
+  cohort is running on `b22f007e`:
+  [run 45382693783](https://github.com/cyberducttape/StePanel/actions/runs/45382693783).
 - No new test result is claimed in this entry. Production remains NO-GO until
   the authoritative release gates are satisfied and reviewed.
 
