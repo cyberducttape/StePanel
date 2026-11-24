@@ -237,8 +237,16 @@ local tag was not pushed and no release was created.
 
 ### M0aa — Make first-time evaluation and support tiers clear (P1)
 
-**Status:** Partially implemented. The newest non-publishing `v0.9.0`
-candidate preflight passed on exact code source `9f041573`:
+**Status:** Partially implemented. The current-source nonpublishing `v0.9.0`
+preflight [45406596940](https://github.com/cyberducttape/StePanel/actions/runs/45406596940)
+passed on product source `ef0ca96d`. The versioned amd64/arm64 archives,
+checksums, exact-source evidence, and SPDX SBOM verified; the Ubuntu 24.04 +
+Caddy + MariaDB host installed and cleaned up, and WordPress HTTPS/database
+recovery measured 4.368 seconds RTO. The candidate remains unpublished and
+production remains NO-GO; quota enforcement was absent on the disposable host.
+See the [reviewed report](docs/lab-results/2026-11-24-v0.9.0-ubuntu-install-45406596940.md).
+The previous nonpublishing `v0.9.0` candidate preflight passed on exact code
+source `9f041573`:
 [run 45365861546](https://github.com/cyberducttape/StePanel/actions/runs/45365861546).
 Its Ubuntu 24.04 + Caddy + MariaDB disposable systemd install completed, the
 WordPress HTTPS/database recovery proof measured 7.236 seconds, and one
@@ -2620,7 +2628,16 @@ the documentation and CodeQL workflows passed on documentation-only descendant
 
 ### M0as — Gate tagged packages on a real fresh-host install (P1)
 
-**Status:** The nonpublishing exact-source `v0.9.0` preflight
+**Status:** The latest nonpublishing exact-source `v0.9.0` preflight
+[45406596940](https://github.com/cyberducttape/StePanel/actions/runs/45406596940)
+passed on product source `ef0ca96d`. Both architecture archives, checksums,
+exact-source evidence, and SPDX SBOM verified. The Ubuntu 24.04 + Caddy +
+MariaDB install and cleanup passed; database-backed WordPress HTTPS recovery
+measured 4,368 ms; one recovery iteration, database-outage recovery, and
+root-broker interruption recovery passed. Artifact checksums and limitations
+are in the [reviewed report](docs/lab-results/2026-11-24-v0.9.0-ubuntu-install-45406596940.md).
+The candidate was not published; tag-triggered publication remains unexercised.
+An earlier nonpublishing exact-source `v0.9.0` preflight
 [45329483748](https://github.com/cyberducttape/StePanel/actions/runs/45329483748)
 passed on `a52f9b1a9f003117f35d2947eb247c70909877c5`: both architecture
 archives, exact-source evidence, checksums, package contents, and SPDX SBOM
