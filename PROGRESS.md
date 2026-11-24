@@ -5385,3 +5385,20 @@ does not close a current-source or power-loss gate.
   The process exited cleanly on Ctrl-C; port 8080 is no longer listening. Its
   generated evaluation state remains in the repository's ignored `data/`
   directory so existing local evaluation data is not removed.
+
+## Explain customer site-plan capacity before submission — 2026-11-24
+
+- A customer owner at their plan's site limit no longer sees an Add Website
+  form that would predictably fail at assignment. The panel shows the included
+  count and directs them to review usage/contact the hosting operator. The
+  onboarding checklist now marks this as attention-needed and makes that the
+  primary action. Unknown plan or unavailable assignments fail closed; the
+  durable account store remains the authoritative enforcement.
+- Added a Go regression for the rendered site-limit state and a seeded customer
+  browser regression for the plan-cap message and action. Focused Go tests,
+  JavaScript syntax checks, and frontend unit tests (20/20) passed. Full
+  `make check` passed, including `go vet ./...`, all Go tests (root package
+  121.478 s), installer contracts, and the README local-evaluation contract.
+- The customer browser journey could not be executed locally without its
+  disposable seeded-panel credentials; the added regression must pass in
+  hosted CI before this milestone is closed.

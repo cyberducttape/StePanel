@@ -2998,3 +2998,25 @@ and served the dashboard; it was stopped cleanly.
   production installation.
 - README links/references and release documentation contracts pass.
 
+### M0bo — Make customer site-cap limits actionable (P2)
+
+**Status:** Implemented locally. The customer panel now uses the account's
+current plan and assigned-site count before rendering its create form. At the
+limit it explains the exact included count, removes the doomed form, and sends
+the onboarding primary action to plan usage with a recommendation to contact
+the hosting operator. An unavailable assignment record fails closed. Account
+assignment remains the authoritative transactional enforcement. Focused Go
+regressions, frontend syntax and unit tests, and `make check` pass. The seeded
+browser regression is added; hosted E2E is pending.
+
+**Acceptance criteria**
+
+- A customer owner at the plan limit sees an accurate count and the next
+  practical action instead of a form that predictably fails on submission.
+- Customer onboarding directs a capped owner to plan usage and reports the
+  blocked step as needing attention.
+- A customer under the limit retains the first-site WordPress path, and
+  assignment-store errors do not advertise site creation as available.
+- Focused server-rendered tests, seeded browser regression, frontend unit
+  tests, and `make check` pass; hosted E2E confirms the customer journey.
+

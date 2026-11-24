@@ -72,6 +72,10 @@ availability is not on the 1.0 roadmap.
 
 ## Get started
 
+| I want to… | Start here |
+| --- | --- |
+| Preview StePanel locally, no host setup | [Run it locally](#local-evaluation) |
+
 ### Preview the interface (no host changes)
 
 This starts StePanel on loopback with disposable local state. It does not

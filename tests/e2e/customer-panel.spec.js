@@ -212,10 +212,28 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   await expect(page.locator('#panelOnboardingList')).toContainText('Create your first WordPress site');
   await expect(page.locator('#panelOnboardingProgress')).toContainText('0 of 3 essentials complete');
   await expect(page.locator('#panelPrimaryAction')).toHaveAttribute('href', '#websites');
+  await expect(page.locator('body')).toHaveAttribute('data-site-creation-state', 'available');
   expect(overviewRequests).toBe(0);
   expect(backupChecklistRequests).toBe(0);
   expect(backupInventoryRequests).toBe(0);
   expect(suspensionRequests).toBe(0);
+
+  // Exercise the server-rendered plan-limit state: a tenant at capacity must
+  // get a useful next step instead of a dead-end create form.
+  await page.locator('body').evaluate((body) => {
+    body.dataset.siteCreationState = 'limit';
+    body.dataset.siteLimit = '1';
+    document.querySelector('#siteCreateForm').remove();
+  });
+  await page.locator('#panelOnboardingRefresh').click();
+  await expect(page.locator('#panelOnboardingList')).toContainText('Your plan’s website limit is reached');
+  await expect(page.locator('#panelOnboardingList')).toContainText('all slots are in use');
+  await expect(page.locator('#panelOnboardingProgress')).toContainText('need attention');
+  await expect(page.locator('#panelPrimaryAction')).toHaveAttribute('href', '#account');
+  await expect(page.locator('#panelPrimaryAction')).toHaveText('Review plan usage');
+  await page.reload();
+  await expect(page.locator('#panelOnboardingList')).toContainText('Create your first WordPress site');
+
   await expect(page.locator('#panelSiteList')).toContainText('You have no websites yet');
   await expect(page.locator('#siteOverview')).toBeEmpty();
 

@@ -29,6 +29,7 @@ func (a *App) customerPanel(w http.ResponseWriter, r *http.Request) {
 	var jobs []Job
 	jobsUnavailable := false
 	sites, err := a.Accounts.GetSitesWithError(username)
+	assignmentsAvailable := err == nil
 	if err != nil {
 		jobsUnavailable = true
 		log.Printf("customer panel site assignments unavailable: %v", err)
@@ -37,14 +38,38 @@ func (a *App) customerPanel(w http.ResponseWriter, r *http.Request) {
 		log.Printf("customer panel job history unavailable: %v", err)
 		jobs = nil
 	}
+	siteCreationState, siteLimit := customerSiteCreationState(account)
+	if !assignmentsAvailable {
+		siteCreationState = "unavailable"
+	}
 	data := map[string]any{
 		"Title": "StePanel", "Config": a.Config, "AssetVersion": a.AssetVersion, "CSRF": csrf,
 		"AuthEnabled": a.Auth.Enabled, "Username": username, "Now": time.Now(), "Jobs": jobs,
 		"JobsUnavailable": jobsUnavailable,
 		"Account":         account, "AccountSiteCount": len(sites),
-		"CanCreateSite": accountRole(account) == "owner" && !account.Suspended,
+		"CanCreateSite":     siteCreationState == "available",
+		"SiteCreationState": siteCreationState, "SiteLimit": siteLimit,
 	}
 	if err := a.PanelView.Execute(w, data); err != nil {
 		log.Printf("customer panel render failed: %v", err)
 	}
+}
+
+// customerSiteCreationState gives the panel an honest initial capability
+// state. Site assignment remains enforced transactionally by AccountStore.
+func customerSiteCreationState(account HostingAccount) (string, int) {
+	plan, ok := hostingPlans[account.Plan]
+	if !ok {
+		return "unavailable", 0
+	}
+	if accountRole(account) != "owner" {
+		return "member", plan.SiteLimit
+	}
+	if account.Suspended {
+		return "suspended", plan.SiteLimit
+	}
+	if len(account.Sites) >= plan.SiteLimit {
+		return "limit", plan.SiteLimit
+	}
+	return "available", plan.SiteLimit
 }

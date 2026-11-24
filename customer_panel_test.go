@@ -18,11 +18,41 @@ func newCustomerPanelApp(t *testing.T) *App {
 	}
 	a.View, a.PanelView = dashboard, panel
 	a.Jobs = &Jobs{}
+	a.Accounts.accounts["alice"] = HostingAccount{
+		Username: "alice", Plan: "agency", Sites: []string{"alice", "shop", "legacy"},
+	}
 	return a
 }
 
 func asCustomer(r *http.Request, user string) *http.Request {
 	return r.WithContext(context.WithValue(r.Context(), apiTokenUsernameKey{}, user))
+}
+
+func TestCustomerPanelExplainsSitePlanLimit(t *testing.T) {
+	a := newCustomerPanelApp(t)
+	a.Accounts.accounts["alice"] = HostingAccount{
+		Username: "alice", Plan: "starter", Sites: []string{"alice"},
+	}
+	w := httptest.NewRecorder()
+	a.customerPanel(w, asCustomer(httptest.NewRequest(http.MethodGet, "/panel", nil), "alice"))
+	body := w.Body.String()
+	if w.Code != http.StatusOK {
+		t.Fatalf("customer panel = %d %s", w.Code, body)
+	}
+	for _, want := range []string{
+		`data-site-creation-state="limit"`,
+		`data-site-limit="1"`,
+		`id="siteCreationLimitNotice"`,
+		"Your plan includes 1 website, and all 1 slots are in use.",
+		"Contact your hosting operator to review plan capacity",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("site-limit panel is missing %q", want)
+		}
+	}
+	if strings.Contains(body, `id="siteCreateForm"`) {
+		t.Fatal("site creation form is shown after the account reached its site limit")
+	}
 }
 
 func TestCustomersGetTheirOwnPanel(t *testing.T) {
