@@ -5634,3 +5634,9 @@ does not close a current-source or power-loss gate.
   and full integration including Go tests, race tests, ENOSPC, recovery, and
   database restore checks passed on `ef0ca96d`; see
   [CI integration run 45404480491](https://github.com/cyberducttape/StePanel/actions/runs/45404480491).
+
+## Verify the current source across the six first-install host combinations — 2026-11-24
+
+- Exact product source `ef0ca96de723bde69c98ba9d0149f7c2532b2fac` passed hosted CI and the six-host installation smoke [45405968473](https://github.com/cyberducttape/StePanel/actions/runs/45405968473). Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with both Apache and Caddy each passed one recovery iteration, database-outage recovery, root-broker interruption, and installed WordPress HTTPS/database proof. Measured RTOs ranged from 3.574 to 8.800 seconds.
+- The reviewed [host report](docs/lab-results/2026-11-24-six-host-install-smoke-ef0ca96.md) records all six measurements and boundaries. Disposable hosts lacked project quotas, and this one-pass container evidence does not certify physical-host recovery, quotas, or production capacity.
+- The current-source versioned package preflight [45406596940](https://github.com/cyberducttape/StePanel/actions/runs/45406596940) is still running; archive installation and recovery results remain pending. No public release has been published.
