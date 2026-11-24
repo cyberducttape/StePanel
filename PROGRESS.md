@@ -15,8 +15,10 @@
 - Exact-source CI run
   [45326445817](https://github.com/cyberducttape/StePanel/actions/runs/45326445817)
   has passed formatting, release checks, installer contracts, vet, full Go
-  tests and coverage floors, real ENOSPC drills, load benchmarks, and seeded
-  browser/accessibility E2E. Its race-test step remains in progress.
+  tests and coverage floors, race tests, recovery drills, real ENOSPC recovery,
+  control-plane startup/auth smoke, mixed HTTP load, and seeded
+  browser/accessibility E2E. The job is now validating atomic database restore
+  against MySQL 8.0; overall integration is still running.
   CodeQL [45326445007](https://github.com/cyberducttape/StePanel/actions/runs/45326445007)
   and documentation validation
   [45326444955](https://github.com/cyberducttape/StePanel/actions/runs/45326444955)
