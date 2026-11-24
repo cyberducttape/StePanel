@@ -13,8 +13,13 @@
   contains archive hashes and scope limits.
 - Updated the installation platform table, current-source install section,
   and production-gate summary to reference the latest candidate. Documentation
-  and CodeQL workflows for the documentation predecessor `5b9b8586` passed;
-  documentation validation for this evidence reconciliation is pending.
+  validation [45373617920](https://github.com/cyberducttape/StePanel/actions/runs/45373617920)
+  and CodeQL [45373617847](https://github.com/cyberducttape/StePanel/actions/runs/45373617847)
+  passed on this documentation source. Full exact-source integration
+  [45374082941](https://github.com/cyberducttape/StePanel/actions/runs/45374082941)
+  passed on `a2a50927`, including Go tests, race tests, ENOSPC, database
+  restore and kill recovery, static analysis, container checks, and browser
+  accessibility E2E.
 - A separate six-host current-source install/recovery iteration is in progress
   on `5b9b8586861b0b2a341e42f387327402341eb68f`:
   [run 45372107757](https://github.com/cyberducttape/StePanel/actions/runs/45372107757).
