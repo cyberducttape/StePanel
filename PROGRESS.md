@@ -1,3 +1,16 @@
+## Keep the quota evidence contract aligned with host results — 2026-11-24
+
+- The hosted documentation check [45305617993](https://github.com/cyberducttape/StePanel/actions/runs/45305617993)
+  failed because `TestGitCloneDiskQuotaRemainsAnExplicitHostValidationGate`
+  still required the previous “no current-source evidence” wording after the
+  ext4 quota result was recorded. Updated the contract to require the actual
+  current-source ext4 evidence and preserve the remaining XFS and production-
+  mount limitations. The focused Go regression passes locally.
+- The fix is pushed as `0f62988a`. Full CI integration
+  [45305811748](https://github.com/cyberducttape/StePanel/actions/runs/45305811748)
+  is running the full suite, race/recovery gates, and seeded browser E2E; its
+  hosted result is not yet available.
+
 ## Verify installed ext4 quota enforcement after abrupt guest loss — 2026-11-24
 
 - Reviewed the successful quota-enabled Ubuntu workflow
@@ -118,11 +131,6 @@
   [45305278135](https://github.com/cyberducttape/StePanel/actions/runs/45305278135)
   is running; neither one-pass run proves physical power-loss or repeated
   certification.
-- The ext4 quota-enabled install workflow
-  [45151625662](https://github.com/cyberducttape/StePanel/actions/runs/45151625662)
-  is running on the same current source. It boots a disposable quota-enabled
-  guest; quota enforcement and its recovery result remain unverified until the
-  job completes.
 
 ## Reverify first-run installer safety — 2026-11-23
 
