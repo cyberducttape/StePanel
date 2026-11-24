@@ -5379,3 +5379,9 @@ does not close a current-source or power-loss gate.
   guided installer scripts exist; the local evaluator is intentionally invoked
   with `bash` because it is not marked executable. No host installation was
   run from this documentation change.
+- Then ran that exact local-preview command as the non-root workspace user: it
+  built successfully, bound only to `127.0.0.1:8080`, completed startup
+  recovery, returned `/readyz` with `ready: true`, and served `/` with HTTP 200.
+  The process exited cleanly on Ctrl-C; port 8080 is no longer listening. Its
+  generated evaluation state remains in the repository's ignored `data/`
+  directory so existing local evaluation data is not removed.

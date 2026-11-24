@@ -2978,12 +2978,15 @@ the exact-source documentation, CodeQL, and full integration workflows passed.
 
 ### M0bn — Put copyable first-run paths in the README (P2)
 
-**Status:** Implemented locally. The README now gives separate copyable
+**Status:** Implemented and smoke-verified. The README now gives separate copyable
 commands for a loopback-only preview and a disposable native Operator Beta
 install. The native path names the recommended Ubuntu/Caddy/MariaDB profile,
 quota and console prerequisites, source-build status, guided change review,
 and the production certification limit before the command block. Documentation
 links, references, and release contracts pass locally.
+The exact local-preview command built and launched as the regular user, bound
+only to `127.0.0.1:8080`, completed startup recovery, returned healthy `/readyz`,
+and served the dashboard; it was stopped cleanly.
 
 **Acceptance criteria**
 
