@@ -2940,12 +2940,13 @@ fieldset width, and hidden template fields remain hidden under the grid style.
 
 ### M0bl — Put the first site task before operator diagnostics (P2)
 
-**Status:** Implemented locally. The site section now follows the first-run
+**Status:** Implemented and pushed as `3dd94062`. The site section now follows the first-run
 checklist, before the security posture and infrastructure inventory. This
 puts the primary setup task in view sooner while preserving diagnostic
 content and navigation below it. Desktop and mobile screenshots were reviewed;
-focused first-run browser checks, frontend unit tests, and a fresh panel build
-pass. The full browser suite is running.
+the full seeded browser suite passed (34 passed, one optional skip), and the
+first-run navigation, customer panel, and accessibility checks passed. Exact-
+source hosted integration is running.
 
 **Acceptance criteria**
 
@@ -2956,4 +2957,22 @@ pass. The full browser suite is running.
 - The customer overview remains functional; desktop/mobile screenshot and
   accessibility checks pass in the full seeded browser suite.
 - Frontend unit tests, JavaScript syntax, and exact-source hosted CI pass.
+
+### M0bm — Give the first-run alert warning an actionable repair (P2)
+
+**Status:** Implemented locally. When no operator notification destination is
+configured, the first-run health summary now names the required SMTP or webhook
+settings, the environment file, the two systemd services to restart, and the
+recheck action. Pending and failed deliveries get distinct next steps. The
+focused seeded browser test for the warning passes; frontend unit tests and a
+fresh panel build pass. Exact-source hosted CI is pending.
+
+**Acceptance criteria**
+
+- Missing alert configuration names the exact supported environment variables
+  without revealing or requesting secret values.
+- Pending delivery points to worker availability and destination reachability;
+  failures point to destination settings.
+- The first-run checklist browser test, frontend unit tests, syntax checks, and
+  exact-source hosted CI pass.
 

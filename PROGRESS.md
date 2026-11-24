@@ -5285,8 +5285,13 @@ does not close a current-source or power-loss gate.
   preserving technical checks lower on the page. A new browser assertion
   verifies the document order. Fresh desktop and mobile captures were reviewed;
   the first-run journey and screenshot capture passed, frontend unit tests
-  passed 20/20, and a fresh `go build` succeeded. The full seeded browser suite
-  is running before commit.
+  passed 20/20, and a fresh `go build` succeeded. The complete seeded browser
+  suite passed (34 passed, one optional skip).
+- The alert-notification warning now gives concrete SMTP/webhook configuration
+  variables, environment file, restart, and retry steps. Distinct messages
+  cover failed delivery and pending delivery. Its focused browser test passed
+  with the first-run navigation and storage-readiness tests (3/3); frontend
+  unit tests remain 20/20. Hosted exact-source CI is pending.
 
 - Follow-up visual review found the newly exposed WordPress setup details were
   cramped into one narrow form column. The responsive fieldset now spans the

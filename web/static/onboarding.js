@@ -42,6 +42,18 @@
     };
     const label = labels[name] || name.replace(/_/g, ' ').replace(/^./, (letter) => letter.toUpperCase());
     const detail = typeof check?.detail === 'string' ? check.detail : '';
+    if (name === 'operator_notifications') {
+      if (detail.includes('no SMTP or webhook alert destination is configured')) {
+        return 'Operator alerts: configure one destination in /etc/ste-panel.env. SMTP needs STEPANEL_ALERT_EMAIL_TO, STEPANEL_ALERT_EMAIL_FROM, and STEPANEL_ALERT_SMTP_HOST; a webhook needs STEPANEL_ALERT_WEBHOOK_URL and STEPANEL_ALERT_WEBHOOK_SECRET (32+ characters). Restart stepanel and stepanel-worker, then refresh this check.';
+      }
+      if (detail.includes('delivery failure')) {
+        return `Operator alerts: ${detail}. Check the alert destination settings in /etc/ste-panel.env, then refresh this check.`;
+      }
+      if (detail.includes('await delivery')) {
+        return `Operator alerts: ${detail}. Check that stepanel-worker is running and can reach its configured destination, then refresh this check.`;
+      }
+      return `${label}: ${detail || 'needs attention'}. Review alert delivery settings in /etc/ste-panel.env and verify stepanel-worker is running.`;
+    }
     const capacity = detail.match(/^(\d+) bytes free; minimum is (\d+)$/);
     if (capacity) {
       return `${label}: ${formatBytes(Number(capacity[1]))} free; ${formatBytes(Number(capacity[2]))} required. Free space on this filesystem or expand it, then refresh the host checks.`;

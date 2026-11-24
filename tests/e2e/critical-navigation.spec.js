@@ -251,6 +251,32 @@ test('first-run readiness translates storage checks into readable next steps', a
   await expect(healthStep).not.toContainText('backup_capacity');
 });
 
+test('first-run alert warning explains how to configure and verify delivery', async ({ page }) => {
+  await page.route('**/api/sites/overview', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ sites: [] }),
+  }));
+  await page.route('**/api/backups?limit=100', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ backups: [] }),
+  }));
+  await page.route('**/api/health/operational', (route) => route.fulfill({
+    status: 503,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      operational: false,
+      checks: {
+        operator_notifications: { ready: false, detail: 'no SMTP or webhook alert destination is configured' },
+      },
+    }),
+  }));
+
+  await page.reload();
+  const healthStep = page.locator('#onboardingChecklist .setup-step').filter({ hasText: 'Check host and job health' });
+  await expect(healthStep).toContainText('configure one destination in /etc/ste-panel.env');
+  await expect(healthStep).toContainText('STEPANEL_ALERT_EMAIL_TO');
+  await expect(healthStep).toContainText('STEPANEL_ALERT_WEBHOOK_SECRET (32+ characters)');
+  await expect(healthStep).toContainText('Restart stepanel and stepanel-worker');
+});
+
 test('database health expands into a readable, host-wide snapshot', async ({ page }) => {
   let requests = 0;
   await page.route('**/api/database/diagnostics', async (route) => {
