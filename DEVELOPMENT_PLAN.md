@@ -1601,8 +1601,11 @@ upload, installer, and durable-job changes. A fresh KVM abrupt-loss run
 [45332417894](https://github.com/cyberducttape/StePanel/actions/runs/45332417894)
 was dispatched from `17b62c6a` (code-equivalent to `a52f9b1a`) for file restore,
 database restore, Git deployment, retention, control-plane writes, interrupted
-backup publication, database ENOSPC, and alert delivery/retry. It is in progress
-and provides no result yet. The six-host 20-repeat cohort
+backup publication, database ENOSPC, and alert delivery/retry. The workflow
+omitted the separate backup/file-restore ENOSPC phase; that phase is now
+required by the workflow contract and will run in follow-up
+after the active run releases its concurrency group. The current run remains
+in progress and provides no result yet. The six-host 20-repeat cohort
 [45314551538](https://github.com/cyberducttape/StePanel/actions/runs/45314551538)
 was canceled before its first six-host repetition completed. Its source commit
 was unavailable for comparison with current `main`, so no repetition counts.

@@ -1,3 +1,15 @@
+## Include backup and file-restore ENOSPC in KVM certification — 2026-11-24
+
+- The current abrupt-loss KVM workflow included database-filesystem ENOSPC but
+  omitted the existing dedicated-filesystem backup/file-restore ENOSPC phase.
+  Added that phase to `PHASES` and made `scripts/check-smoke-workflow-bounds.sh`
+  enforce both ENOSPC classes for future runs.
+- Shell syntax checks, the smoke-workflow bounds/contract tests, action SHA
+  pinning, and `git diff --check` passed. The already-running KVM run
+  [45332417894](https://github.com/cyberducttape/StePanel/actions/runs/45332417894)
+  is unchanged; a follow-up run will use the updated workflow after its
+  concurrency group is free. No new ENOSPC result is counted yet.
+
 ## Make CLI subcommand help succeed — 2026-11-24
 
 - `stepanelctl doctor --help` previously printed its option list but returned

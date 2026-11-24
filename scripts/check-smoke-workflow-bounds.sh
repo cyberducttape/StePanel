@@ -25,6 +25,10 @@ python3 scripts/test-recovery-cohort-plan.py
 
 abrupt_loss_workflow=.github/workflows/abrupt-loss-operations.yml
 [[ -f $abrupt_loss_workflow ]] || { echo "missing abrupt-loss workflow: $abrupt_loss_workflow" >&2; exit 1; }
+grep -Fq 'PHASES: boot install abrupt-loss-operations enospc db-enospc operator-alerts' "$abrupt_loss_workflow" || {
+  echo "$abrupt_loss_workflow must exercise backup/file-restore and database-filesystem ENOSPC" >&2
+  exit 1
+}
 grep -Fq 'VM_DISK_CACHE: none' "$abrupt_loss_workflow" || {
   echo "$abrupt_loss_workflow must bypass the runner page cache for abrupt-loss drills" >&2
   exit 1
