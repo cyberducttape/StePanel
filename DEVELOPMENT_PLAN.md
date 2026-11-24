@@ -21,8 +21,8 @@ while inventory is loading is preserved, and installations with existing
 sites keep the blank-PHP default for additional sites. A freshly built panel
 passed four first-run Playwright journeys; frontend unit tests passed 20/20.
 The complete seeded Chromium suite passed on its follow-up UI commit (`4c826ce5`)
-with 34 passed and one optional skip. Exact-source integration for `4c826ce5`
-is still running; documentation and CodeQL passed.
+with 34 passed and one optional skip. Exact-source documentation, CodeQL, and
+integration passed on `8e709070`.
 
 **Acceptance criteria**
 
@@ -2923,8 +2923,8 @@ also passed; the scoped report records its limits and remaining release gates.
 
 **Status:** Implemented and pushed as `4c826ce5`; focused and full browser,
 visual, and unit checks pass. The full seeded Chromium suite passed 34 tests
-with one optional skip; exact-source documentation and CodeQL passed. The
-integration workflow is still running.
+with one optional skip. Exact-source documentation, CodeQL, and integration
+passed on `8e709070`.
 The WordPress setup fieldset now spans the site-creation form and lays out its
 fields responsively. Domain verification and setup guidance occupy the full
 fieldset width, and hidden template fields remain hidden under the grid style.
@@ -2945,8 +2945,8 @@ checklist, before the security posture and infrastructure inventory. This
 puts the primary setup task in view sooner while preserving diagnostic
 content and navigation below it. Desktop and mobile screenshots were reviewed;
 the full seeded browser suite passed (34 passed, one optional skip), and the
-first-run navigation, customer panel, and accessibility checks passed. Exact-
-source hosted integration is running.
+first-run navigation, customer panel, and accessibility checks passed.
+Exact-source hosted integration passed on `8e709070`.
 
 **Acceptance criteria**
 
@@ -2960,12 +2960,12 @@ source hosted integration is running.
 
 ### M0bm — Give the first-run alert warning an actionable repair (P2)
 
-**Status:** Implemented locally. When no operator notification destination is
-configured, the first-run health summary now names the required SMTP or webhook
-settings, the environment file, the two systemd services to restart, and the
-recheck action. Pending and failed deliveries get distinct next steps. The
-focused seeded browser test for the warning passes; frontend unit tests and a
-fresh panel build pass. Exact-source hosted CI is pending.
+**Status:** Implemented and pushed on `8e709070`. When no operator notification
+destination is configured, the first-run health summary now names the required
+SMTP or webhook settings, the environment file, the two systemd services to
+restart, and the recheck action. Pending and failed deliveries get distinct
+next steps. The focused seeded browser test and frontend unit tests pass, and
+the exact-source documentation, CodeQL, and full integration workflows passed.
 
 **Acceptance criteria**
 

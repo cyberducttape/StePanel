@@ -5347,3 +5347,21 @@ does not close a current-source or power-loss gate.
   On the updated tree, documentation references, links, and `make
   release-check` passed locally. This does not publish or endorse an archive;
   the nonpublishing candidate and production gates remain separately scoped.
+
+## Verify first-run operator workflow on exact current source — 2026-11-24
+
+- The first-run overview now puts site creation directly after the readiness
+  checklist, defaults an empty operator workspace to WordPress, and gives
+  concrete SMTP/webhook repair instructions for missing or failed operator
+  alerts. The WordPress form remains responsive on desktop and mobile.
+- Exact-source CI integration on `8e709070d0f8044640fe0e3d313fccbb6a26df2c`
+  passed: Go formatting, vet, full Go tests and coverage floors, race tests,
+  recovery drills, real tmpfs ENOSPC recovery, authenticated startup and mixed
+  HTTP load, MySQL restore/ENOSPC/database-kill drills, PostgreSQL privilege
+  checks, release/script checks, container validation, and seeded browser and
+  accessibility tests. The full seeded browser suite passed 34 tests with one
+  optional skip.
+- Exact-source [documentation](https://github.com/cyberducttape/StePanel/actions/runs/45346563187)
+  and [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/45346563240)
+  workflows also passed. No release was published; production remains NO-GO
+  under the outstanding certification gates.
