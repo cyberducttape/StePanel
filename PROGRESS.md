@@ -1,3 +1,26 @@
+## Verify current-source versioned first-install candidate — 2026-11-24
+
+- The non-publishing `v0.9.0` preflight
+  [45317837019](https://github.com/cyberducttape/StePanel/actions/runs/45317837019)
+  passed on exact source `93c60aa581e5339ca0fbc9f78da1d3eaa0c81cb9`. The
+  versioned Linux amd64/arm64 archives, checksums, exact-source evidence,
+  package contents, and SPDX SBOM passed verification.
+- The Ubuntu 24.04 + Caddy + MariaDB disposable systemd host installed the
+  package, reported installation and cleanup complete, and passed one
+  recovery-matrix iteration. WordPress HTTPS/database application recovery
+  measured **4,367 ms**. Database outage recovery and broker outage
+  degradation/recovery also passed. The host lacked project quotas, so Git
+  deployment was refused and the live site stayed unchanged; this proves
+  fail-closed behavior, not quota enforcement.
+- The candidate was not published. This is one disposable-host pass, not
+  repeated recovery or physical power-loss certification. The exact artifact
+  hashes and complete limits are in the
+  [candidate report](docs/lab-results/2026-11-24-v0.9.0-ubuntu-install-45317837019.md).
+- `scripts/check-docs-links.sh docs`, the 93-document reference check, and
+  `git diff --check` passed after the report and installation-guide update.
+  Current-main six-host recovery cohort [45314551538](https://github.com/cyberducttape/StePanel/actions/runs/45314551538)
+  is still running; it has not yet produced repetition evidence.
+
 ## Review completed Rocky KVM drills and current integration CI — 2026-11-24
 
 - Reviewed the retained artifact for Rocky Linux 9 KVM run

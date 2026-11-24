@@ -371,6 +371,17 @@ passed, and application-level WordPress recovery measured 4,398 ms. Its
 disposable-host scope and missing project-quota limitation are recorded in
 [`the report`](docs/lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-2e9e06e.md)
 ([run 45129211602](https://github.com/cyberducttape/StePanel/actions/runs/45129211602)).
+The exact-current-source, non-publishing versioned `v0.9.0` candidate
+([run 45317837019](https://github.com/cyberducttape/StePanel/actions/runs/45317837019),
+source `93c60aa`) also built and installed successfully on the recommended
+Ubuntu profile. Cleanup completed, one recovery iteration passed, and the
+WordPress HTTPS/database proof measured 4,367 ms. Both architecture archives,
+checksums, exact-source evidence, and SPDX SBOM passed; no release was
+published. The container lacked project quotas, so Git deploy correctly
+refused to proceed. See
+[`the current candidate report`](docs/lab-results/2026-11-24-v0.9.0-ubuntu-install-45317837019.md).
+This improves current-source install evidence but does not make a published
+stable archive available or close repeated/physical-host certification.
 
 **Acceptance criteria**
 

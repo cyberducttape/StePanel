@@ -34,7 +34,7 @@ evidence-backed first installation, use **Ubuntu 24.04 + Caddy + MariaDB**:
 | Platform combination | Tier | Evidence / policy |
 | --- | --- | --- |
 | Ubuntu 24.04 + Apache + MariaDB | Beta; repeat acceptance pending | Earlier [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
-| Ubuntu 24.04 + Caddy + MariaDB | Recommended Beta profile | Versioned `v0.9.0` candidate from source `2012d87` passed the disposable install smoke; WordPress recovery measured 7.597 s ([report](lab-results/2026-11-23-v0.9.0-ubuntu-install-45146220535.md)). Candidate not published; repeated/physical-host certification pending |
+| Ubuntu 24.04 + Caddy + MariaDB | Recommended Beta profile | Versioned `v0.9.0` candidate from exact source `93c60aa` passed the disposable install smoke; cleanup completed, one recovery iteration passed, and WordPress recovery measured 4.367 s ([report](lab-results/2026-11-24-v0.9.0-ubuntu-install-45317837019.md)). Candidate not published; repeated/physical-host certification pending |
 | AlmaLinux 9 + Apache + MariaDB | Beta; repeat acceptance pending | Exact-source `07726007` install smoke; WordPress recovery measured 7.522 s ([report](lab-results/2026-11-23-el9-first-install-phpcurl-fallback-07726007.md)); repeat acceptance pending |
 | AlmaLinux 9 + Caddy + MariaDB | Beta; repeat acceptance pending | Earlier [six-host run](lab-results/2026-11-20-six-host-install-smoke-059ba72.md), 1 iteration |
 | Rocky Linux 9 + Apache + MariaDB | Beta; repeat acceptance pending | Exact-source `07726007` install smoke; WordPress recovery measured 7.576 s ([report](lab-results/2026-11-23-el9-first-install-phpcurl-fallback-07726007.md)); repeat acceptance pending |
@@ -117,11 +117,11 @@ certificates automatically. Apache `.htaccess` migrations are described in
 ## Guided install from current source
 
 The guided installer is available on current `main`, but is **not included in
-the published v0.7.0 release archive**. A GoReleaser snapshot built from
-current source passed one disposable Ubuntu 24.04 + Caddy + MariaDB install
-and WordPress HTTPS/database recovery smoke
-([run 45069529493](lab-results/2026-11-22-ubuntu-packaged-first-host-smoke-a309055d.md)).
-That is useful Beta evidence, not a supported tagged release or production
+the published v0.7.0 release archive**. The non-publishing versioned `v0.9.0`
+candidate from exact source `93c60aa` passed a disposable Ubuntu 24.04 + Caddy
++ MariaDB install and WordPress HTTPS/database recovery proof (4.367 s); see
+the [candidate report](lab-results/2026-11-24-v0.9.0-ubuntu-install-45317837019.md).
+This is useful Beta evidence, not a supported tagged release or production
 certification. The currently published stable archive cannot perform a fresh
 installation on Ubuntu 24.04; see [tagged release status](#tagged-release-status).
 For current-source Beta installation, use the guided path below only on a
