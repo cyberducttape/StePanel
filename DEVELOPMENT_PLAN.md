@@ -2938,3 +2938,22 @@ fieldset width, and hidden template fields remain hidden under the grid style.
 - Desktop and mobile screenshots are visually reviewed; frontend unit tests
   and JavaScript syntax checks pass.
 
+### M0bl — Put the first site task before operator diagnostics (P2)
+
+**Status:** Implemented locally. The site section now follows the first-run
+checklist, before the security posture and infrastructure inventory. This
+puts the primary setup task in view sooner while preserving diagnostic
+content and navigation below it. Desktop and mobile screenshots were reviewed;
+focused first-run browser checks, frontend unit tests, and a fresh panel build
+pass. The full browser suite is running.
+
+**Acceptance criteria**
+
+- In the operator overview, site creation and inventory follow the checklist
+  and precede security and infrastructure diagnostics.
+- The first-run CTA still reaches the correct site form, and security,
+  infrastructure, and site navigation remain functional.
+- The customer overview remains functional; desktop/mobile screenshot and
+  accessibility checks pass in the full seeded browser suite.
+- Frontend unit tests, JavaScript syntax, and exact-source hosted CI pass.
+

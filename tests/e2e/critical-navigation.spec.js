@@ -65,6 +65,9 @@ test('first-run primary action follows the next unresolved setup step', async ({
 
   await page.reload();
   const primary = page.locator('#primarySetupAction');
+  const overviewSections = await page.locator('#main > section').evaluateAll((sections) => sections.map((section) => section.id));
+  expect(overviewSections.indexOf('sites')).toBeGreaterThan(-1);
+  expect(overviewSections.indexOf('sites')).toBeLessThan(overviewSections.indexOf('security'));
   await expect(page.locator('#siteCreateTemplate')).toHaveValue('wordpress');
   await expect(page.locator('#wordpressCreateFields')).toBeVisible();
   const createFormBox = await page.locator('#siteCreateForm').boundingBox();

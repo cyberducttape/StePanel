@@ -5279,6 +5279,15 @@ does not close a current-source or power-loss gate.
 
 ## Recheck first-run UI and release candidate — 2026-11-24
 
+- Moved the Websites section directly below the live first-run checklist, ahead
+  of detailed operator security and infrastructure panels. This makes the
+  first site's create form the next visible task after setup status, while
+  preserving technical checks lower on the page. A new browser assertion
+  verifies the document order. Fresh desktop and mobile captures were reviewed;
+  the first-run journey and screenshot capture passed, frontend unit tests
+  passed 20/20, and a fresh `go build` succeeded. The full seeded browser suite
+  is running before commit.
+
 - Follow-up visual review found the newly exposed WordPress setup details were
   cramped into one narrow form column. The responsive fieldset now spans the
   form grid; desktop uses multiple field columns while mobile stacks them.
