@@ -3148,12 +3148,13 @@ complete N-1 matrix passed.
 
 ### M0br — Put database management among everyday site tasks (P2)
 
-**Status:** Implemented on the current working tree. Database management is
-now in the site workspace's everyday tab row alongside Overview, Domains, and
-Backups. Runtime, Deployments, Logs, Workers, Tasks, Security, and Settings
-remain available under Advanced administration. Frontend unit tests passed
-20/20, and the seeded customer panel browser/accessibility journey passed
-against a freshly built panel.
+**Status:** Implemented and verified on exact source `ef0ca96d`. Database
+management is now in the site workspace's everyday tab row alongside
+Overview, Domains, and Backups. Runtime, Deployments, Logs, Workers, Tasks,
+Security, and Settings remain available under Advanced administration.
+Frontend unit tests passed 20/20, the seeded customer browser/accessibility
+journey passed locally and in hosted UI E2E, and exact-source hosted
+integration passed in [run 45404480491](https://github.com/cyberducttape/StePanel/actions/runs/45404480491).
 
 **Acceptance criteria**
 
@@ -3162,6 +3163,6 @@ against a freshly built panel.
   opening the advanced group.
 - Specialist controls remain available and their tab keyboard navigation,
   bookmarked links, and accessibility checks continue to work.
-- Frontend unit tests and the seeded customer browser/accessibility journey
-  pass.
+- Frontend unit tests, seeded browser accessibility, and exact-source hosted
+  integration pass.
 

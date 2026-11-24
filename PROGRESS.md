@@ -5629,5 +5629,8 @@ does not close a current-source or power-loss gate.
 - `node --check web/static/sites.js`, frontend unit tests (20/20), and the
   seeded customer Playwright/accessibility journey passed against a fresh
   panel build. Both workspace axe scans passed with unavailable and empty
-  inventories. `git diff --check` passed. Full Go checks and hosted CI for
-  this UI adjustment have not yet run.
+  inventories. `git diff --check`, release checks, and documentation references
+  passed. Exact-source hosted UI E2E, documentation, CodeQL, release evidence,
+  and full integration including Go tests, race tests, ENOSPC, recovery, and
+  database restore checks passed on `ef0ca96d`; see
+  [CI integration run 45404480491](https://github.com/cyberducttape/StePanel/actions/runs/45404480491).
