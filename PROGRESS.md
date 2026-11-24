@@ -5671,3 +5671,14 @@ does not close a current-source or power-loss gate.
   journey passed. Exact-source hosted integration and UI E2E, documentation,
   and CodeQL passed on `70210e13`; see
   [CI run 45424095220](https://github.com/cyberducttape/StePanel/actions/runs/45424095220).
+
+## Clarify DNS TXT entry during first WordPress setup — 2026-11-24
+
+- The first-site domain proof now shows the TXT record type, relative host
+  label, full DNS name, and value. It explains when to use the short host name
+  for providers that append the domain and provides a copy action for both
+  name formats.
+- Added browser assertions for the instructions, values, and clipboard
+  contents. `node --check`, frontend unit tests (20/20), embedded panel build,
+  documentation reference check, focused customer Chromium E2E, and full
+  `make check` all passed. Hosted CI has not yet run for this change.

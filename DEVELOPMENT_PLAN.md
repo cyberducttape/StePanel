@@ -3226,3 +3226,21 @@ their returning-user greeting.
   build, and exact-source CI pass. Local `make check`, customer browser E2E,
   hosted integration, UI E2E, documentation, and CodeQL passed.
 
+### M0bu — Make customer DNS verification records easy to enter (P2)
+
+**Status:** Complete for first-run DNS record entry UX; production DNS propagation
+remains dependent on the customer's DNS provider.
+The first-site WordPress flow now identifies the record as TXT and shows both
+the relative host label and full DNS name. It explains when to use each form
+and provides separate copy actions, reducing mistakes in provider dashboards
+that append the domain automatically.
+
+**Acceptance criteria**
+
+- The customer sees record type, provider-friendly host label, full DNS name,
+  and TXT value before checking ownership.
+- Separate copy actions return the relative and fully qualified names exactly.
+- The browser regression covers the record guidance and all copy actions;
+  syntax, frontend unit tests, embedded build, focused customer E2E, full
+  `make check`, and documentation references pass.
+

@@ -2615,18 +2615,28 @@
           }
           domainClaim = result;
           domainClaimKey = identity;
+          const zone = String(result.domain || domain).trim().toLowerCase().replace(/\.$/, '');
+          const fullTXTName = String(result.txt_name || `_stepanel.${zone}`).trim().toLowerCase().replace(/\.$/, '');
+          const zoneSuffix = `.${zone}`;
+          const hostLabel = fullTXTName.endsWith(zoneSuffix)
+            ? fullTXTName.slice(0, -zoneSuffix.length)
+            : fullTXTName;
+          const copyDNSValue = async (value, label) => {
+            try {
+              await navigator.clipboard.writeText(value);
+              domainProofOutput.textContent = `${label} copied.`;
+            } catch (_) {
+              domainProofOutput.textContent = `Clipboard access is unavailable. Select and copy the ${label.toLowerCase()}.`;
+            }
+          };
           domainProof.replaceChildren(
             el('strong', { id: 'siteDomainProofHeading' }, 'Add this DNS TXT record'),
-            el('p', {}, 'In your domain DNS settings, create this record. DNS changes can take time to appear.'),
+            el('p', {}, 'Create one TXT record. If your DNS provider appends the domain automatically, use Host / name; otherwise use Full DNS name. DNS changes can take time to appear.'),
             el('dl', { className: 'site-domain-proof-record' }, [
-              el('dt', {}, 'Record name'), el('dd', {}, [el('code', {}, result.txt_name), button('Copy record name', async () => {
-                try { await navigator.clipboard.writeText(result.txt_name); domainProofOutput.textContent = 'TXT record name copied.'; }
-                catch (_) { domainProofOutput.textContent = 'Clipboard access is unavailable. Select and copy the TXT record name.'; }
-              })]),
-              el('dt', {}, 'TXT value'), el('dd', {}, [el('code', {}, result.txt_value), button('Copy TXT value', async () => {
-                try { await navigator.clipboard.writeText(result.txt_value); domainProofOutput.textContent = 'TXT verification value copied.'; }
-                catch (_) { domainProofOutput.textContent = 'Clipboard access is unavailable. Select and copy the TXT verification value.'; }
-              })]),
+              el('dt', {}, 'Type'), el('dd', {}, el('code', {}, 'TXT')),
+              el('dt', {}, 'Host / name'), el('dd', {}, [el('code', {}, hostLabel), button('Copy host name', () => copyDNSValue(hostLabel, 'Host name'))]),
+              el('dt', {}, 'Full DNS name'), el('dd', {}, [el('code', {}, fullTXTName), button('Copy full name', () => copyDNSValue(fullTXTName, 'Full DNS name'))]),
+              el('dt', {}, 'Value'), el('dd', {}, [el('code', {}, result.txt_value), button('Copy TXT value', () => copyDNSValue(result.txt_value, 'TXT value'))]),
             ]),
             domainClaimButton,
             domainProofOutput,
