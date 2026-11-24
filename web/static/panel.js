@@ -447,10 +447,19 @@
         const end = Math.min(start + UPLOAD_CHUNK, file.size);
         const chunk = file.slice(start, end);
         setStatus(`Uploading ${file.name}: ${Math.floor(start * 100 / file.size)}% (${ui.formatBytes ? ui.formatBytes(start) : Math.round(start / 1048576) + ' MB'} of ${Math.ceil(file.size / 1048576)} MB)…`, 'pending');
-        session = await api.request(`${base(context.site)}/uploads/${encodeURIComponent(session.id)}`, {
-          method: 'PUT', body: chunk, headers: { 'Upload-Offset': String(start) },
-          errorMessage: `Could not upload ${file.name}`,
-        });
+        try {
+          session = await api.request(`${base(context.site)}/uploads/${encodeURIComponent(session.id)}`, {
+            method: 'PUT', body: chunk, headers: { 'Upload-Offset': String(start) },
+            errorMessage: `Could not upload ${file.name}`,
+          });
+        } catch (error) {
+          // A chunk can be stored even when its response is lost. Resync with
+          // the server's durable offset before treating the failure as fatal.
+          let current = null;
+          try { current = await api.get(`${base(context.site)}/uploads/${encodeURIComponent(session.id)}`); } catch (_) { /* report the original failure */ }
+          if (!current || current.id !== session.id || current.offset <= start) throw error;
+          session = current;
+        }
       }
       await api.request(`${base(context.site)}/uploads/${encodeURIComponent(session.id)}/complete`, {
         method: 'POST', json: {}, errorMessage: `Could not finish ${file.name}`,

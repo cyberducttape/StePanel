@@ -66,7 +66,7 @@ valid_relative() {
 
 relative=$4
 expected_revision=${5:-}
-if [[ $action == write && -n $expected_revision ]] && ! [[ $expected_revision =~ ^\"sha256-[0-9a-f]{64}\"$ ]]; then
+if [[ ( $action == write || $action == write-large ) && -n $expected_revision ]] && ! [[ $expected_revision =~ ^\"sha256-[0-9a-f]{64}\"$ ]]; then
   echo 'invalid file revision' >&2
   exit 1
 fi
@@ -88,7 +88,7 @@ if [[ $action == rename ]]; then
   [[ $relative != . ]] || { echo 'cannot rename the document root' >&2; exit 1; }
 fi
 [[ $action != delete || $relative != . ]] || { echo 'cannot delete the document root' >&2; exit 1; }
-[[ $action != write || $relative != . ]] || { echo 'cannot write the document root' >&2; exit 1; }
+[[ ( $action != write && $action != write-large ) || $relative != . ]] || { echo 'cannot write the document root' >&2; exit 1; }
 
 # Keep every lookup and subsequent operation relative to an opened document
 # root and parent directory descriptor. O_NOFOLLOW is applied at each path

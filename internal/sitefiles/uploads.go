@@ -54,7 +54,14 @@ type UploadManager struct {
 	root    string
 	mu      sync.Mutex
 	beginMu sync.Mutex
-	locks   map[string]*sync.Mutex
+	locks   map[string]*sessionLock
+}
+
+// sessionLock is reference counted so IDs probed by clients (valid-looking
+// but unknown, or already finished) do not accumulate in memory.
+type sessionLock struct {
+	mu   sync.Mutex
+	refs int
 }
 
 func NewUploadManager(root string) (*UploadManager, error) {
@@ -74,21 +81,32 @@ func NewUploadManager(root string) (*UploadManager, error) {
 	if err := os.Chmod(root, 0o700); err != nil {
 		return nil, fmt.Errorf("secure resumable upload directory: %w", err)
 	}
-	return &UploadManager{root: root, locks: make(map[string]*sync.Mutex)}, nil
+	return &UploadManager{root: root, locks: make(map[string]*sessionLock)}, nil
 }
 
-func (m *UploadManager) sessionLock(id string) (*sync.Mutex, error) {
+// lockSession serializes operations on one session and returns its unlock.
+func (m *UploadManager) lockSession(id string) (func(), error) {
 	if m == nil || !uploadIDPattern.MatchString(id) {
 		return nil, errors.New("invalid upload ID")
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	lock := m.locks[id]
 	if lock == nil {
-		lock = &sync.Mutex{}
+		lock = &sessionLock{}
 		m.locks[id] = lock
 	}
-	return lock, nil
+	lock.refs++
+	m.mu.Unlock()
+	lock.mu.Lock()
+	return func() {
+		lock.mu.Unlock()
+		m.mu.Lock()
+		lock.refs--
+		if lock.refs == 0 {
+			delete(m.locks, id)
+		}
+		m.mu.Unlock()
+	}, nil
 }
 
 func (m *UploadManager) manifestPath(id string) string { return filepath.Join(m.root, id+".json") }
@@ -181,12 +199,11 @@ func (m *UploadManager) activeCounts(tenant string, now time.Time) (int, int, er
 }
 
 func (m *UploadManager) Info(id, site, tenant string) (UploadSession, error) {
-	lock, err := m.sessionLock(id)
+	unlock, err := m.lockSession(id)
 	if err != nil {
 		return UploadSession{}, err
 	}
-	lock.Lock()
-	defer lock.Unlock()
+	defer unlock()
 	session, err := m.load(id)
 	if err != nil {
 		return UploadSession{}, err
@@ -200,12 +217,11 @@ func (m *UploadManager) Info(id, site, tenant string) (UploadSession, error) {
 // Append stores exactly the next byte range. Repeated or out-of-order chunks
 // return the current offset without altering staged bytes.
 func (m *UploadManager) Append(ctx context.Context, id, site, tenant string, start, total int64, chunk io.Reader) (UploadSession, error) {
-	lock, err := m.sessionLock(id)
+	unlock, err := m.lockSession(id)
 	if err != nil {
 		return UploadSession{}, err
 	}
-	lock.Lock()
-	defer lock.Unlock()
+	defer unlock()
 	session, err := m.load(id)
 	if err != nil {
 		return UploadSession{}, err
@@ -283,12 +299,11 @@ func (m *UploadManager) Complete(ctx context.Context, id, site, tenant string, p
 	if publish == nil {
 		return errors.New("upload publication handler is required")
 	}
-	lock, err := m.sessionLock(id)
+	unlock, err := m.lockSession(id)
 	if err != nil {
 		return err
 	}
-	lock.Lock()
-	defer lock.Unlock()
+	defer unlock()
 	session, err := m.load(id)
 	if err != nil {
 		return err
@@ -335,12 +350,11 @@ func (m *UploadManager) Complete(ctx context.Context, id, site, tenant string, p
 }
 
 func (m *UploadManager) Cancel(id, site, tenant string) error {
-	lock, err := m.sessionLock(id)
+	unlock, err := m.lockSession(id)
 	if err != nil {
 		return err
 	}
-	lock.Lock()
-	defer lock.Unlock()
+	defer unlock()
 	session, err := m.load(id)
 	if err != nil {
 		return err
@@ -374,11 +388,9 @@ func (m *UploadManager) PruneExpired(now time.Time) []string {
 			}
 			if _, err := os.Lstat(m.manifestPath(id)); errors.Is(err, os.ErrNotExist) {
 				if info, statErr := entry.Info(); statErr == nil && now.Sub(info.ModTime()) > UploadSessionTTL {
-					lock, lockErr := m.sessionLock(id)
-					if lockErr == nil {
-						lock.Lock()
+					if unlock, lockErr := m.lockSession(id); lockErr == nil {
 						_ = os.Remove(m.dataPath(id))
-						lock.Unlock()
+						unlock()
 					}
 				}
 			}
@@ -388,11 +400,10 @@ func (m *UploadManager) PruneExpired(now time.Time) []string {
 			continue
 		}
 		id := strings.TrimSuffix(name, ".json")
-		lock, err := m.sessionLock(id)
+		unlock, err := m.lockSession(id)
 		if err != nil {
 			continue
 		}
-		lock.Lock()
 		session, err := m.load(id)
 		if err == nil && now.Sub(session.UpdatedAt) > UploadSessionTTL {
 			dataErr := os.Remove(m.dataPath(id))
@@ -403,7 +414,7 @@ func (m *UploadManager) PruneExpired(now time.Time) []string {
 				}
 			}
 		}
-		lock.Unlock()
+		unlock()
 	}
 	if len(removed) > 0 {
 		_ = syncDirectory(m.root)

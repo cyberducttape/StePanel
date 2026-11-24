@@ -157,3 +157,30 @@ func TestResumableUploadBoundsActiveSessionsPerTenant(t *testing.T) {
 		t.Fatalf("other tenant was blocked: %v", err)
 	}
 }
+
+func TestResumableUploadDoesNotRetainLocksForProbedIDs(t *testing.T) {
+	m, err := NewUploadManager(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 100; i++ {
+		id := strings.Repeat("0", 30) + hex.EncodeToString([]byte{byte(i)})
+		if _, err := m.Info(id, "shop", "tenant-a"); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("unknown upload %s: %v", id, err)
+		}
+	}
+	sum := sha256.Sum256([]byte("x"))
+	s, err := m.Begin("shop", "tenant-a", "file.bin", 1, hex.EncodeToString(sum[:]), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Cancel(s.ID, "shop", "tenant-a"); err != nil {
+		t.Fatal(err)
+	}
+	m.mu.Lock()
+	retained := len(m.locks)
+	m.mu.Unlock()
+	if retained != 0 {
+		t.Fatalf("upload manager retained %d session locks", retained)
+	}
+}
