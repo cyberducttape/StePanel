@@ -14,13 +14,15 @@ successful one-off smoke does not close a host-certification gate.
 
 ### M0bj — Default an empty operator workspace to WordPress (P2)
 
-**Status:** Implemented locally. When the authoritative site inventory loads
+**Status:** Implemented and pushed as `5bc7a935`. When the authoritative site inventory loads
 and contains no active sites, the operator creation form now selects WordPress
 and reveals its setup fields automatically. A deliberate template choice made
 while inventory is loading is preserved, and installations with existing
 sites keep the blank-PHP default for additional sites. A freshly built panel
 passed four first-run Playwright journeys; frontend unit tests passed 20/20.
-Exact-source hosted integration is pending.
+The complete seeded Chromium suite passed on its follow-up UI commit (`4c826ce5`)
+with 34 passed and one optional skip. Exact-source integration for `4c826ce5`
+is still running; documentation and CodeQL passed.
 
 **Acceptance criteria**
 
@@ -2919,7 +2921,10 @@ also passed; the scoped report records its limits and remaining release gates.
 
 ### M0bk — Give the first WordPress setup form usable space (P2)
 
-**Status:** Implemented locally; focused browser, visual, and unit checks pass.
+**Status:** Implemented and pushed as `4c826ce5`; focused and full browser,
+visual, and unit checks pass. The full seeded Chromium suite passed 34 tests
+with one optional skip; exact-source documentation and CodeQL passed. The
+integration workflow is still running.
 The WordPress setup fieldset now spans the site-creation form and lays out its
 fields responsively. Domain verification and setup guidance occupy the full
 fieldset width, and hidden template fields remain hidden under the grid style.

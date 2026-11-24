@@ -5283,10 +5283,11 @@ does not close a current-source or power-loss gate.
   cramped into one narrow form column. The responsive fieldset now spans the
   form grid; desktop uses multiple field columns while mobile stacks them.
   Seeded browser tests verify the fieldset geometry, and fresh desktop/mobile
-  screenshots were reviewed. The focused first-run browser suite passed 4/4,
-  frontend unit tests passed 20/20, JavaScript syntax checks passed, and
-  `git diff --check` passed. Hosted exact-source CI for this CSS follow-up will
-  run after commit; the prior source's integration run remains in progress.
+  screenshots were reviewed. The complete browser suite passed (34 passed, one
+  optional skip); the focused first-run suite passed 4/4; frontend unit tests
+  passed 20/20. JavaScript syntax, documentation references/links, and
+  `git diff --check` passed. Exact-source documentation and CodeQL passed on
+  `4c826ce5`; its integration workflow is running Go race tests.
 
 - On exact source `a52f9b1a9f003117f35d2947eb247c70909877c5`, `make check`
   passed, including API artifact checks, installer/bootstrap contracts,
