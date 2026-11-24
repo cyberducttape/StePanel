@@ -5580,7 +5580,8 @@ does not close a current-source or power-loss gate.
   row is absent before continuing.
 - `make check` passed locally, including `go vet ./...`, the full Go suite
   (root package 121.627 s), and installer contracts. `bash -n` and
-  `git diff --check` passed. The exact-source guest-loss rerun is pending.
+  `git diff --check` passed. The v0.7.0 guest-loss upgrade case passed on the
+  exact fix commit; the remaining QEMU matrix cases are in progress.
 - Release preflight [45389788023](https://github.com/cyberducttape/StePanel/actions/runs/45389788023)
   was still running at the time of this note; it uses an earlier commit and
   is not evidence for this fix. No release was published.
@@ -5598,6 +5599,12 @@ does not close a current-source or power-loss gate.
   The candidate remains unpublished; the
   [reviewed report](docs/lab-results/2026-11-24-v0.9.0-ubuntu-install-45389788023.md)
   includes artifact checksums and limits.
+- Current product-source installation smoke
+  [45393107958](https://github.com/cyberducttape/StePanel/actions/runs/45393107958)
+  passed on `9594ee7b`: the snapshot archive installed and cleaned up, the
+  installed WordPress HTTPS/database recovery measured 7,781 ms RTO, and one
+  recovery-matrix iteration passed. This is not a versioned-release test or
+  repeated certification.
 - On exact source `9594ee7b`, local `make check` passed. Hosted integration,
   CodeQL, documentation, and exact-source recovery checks passed. The N-1
   matrix's v0.7.0 QEMU guest-loss case passed with the drain-recovery fix;

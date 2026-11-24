@@ -2700,6 +2700,12 @@ with a measured 7,356 ms RTO. Database-outage and broker-outage recovery also
 passed. The host had no project quotas, and this remains one disposable-host
 iteration, not repeated or physical power-loss certification. See the
 [reviewed candidate report](docs/lab-results/2026-11-24-v0.9.0-ubuntu-install-45389788023.md).
+The current product-source install smoke also passed on commit `9594ee7b` in
+[run 45393107958](https://github.com/cyberducttape/StePanel/actions/runs/45393107958):
+the snapshot archive installed and cleaned up, WordPress HTTPS/database
+recovery measured 7,781 ms, and one recovery-matrix iteration passed. This is
+current-source install evidence, not a versioned release package or repeated
+certification.
 
 **Acceptance criteria**
 
