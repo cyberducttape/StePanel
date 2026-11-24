@@ -5279,6 +5279,15 @@ does not close a current-source or power-loss gate.
 
 ## Recheck first-run UI and release candidate — 2026-11-24
 
+- Follow-up visual review found the newly exposed WordPress setup details were
+  cramped into one narrow form column. The responsive fieldset now spans the
+  form grid; desktop uses multiple field columns while mobile stacks them.
+  Seeded browser tests verify the fieldset geometry, and fresh desktop/mobile
+  screenshots were reviewed. The focused first-run browser suite passed 4/4,
+  frontend unit tests passed 20/20, JavaScript syntax checks passed, and
+  `git diff --check` passed. Hosted exact-source CI for this CSS follow-up will
+  run after commit; the prior source's integration run remains in progress.
+
 - On exact source `a52f9b1a9f003117f35d2947eb247c70909877c5`, `make check`
   passed, including API artifact checks, installer/bootstrap contracts,
   `go vet ./...`, and the full Go suite (root package 120.9s). Frontend unit

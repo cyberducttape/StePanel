@@ -2917,3 +2917,19 @@ also passed; the scoped report records its limits and remaining release gates.
 - Frontend unit tests, installer publication recovery tests, and exact-source
   seeded browser CI pass.
 
+### M0bk — Give the first WordPress setup form usable space (P2)
+
+**Status:** Implemented locally; focused browser, visual, and unit checks pass.
+The WordPress setup fieldset now spans the site-creation form and lays out its
+fields responsively. Domain verification and setup guidance occupy the full
+fieldset width, and hidden template fields remain hidden under the grid style.
+
+**Acceptance criteria**
+
+- On desktop, the WordPress fieldset spans at least 80% of the site-creation
+  form width; on mobile, fields remain readable in a single column.
+- The seeded first-run Playwright suite verifies the layout and WordPress
+  selection behavior.
+- Desktop and mobile screenshots are visually reviewed; frontend unit tests
+  and JavaScript syntax checks pass.
+

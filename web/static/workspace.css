@@ -1621,6 +1621,22 @@ button.activity-link { padding: 0; border: 0; background: transparent; text-alig
 .site-create-form > h2,
 .site-create-form > h3 { grid-column: 1 / -1; margin: 0; font-size: 15px; letter-spacing: normal; }
 .site-create-form > .field { display: flex; flex-direction: column; gap: 5px; margin: 0; min-width: 0; }
+.site-create-form > #wordpressCreateFields {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  gap: 14px;
+  min-width: 0;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--panel-line, #293544);
+  border-radius: 10px;
+}
+.site-create-form > #wordpressCreateFields[hidden] { display: none; }
+#wordpressCreateFields > legend { grid-column: 1 / -1; padding: 0 5px; font-weight: 700; }
+#wordpressCreateFields > .field { display: flex; flex-direction: column; gap: 5px; margin: 0; min-width: 0; }
+#wordpressCreateFields > .site-domain-proof,
+#wordpressCreateFields > .import-note { grid-column: 1 / -1; }
 .site-create-advanced { grid-column: 1 / -1; min-width: 0; padding: 11px 13px; border: 1px solid var(--panel-line, #293544); border-radius: 9px; }
 .site-create-advanced > summary { cursor: pointer; font-size: 12px; font-weight: 650; }
 .site-create-advanced[open] { display: grid; gap: 12px; }

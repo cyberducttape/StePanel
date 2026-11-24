@@ -67,6 +67,9 @@ test('first-run primary action follows the next unresolved setup step', async ({
   const primary = page.locator('#primarySetupAction');
   await expect(page.locator('#siteCreateTemplate')).toHaveValue('wordpress');
   await expect(page.locator('#wordpressCreateFields')).toBeVisible();
+  const createFormBox = await page.locator('#siteCreateForm').boundingBox();
+  const wordpressFieldsBox = await page.locator('#wordpressCreateFields').boundingBox();
+  expect(wordpressFieldsBox.width).toBeGreaterThan(createFormBox.width * 0.8);
   await expect(primary).toHaveAttribute('href', '#controlPlaneDetailsToggle');
   await expect(primary).toHaveText('Show what needs attention');
   await primary.click();
