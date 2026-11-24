@@ -3187,13 +3187,14 @@ integration passed in [run 45404480491](https://github.com/cyberducttape/StePane
 
 ### M0bs — Keep guided site checks from overstating database health (P1)
 
-**Status:** Implemented locally; focused seeded Chromium regression passes.
+**Status:** Complete; focused and hosted seeded Chromium regression passes.
 The site lifecycle checklist now marks the filesystem/database step as needing
 review when the database engine probe or WordPress credential probe fails, and
 as evidence-incomplete when any required observation is absent or unknown. It
 reports success only when document-root metadata, database inventory, engine
 connectivity, and the applicable application database probe all pass at the
-sample time. Hosted exact-source CI remains pending.
+sample time. Exact-source hosted integration and UI E2E passed on `da28c813`
+in [CI run 45416270600](https://github.com/cyberducttape/StePanel/actions/runs/45416270600).
 
 **Acceptance criteria**
 

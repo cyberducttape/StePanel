@@ -5655,5 +5655,6 @@ does not close a current-source or power-loss gate.
 - The seeded guided-workflow Chromium test covers refused database
   connectivity, failed WordPress credentials, and absent/unknown diagnostics.
   JavaScript syntax checks, frontend unit tests (20/20), a fresh embedded-asset
-  build, and the focused browser test passed. Hosted exact-source CI remains
-  pending.
+  build, and the focused browser test passed. Exact-source hosted integration
+  and UI E2E passed on `da28c813`; see
+  [CI integration run 45416270600](https://github.com/cyberducttape/StePanel/actions/runs/45416270600).
