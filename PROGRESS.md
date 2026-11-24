@@ -16,15 +16,15 @@
 
 ## Run current-source installation and capacity gates — 2026-11-24
 
-- The six-host installed recovery iteration remains in progress on source
-  `5b9b8586861b0b2a341e42f387327402341eb68f`:
+- The separate six-host installed recovery smoke on source
+  `5b9b8586861b0b2a341e42f387327402341eb68f` was canceled after the
+  replacement exact-source cohort started the same matrix. Its six-host
+  repetition did not finish and contributes no result:
   [run 45372107757](https://github.com/cyberducttape/StePanel/actions/runs/45372107757).
-  All six Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 Apache/Caddy jobs are
-  still running; no result is counted yet.
 - Dispatched the 500-site, 600-second KVM capacity profile against current
   `main` at `3e976141a6fa92d7f31be32d69d14374af70968d`:
   [run 45380135916](https://github.com/cyberducttape/StePanel/actions/runs/45380135916).
-  It is queued. This profile measures one runner VM and cannot certify a
+  It is running. This profile measures one runner VM and cannot certify a
   generally supported site limit by itself.
 - The prior 20-repeat cohort on `9924fbda` was canceled after the report
   confirmed it was no longer code-equivalent; 9/15 jobs had completed, but no
