@@ -5245,3 +5245,16 @@ does not close a current-source or power-loss gate.
   operation scenarios plus database ENOSPC and alert outage/retry. It is in
   progress; no result is counted. `cache=none` removes guest page-cache
   cushioning but does not constitute physical host power-loss evidence.
+
+## Verify first-install support guidance — 2026-11-24
+
+- Closed M0ac: README and installation guidance distinguish loopback preview,
+  current-source Beta, the recommended Ubuntu 24.04 + Caddy + MariaDB profile,
+  experimental stacks, and unsupported old fresh-install archives. The
+  release contract prevents the known-broken v0.7.0 fresh-install command from
+  returning.
+- Hosted documentation CI passed on
+  [45333744630](https://github.com/cyberducttape/StePanel/actions/runs/45333744630).
+  On the updated tree, documentation references, links, and `make
+  release-check` passed locally. This does not publish or endorse an archive;
+  the nonpublishing candidate and production gates remain separately scoped.

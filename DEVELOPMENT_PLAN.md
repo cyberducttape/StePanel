@@ -589,15 +589,19 @@ disposable-host pass, not repeated certification.
 
 ### M0ac — Keep first-install instructions aligned with viable releases (P1)
 
-**Status:** Corrected locally. The README and installation guide no longer
-recommend a fresh install from v0.7.0, which the compatibility record says
-cannot complete on current Ubuntu 24.04. They identify `0.8` as an unsupported
-pre-release, direct fresh users to local evaluation or current-source Beta
-staging, and link older archives only to tested upgrade procedures. The
-README also links each stack choice to its evidence tier rather than describing
-all implemented adapters as equally supported. The release contract now checks
-that these first-install warnings remain present and that the legacy v0.7
-download command is not restored.
+**Status:** Implemented and verified. The README and installation guide no
+longer recommend a fresh install from v0.7.0, which the compatibility record
+says cannot complete on current Ubuntu 24.04. They identify `0.8` as an
+unsupported pre-release, direct fresh users to local evaluation or
+current-source Beta staging, and link older archives only to tested upgrade
+procedures. The README also links each stack choice to its evidence tier
+rather than describing all implemented adapters as equally supported. The
+release contract checks these first-install warnings and rejects restoration
+of the legacy v0.7 download command. Hosted documentation CI passed in
+[45333744630](https://github.com/cyberducttape/StePanel/actions/runs/45333744630);
+current-tree documentation links, references, and `make release-check` also
+pass. This documents the support boundary; it does not make a public release
+available.
 
 **Acceptance criteria**
 
