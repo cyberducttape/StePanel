@@ -211,29 +211,56 @@ func (c *Client) JobsWithDetails(ctx context.Context, runID int64) (Jobs, []Acti
 		}
 		for _, job := range listing.Jobs {
 			details = append(details, job)
-			counts.Total++
-			switch job.Status {
-			case "completed":
-				if job.Conclusion == "success" || job.Conclusion == "skipped" {
-					counts.Passed++
-				} else {
-					counts.Failed++
-				}
-			case "queued", "pending", "requested":
-				counts.Queued++
-			case "waiting":
-				counts.Waiting++
-			case "in_progress":
-				counts.Running++
-			default:
-				counts.Unknown++
-			}
+			counts.add(job)
 		}
 		if len(listing.Jobs) < 100 || counts.Total >= listing.TotalCount {
 			return counts, details, nil
 		}
 	}
 	return Jobs{}, nil, fmt.Errorf("run %d has more than %d jobs", runID, maxJobPages*100)
+}
+
+func (counts *Jobs) add(job ActionJob) {
+	counts.Total++
+	switch job.Status {
+	case "completed":
+		if job.Conclusion == "success" || job.Conclusion == "skipped" {
+			counts.Passed++
+		} else {
+			counts.Failed++
+		}
+	case "queued", "pending", "requested":
+		counts.Queued++
+	case "waiting":
+		counts.Waiting++
+	case "in_progress":
+		counts.Running++
+	default:
+		counts.Unknown++
+	}
+}
+
+// reusableJobOutcome aggregates every job a reusable workflow contributed to
+// a caller run (one per matrix entry or shard). It reports success only when
+// all of them succeeded, and is pending while any of them has not finished.
+func reusableJobOutcome(details []ActionJob, prefix string) (Jobs, string, string, bool) {
+	var counts Jobs
+	status, conclusion := "completed", "success"
+	for _, job := range details {
+		if !strings.HasPrefix(job.Name, prefix) {
+			continue
+		}
+		counts.add(job)
+		switch {
+		case job.Status != "completed":
+			if status == "completed" {
+				status, conclusion = job.Status, ""
+			}
+		case status == "completed" && conclusion == "success" && job.Conclusion != "success" && job.Conclusion != "skipped":
+			conclusion = job.Conclusion
+		}
+	}
+	return counts, status, conclusion, counts.Total > 0
 }
 
 // selectRun picks the evidence among runs on one commit, newest first. A
@@ -313,22 +340,16 @@ func Collect(ctx context.Context, c *Client, repo Repository, commit string, che
 			for _, candidate := range candidates {
 				evidenceRun := candidate.run
 				if candidate.requiredPrefix != "" {
-					counts, details, jobsErr := c.JobsWithDetails(ctx, candidate.run.ID)
+					_, details, jobsErr := c.JobsWithDetails(ctx, candidate.run.ID)
 					if jobsErr != nil {
 						return fmt.Errorf("%s reusable-workflow job lookup: %w", check.Name, jobsErr)
 					}
-					var matchingJob *ActionJob
-					for _, job := range details {
-						if strings.HasPrefix(job.Name, candidate.requiredPrefix) {
-							matchingJob = &job
-							break
-						}
-					}
-					if matchingJob == nil {
+					counts, status, conclusion, found := reusableJobOutcome(details, candidate.requiredPrefix)
+					if !found {
 						continue
 					}
-					evidenceRun.Status = matchingJob.Status
-					evidenceRun.Conclusion = matchingJob.Conclusion
+					evidenceRun.Status = status
+					evidenceRun.Conclusion = conclusion
 					jobsByRun[candidate.run.ID] = counts
 				}
 				result.Run = &evidenceRun

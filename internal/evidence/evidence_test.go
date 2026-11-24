@@ -89,8 +89,8 @@ func TestCollectFindsSuccessfulReusableInstallSmokeInCallerWorkflow(t *testing.T
 	if len(results) != 1 || !results[0].Matches || results[0].Run == nil || results[0].Run.ID != 45146220535 {
 		t.Fatalf("installation evidence = %+v, want matching caller run", results)
 	}
-	if results[0].Jobs != (Jobs{Total: 3, Passed: 3}) {
-		t.Fatalf("caller run jobs = %+v, want all three successful", results[0].Jobs)
+	if results[0].Jobs != (Jobs{Total: 1, Passed: 1}) {
+		t.Fatalf("caller run jobs = %+v, want only the reusable install job counted", results[0].Jobs)
 	}
 
 	api.jobs[45146220535] = []string{"success", "failure", "success"}
@@ -109,6 +109,41 @@ func TestCollectFindsSuccessfulReusableInstallSmokeInCallerWorkflow(t *testing.T
 	}
 	if results[0].Matches || results[0].Run != nil {
 		t.Fatalf("caller without install job was incorrectly counted: %+v", results[0])
+	}
+}
+
+func TestCollectRequiresEveryReusableInstallSmokeJob(t *testing.T) {
+	prefix := "Install-test the versioned release archive /"
+	api := &fakeAPI{
+		runs: map[string][]Run{
+			"install-smoke.yml":     nil,
+			"release-preflight.yml": {run(7, shaA, "completed", "success")},
+		},
+		jobs:     map[int64][]string{7: {"success", "failure", "success"}},
+		jobNames: map[int64][]string{7: {prefix + " shard 1", prefix + " shard 2", "Build and verify versioned release candidate"}},
+	}
+	checks := []Check{{
+		Name: "Installation smoke", Workflow: "install-smoke.yml", Scope: Code,
+		CalledBy: []WorkflowCaller{{Workflow: "release-preflight.yml", RequiredJobPrefix: prefix}},
+	}}
+	results, err := Collect(context.Background(), newClient(t, api), sameAs{}, shaA, checks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := outcome(results[0].Run); got != "❌ failed" {
+		t.Fatalf("outcome with a failed sibling shard = %q, want failed", got)
+	}
+	if results[0].Jobs != (Jobs{Total: 2, Passed: 1, Failed: 1}) {
+		t.Fatalf("reusable jobs = %+v, want both install shards and nothing else", results[0].Jobs)
+	}
+
+	api.jobs[7] = []string{"success", "", "success"}
+	results, err = Collect(context.Background(), newClient(t, api), sameAs{}, shaA, checks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[0].Run.Status != "in_progress" || results[0].Run.Conclusion != "" {
+		t.Fatalf("run with an unfinished shard = %+v, want in progress", results[0].Run)
 	}
 }
 

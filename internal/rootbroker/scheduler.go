@@ -30,6 +30,47 @@ type Scheduler struct {
 	validate func(*Request) error
 	gate     *admissionGate
 	keys     *keyedLocks
+
+	downloadMu      sync.Mutex
+	downloadsActive int
+	tenantDownloads map[string]int
+}
+
+// Streamed downloads are read-only, descriptor-rooted, and can last hours.
+// They are admitted separately from the execution gate and the per-tenant
+// files lock: holding either for a whole transfer would block the tenant's
+// file manager and let an exclusive waiter stall every broker operation.
+const (
+	MaxConcurrentDownloads          = 8
+	MaxConcurrentDownloadsPerTenant = 2
+)
+
+// ErrDownloadBusyPrefix starts the response error for a download refused by
+// broker admission, so clients can report it as retryable.
+const ErrDownloadBusyPrefix = "root broker is busy: "
+
+func (s *Scheduler) admitDownload(tenant string) (func(), error) {
+	s.downloadMu.Lock()
+	defer s.downloadMu.Unlock()
+	if s.tenantDownloads == nil {
+		s.tenantDownloads = make(map[string]int)
+	}
+	if s.downloadsActive >= MaxConcurrentDownloads {
+		return nil, errors.New("too many file downloads are in progress on this host")
+	}
+	if s.tenantDownloads[tenant] >= MaxConcurrentDownloadsPerTenant {
+		return nil, errors.New("too many file downloads are in progress for this tenant")
+	}
+	s.downloadsActive++
+	s.tenantDownloads[tenant]++
+	return func() {
+		s.downloadMu.Lock()
+		defer s.downloadMu.Unlock()
+		s.downloadsActive--
+		if s.tenantDownloads[tenant]--; s.tenantDownloads[tenant] <= 0 {
+			delete(s.tenantDownloads, tenant)
+		}
+	}, nil
 }
 
 // NewScheduler wraps broker with resource-scoped admission and at most
@@ -46,9 +87,9 @@ func NewScheduler(broker *Broker, maxConcurrent int) (*Scheduler, error) {
 	return scheduler, nil
 }
 
-// StreamFileDownload holds the same tenant-scoped broker admission for the
-// complete response stream, so slow downloads remain bounded by the broker's
-// concurrency and per-tenant read locks.
+// StreamFileDownload admits one download against its own host and tenant
+// limits (refusing immediately when full) and streams it under the request's
+// download budget. It never holds the execution gate or files locks.
 func (s *Scheduler) StreamFileDownload(ctx context.Context, req *Request, publish func(*Response) error, dst io.Writer) error {
 	if req == nil || req.Files == nil || req.RequestType != "files" || req.Files.Action != "download" {
 		return publish(&Response{OK: false, Error: "streamed response is only supported for file downloads"})
@@ -59,19 +100,12 @@ func (s *Scheduler) StreamFileDownload(ctx context.Context, req *Request, publis
 	if err := s.validate(req); err != nil {
 		return publish(&Response{OK: false, Error: fmt.Sprintf("validation error: %v", err)})
 	}
-	timeout := RequestTimeout(req)
-	waitCtx, cancelWait := context.WithTimeout(ctx, timeout)
-	defer cancelWait()
-	release, err := s.keys.acquire(waitCtx, requestLockKeys(req))
+	release, err := s.admitDownload(req.Files.TenantID)
 	if err != nil {
-		return publish(&Response{OK: false, Error: fmt.Sprintf("root broker is busy: %v", err)})
+		return publish(&Response{OK: false, Error: ErrDownloadBusyPrefix + err.Error()})
 	}
 	defer release()
-	if err := s.gate.acquire(waitCtx, false); err != nil {
-		return publish(&Response{OK: false, Error: fmt.Sprintf("root broker is busy: %v", err)})
-	}
-	defer s.gate.release(false)
-	streamCtx, cancel := context.WithTimeout(ctx, timeout)
+	streamCtx, cancel := context.WithTimeout(ctx, RequestTimeout(req))
 	defer cancel()
 	return s.download(streamCtx, req, publish, dst)
 }

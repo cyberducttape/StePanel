@@ -9,6 +9,7 @@ install_print_first_login_steps() {
   local certbot_available=${3:-0}
   local web_service=${4:-}
   local database_service=${5:-}
+  local contact_email=${6:-}
 
   printf '\nNext steps to open StePanel:\n'
   printf '1. Point the A record for %s to this server. Add an AAAA record only if this host accepts public IPv6 traffic, and allow inbound ports 80 and 443.\n' "$hostname"
@@ -18,7 +19,11 @@ install_print_first_login_steps() {
       ;;
     apache)
       if [[ $certbot_available == 1 ]]; then
-        printf '2. Issue the panel certificate before login: sudo stepanel-certbot "%s" "you@example.com"\n' "$hostname"
+        if [[ -n $contact_email ]]; then
+          printf '2. Issue the panel certificate before login: sudo stepanel-certbot %q %q\n' "$hostname" "$contact_email"
+        else
+          printf '2. Issue the panel certificate before login, giving the address that should receive certificate expiry notices:\n   sudo stepanel-certbot %q CERTIFICATE_CONTACT_EMAIL\n' "$hostname"
+        fi
       else
         printf '2. Configure trusted TLS termination for %s before login; then open https://%s.\n' "$hostname" "$hostname"
       fi

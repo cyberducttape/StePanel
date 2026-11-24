@@ -179,11 +179,29 @@ func (c *Client) openFileSocket(ctx context.Context, req *Request, socketPath st
 	if unixConn, ok := conn.(*net.UnixConn); ok {
 		_ = unixConn.CloseWrite()
 	}
+	// The broker answers once the helper has opened the file. Abandon the
+	// wait if the caller goes away first.
+	headerRead := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.Close()
+		case <-headerRead:
+		}
+	}()
 	buffered := bufio.NewReaderSize(conn, 64<<10)
 	response, err := readStreamResponse(buffered)
+	close(headerRead)
 	if err != nil {
 		_ = conn.Close()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, 0, ctxErr
+		}
 		return nil, 0, fmt.Errorf("decode file-download response: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		_ = conn.Close()
+		return nil, 0, err
 	}
 	size, err := decodeFileDownloadResponse(response)
 	if err != nil {
@@ -271,8 +289,15 @@ func readStreamResponse(reader *bufio.Reader) (*Response, error) {
 	return &response, nil
 }
 
+// ErrDownloadBusy reports a download refused by broker admission; it is
+// retryable and never a property of the requested file.
+var ErrDownloadBusy = errors.New("file downloads are at capacity")
+
 func decodeFileDownloadResponse(response *Response) (int64, error) {
 	if !response.OK {
+		if strings.HasPrefix(response.Error, ErrDownloadBusyPrefix) {
+			return 0, fmt.Errorf("%w: %s", ErrDownloadBusy, strings.TrimPrefix(response.Error, ErrDownloadBusyPrefix))
+		}
 		if _, message, found := strings.Cut(response.Error, "files download failed: "); found {
 			return 0, sitefiles.Refused("%s", message)
 		}

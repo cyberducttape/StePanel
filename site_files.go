@@ -614,6 +614,11 @@ func (a *App) siteFilesDownload(w http.ResponseWriter, r *http.Request, store si
 	}
 	defer release()
 	file, size, err := store.Open(r.Context(), site, rel)
+	if errors.Is(err, rootbroker.ErrDownloadBusy) {
+		w.Header().Set("Retry-After", "30")
+		http.Error(w, "too many file downloads are in progress for this tenant or host; try again shortly", http.StatusTooManyRequests)
+		return
+	}
 	if err != nil {
 		writeSiteFilesError(w, err)
 		return

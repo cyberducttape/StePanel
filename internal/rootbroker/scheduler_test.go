@@ -2,6 +2,7 @@ package rootbroker
 
 import (
 	"context"
+	"io"
 	"reflect"
 	"strings"
 	"sync"
@@ -313,5 +314,106 @@ func TestRequestLockKeys(t *testing.T) {
 				t.Fatalf("keys = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func downloadRequest(tenant string) *Request {
+	return &Request{RequestType: "files", Files: &FilesRequest{Action: "download", Site: tenant, TenantID: tenant, Path: "big.tar", StreamResponse: true}}
+}
+
+// startBlockingDownload streams a download that holds its admission until
+// the returned release function is called.
+func startBlockingDownload(t *testing.T, scheduler *Scheduler, tenant string, started chan<- string, hold <-chan struct{}) <-chan *Response {
+	t.Helper()
+	done := make(chan *Response, 1)
+	go func() {
+		var refused *Response
+		_ = scheduler.StreamFileDownload(context.Background(), downloadRequest(tenant), func(resp *Response) error {
+			if !resp.OK {
+				refused = resp
+			}
+			return nil
+		}, io.Discard)
+		done <- refused
+	}()
+	return done
+}
+
+func newDownloadScheduler(t *testing.T, limit int) (*Scheduler, *blockingExecutor, chan string, chan struct{}) {
+	t.Helper()
+	scheduler, exec := newTestScheduler(t, limit)
+	started := make(chan string, 16)
+	hold := make(chan struct{})
+	scheduler.download = func(ctx context.Context, req *Request, publish func(*Response) error, _ io.Writer) error {
+		if err := publish(&Response{OK: true}); err != nil {
+			return err
+		}
+		started <- req.Files.TenantID
+		select {
+		case <-hold:
+		case <-ctx.Done():
+		}
+		return nil
+	}
+	return scheduler, exec, started, hold
+}
+
+func TestSchedulerDownloadDoesNotBlockExclusiveOrTenantFileOperations(t *testing.T) {
+	scheduler, exec, started, hold := newDownloadScheduler(t, 1)
+	download := startBlockingDownload(t, scheduler, "alice", started, hold)
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("download did not start")
+	}
+	// An exclusive request and the same tenant's file listing both proceed
+	// while the long transfer is still streaming.
+	exclusive := runAsync(scheduler, context.Background(), &Request{RequestType: "proxy", Proxy: &ProxyRequest{Action: "reload"}})
+	expectStarted(t, exec, "proxy")
+	exec.release("proxy")
+	<-exclusive
+	listing := runAsync(scheduler, context.Background(), &Request{RequestType: "files", Files: &FilesRequest{Action: "list", Site: "alice", TenantID: "alice"}})
+	expectStarted(t, exec, "files")
+	exec.release("files")
+	<-listing
+	close(hold)
+	if refused := <-download; refused != nil {
+		t.Fatalf("download refused: %+v", refused)
+	}
+}
+
+func TestSchedulerBoundsDownloadsPerTenantAndHost(t *testing.T) {
+	scheduler, _, started, hold := newDownloadScheduler(t, 1)
+	var running []<-chan *Response
+	start := func(tenant string) {
+		running = append(running, startBlockingDownload(t, scheduler, tenant, started, hold))
+		select {
+		case <-started:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("download for %s did not start", tenant)
+		}
+	}
+	for i := 0; i < MaxConcurrentDownloadsPerTenant; i++ {
+		start("alice")
+	}
+	if refused := <-startBlockingDownload(t, scheduler, "alice", started, hold); refused == nil || !strings.HasPrefix(refused.Error, ErrDownloadBusyPrefix) {
+		t.Fatalf("tenant download over its limit was not refused as busy: %+v", refused)
+	}
+	for i := MaxConcurrentDownloadsPerTenant; i < MaxConcurrentDownloads; i++ {
+		start("tenant" + string(rune('a'+i)))
+	}
+	if refused := <-startBlockingDownload(t, scheduler, "zed", started, hold); refused == nil || !strings.HasPrefix(refused.Error, ErrDownloadBusyPrefix) {
+		t.Fatalf("host download over its limit was not refused as busy: %+v", refused)
+	}
+	close(hold)
+	for _, done := range running {
+		if refused := <-done; refused != nil {
+			t.Fatalf("admitted download refused: %+v", refused)
+		}
+	}
+	scheduler.downloadMu.Lock()
+	defer scheduler.downloadMu.Unlock()
+	if scheduler.downloadsActive != 0 || len(scheduler.tenantDownloads) != 0 {
+		t.Fatalf("download admission leaked: active=%d tenants=%v", scheduler.downloadsActive, scheduler.tenantDownloads)
 	}
 }

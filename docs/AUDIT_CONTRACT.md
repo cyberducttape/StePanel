@@ -122,7 +122,7 @@ and never affects the operation; failures are logged.
 | FTPS revocation | A, revocation | `site.ftps.disabled` |
 | Environment variable changes and removal | A, intent-first | `site.environment.updated`, `site.environment.deleted` |
 | Redis allocation removal | A, intent-first | `site.redis.deleted` |
-| File manager changes in a hosting-account site (write, new directory, rename, delete) | A, intent-first | `site.files.write`, `site.files.mkdir`, `site.files.rename`, `site.files.delete` |
+| File manager changes in a hosting-account site (write, resumable upload publication, new directory, rename, delete) | A, intent-first | `site.files.write`, `site.files.upload.completed`, `site.files.mkdir`, `site.files.rename`, `site.files.delete` |
 | Ending WordPress maintenance mode left by an interrupted backup (startup and periodic recovery) | A, recovery record | `wordpress.maintenance.recovered` |
 | Offline site identity collision repair (`stepanel-root identity-repair`, panel stopped) | A, journaled sequence outside the panel ledger | the root-owned repair journal and pre-commit SQLite snapshot in the recovery root (see `docs/SITE_IDENTITY_RECOVERY.md`) |
 | Backups, verification, rehearsals, restore-to-staging, retention | B | `site.backup.*`, `backup.verify`, `backup.rehearsal.*`, ... |

@@ -2075,7 +2075,7 @@ func (a *App) customerPassword(w http.ResponseWriter, r *http.Request) {
 	if !a.reauthenticateCustomer(w, r, username, input.CurrentPassword, input.CurrentTOTP) {
 		return
 	}
-	intent, err := BeginSecurityAudit(a.Config.AuditLog, username, "hosting.account.password-changed", username, "customer password change")
+	intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "hosting.account.password-changed", username, "customer password change")
 	if err != nil {
 		refuseWithoutSecurityAudit(w)
 		return
@@ -2188,7 +2188,7 @@ func (a *App) customerMFA(w http.ResponseWriter, r *http.Request) {
 		action = "hosting.account.mfa-rotated"
 		detail = "customer authenticator replacement"
 	}
-	intent, err := BeginSecurityAudit(a.Config.AuditLog, username, action, username, detail)
+	intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), action, username, detail)
 	if err != nil {
 		refuseWithoutSecurityAudit(w)
 		return

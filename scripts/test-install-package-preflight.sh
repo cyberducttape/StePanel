@@ -29,7 +29,7 @@ package_preflight_line=$(grep -n 'install_preflight_packages web_package_availab
 optional_package_preflight_line=$(grep -n 'install_preflight_optional_packages "\$PKG"' "$ROOT_DIR/install.sh" | cut -d: -f1)
 package_mutation_line=$(grep -n 'apt-get update; apt-get install' "$ROOT_DIR/install.sh" | cut -d: -f1)
 (( optional_package_preflight_line < package_preflight_line && package_preflight_line < package_mutation_line ))
-grep -Fq 'PHP_CURL_PACKAGE=$(install_php_curl_package "$PKG" web_package_available)' "$ROOT_DIR/install.sh"
+grep -Fq 'PHP_CURL_PACKAGE=$(install_php_curl_package "$PKG" web_package_available 2>/dev/null)' "$ROOT_DIR/install.sh"
 grep -Fq '"$PHP_CURL_PACKAGE"' "$ROOT_DIR/install.sh"
 grep -Fq 'extension_loaded("curl")' "$ROOT_DIR/install.sh"
 missing_package=

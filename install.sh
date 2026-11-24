@@ -341,7 +341,11 @@ preflight_blockers=()
 . "$ROOT_DIR/deploy/lib/install-systemd-preflight.sh"
 . "$ROOT_DIR/deploy/lib/install-package-preflight.sh"
 . "$ROOT_DIR/deploy/lib/install-database-version-preflight.sh"
-PHP_CURL_PACKAGE=$(install_php_curl_package "$PKG" web_package_available)
+# When no repository provides the extension, keep the canonical name so the
+# package preflight reports it with every other blocker instead of exiting.
+if ! PHP_CURL_PACKAGE=$(install_php_curl_package "$PKG" web_package_available 2>/dev/null); then
+  PHP_CURL_PACKAGE=php-curl
+fi
 MAIL_EXIM_SERVICE=$([[ "$PKG" == apt ]] && printf exim4 || printf exim)
 MAIL_SPAM_SERVICE=spamd
 INSTALL_HOST_SERVICES=(apache2 httpd caddy lsws "$MAIL_EXIM_SERVICE" dovecot "$MAIL_SPAM_SERVICE")
@@ -1694,6 +1698,6 @@ fi
 install_journal_record verification complete partial "core readiness passed; inspect post_install_status for optional integrations" || echo 'Could not append installer verification record.' >&2
 install_journal_record recovery contract manual "automatic rollback covers registered files, control-plane database and core service activation; see docs/INSTALLER_RECOVERY.md" || echo 'Could not append installer recovery-contract record.' >&2
 echo "StePanel installed with $WEB_SERVER and $DB_ENGINE ($DB_VERSION). Verify services with: systemctl status $APACHE_SERVICE $DB_SERVICE"
-install_print_first_login_steps "$PANEL_HOSTNAME" "$WEB_SERVER" "$([[ -x /usr/local/sbin/stepanel-certbot ]] && echo 1 || echo 0)" "$APACHE_SERVICE" "$DB_SERVICE"
+install_print_first_login_steps "$PANEL_HOSTNAME" "$WEB_SERVER" "$([[ -x /usr/local/sbin/stepanel-certbot ]] && echo 1 || echo 0)" "$APACHE_SERVICE" "$DB_SERVICE" "${STEPANEL_ALERT_EMAIL_TO:-}"
 if [[ "$INSTALL_MAIL" == "1" ]]; then echo "Mail stack installed. Mailbox data is staged under $DATA_DIR/mail; services are active only when STEPANEL_ACTIVATE_MAIL=1."; fi
 if [[ "$INSTALL_FTP" == "1" ]]; then echo "vsftpd installed with local-user chroot and passive ports $FTP_PASSIVE_MIN-$FTP_PASSIVE_MAX; it is active only when STEPANEL_ACTIVATE_FTP=1 with FTPS certificates."; fi

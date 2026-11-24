@@ -12,7 +12,11 @@ grep -Fq 'allow inbound ports 80 and 443' <<<"$caddy"
 grep -Fq 'stepanel-root-broker.service caddy mariadb' <<<"$caddy"
 
 apache_tls=$(install_print_first_login_steps panel.example.com apache 1 apache2 mariadb)
-grep -Fq 'sudo stepanel-certbot "panel.example.com" "you@example.com"' <<<"$apache_tls"
+grep -Fq 'sudo stepanel-certbot panel.example.com CERTIFICATE_CONTACT_EMAIL' <<<"$apache_tls"
+! grep -Fq 'example.com"' <<<"$apache_tls"
+
+apache_contact=$(install_print_first_login_steps panel.example.com apache 1 apache2 mariadb ops@panel.example.com)
+grep -Fq 'sudo stepanel-certbot panel.example.com ops@panel.example.com' <<<"$apache_contact"
 
 apache_manual=$(install_print_first_login_steps panel.example.com apache 0 httpd mariadb)
 grep -Fq 'Configure trusted TLS termination' <<<"$apache_manual"
