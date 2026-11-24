@@ -253,6 +253,12 @@ the platform matrix. The API workflow guide also clarifies that restore-to-
 staging returns a queued job and that the operator must wait for completion.
 These documentation changes reduce ambiguity but do not create a supported
 fresh-install archive.
+The README's local-evaluation command was also exercised from a disposable
+worktree at `b5aa1d2c` with an empty `data/` directory. It built as the
+unprivileged user, reached HTTP 200 with `/livez` 204, listened only on
+`127.0.0.1:8080`, and shut down cleanly with Ctrl-C. The temporary state and
+worktree were removed. This proves the no-host-change preview path on current
+code; it does not close the native-install or production gates.
 The local preview's primary command is now `bash scripts/evaluate-local.sh`,
 so a newcomer does not need GNU Make. `make evaluate` remains a convenience
 alias. README and installation guidance list Bash and distinguish optional

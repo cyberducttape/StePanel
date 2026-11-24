@@ -1,3 +1,14 @@
+## Verify clean local first-run preview — 2026-11-24
+
+- Exercised `bash scripts/evaluate-local.sh` from a disposable worktree at
+  `b5aa1d2c`, with no existing `data/` state. The binary built as the current
+  user; `/` returned HTTP 200, `/livez` returned 204, and `ss` showed only
+  `127.0.0.1:8080`. Ctrl-C shut it down, the listener and process exited, and
+  only the temporary worktree/state generated for this check was removed.
+- This verifies the local no-host-change preview for a clean checkout. It does
+  not establish native-install readiness; M0aa remains partial pending a
+  published supported fresh-install archive.
+
 ## Review exact-source CI and release evidence — 2026-11-24
 
 - The ordinary CI workflow passed on current code source `f49050af` in 3m32s:
