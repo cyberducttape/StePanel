@@ -3104,3 +3104,24 @@ passed, including browser accessibility, Go, race, and recovery checks.
 - Existing-site checklist ordering, frontend unit tests, the focused seeded
   browser journey, and exact-source hosted CI pass.
 
+### M0bq — Resume an interrupted upgrade without leaving mutations paused (P1)
+
+**Status:** Fix implemented locally; full checks pass. An exact-source N-1 QEMU
+upgrade run exposed that a host rebooted during installation could restart
+with both StePanel services down. The resumed installer then did not consider
+the persisted upgrade drain its own and left customer mutations rejected with
+HTTP 503. Successful installation now clears any persisted drain, including
+one left by an earlier interrupted attempt. The installed-host upgrade smoke
+asserts that no drain remains after recovery. Hosted regression evidence is
+pending.
+
+**Acceptance criteria**
+
+- Kill the guest during filesystem migration, reboot it, and rerun the
+  installer; the install converges and customer mutations are accepted.
+- A successfully completed upgrade clears a drain left by an earlier run,
+  even when services were inactive when the resumed installer started.
+- The upgrade drain refusal test still proves a currently running job is not
+  interrupted by an ordinary refused upgrade.
+- `make check` and the exact-source guest-loss upgrade matrix pass.
+

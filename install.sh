@@ -1631,8 +1631,11 @@ fi
 install_journal_record post_install planned retained "actions=$POST_INSTALL_PLAN_TEXT"
 INSTALL_COMMITTED=1
 control_plane_txn_commit
-if (( UPGRADE_DRAIN_ACTIVE )); then
-  "$APP_DIR/stepanel" version >/dev/null 2>&1 && runuser -u "$APP_USER" -- "$APP_DIR/stepanel" upgrade-drain end "$DATA_DIR/stepanel-control.db" \
+# Also clear a drain left by an installer interrupted before this run started.
+# After power loss the services may be inactive during installer startup, so
+# UPGRADE_DRAIN_ACTIVE is not sufficient to identify a persisted stale drain.
+if [[ -f "$DATA_DIR/stepanel-control.db" ]]; then
+  upgrade_cli upgrade-drain end "$DATA_DIR/stepanel-control.db" \
     || echo "Warning: could not clear the upgrade drain; changes resume when it expires. Run: runuser -u $APP_USER -- $APP_DIR/stepanel upgrade-drain end $DATA_DIR/stepanel-control.db" >&2
 fi
 INSTALL_JOURNAL_TERMINAL=1

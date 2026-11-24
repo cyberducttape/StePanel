@@ -5565,3 +5565,22 @@ does not close a current-source or power-loss gate.
   candidate and host diagnostics remain in workflow artifacts. No tag was
   pushed and no release was published; public availability requires explicit
   release authorization.
+
+## Recover cleanly from power loss during upgrade — 2026-11-24
+
+- N-1 run [45385058001](https://github.com/cyberducttape/StePanel/actions/runs/45385058001)
+  exposed a real recovery gap after guest power loss during `filesystem_migration`:
+  the installer resumed and completed, but left the persisted upgrade drain
+  active, so the first backup submission received HTTP 503. The failure was
+  traced to the resumed installer starting while the services were inactive;
+  it therefore skipped drain cleanup gated only on a drain started in the
+  current installer process.
+- Successful installation now clears any persisted drain, whether this
+  installer process started it or not. The guest-loss smoke asserts the drain
+  row is absent before continuing.
+- `make check` passed locally, including `go vet ./...`, the full Go suite
+  (root package 121.627 s), and installer contracts. `bash -n` and
+  `git diff --check` passed. The exact-source guest-loss rerun is pending.
+- Release preflight [45389788023](https://github.com/cyberducttape/StePanel/actions/runs/45389788023)
+  was still running at the time of this note; it uses an earlier commit and
+  is not evidence for this fix. No release was published.

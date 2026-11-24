@@ -275,6 +275,19 @@ if ! ./install.sh --unsafe-lab; then
 fi
 systemctl is-active --quiet stepanel.service stepanel-worker.service
 curl --fail --silent --max-time 5 http://127.0.0.1:8090/readyz >/dev/null
+# A resumed install must clear a drain persisted by the installer that lost
+# power, even if the services were inactive when this installer started.
+python3 - /var/lib/ste-panel/stepanel-control.db <<'PY'
+import sqlite3
+import sys
+
+db = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+exists = db.execute(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='upgrade_drain'"
+).fetchone()
+if exists and db.execute("SELECT 1 FROM upgrade_drain WHERE id=1").fetchone():
+    raise SystemExit("successful installer left an upgrade drain active")
+PY
 assert_populated_upgrade_fixture
 test -s /var/lib/ste-panel/stepanel-control.db
 grep -Fxq 'STEPANEL_GIT_ALLOWED_HOSTS="git.example.test,code.example.test"' /etc/ste-panel.env || {
