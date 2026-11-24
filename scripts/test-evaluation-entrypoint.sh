@@ -75,12 +75,43 @@ grep -Fxq 'STEPANEL_DEVELOPMENT_ADMIN=1' "$report"
 grep -Fxq 'STEPANEL_LISTEN=127.0.0.1:8080' "$report"
 audit_key=$(sed -n 's/^STEPANEL_AUDIT_KEY=//p' "$report")
 [[ $audit_key =~ ^[[:xdigit:]]{64}$ ]]
+state_dir="$ROOT_DIR/data/.evaluation"
+while IFS=' ' read -r name relative; do
+  [[ -n $name ]] || continue
+  grep -Fxq "$name=$state_dir/$relative" "$report" || {
+    echo "evaluation did not isolate $name" >&2
+    exit 1
+  }
+done <<'PATHS'
+STEPANEL_AUDIT_LOG stepanel-audit.jsonl
+STEPANEL_JOB_STATE jobs.json
+STEPANEL_SESSION_STATE sessions.json
+STEPANEL_ACCOUNT_STATE accounts.json
+STEPANEL_CONTROL_PLANE_DB stepanel-control.db
+STEPANEL_ENVIRONMENT_STATE site-environments.json
+STEPANEL_REDIS_STATE redis-allocations.json
+STEPANEL_IMPORT_ROOT imports
+STEPANEL_BACKUP_ROOT backups
+STEPANEL_WEB_ROOT www
+STEPANEL_HOME_ROOT home
+STEPANEL_MAIL_ROOT mail
+STEPANEL_NVM_DIR nvm
+STEPANEL_PROXY_ROOT proxy
+STEPANEL_VHOST_ROOT vhosts
+STEPANEL_APP_ROOT apps
+STEPANEL_MALWARE_ROOT quarantine
+STEPANEL_RECOVERY_ROOT www/sites/.stepanel-recovery
+PATHS
 if grep -Eq 'should-not-leak|STEPANEL_ADMIN_PASSWORD=' "$report"; then
   echo 'evaluation inherited a production credential' >&2
   exit 1
 fi
 grep -Fq 'Do not expose this listener or use customer data.' "$tmp/output"
 [[ $(stat -c %a "$ROOT_DIR/data/.evaluation/audit.key") == 600 ]]
+[[ ! -e "$ROOT_DIR/data/stepanel-control.db" && ! -e "$ROOT_DIR/data/stepanel-audit.jsonl" ]] || {
+  echo 'evaluation fixture unexpectedly wrote into the normal data directory' >&2
+  exit 1
+}
 EVALUATION_TEST_REPORT=$report \
 STEPANEL_AUDIT_KEY=inherited-key \
 bash "$ROOT_DIR/scripts/evaluate.sh" "$binary" > "$tmp/restart-output"

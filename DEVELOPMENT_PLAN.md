@@ -259,6 +259,14 @@ unprivileged user, reached HTTP 200 with `/livez` 204, listened only on
 `127.0.0.1:8080`, and shut down cleanly with Ctrl-C. The temporary state and
 worktree were removed. This proves the no-host-change preview path on current
 code; it does not close the native-install or production gates.
+The subsequent repeat from the main checkout exposed that only the evaluation
+audit key was isolated: default control-plane and audit paths still targeted
+the checkout's ordinary `data/` files. Startup recovery ran and modified the
+control-plane database, audit log, and audit state file. No files were deleted;
+because no verified pre-run baseline exists, none was restored from an older
+snapshot. The launcher now explicitly redirects durable state and every
+managed root into `data/.evaluation/`, and a regression contract checks those
+paths. The fresh runtime smoke for this fix is recorded below.
 The local preview's primary command is now `bash scripts/evaluate-local.sh`,
 so a newcomer does not need GNU Make. `make evaluate` remains a convenience
 alias. README and installation guidance list Bash and distinguish optional
@@ -391,7 +399,14 @@ This is one disposable-container pass, not repeated host certification. A
 clean-host smoke of the official tagged release archive also remains open:
 no currently published stable archive supports a fresh Ubuntu 24.04 install.
 These release and repetition gates keep M0aa partial; the source-based staging
-path is usable, but it is not a production-ready release.
+path is usable, but it is not a production-ready release. The evaluation
+launcher now overrides every control-plane database, JSON state, audit, and
+managed-root path so previews cannot reuse ordinary checkout data. Its shell
+contract checks the complete environment, and a freshly built preview from a
+temporary source copy passed runtime checks: home 200, `/readyz` 200,
+`/livez` 204, listener only on loopback, Ctrl-C shutdown, and all generated
+files under `data/.evaluation/`. The local smoke does not close M0aa's
+published-archive or native-install acceptance criteria.
 
 The six-host run on `0cadd0ab` exposed a current EL 9 first-install blocker:
 Rocky and AlmaLinux 9.9 repositories do not provide a package named

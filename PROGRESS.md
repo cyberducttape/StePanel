@@ -9,6 +9,32 @@
   not establish native-install readiness; M0aa remains partial pending a
   published supported fresh-install archive.
 
+## Isolate evaluation data from normal checkout state — 2026-11-24
+
+- The local evaluation wrapper had overridden the audit key but left the
+  control-plane database, audit files, JSON stores, and managed roots on their
+  normal `data/` defaults. A preview from the main checkout therefore ran
+  startup recovery and modified `data/stepanel-control.db`,
+  `data/stepanel-audit.jsonl`, and `data/stepanel-audit.jsonl.state`.
+- No existing data was deleted. There was no verified pre-run baseline, so I
+  did not restore these files from an older migration snapshot. The launcher
+  now directs durable state and managed roots into `data/.evaluation/`; its
+  contract test asserts every override and checks that normal control-plane
+  files are absent from the disposable fixture.
+- The bootstrap and shell contracts passed. A fresh temporary source copy
+  verified HTTP readiness, loopback binding, graceful shutdown, and that all
+  generated state remains under the evaluation directory. The smoke passed:
+  home HTTP 200, `/readyz` 200, `/livez` 204, loopback-only listener, clean
+  Ctrl-C shutdown, and all ten generated files under `data/.evaluation/`.
+  The temporary source was built from current Go code with the updated
+  launcher; an exploratory attempt using an older prebuilt binary was
+  discarded. This is a transparent local validation incident, not a
+  production certification result.
+- `make check` passed (shell/bootstrap contracts, `go vet ./...`, and the full
+  Go suite; root package completed in 121.282 seconds). Documentation
+  reference validation and `git diff --check` passed. `make docs-check` is not
+  a defined target and was not counted as a passing check.
+
 ## Review exact-source CI and release evidence — 2026-11-24
 
 - The ordinary CI workflow passed on current code source `f49050af` in 3m32s:
