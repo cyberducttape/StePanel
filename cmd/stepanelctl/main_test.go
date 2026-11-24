@@ -124,3 +124,23 @@ func TestDoctorHelpExitsSuccessfullyWithoutRequest(t *testing.T) {
 		}
 	}
 }
+
+func TestSubcommandHelpExitsSuccessfullyWithoutPanel(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "site create", args: []string{"site", "create", "--help"}},
+		{name: "backup list", args: []string{"backup", "list", "--help"}},
+		{name: "migration inspect", args: []string{"migration", "inspect", "--help"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var output, errorsOut bytes.Buffer
+			err := runCLI("http://127.0.0.1:1", "", test.args, nil, &output, &errorsOut)
+			if err != nil {
+				t.Fatalf("help command error = %v", err)
+			}
+		})
+	}
+}

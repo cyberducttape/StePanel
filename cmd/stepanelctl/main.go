@@ -24,10 +24,21 @@ func main() {
 	token := flag.String("token", os.Getenv("STEPANEL_TOKEN"), "scoped API token (prefer STEPANEL_TOKEN)")
 	flag.Usage = usage
 	flag.Parse()
-	if err := run(*base, *token, flag.Args(), os.Stdin, os.Stdout, os.Stderr); err != nil {
+	if err := runCLI(*base, *token, flag.Args(), os.Stdin, os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+// runCLI treats standard flag help as successful command output. FlagSet.Parse
+// writes the usage text before returning flag.ErrHelp; propagating that sentinel
+// to main would make every subcommand's --help look like a failure.
+func runCLI(base, token string, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	err := run(base, token, args, stdin, stdout, stderr)
+	if errors.Is(err, flag.ErrHelp) {
+		return nil
+	}
+	return err
 }
 
 func usage() {

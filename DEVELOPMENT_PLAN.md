@@ -155,9 +155,10 @@ included in release archives and the container, and installed as a root-owned
 journal for the entire executable set and restores it before rebuilding after
 an interrupted rename. Installer cancellation distinguishes secured,
 reusable setup settings from system-service changes.
-The current CLI follow-up also treats `stepanelctl doctor --help` as successful
-help output rather than an error; a focused regression proves it exits without
-contacting the control plane. Full `make check` passes on the change.
+The current CLI follow-up treats subcommand `--help` as successful help output
+rather than an error; regressions cover site creation, backup listing,
+migration inspection, and doctor without contacting the control plane. Full
+`make check` passes on the change.
 
 **Acceptance criteria**
 
@@ -177,8 +178,8 @@ contacting the control plane. Full `make check` passes on the change.
   [scoped smoke report](docs/lab-results/2026-11-23-ubuntu-packaged-first-host-smoke-df838fa.md).
 - README and API/installation guides state how the CLI is obtained; API
   generation and shell-completion artifacts remain checked.
-- `stepanelctl doctor --help` prints its supported options and exits zero
-  without requiring a reachable panel or API token.
+- Flag-based subcommand `--help` prints its options and exits zero without
+  requiring a reachable panel or API token.
 - Focused installer and release checks and full local `make check` pass.
   Exact-source hosted integration and browser E2E passed on code-equivalent
   `237d1d16`; the host installation smoke passed on `df838fa9`.
