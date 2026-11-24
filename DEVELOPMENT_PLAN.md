@@ -1606,7 +1606,11 @@ and provides no result yet. The six-host 20-repeat cohort
 [45314551538](https://github.com/cyberducttape/StePanel/actions/runs/45314551538)
 was canceled before its first six-host repetition completed. Its source commit
 was unavailable for comparison with current `main`, so no repetition counts.
-The fresh KVM run is in progress; no result is available yet. The release
+An exact-current-source 20-repeat cohort
+[45335471620](https://github.com/cyberducttape/StePanel/actions/runs/45335471620)
+was dispatched from `9924fbda`; it has not completed a repetition, so no
+evidence is counted yet. The fresh KVM run is in progress; no result is
+available yet. The release
 gate remains open pending reviewed current-source results,
 repeated recovery iterations, physical-host/power-loss coverage, and remaining
 failure classes.

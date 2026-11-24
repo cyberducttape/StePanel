@@ -29,6 +29,24 @@
   was canceled before its first complete repetition; its source commit was
   unavailable for comparison with current `main`, so no repetition counts.
 
+## Start exact-current-source installed recovery cohort — 2026-11-24
+
+- Dispatched the six-host, 20-repeat cohort
+  [45335471620](https://github.com/cyberducttape/StePanel/actions/runs/45335471620)
+  from exact `main` source `9924fbda1f3d154610e1b8d2b38d9e9f5edd9a3b`.
+  Each repetition is a full installed-host recovery matrix across Ubuntu 24.04,
+  AlmaLinux 9, and Rocky Linux 9 with Apache and Caddy. The run is in progress;
+  no repetition is counted until all six host jobs pass and their artifacts
+  are reviewed.
+- The previous cohort [45314551538](https://github.com/cyberducttape/StePanel/actions/runs/45314551538)
+  was canceled before its first six-host repetition completed. Its source
+  commit was unavailable for comparison with current `main`, so it contributes
+  no current-source evidence.
+- The separate current-source KVM abrupt-loss run
+  [45332417894](https://github.com/cyberducttape/StePanel/actions/runs/45332417894)
+  is still running; guest-loss results remain distinct from physical host
+  power-loss certification.
+
 ## Revalidate the current first-run source and repository checks — 2026-11-24
 
 - On `main` at `49c486b6a5d6332ca00e3ccd08f8628cf9bc577a`, `make check`
