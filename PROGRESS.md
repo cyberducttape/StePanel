@@ -5213,3 +5213,26 @@ does not close a current-source or power-loss gate.
   help commands. The disposable-host install job
   [45197434678](https://github.com/cyberducttape/StePanel/actions/runs/45197434678)
   remains queued; package verification is not install evidence.
+
+## Recheck first-run UI and release candidate — 2026-11-24
+
+- On exact source `a52f9b1a9f003117f35d2947eb247c70909877c5`, `make check`
+  passed, including API artifact checks, installer/bootstrap contracts,
+  `go vet ./...`, and the full Go suite (root package 120.9s). Frontend unit
+  tests passed 20/20.
+- Rebuilt the panel binary from that source and ran the seeded Chromium UI
+  suite with axe checks. Result: 33 passed, one optional test skipped. This
+  includes first-run checklist navigation, customer site workflows, stale
+  file-editor context protection, migration/change previews, and recovery
+  evidence views.
+- The nonpublishing `v0.9.0` release-candidate preflight for this exact source
+  is [45329483748](https://github.com/cyberducttape/StePanel/actions/runs/45329483748).
+  Archive generation, package validation, fixture staging, and disposable
+  systemd host startup passed. Its Ubuntu 24.04 + Caddy + MariaDB install and
+  recovery smoke is still running; no result is claimed yet. No release or tag
+  was published.
+- The six-host, 20-repeat recovery cohort
+  [45314551538](https://github.com/cyberducttape/StePanel/actions/runs/45314551538)
+  is still running on source `47386470`. It predates the current CLI code and
+  cannot close exact-current-source recovery certification. Production remains
+  NO-GO pending the documented host recovery and capacity gates.
