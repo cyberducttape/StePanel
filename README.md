@@ -72,13 +72,42 @@ availability is not on the 1.0 roadmap.
 
 ## Get started
 
-| I want to... | Start here |
-| --- | --- |
-| Preview StePanel locally, no host setup | [Run it locally](#local-evaluation) |
-| Try a native install on a disposable/staging server | [Current-source Operator Beta guide](docs/INSTALLATION.md#guided-install-from-current-source) (recommended: Ubuntu 24.04 + Caddy + MariaDB) |
-| Install for customer production | **Not ready yet.** No published stable archive is certified for a fresh install; review the [production gates](docs/V1_PRODUCTION_GATES.md) before planning deployment. |
-| Move a cPanel account | [cPanel migration guide](docs/CPMOVE_IMPORTS.md) |
-| See how it compares | [StePanel vs. cPanel, Plesk, HestiaCP, CloudPanel](docs/COMPARISON.md) |
+### Preview the interface (no host changes)
+
+This starts StePanel on loopback with disposable local state. It does not
+install services or manage real websites:
+
+```sh
+git clone --depth 1 --branch main https://github.com/cyberducttape/StePanel.git
+cd StePanel
+bash scripts/evaluate-local.sh
+```
+
+### Try a native install (disposable server only)
+
+The recommended Operator Beta profile is Ubuntu 24.04 + Caddy + MariaDB. Use a
+fresh staging server with working user quotas on `/var/www` and `/home`, `sudo`,
+and console access. This path builds from current source; it is not a certified
+production release. The guided installer checks prerequisites and shows its
+host changes before asking you to confirm:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y git curl tar coreutils rclone
+git clone --depth 1 --branch main https://github.com/cyberducttape/StePanel.git
+cd StePanel
+./scripts/install-guided.sh
+```
+
+The setup wizard can configure and verify the off-site backup destination.
+Quota setup may require filesystem-specific host preparation; do not bypass
+the checks. See the [installation guide](docs/INSTALLATION.md) for the exact
+platform evidence, quota instructions, and recovery steps.
+
+**Customer production:** not ready. No published stable archive is certified
+for fresh installation; review the [production gates](docs/V1_PRODUCTION_GATES.md).
+For cPanel migration, see the [migration guide](docs/CPMOVE_IMPORTS.md); for
+comparisons, see [StePanel and other panels](docs/COMPARISON.md).
 
 ## Current capabilities
 

@@ -2976,3 +2976,22 @@ the exact-source documentation, CodeQL, and full integration workflows passed.
 - The first-run checklist browser test, frontend unit tests, syntax checks, and
   exact-source hosted CI pass.
 
+### M0bn — Put copyable first-run paths in the README (P2)
+
+**Status:** Implemented locally. The README now gives separate copyable
+commands for a loopback-only preview and a disposable native Operator Beta
+install. The native path names the recommended Ubuntu/Caddy/MariaDB profile,
+quota and console prerequisites, source-build status, guided change review,
+and the production certification limit before the command block. Documentation
+links, references, and release contracts pass locally.
+
+**Acceptance criteria**
+
+- A first-time reader can start a no-host-change preview without opening the
+  long installation guide.
+- The native command path is explicitly scoped to a fresh disposable/staging
+  host and lists required packages and filesystem prerequisites.
+- The README does not present the current-source Beta path as a certified
+  production installation.
+- README links/references and release documentation contracts pass.
+

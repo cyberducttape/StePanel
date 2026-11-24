@@ -5365,3 +5365,17 @@ does not close a current-source or power-loss gate.
   and [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/45346563240)
   workflows also passed. No release was published; production remains NO-GO
   under the outstanding certification gates.
+
+## Make README first-run choices copyable — 2026-11-24
+
+- Added a short local-preview command that stays on loopback and does not
+  install host services, plus a separate native-install command for a fresh
+  disposable Ubuntu 24.04 + Caddy + MariaDB server.
+- Put quota, sudo/console, current-source Beta, off-site setup, and production
+  certification limits before the native command so a new operator can choose
+  the right path before running it.
+- `git diff --check`, README link validation, documentation-reference checks
+  (93 documents), and `make release-check` passed. The referenced local and
+  guided installer scripts exist; the local evaluator is intentionally invoked
+  with `bash` because it is not marked executable. No host installation was
+  run from this documentation change.
