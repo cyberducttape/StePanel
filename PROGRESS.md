@@ -1,3 +1,19 @@
+## Review exact-source release evidence — 2026-11-24
+
+- Generated report artifact for `6fb675dcb77fe0654ade85cd554453e54bb23b0f`:
+  [release-evidence run 45380822948](https://github.com/cyberducttape/StePanel/actions/runs/45380822948).
+  Documentation and CodeQL passed on this exact tree. CI integration passed
+  on code-equivalent source `a2a50927` (44 minutes old at report time).
+- The report counts 3 executable checks passed, 6 incomplete, 0 failed, and 5
+  without equivalent evidence. The current-source installed recovery matrix is
+  still running; the repeat cohort has no code-equivalent run. The report
+  leaves production **NO-GO** with 4/21 P0 requirements complete and 17
+  incomplete. These counts are from the generated report, not inferred from
+  the green CI status.
+- The full report and evidence freshness are available in the workflow
+  artifact; it is not copied into the repository because doing so would change
+  the source commit it identifies.
+
 ## Run current-source installation and capacity gates — 2026-11-24
 
 - The six-host installed recovery iteration remains in progress on source
