@@ -17,8 +17,10 @@
   has passed formatting, release checks, installer contracts, vet, full Go
   tests and coverage floors, race tests, recovery drills, real ENOSPC recovery,
   control-plane startup/auth smoke, mixed HTTP load, and seeded
-  browser/accessibility E2E. The job is now validating atomic database restore
-  against MySQL 8.0; overall integration is still running.
+  browser/accessibility E2E. MySQL 8.0 atomic restore and database-filesystem
+  exhaustion recovery, Prometheus alert rules, static analysis, and container
+  validation also passed; both integration and browser jobs completed
+  successfully.
   CodeQL [45326445007](https://github.com/cyberducttape/StePanel/actions/runs/45326445007)
   and documentation validation
   [45326444955](https://github.com/cyberducttape/StePanel/actions/runs/45326444955)
