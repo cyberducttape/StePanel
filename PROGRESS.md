@@ -25,6 +25,8 @@
   complete and 17 incomplete.
 - The report is retained as a workflow artifact rather than copied into the
   repository, so its source identity remains unambiguous.
+- The N-1 gap in that report has since been addressed by starting the
+  current-code matrix; results are pending.
 
 ## Run current-source installation and capacity gates — 2026-11-24
 
@@ -43,6 +45,11 @@
   unfinished repetition is counted for current code. A replacement 20-repeat
   cohort is running on `b22f007e`:
   [run 45382693783](https://github.com/cyberducttape/StePanel/actions/runs/45382693783).
+- Started the full N-1 upgrade, interruption, rollback, and repeat-upgrade
+  matrix on current code source `91df7338`:
+  [run 45385058001](https://github.com/cyberducttape/StePanel/actions/runs/45385058001).
+  All eight container and QEMU cases are still running; no upgrade result is
+  counted yet.
 - The current-source ordinary CI passed separately; no result is claimed yet
   for either running host profile. Production remains NO-GO until the
   authoritative release gates are satisfied and reviewed.

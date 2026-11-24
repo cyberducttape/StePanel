@@ -1976,6 +1976,9 @@ third passing 500-site run on one runner VM type and first on this source, not
 a certified envelope: real WordPress/database traffic, recovery under load,
 the 2,000-domain/100-account targets, and cross-host/storage repeats remain
 untested. See the [reviewed report](docs/lab-results/2026-11-24-capacity-large-c6425b0.md).
+An exact-current-code repeat of the 500-site profile is running as
+[45380135916](https://github.com/cyberducttape/StePanel/actions/runs/45380135916)
+on source `3e976141`; its result is pending and no capacity claim changes.
 
 Benchmark a named supported host with representative PHP traffic, databases,
 backups, migrations, and control-plane reads/writes. Measure CPU/RAM, disk and
@@ -2020,6 +2023,10 @@ The API lifecycle policy is now published in
 [`docs/API_COMPATIBILITY.md`](docs/API_COMPATIBILITY.md). Candidate validation
 against generated SDKs and a supported previous API major remains part of the
 acceptance criteria below.
+The full N-1 container and QEMU upgrade matrix is running against current
+code source `91df7338` in
+[run 45385058001](https://github.com/cyberducttape/StePanel/actions/runs/45385058001).
+All eight upgrade/interruption cases are pending review.
 
 Test clean install, supported N-1 upgrade, interruption at schema and service
 activation boundaries, installer rollback, snapshot-based downgrade, and
