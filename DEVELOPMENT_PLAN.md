@@ -237,7 +237,16 @@ local tag was not pushed and no release was created.
 
 ### M0aa — Make first-time evaluation and support tiers clear (P1)
 
-**Status:** Partially implemented. The installation guide now opens with a
+**Status:** Partially implemented. The newest non-publishing `v0.9.0`
+candidate preflight passed on exact code source `9f041573`:
+[run 45365861546](https://github.com/cyberducttape/StePanel/actions/runs/45365861546).
+Its Ubuntu 24.04 + Caddy + MariaDB disposable systemd install completed, the
+WordPress HTTPS/database recovery proof measured 7.236 seconds, and one
+recovery iteration passed. The candidate archives and checksums verified.
+Project quotas were absent, so Git deployment correctly refused; no quota
+enforcement claim is made. The candidate was not published, and production
+remains NO-GO. See the [reviewed report](docs/lab-results/2026-11-24-v0.9.0-ubuntu-install-45365861546.md).
+The installation guide now opens with a
 three-way choice (local preview, disposable/staging Beta, or stop before
 production) and states the real prerequisites and release limitation before
 the platform matrix. The API workflow guide also clarifies that restore-to-

@@ -16,17 +16,19 @@ record of each gate's status and remaining work.
 
 ### Release evidence
 
-The non-publishing versioned `v0.9.0` candidate
-[45329483748](https://github.com/cyberducttape/StePanel/actions/runs/45329483748)
-passed on exact source `a52f9b1a9f003117f35d2947eb247c70909877c5`. Both
-Linux architecture archives, their checksums and contents, exact-source
-release evidence, and the SPDX SBOM verified. The Ubuntu 24.04 + Caddy +
-MariaDB disposable systemd host installed the versioned archive, completed
-cleanup, and passed the database-backed WordPress HTTPS recovery proof with a
-measured RTO of **4,409 ms**. One recovery-matrix iteration passed. The
-disposable host did not enforce project quotas; Git deployment refused safely.
-See the [reviewed candidate report](./lab-results/2026-11-24-v0.9.0-ubuntu-install-45329483748.md).
-The candidate was retained for review and was not published.
+The latest non-publishing versioned `v0.9.0` candidate
+[45365861546](https://github.com/cyberducttape/StePanel/actions/runs/45365861546)
+passed on exact source `9f04157339f695cf36fb1bb783c6bc3ffe69e29c`. Both Linux
+architecture archives, their checksums and contents, exact-source release
+evidence, and the SPDX SBOM verified. The Ubuntu 24.04 + Caddy + MariaDB
+disposable systemd host installed the versioned archive, completed cleanup,
+and passed the database-backed WordPress HTTPS recovery proof with a measured
+RTO of **7,236 ms**. One recovery-matrix iteration passed. The disposable host
+did not enforce project quotas; Git deployment refused safely. See the
+[reviewed candidate report](./lab-results/2026-11-24-v0.9.0-ubuntu-install-45365861546.md).
+The candidate was retained for review and was not published. Production
+remains NO-GO; this one-host result does not close repeated recovery or other
+P0 gates.
 
 The preceding non-publishing versioned `v0.9.0` candidate
 [45317837019](https://github.com/cyberducttape/StePanel/actions/runs/45317837019)

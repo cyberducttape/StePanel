@@ -1,3 +1,25 @@
+## Refresh the published install guide from the latest package evidence — 2026-11-24
+
+- Exact-source non-publishing `v0.9.0` preflight
+  [45365861546](https://github.com/cyberducttape/StePanel/actions/runs/45365861546)
+  passed on code source `9f04157339f695cf36fb1bb783c6bc3ffe69e29c`. The
+  amd64/arm64 archive checksums verified, and the Ubuntu 24.04 + Caddy +
+  MariaDB disposable install completed with cleanup. WordPress HTTPS/database
+  recovery measured 7,236 ms; one recovery-matrix iteration passed.
+- The disposable host lacked project quotas, so Git deployment correctly
+  refused without changing the live site. This is fail-closed evidence, not
+  quota-enforcement evidence. Production remains NO-GO and the candidate was
+  not published. The reviewed [candidate report](docs/lab-results/2026-11-24-v0.9.0-ubuntu-install-45365861546.md)
+  contains archive hashes and scope limits.
+- Updated the installation platform table, current-source install section,
+  and production-gate summary to reference the latest candidate. Documentation
+  and CodeQL workflows for the documentation predecessor `5b9b8586` passed;
+  documentation validation for this evidence reconciliation is pending.
+- A separate six-host current-source install/recovery iteration is in progress
+  on `5b9b8586861b0b2a341e42f387327402341eb68f`:
+  [run 45372107757](https://github.com/cyberducttape/StePanel/actions/runs/45372107757).
+  It will be reviewed before any host-matrix result is counted.
+
 ## Default the empty operator site form to WordPress — 2026-11-24
 
 - The first-run checklist recommended creating WordPress, but the separate
