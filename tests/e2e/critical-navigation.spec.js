@@ -65,6 +65,8 @@ test('first-run primary action follows the next unresolved setup step', async ({
 
   await page.reload();
   const primary = page.locator('#primarySetupAction');
+  await expect(page.locator('#siteCreateTemplate')).toHaveValue('wordpress');
+  await expect(page.locator('#wordpressCreateFields')).toBeVisible();
   await expect(primary).toHaveAttribute('href', '#controlPlaneDetailsToggle');
   await expect(primary).toHaveText('Show what needs attention');
   await primary.click();
@@ -126,6 +128,7 @@ test('first-run primary action follows the next unresolved setup step', async ({
   await page.reload();
   await expect(page.locator('#onboardingChecklist')).toContainText('Manage your websites');
   await expect(page.locator('#site-create-heading')).toHaveText('Create another website');
+  await expect(page.locator('#siteCreateTemplate')).toHaveValue('php');
   await expect(page.locator('#onboardingChecklist')).not.toContainText('Create or migrate your first site');
   await expect(page.locator('#onboardingChecklist')).toContainText('No integrity-verified backup is recorded for setup-b');
   await expect(page.locator('#onboardingChecklist').getByRole('link', { name: 'Review setup-b backups' })).toHaveAttribute('href', '#site=setup-b&tab=backups');
@@ -192,6 +195,26 @@ test('first-run primary action follows the next unresolved setup step', async ({
   await expect(page.locator('#siteCreateTitle')).toHaveValue('My Storefront');
   await page.getByRole('button', { name: 'Generate password' }).click();
   await expect(page.locator('#siteCreateAdminPassword')).toHaveValue(/^[A-Za-z0-9+/]{24}$/);
+});
+
+test('first-run WordPress suggestion preserves a template choice made during inventory loading', async ({ page }) => {
+  let releaseInventory;
+  const inventoryGate = new Promise((resolve) => { releaseInventory = resolve; });
+  await page.route('**/api/sites/overview', async (route) => {
+    await inventoryGate;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sites: [] }) });
+  });
+
+  try {
+    await page.reload();
+    const template = page.locator('#siteCreateTemplate');
+    await template.selectOption('php');
+    releaseInventory();
+    await expect(template).toHaveValue('php');
+    await expect(page.locator('#wordpressCreateFields')).toBeHidden();
+  } finally {
+    releaseInventory();
+  }
 });
 
 test('first-run readiness translates storage checks into readable next steps', async ({ page }) => {

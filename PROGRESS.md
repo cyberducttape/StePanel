@@ -1,3 +1,16 @@
+## Default the empty operator site form to WordPress — 2026-11-24
+
+- The first-run checklist recommended creating WordPress, but the separate
+  site form still defaulted to blank PHP until the operator clicked that
+  checklist action. When site inventory confirms there are no active sites,
+  the form now selects WordPress and reveals the guided setup. A deliberate
+  choice made while inventory is loading is preserved; existing installations
+  keep the blank-PHP default for additional sites.
+- A freshly built panel passed the four `first-run` seeded Playwright journeys,
+  including the no-click default, delayed inventory/user-choice race, and
+  existing-site behavior. Frontend unit tests passed (20/20), and JavaScript
+  syntax checks passed. Exact-source hosted CI is pending.
+
 ## Review current-product-source KVM abrupt-loss evidence — 2026-11-24
 
 - KVM run [45332417894](https://github.com/cyberducttape/StePanel/actions/runs/45332417894)

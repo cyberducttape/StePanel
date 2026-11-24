@@ -2425,6 +2425,15 @@
       throw error;
     }
     const activeSites = (siteData.sites || []).filter((site) => !site.deleted);
+    const templateSelect = document.querySelector('#siteCreateTemplate');
+    if (isAdministrator && activeSites.length === 0 && templateSelect &&
+        templateSelect.dataset.userSelected !== 'true' &&
+        templateSelect.value !== 'wordpress') {
+      // Make the guided first-site path visible without requiring the
+      // operator to discover and click the separate onboarding CTA first.
+      templateSelect.value = 'wordpress';
+      templateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    }
     const createHeading = document.querySelector('#site-create-heading');
     if (createHeading) {
       createHeading.textContent = activeSites.length ? 'Create another website' : 'Create your first website';
@@ -2693,6 +2702,9 @@
       });
       if (domainProof) domainProof.hidden = !wordpress;
     };
+    templateSelect.addEventListener('input', () => {
+      templateSelect.dataset.userSelected = 'true';
+    });
     templateSelect.addEventListener('change', updateTemplateFields);
     updateTemplateFields();
     createForm.addEventListener('submit', withBusySubmit(async (event) => {

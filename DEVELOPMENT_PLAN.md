@@ -12,6 +12,25 @@ successful one-off smoke does not close a host-certification gate.
 
 ## Milestones
 
+### M0bj — Default an empty operator workspace to WordPress (P2)
+
+**Status:** Implemented locally. When the authoritative site inventory loads
+and contains no active sites, the operator creation form now selects WordPress
+and reveals its setup fields automatically. A deliberate template choice made
+while inventory is loading is preserved, and installations with existing
+sites keep the blank-PHP default for additional sites. A freshly built panel
+passed four first-run Playwright journeys; frontend unit tests passed 20/20.
+Exact-source hosted integration is pending.
+
+**Acceptance criteria**
+
+- An operator with no active sites sees WordPress selected and its setup fields
+  visible without first clicking the checklist CTA.
+- A template selection made before the site inventory responds is preserved.
+- Operators with existing sites retain the blank-PHP default for additional
+  sites; customer-side defaults and domain verification remain unchanged.
+- Frontend unit tests, focused seeded browser tests, and exact-source CI pass.
+
 ### M0az — Make the site workspace lighter on first load (P2)
 
 **Status:** Implemented in commit `8e54ebb4` and locally verified. The
