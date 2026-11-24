@@ -33,7 +33,8 @@ and its tests; the site, database, backup, installer, and broker paths exercised
 by this workflow are unchanged. The exact-source follow-up
 [45158813904](https://github.com/cyberducttape/StePanel/actions/runs/45158813904)
 passed on source `4e9ca58a`; its reviewed results are in the [follow-up report](./2026-11-23-rocky-kvm-abrupt-loss-4e9ca58.md).
-The later source includes installer/setup/quota-preflight changes, so a current-
-main KVM rerun [45305278135](https://github.com/cyberducttape/StePanel/actions/runs/45305278135)
-is in progress. Neither run is physical host power-loss or repeated recovery
-certification.
+The later source includes installer/setup/quota-preflight changes. The
+current-main-at-dispatch KVM rerun
+[45305278135](https://github.com/cyberducttape/StePanel/actions/runs/45305278135)
+completed successfully; see the [reviewed report](./2026-11-24-rocky-kvm-abrupt-loss-f6c9e9ab.md).
+Neither run is physical host power-loss or repeated recovery certification.

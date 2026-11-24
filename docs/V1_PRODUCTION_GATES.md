@@ -52,11 +52,14 @@ certification. The source-current-at-run-time KVM follow-up
 passed on source `4e9ca58a`: 23 install smoke/matrix passes, six guest-loss
 operation scenarios, database ENOSPC, and alert-delivery retry; WordPress
 HTTPS/database recovery measured 8,831 ms. The reviewed [follow-up report](./lab-results/2026-11-23-rocky-kvm-abrupt-loss-4e9ca58.md)
-records scope and limitations. Later product source `5da789bb` includes setup,
-installer, and quota-preflight changes, so current-main rerun
+records scope and limitations. The later KVM run
 [45305278135](https://github.com/cyberducttape/StePanel/actions/runs/45305278135)
-is underway. Each KVM run is one guest-loss iteration, not physical power-loss
-or repeated certification. The P0 decision remains **NO-GO**.
+passed six guest-loss workflows, database ENOSPC, operator-alert outage/retry,
+and 23 install/matrix checks on source `f6c9e9ab`; see the [reviewed report](./lab-results/2026-11-24-rocky-kvm-abrupt-loss-f6c9e9ab.md).
+That source predates subsequent privileged broker, upload, installer, and
+durable-job changes, so it is not exact-current-source recovery evidence. Each
+KVM run is one guest-loss iteration, not physical power-loss or repeated
+certification. The P0 decision remains **NO-GO**.
 
 The previous packaged Ubuntu 24.04 + Caddy + MariaDB installed-host smoke
 passed on source `07726007b1c835b2fa34b55ba6bb7e806ccff196` ([host run

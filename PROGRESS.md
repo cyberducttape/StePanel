@@ -1,3 +1,28 @@
+## Review completed Rocky KVM drills and current integration CI — 2026-11-24
+
+- Reviewed the retained artifact for Rocky Linux 9 KVM run
+  [45305278135](https://github.com/cyberducttape/StePanel/actions/runs/45305278135)
+  on source `f6c9e9ab`. All six abrupt-loss scenarios passed: file restore,
+  database restore (8 tables matched the safety backup), Git deployment,
+  backup retention, acknowledged control-plane writes (426 acknowledged and
+  426 attempted), and interrupted backup. Database ENOSPC recovery and
+  operator alert STARTTLS/outage/retry checks passed; 23 install/matrix checks
+  passed. Exact measurements and limitations are recorded in the
+  [reviewed report](docs/lab-results/2026-11-24-rocky-kvm-abrupt-loss-f6c9e9ab.md).
+  This is one guest-loss iteration on a source that predates later production
+  code changes; it is not physical host power-loss or repeated certification.
+- Integration workflow [45305811748](https://github.com/cyberducttape/StePanel/actions/runs/45305811748)
+  was cancelled by a newer push while executing PostgreSQL restore verification.
+  Its browser E2E job passed, but the overall run is not counted as a pass.
+  The replacement integration run
+  [45313583538](https://github.com/cyberducttape/StePanel/actions/runs/45313583538)
+  passed Go tests/race tests and browser E2E on `47386470`; current main
+  `00004e75` differs from that source only in `docs/V1_PRODUCTION_GATES.md`.
+- Documentation links, the 93-document reference check, and `git diff --check`
+  passed locally after the evidence update. Production remains **NO-GO**;
+  exact-current-source installed-host recovery and repeated/physical-loss
+  certification remain open.
+
 ## Keep the quota evidence contract aligned with host results — 2026-11-24
 
 - The hosted documentation check [45305617993](https://github.com/cyberducttape/StePanel/actions/runs/45305617993)
