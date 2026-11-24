@@ -7,8 +7,10 @@
 - Shell syntax checks, the smoke-workflow bounds/contract tests, action SHA
   pinning, and `git diff --check` passed. The already-running KVM run
   [45332417894](https://github.com/cyberducttape/StePanel/actions/runs/45332417894)
-  is unchanged; a follow-up run will use the updated workflow after its
-  concurrency group is free. No new ENOSPC result is counted yet.
+  is unchanged. Follow-up run
+  [45338602976](https://github.com/cyberducttape/StePanel/actions/runs/45338602976)
+  is queued behind it and will use the expanded phase set. No new ENOSPC result
+  is counted yet.
 
 ## Make CLI subcommand help succeed — 2026-11-24
 

@@ -1604,8 +1604,9 @@ database restore, Git deployment, retention, control-plane writes, interrupted
 backup publication, database ENOSPC, and alert delivery/retry. The workflow
 omitted the separate backup/file-restore ENOSPC phase; that phase is now
 required by the workflow contract and will run in follow-up
-after the active run releases its concurrency group. The current run remains
-in progress and provides no result yet. The six-host 20-repeat cohort
+[45338602976](https://github.com/cyberducttape/StePanel/actions/runs/45338602976),
+queued behind the active run in the workflow concurrency group. The current
+run remains in progress and provides no result yet. The six-host 20-repeat cohort
 [45314551538](https://github.com/cyberducttape/StePanel/actions/runs/45314551538)
 was canceled before its first six-host repetition completed. Its source commit
 was unavailable for comparison with current `main`, so no repetition counts.
