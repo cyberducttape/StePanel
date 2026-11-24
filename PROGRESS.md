@@ -1,3 +1,21 @@
+## Record the 500-site capacity pass after overview optimization — 2026-11-24
+
+- Reviewed capacity profile
+  [45312970493](https://github.com/cyberducttape/StePanel/actions/runs/45312970493)
+  on source `c6425b05`. Across 600 seconds and 71,606 HTTPS site requests,
+  there were zero failures while two 512 MiB backups completed. Site p99 was
+  114.1 ms baseline and 126.1 ms during backups. Site-overview API p95/p99
+  improved to 50.7/134.7 ms from 302.5/665.8 ms before the route/proxy scan
+  optimization. Peak CPU was 99.5%; summed PHP-FPM RSS reached 9.4 GiB.
+- This is the third passing 500-site run on one runner VM type, not a certified
+  capacity claim. The workload did not exercise real WordPress/database load,
+  recovery under load, the full domain/account targets, or varied storage and
+  host profiles. Details and limitations are in the
+  [reviewed report](docs/lab-results/2026-11-24-capacity-large-c6425b0.md).
+- Documentation links, code references, and production gate wording were
+  checked in the capacity-evidence commit `815913fd`; this plan/progress
+  reconciliation is a follow-up.
+
 ## Recheck the clean-checkout local preview — 2026-11-24
 
 - In a detached temporary worktree at `4405dfe3`, ran the documented

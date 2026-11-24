@@ -1871,6 +1871,21 @@ during backups. Both used the same KVM runner type. This supports repeatable
 behavior on that profile but does not establish a site-count limit or memory
 ceiling; repeated runs across host/storage profiles are still required.
 
+The subsequent 500-site profile
+[45312970493](https://github.com/cyberducttape/StePanel/actions/runs/45312970493)
+passed on exact source `c6425b05`, after the site-overview rebuild stopped
+rescanning route and proxy directories. On the same runner profile it served
+71,606 site requests over 600 seconds with zero failures, while two 512 MiB
+backups completed. Site-page p99 was 114.1 ms at baseline and 126.1 ms during
+backups. Overview API p95 improved from 302.5 ms to 50.7 ms and p99 from
+665.8 ms to 134.7 ms compared with the pre-fix run; other measured admin
+endpoints stayed below 62 ms maximum. The host peaked at 99.5% CPU and 9.4 GiB
+summed PHP-FPM RSS, with minimum available memory of 6.9 GiB. This is the
+third passing 500-site run on one runner VM type and first on this source, not
+a certified envelope: real WordPress/database traffic, recovery under load,
+the 2,000-domain/100-account targets, and cross-host/storage repeats remain
+untested. See the [reviewed report](docs/lab-results/2026-11-24-capacity-large-c6425b0.md).
+
 Benchmark a named supported host with representative PHP traffic, databases,
 backups, migrations, and control-plane reads/writes. Measure CPU/RAM, disk and
 inode pressure, SQLite/WAL growth and lock waits, queue latency, job backlog,
