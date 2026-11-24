@@ -16,6 +16,22 @@ ADMIN_USER="e2eadmin"
 ADMIN_PASS="E2E-UI-Password-123!"
 STEPANEL_PID=""
 
+# Web assets are embedded in the binary, so an old build silently tests old
+# UI code. Refuse a binary older than the sources it embeds.
+newer_source() {
+  local binary=$1
+  { find web cmd internal -type f -newer "$binary" 2>/dev/null
+    find . -maxdepth 1 -name '*.go' -newer "$binary" 2>/dev/null; } | head -1
+}
+if [[ -f $STEPANEL_BIN ]]; then
+  stale=$(newer_source "$STEPANEL_BIN" || true)
+  if [[ -n $stale ]]; then
+    echo "$STEPANEL_BIN is older than the current sources (e.g. $stale)." >&2
+    echo "Rebuild it first: go build -o $STEPANEL_BIN ./cmd/stepanel" >&2
+    exit 1
+  fi
+fi
+
 cleanup() {
   local exit_code=$?
   if [[ -n $STEPANEL_PID ]]; then

@@ -296,7 +296,7 @@
       if (mfaSetup) mfaSetup.hidden = true;
       set('accountMFA', 'MFA enabled');
       set('accountSecurityNote', 'Authenticator confirmed for this account.');
-      if (output) output.textContent = 'MFA saved. Sign in again with an authenticator code.';
+      if (output) output.textContent = 'MFA saved. Sign in again with a code from this authenticator. If you replaced an existing one, wait for its next code to appear first; each 30-second code can be used only once.';
     } catch (error) { if (output) output.textContent = error.message; }
     finally { button.disabled = false; }
   });
