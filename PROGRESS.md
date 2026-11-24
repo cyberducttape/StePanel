@@ -5640,3 +5640,20 @@ does not close a current-source or power-loss gate.
 - Exact product source `ef0ca96de723bde69c98ba9d0149f7c2532b2fac` passed hosted CI and the six-host installation smoke [45405968473](https://github.com/cyberducttape/StePanel/actions/runs/45405968473). Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with both Apache and Caddy each passed one recovery iteration, database-outage recovery, root-broker interruption, and installed WordPress HTTPS/database proof. Measured RTOs ranged from 3.574 to 8.800 seconds.
 - The reviewed [host report](docs/lab-results/2026-11-24-six-host-install-smoke-ef0ca96.md) records all six measurements and boundaries. Disposable hosts lacked project quotas, and this one-pass container evidence does not certify physical-host recovery, quotas, or production capacity.
 - The exact-source nonpublishing `v0.9.0` preflight [45406596940](https://github.com/cyberducttape/StePanel/actions/runs/45406596940) passed on `ef0ca96d`. Both architecture archives, exact-source evidence, checksums, and SBOM verified; the packaged Ubuntu 24.04 + Caddy + MariaDB install passed; WordPress HTTPS/database recovery measured 4,368 ms RTO; database-outage and root-broker interruption recovery passed. The disposable host did not enforce project quotas. The candidate remains unpublished. See the [reviewed report](docs/lab-results/2026-11-24-v0.9.0-ubuntu-install-45406596940.md).
+
+## Keep guided site checks from overstating database health — 2026-11-24
+
+- The site lifecycle checklist previously marked its file/database/application
+  step as passing when database inventory succeeded, even if the database
+  engine probe or WordPress credential check failed. It also treated missing
+  diagnostic fields as a pass.
+- The step now reports database or application-probe failures as “Needs
+  review,” and missing/unknown observations as “Evidence incomplete.” It only
+  reports the sampled checks passing when filesystem metadata, database
+  inventory, engine connectivity, and the applicable application database
+  probe all succeed.
+- The seeded guided-workflow Chromium test covers refused database
+  connectivity, failed WordPress credentials, and absent/unknown diagnostics.
+  JavaScript syntax checks, frontend unit tests (20/20), a fresh embedded-asset
+  build, and the focused browser test passed. Hosted exact-source CI remains
+  pending.

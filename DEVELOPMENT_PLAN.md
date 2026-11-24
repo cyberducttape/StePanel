@@ -3185,3 +3185,22 @@ integration passed in [run 45404480491](https://github.com/cyberducttape/StePane
 - Frontend unit tests, seeded browser accessibility, and exact-source hosted
   integration pass.
 
+### M0bs — Keep guided site checks from overstating database health (P1)
+
+**Status:** Implemented locally; focused seeded Chromium regression passes.
+The site lifecycle checklist now marks the filesystem/database step as needing
+review when the database engine probe or WordPress credential probe fails, and
+as evidence-incomplete when any required observation is absent or unknown. It
+reports success only when document-root metadata, database inventory, engine
+connectivity, and the applicable application database probe all pass at the
+sample time. Hosted exact-source CI remains pending.
+
+**Acceptance criteria**
+
+- Database-engine connection failure or WordPress credential failure is shown
+  as a review item, even when database inventory succeeds.
+- Missing or unknown filesystem/database evidence never renders as a passing
+  check.
+- The browser regression checks both observed failures and incomplete
+  evidence; frontend syntax, seeded E2E, and exact-source CI pass.
+

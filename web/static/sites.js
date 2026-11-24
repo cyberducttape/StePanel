@@ -453,6 +453,22 @@
     const tlsUnknown = tls.some((item) => item.status === 'unknown') || !tls.length;
     const tlsState = tlsProblem ? 'attention' : tlsUnknown ? 'unknown' : 'done';
     const recoveryState = recovery ? (recovery.confidence === 'high' || recovery.confidence === 'verified' ? 'done' : latest ? 'attention' : 'next') : 'unknown';
+    const filesystemStatus = diagnostics.filesystem?.status;
+    const databaseInventoryAvailable = diagnostics.database?.available;
+    const databaseConnectivityStatus = diagnostics.database_connectivity?.status;
+    const applicationDatabaseStatus = diagnostics.application_database_connectivity?.status;
+    const siteDataFailed = filesystemStatus === 'failed' || databaseInventoryAvailable === false ||
+      databaseConnectivityStatus === 'unavailable' || applicationDatabaseStatus === 'failed';
+    const siteDataVerified = filesystemStatus === 'observed' && databaseInventoryAvailable === true &&
+      databaseConnectivityStatus === 'connected' && ['connected', 'not_applicable'].includes(applicationDatabaseStatus);
+    const siteDataState = diagnosticResult.error ? 'unknown' : siteDataFailed ? 'attention' : siteDataVerified ? 'done' : 'unknown';
+    const siteDataLabel = siteDataState === 'attention' ? 'Needs review' : siteDataState === 'done' ? 'Checks passed at sample time' : 'Evidence incomplete';
+    const siteDataDetails = [
+      diagnostics.filesystem?.detail,
+      diagnostics.database?.detail,
+      diagnostics.database_connectivity?.detail,
+      diagnostics.application_database_connectivity?.detail,
+    ].filter(Boolean).join(' ');
     const phpPools = fpm.pools || [];
     const phpIssue = profiles.some((profile) => profile.state === 'pending' || profile.last_error) || phpPools.some((pool) => pool.state !== 'available');
     const recentLogsValue = el('span', {}, ctx.can('logs:read') ? 'Not loaded' : 'Not available to this role');
@@ -497,9 +513,9 @@
         ctx.isAdministrator ? link('Open migration center', '/#migrations', 'primary-action') : link('Site setup guidance', '/panel#websites', 'quiet-action'),
         wordpress.installed ? ctx.badge('WordPress detected', 'ok') : ctx.badge('WordPress not detected', 'off'),
       ]),
-      step(2, 'Validate files, database, and application', diagnosticResult.error ? 'unknown' : diagnostics.filesystem?.status === 'failed' || diagnostics.database?.available === false ? 'attention' : 'done', diagnosticResult.error ? 'Evidence unavailable' : diagnostics.filesystem?.status === 'failed' || diagnostics.database?.available === false ? 'Needs review' : 'Host checks observed', diagnosticResult.error
+      step(2, 'Validate files, database, and application', siteDataState, siteDataLabel, diagnosticResult.error
         ? 'Site diagnostics did not return. Retry before relying on filesystem or database status.'
-        : `${diagnostics.filesystem?.detail || 'Filesystem evidence is unavailable.'} ${diagnostics.database?.detail || 'Database evidence is unavailable.'} Database inventory does not prove the application can authenticate or query its database.`, [
+        : siteDataDetails || 'Filesystem and database evidence is incomplete. Retry diagnostics before relying on site readiness.', [
         link('Review health and diagnostics', nav('overview')),
         wordpressResult.error ? ctx.badge('WordPress check unavailable', 'warn') : ctx.badge(wordpress.installed ? (wordpress.wp_cli ? 'WordPress + WP-CLI' : 'WordPress; WP-CLI missing') : 'No wp-config.php detected', wordpress.installed && wordpress.wp_cli ? 'ok' : 'warn'),
       ]),

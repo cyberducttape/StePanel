@@ -549,16 +549,7 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
   const accessTimestamp = `[${String(accessAt.getUTCDate()).padStart(2, '0')}/${accessAt.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' })}/${accessAt.getUTCFullYear()}:${accessAt.toISOString().slice(11, 19)} +0000]`;
   let backupScheduleEnabled = true;
   let backupHasRun = false;
-  const lifecycleBackupRequests = [];
-  let lifecycleLogQueries = 0;
-  const json = (body) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
-  page.on('request', (request) => {
-    const url = new URL(request.url());
-    if (url.pathname === '/api/backups' && url.searchParams.get('site') === 'e2e-journey' && url.searchParams.get('limit') === '100') lifecycleBackupRequests.push(request);
-  });
-  await page.route('**/api/sites/overview', (route) => route.fulfill(json({ sites: [site] })));
-  await page.route('**/api/sites/overview/e2e-journey', (route) => route.fulfill(json(site)));
-  await page.route('**/api/sites/diagnostics/e2e-journey', (route) => route.fulfill(json({
+  let lifecycleDiagnostics = {
     collected_at: new Date().toISOString(),
     filesystem: { status: 'observed', mode: '0750', owner_uid: 1001, owner_gid: 1001, detail: 'Path metadata only.' },
     host_storage: [{ label: 'site files', status: 'pressure', pressure_reasons: ['free bytes below 10%', 'free inodes below 10%'], available_bytes: 1024, total_bytes: 1048576, available_inodes: 4, total_inodes: 100, detail: 'Filesystem headroom is below 10% for: free bytes below 10%, free inodes below 10%.' }],
@@ -574,7 +565,17 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
       { domain: 'journey.example.test', route_state: 'applied', status: 'unknown', renewal: 'dead-letter', renewal_job_id: 'certificate-42', renewal_at: new Date().toISOString(), renewal_evidence: 'Latest certificate issuance job certificate-42 for this domain is in dead-letter state.', detail: 'Live external handshake not tested.' },
       { domain: 'quiet.example.test', route_state: 'applied', status: 'unknown', renewal: 'unknown', renewal_evidence: 'Certificate issuance history could not be read from the durable job store.', detail: 'Live external handshake not tested.' },
     ],
-  })));
+  };
+  const lifecycleBackupRequests = [];
+  let lifecycleLogQueries = 0;
+  const json = (body) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === '/api/backups' && url.searchParams.get('site') === 'e2e-journey' && url.searchParams.get('limit') === '100') lifecycleBackupRequests.push(request);
+  });
+  await page.route('**/api/sites/overview', (route) => route.fulfill(json({ sites: [site] })));
+  await page.route('**/api/sites/overview/e2e-journey', (route) => route.fulfill(json(site)));
+  await page.route('**/api/sites/diagnostics/e2e-journey', (route) => route.fulfill(json(lifecycleDiagnostics)));
   await page.route('**/api/sites/usage/e2e-journey', (route) => route.fulfill(json({
     bytes: 950, inodes: 100, complete: true,
     quota: { enforced: true, limit_bytes: 1000, tree_bytes: 950, estimated_remaining_bytes: 50, inode_limit: 100, tree_inodes: 100, estimated_remaining_inodes: 0, scope_note: 'Measured site tree; account quota is shared.' },
@@ -643,6 +644,10 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
   const logQueriesBeforeGuided = lifecycleLogQueries;
   await page.getByRole('tab', { name: 'Guided workflow' }).click();
   await expect(panel.getByRole('heading', { name: 'Import or create the site' })).toBeVisible();
+  const fileDatabaseStep = panel.locator('.lifecycle-step').filter({ hasText: 'Validate files, database, and application' });
+  await expect(fileDatabaseStep).toHaveClass(/lifecycle-step-attention/);
+  await expect(fileDatabaseStep).toContainText('database connection was refused');
+  await expect(fileDatabaseStep).toContainText('database authentication failure');
   await expect(panel).toContainText('origin and exact set of imported cPanel components are not inferred');
   await expect(panel).toContainText('application login and HTTP behavior are not tested');
   await expect(panel).toContainText('TLS not verified');
@@ -658,6 +663,10 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
   await expect(panel.locator('#lifecycleWordPressOutput')).toContainText('Success: WordPress is installed.');
   await expect(panel.getByRole('link', { name: 'Open staging and clone actions' })).toHaveAttribute('href', /tab=backups/);
   backupHasRun = true;
+  lifecycleDiagnostics = {
+    ...lifecycleDiagnostics,
+    backup_schedule: { enabled: true, interval_minutes: 60, last_run: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(), next_run: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), last_success: null, has_error_detail: true, consecutive_failures: 2 },
+  };
   await page.reload();
   await page.getByRole('link', { name: 'Sites', exact: true }).click();
   await page.getByRole('button', { name: /Manage site/ }).click();
@@ -668,11 +677,18 @@ test('site guided workflow connects lifecycle checks and practical diagnostics',
   await expect(staleDiagnosis).toContainText('has never succeeded');
   await expect(staleDiagnosis).toContainText('last attempt');
   backupScheduleEnabled = false;
+  lifecycleDiagnostics = { ...lifecycleDiagnostics, backup_schedule: { enabled: false } };
   await page.getByRole('tab', { name: 'Overview' }).click();
   const unscheduledDiagnosis = page.locator('#workspace-panel').getByRole('region', { name: 'Site incident assessment' });
   await expect(unscheduledDiagnosis).toContainText('Backup freshness policy is not configured');
   await expect(unscheduledDiagnosis).toContainText('No enabled recurring backup schedule supplies a freshness threshold');
   await expect(unscheduledDiagnosis).toContainText('Set a backup schedule that matches the required recovery point objective');
+  lifecycleDiagnostics = { filesystem: { status: 'unknown' }, database: { engine: 'mariadb' }, database_connectivity: { status: 'unknown' }, application_database_connectivity: { status: 'unknown' } };
+  await page.getByRole('tab', { name: 'Guided workflow' }).click();
+  const incompleteFileDatabaseStep = page.locator('#workspace-panel .lifecycle-step').filter({ hasText: 'Validate files, database, and application' });
+  await expect(incompleteFileDatabaseStep).toHaveClass(/lifecycle-step-unknown/);
+  await expect(incompleteFileDatabaseStep).toContainText('Evidence incomplete');
+  await expect(incompleteFileDatabaseStep).not.toContainText('Checks passed at sample time');
 });
 
 test('site settings expose measured PHP-FPM demand and quota evidence', async ({ page }) => {
