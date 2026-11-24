@@ -2487,7 +2487,16 @@ the documentation and CodeQL workflows passed on documentation-only descendant
 
 ### M0as — Gate tagged packages on a real fresh-host install (P1)
 
-**Status:** The non-publishing exact-source `v0.9.0` candidate preflight
+**Status:** The latest non-publishing exact-source `v0.9.0` candidate preflight
+[45317837019](https://github.com/cyberducttape/StePanel/actions/runs/45317837019)
+passed on `93c60aa581e5339ca0fbc9f78da1d3eaa0c81cb9`: both architecture
+archives and the SBOM verified; the Ubuntu 24.04 + Caddy + MariaDB package
+installed, cleanup completed, one recovery iteration passed, and WordPress
+HTTPS/database recovery measured 4,367 ms. See the
+[current candidate report](docs/lab-results/2026-11-24-v0.9.0-ubuntu-install-45317837019.md).
+The candidate was not published. The tag-triggered publication event remains
+unexercised; keep this milestone open until the non-publishing gate is
+accepted and publication is authorized. The earlier non-publishing exact-source `v0.9.0` candidate preflight
 [45202075337](https://github.com/cyberducttape/StePanel/actions/runs/45202075337)
 passed on product source `5da789bb51e6da28e5c94667ebc8cf2f27049462`. The
 Ubuntu 24.04 + Caddy + MariaDB disposable systemd host installed the versioned
