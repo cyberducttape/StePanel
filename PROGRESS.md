@@ -5236,3 +5236,9 @@ does not close a current-source or power-loss gate.
   is still running on source `47386470`. It predates the current CLI code and
   cannot close exact-current-source recovery certification. Production remains
   NO-GO pending the documented host recovery and capacity gates.
+- Dispatched current-main KVM abrupt-loss run
+  [45332417894](https://github.com/cyberducttape/StePanel/actions/runs/45332417894)
+  on `17b62c6a` (code-equivalent to `a52f9b1a`). It covers six guest-loss
+  operation scenarios plus database ENOSPC and alert outage/retry. It is queued;
+  no result is counted. `cache=none` removes guest page-cache cushioning but
+  does not constitute physical host power-loss evidence.

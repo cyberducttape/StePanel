@@ -1592,7 +1592,16 @@ passed; see the [reviewed report](docs/lab-results/2026-11-23-rocky-kvm-abrupt-l
 Product source `5da789bb` later changed setup, installer, and quota-preflight
 paths, so current-main KVM run
 [45305278135](https://github.com/cyberducttape/StePanel/actions/runs/45305278135)
-is underway. The release gate remains open pending current-source results,
+completed on code source `f6c9e9ab`, but predates additional privileged-broker,
+upload, installer, and durable-job changes. A fresh KVM abrupt-loss run
+[45332417894](https://github.com/cyberducttape/StePanel/actions/runs/45332417894)
+was dispatched from `17b62c6a` (code-equivalent to `a52f9b1a`) for file restore,
+database restore, Git deployment, retention, control-plane writes, interrupted
+backup publication, database ENOSPC, and alert delivery/retry. It is still
+queued and provides no result yet. The six-host 20-repeat cohort
+[45314551538](https://github.com/cyberducttape/StePanel/actions/runs/45314551538)
+is also in progress but uses older source `47386470` and cannot certify current
+code. The release gate remains open pending reviewed current-source results,
 repeated recovery iterations, physical-host/power-loss coverage, and remaining
 failure classes.
 **Current evidence update (2026-11-21):** The cache-disabled KVM abrupt-loss
