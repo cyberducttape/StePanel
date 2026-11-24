@@ -5584,3 +5584,21 @@ does not close a current-source or power-loss gate.
 - Release preflight [45389788023](https://github.com/cyberducttape/StePanel/actions/runs/45389788023)
   was still running at the time of this note; it uses an earlier commit and
   is not evidence for this fix. No release was published.
+
+## Verify the versioned first-install candidate on current evidence — 2026-11-24
+
+- Nonpublishing release preflight
+  [45389788023](https://github.com/cyberducttape/StePanel/actions/runs/45389788023)
+  completed successfully on source `8c6a4a6a6f241e9e1c0cac6bb5d008f63a967b50`.
+  The amd64/arm64 archives, checksums, exact-source evidence, SBOM, and
+  packaged Ubuntu 24.04 + Caddy + MariaDB installation passed. The installed
+  WordPress HTTPS/database recovery measured 7,356 ms RTO; database-outage
+  and root-broker-outage recovery passed. One recovery iteration is not
+  repeated certification, and the disposable host did not enforce quotas.
+  The candidate remains unpublished; the
+  [reviewed report](docs/lab-results/2026-11-24-v0.9.0-ubuntu-install-45389788023.md)
+  includes artifact checksums and limits.
+- On exact source `9594ee7b`, local `make check` passed. Hosted integration,
+  CodeQL, documentation, and exact-source recovery checks passed. The N-1
+  matrix's v0.7.0 QEMU guest-loss case passed with the drain-recovery fix;
+  the remaining QEMU jobs and the installed-host smoke are still in progress.

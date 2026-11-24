@@ -2690,6 +2690,16 @@ status; regression tests cover unrelated callers and failed install jobs.
 The refreshed attribution is documented
 [here](docs/lab-results/2026-11-23-v0.9.0-evidence-attribution.md).
 Broader production certification remains separate.
+The latest nonpublishing exact-source preflight, run
+[45389788023](https://github.com/cyberducttape/StePanel/actions/runs/45389788023),
+passed on `8c6a4a6a6f241e9e1c0cac6bb5d008f63a967b50`: the versioned amd64 and
+arm64 archives, checksums, package contents, exact-source evidence, and SBOM
+verified; Ubuntu 24.04 + Caddy + MariaDB install and cleanup completed; one
+recovery iteration and the installed WordPress HTTPS/database proof passed
+with a measured 7,356 ms RTO. Database-outage and broker-outage recovery also
+passed. The host had no project quotas, and this remains one disposable-host
+iteration, not repeated or physical power-loss certification. See the
+[reviewed candidate report](docs/lab-results/2026-11-24-v0.9.0-ubuntu-install-45389788023.md).
 
 **Acceptance criteria**
 
@@ -3106,14 +3116,15 @@ passed, including browser accessibility, Go, race, and recovery checks.
 
 ### M0bq — Resume an interrupted upgrade without leaving mutations paused (P1)
 
-**Status:** Fix implemented locally; full checks pass. An exact-source N-1 QEMU
-upgrade run exposed that a host rebooted during installation could restart
+**Status:** Implemented and pushed as `9594ee7b`; `make check` and exact-source
+hosted CI passed. An exact-source N-1 QEMU upgrade run exposed that a host rebooted during installation could restart
 with both StePanel services down. The resumed installer then did not consider
 the persisted upgrade drain its own and left customer mutations rejected with
 HTTP 503. Successful installation now clears any persisted drain, including
 one left by an earlier interrupted attempt. The installed-host upgrade smoke
-asserts that no drain remains after recovery. Hosted regression evidence is
-pending.
+asserts that no drain remains after recovery. The v0.7.0 filesystem-migration
+guest-loss case passed on the fix; the remaining N-1 matrix jobs are still
+running.
 
 **Acceptance criteria**
 
