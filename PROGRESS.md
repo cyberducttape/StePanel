@@ -5289,9 +5289,10 @@ does not close a current-source or power-loss gate.
   suite passed (34 passed, one optional skip).
 - The alert-notification warning now gives concrete SMTP/webhook configuration
   variables, environment file, restart, and retry steps. Distinct messages
-  cover failed delivery and pending delivery. Its focused browser test passed
-  with the first-run navigation and storage-readiness tests (3/3); frontend
-  unit tests remain 20/20. Hosted exact-source CI is pending.
+  cover failed delivery and pending delivery. Its browser regression cycles
+  through all three states and passes (1/1); focused first-run navigation and
+  storage-readiness tests pass (3/3), and frontend unit tests remain 20/20.
+  Hosted exact-source CI is pending.
 
 - Follow-up visual review found the newly exposed WordPress setup details were
   cramped into one narrow form column. The responsive fieldset now spans the

@@ -252,6 +252,7 @@ test('first-run readiness translates storage checks into readable next steps', a
 });
 
 test('first-run alert warning explains how to configure and verify delivery', async ({ page }) => {
+  let alertDetail = 'no SMTP or webhook alert destination is configured';
   await page.route('**/api/sites/overview', (route) => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify({ sites: [] }),
   }));
@@ -264,7 +265,7 @@ test('first-run alert warning explains how to configure and verify delivery', as
     body: JSON.stringify({
       operational: false,
       checks: {
-        operator_notifications: { ready: false, detail: 'no SMTP or webhook alert destination is configured' },
+        operator_notifications: { ready: false, detail: alertDetail },
       },
     }),
   }));
@@ -275,6 +276,14 @@ test('first-run alert warning explains how to configure and verify delivery', as
   await expect(healthStep).toContainText('STEPANEL_ALERT_EMAIL_TO');
   await expect(healthStep).toContainText('STEPANEL_ALERT_WEBHOOK_SECRET (32+ characters)');
   await expect(healthStep).toContainText('Restart stepanel and stepanel-worker');
+
+  alertDetail = '2 alert delivery failure(s) require attention';
+  await page.locator('#refreshOnboarding').click();
+  await expect(healthStep).toContainText('Check the alert destination settings in /etc/ste-panel.env');
+
+  alertDetail = '1 alert(s) await delivery';
+  await page.locator('#refreshOnboarding').click();
+  await expect(healthStep).toContainText('Check that stepanel-worker is running');
 });
 
 test('database health expands into a readable, host-wide snapshot', async ({ page }) => {
