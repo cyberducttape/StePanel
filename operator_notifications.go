@@ -237,6 +237,11 @@ func (s *operatorNotificationStore) flush(ctx context.Context, cfg Config) error
 }
 
 func (s *operatorNotificationStore) markDelivered(ctx context.Context, id, channel string) error {
+	// channel names SQL columns below; accept only the known channels, as
+	// recordFailure does.
+	if channel != "webhook" && channel != "email" {
+		return errors.New("unknown operator alert channel")
+	}
 	column := "webhook_delivered_at"
 	if channel == "email" {
 		column = "email_delivered_at"

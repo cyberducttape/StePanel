@@ -691,3 +691,17 @@ func TestOperatorWebhookTransportFailuresKeepTheirCategory(t *testing.T) {
 		t.Fatalf("transport error leaked the webhook URL: %v", err)
 	}
 }
+
+// Channel names select SQL columns, so both outcome writers accept only the
+// known channels.
+func TestOperatorNotificationOutcomesRejectUnknownChannels(t *testing.T) {
+	store := &operatorNotificationStore{db: openTestControlPlane(t)}
+	for _, channel := range []string{"sms", "webhook_delivered_at=1, email", ""} {
+		if err := store.markDelivered(context.Background(), "event", channel); err == nil {
+			t.Errorf("markDelivered accepted channel %q", channel)
+		}
+		if err := store.recordFailure(context.Background(), "event", channel, 1, errors.New("boom")); err == nil {
+			t.Errorf("recordFailure accepted channel %q", channel)
+		}
+	}
+}
