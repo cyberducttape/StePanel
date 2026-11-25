@@ -136,3 +136,41 @@ func lastEvent(t *testing.T, path string) Event {
 	}
 	return last
 }
+
+// An invalid previous-key list fails every verification path closed rather
+// than silently verifying with the current key alone.
+func TestAuditInvalidPreviousKeysFailClosed(t *testing.T) {
+	logger := newRotationLogger(t)
+	if err := logger.LogAs(context.Background(), "admin", "before", "site-a", ""); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("STEPANEL_AUDIT_PREVIOUS_KEYS", "too-short")
+	if err := logger.Verify(logger.path); err == nil {
+		t.Error("Verify accepted an invalid previous-key list")
+	}
+	if _, err := logger.readVerifiedEvents("", "", 10); err == nil {
+		t.Error("readVerifiedEvents accepted an invalid previous-key list")
+	}
+	if _, err := ChainSignedWithPreviousKey(logger.path); err == nil {
+		t.Error("ChainSignedWithPreviousKey accepted an invalid previous-key list")
+	}
+	if _, err := logger.reconcileTail(state{Version: 1}); err == nil {
+		t.Error("reconcileTail accepted an invalid previous-key list")
+	}
+	if err := logger.LogAs(context.Background(), "admin", "after", "site-a", ""); err == nil {
+		t.Error("append accepted an invalid previous-key list")
+	}
+}
+
+func TestChainSignedWithPreviousKeyWithoutState(t *testing.T) {
+	logger := newRotationLogger(t)
+	if rotating, err := ChainSignedWithPreviousKey(logger.path); err != nil || rotating {
+		t.Fatalf("a log without chain state = %v, %v; want false, nil", rotating, err)
+	}
+	if err := os.WriteFile(logger.path+".state", []byte("{not json"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ChainSignedWithPreviousKey(logger.path); err == nil {
+		t.Fatal("a corrupt chain state was accepted")
+	}
+}
