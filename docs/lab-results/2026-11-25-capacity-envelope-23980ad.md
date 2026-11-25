@@ -40,7 +40,13 @@ Setup took 8,758 s. Route changes slow as the route count grows: the first
 3 s each. Creating a customer account, which applies its plan's resource
 profiles, took about 12 s. These are administrative latencies, not serving
 latencies, but an operator adding many domains on a large host will notice
-them.
+them. On Caddy the route helper (`deploy/integrations/stepanel-caddy-vhostctl`)
+runs `caddy validate` over the whole Caddyfile and then reloads it for every
+change, so each change costs time proportional to the number of routes. A
+candidate improvement is to rely on the reload's own validation, which keeps
+the running configuration when the new one is rejected, instead of parsing
+the full configuration twice; it was not changed during this certification
+freeze.
 
 ## Limits
 
