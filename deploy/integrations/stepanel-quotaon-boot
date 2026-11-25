@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Boot-time ExecStart for quotaon.service (installed as a drop-in by install.sh).
+#
+# The distribution unit runs `quotaon -aug`. On ext4 filesystems created with
+# the `quota` feature, and on XFS, the kernel enables quota enforcement while
+# mounting. quotaon then fails with "File exists" for those filesystems and
+# systemd reports a failed unit although enforcement is active, which hides
+# real failures among false alarms.
+#
+# Run the stock command unchanged. Only when it fails, accept the result if
+# every mounted filesystem whose fstab entry requests user or group quotas
+# reports those quota types as on. A filesystem that is missing enforcement
+# keeps the unit failed with quotaon's original exit status.
+set -uo pipefail
+
+QUOTAON=${STEPANEL_QUOTAON:-/usr/sbin/quotaon}
+FSTAB=${STEPANEL_QUOTAON_FSTAB:-/etc/fstab}
+
+status=0
+output=$("$QUOTAON" -aug 2>&1) || status=$?
+[[ -z $output ]] || printf '%s\n' "$output" >&2
+(( status == 0 )) && exit 0
+
+# quota_type_on TYPE TARGET: quotaon -p prints state and exits with the
+# number of active types, so judge only its output.
+quota_type_on() {
+  local flag=$1 label=$2 target=$3 state
+  state=$("$QUOTAON" -p "$flag" "$target" 2>&1 || true)
+  [[ $state == *"$label quota on $target ("*") is on"* ]]
+}
+
+checked=0
+missing=0
+while IFS=$'\t' read -r target fstype options; do
+  [[ -n $target && $target == /* ]] || continue
+  case ",$options," in *,noauto,*) continue ;; esac
+  want_user=0 want_group=0
+  [[ ,$options, =~ ,(usrquota|uquota|quota|usrjquota=[^,]*), ]] && want_user=1
+  [[ ,$options, =~ ,(grpquota|gquota|grpjquota=[^,]*), ]] && want_group=1
+  (( want_user || want_group )) || continue
+  # quotaon -a acts only on mounted filesystems. An unmounted quota
+  # filesystem is reported by its own mount unit, not by this one.
+  findmnt -rn -M "$target" >/dev/null 2>&1 || continue
+  checked=$((checked + 1))
+  if (( want_user )) && ! quota_type_on -u user "$target"; then
+    echo "stepanel-quotaon-boot: user quotas requested for $target ($fstype) are not on" >&2
+    missing=$((missing + 1))
+  fi
+  if (( want_group )) && ! quota_type_on -g group "$target"; then
+    echo "stepanel-quotaon-boot: group quotas requested for $target ($fstype) are not on" >&2
+    missing=$((missing + 1))
+  fi
+done < <(awk '!/^[[:space:]]*(#|$)/ { printf "%s\t%s\t%s\n", $2, $3, $4 }' "$FSTAB")
+
+if (( checked > 0 && missing == 0 )); then
+  echo "stepanel-quotaon-boot: quotaon exited $status, but the requested quotas are on for all $checked quota filesystem(s); the kernel had already enabled them at mount" >&2
+  exit 0
+fi
+exit "$status"

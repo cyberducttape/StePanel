@@ -259,6 +259,8 @@ jobs:
         run: python3 scripts/check-quota-fixtures.py
       - name: Test filesystem-native quota state checks
         run: bash deploy/lab/quota-state-contract-test.sh
+      - name: Test boot-time quotaon classification
+        run: bash deploy/lab/quotaon-boot-contract-test.sh
       - name: Validate Grafana dashboard metric references
         run: python3 scripts/check-grafana-dashboard.py
       - name: Test Prometheus alert rules

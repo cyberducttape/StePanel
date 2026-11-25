@@ -93,6 +93,16 @@ installer preflight. If you cannot enable quotas safely, stop and use a
 loopback-only `bash scripts/evaluate-local.sh` preview; it does not install host services or
 manage real websites. Do not bypass production quota checks.
 
+With the ext4 `quota` feature, and on XFS, the kernel enables quotas while
+mounting, so the distribution `quotaon.service` (`quotaon -aug`) fails with
+`File exists` at boot although enforcement is active. The installer adds the
+drop-in `/etc/systemd/system/quotaon.service.d/stepanel-kernel-quota.conf`,
+which runs the same command through `/usr/local/sbin/stepanel-quotaon-boot`.
+The wrapper still logs quotaon's output and keeps the unit failed when any
+mounted filesystem whose `/etc/fstab` entry requests user or group quotas
+does not report them on. If `quotaon.service` is failed after installation,
+inspect `journalctl -b -u quotaon.service` for the named filesystem.
+
 The default is `STEPANEL_WEBSERVER=caddy`. Set `STEPANEL_WEBSERVER=apache` or
 `STEPANEL_WEBSERVER=openlitespeed` to opt into another webserver. OpenLiteSpeed
 installations require the OpenLiteSpeed package repository to be configured;

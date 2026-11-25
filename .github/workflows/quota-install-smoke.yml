@@ -310,6 +310,12 @@ jobs:
           printf 'post-reboot quota filesystem=%s mount options=%s\n' "$filesystem" "$options"
           [[ $options =~ (^|,)(usrquota|uquota)(,|$) ]]
           [[ $options =~ (^|,)(prjquota|pquota)(,|$) ]]
+          # Kernel-enabled quotas must not leave the distribution
+          # quotaon.service failed after boot (install.sh drop-in).
+          if [[ -n $(systemctl show -p FragmentPath --value quotaon.service) ]]; then
+            journalctl -b -u quotaon.service --no-pager || true
+            systemctl is-active --quiet quotaon.service
+          fi
           home_options=$(findmnt -no OPTIONS -T /home)
           printf 'post-reboot home mount options=%s\n' "$home_options"
           [[ $home_options =~ (^|,)(usrquota|uquota)(,|$) ]]

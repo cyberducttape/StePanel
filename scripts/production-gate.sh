@@ -31,6 +31,7 @@ run bash scripts/check-smoke-workflow-bounds.sh
 run python3 scripts/check-grafana-dashboard.py
 run python3 scripts/check-quota-fixtures.py
 run bash deploy/lab/quota-state-contract-test.sh
+run bash deploy/lab/quotaon-boot-contract-test.sh
 run bash scripts/check-action-pins.sh
 run bash scripts/test-check-action-pins.sh
 run bash scripts/validate-assets.sh
