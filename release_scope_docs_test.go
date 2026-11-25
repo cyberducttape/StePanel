@@ -62,14 +62,15 @@ func TestGitCloneDiskQuotaRemainsAnExplicitHostValidationGate(t *testing.T) {
 	doc := strings.ToLower(string(data))
 	for _, required := range []string{
 		"aggregate write-time limits for git release staging",
-		"implemented; current-source ubuntu/ext4 evidence passed once",
+		"implemented; current-source ubuntu ext4 and xfs evidence passed",
 		"project hard quota",
 		"unsupported quota filesystems fail closed",
 		"disk quota exceeded",
 		"after abrupt qemu loss",
-		// The current-source ext4 smoke passed once; repeat, XFS, and
+		// Current-source ext4 and XFS smokes have passed; repeat runs and
 		// production-mount evidence remain open.
-		"xfs and production-mount evidence open",
+		"production-mount evidence open",
+		"repeat runs and real production mount behavior remain open",
 	} {
 		if !strings.Contains(doc, required) {
 			t.Errorf("production gate must retain Git staging disk-admission limitation %q", required)
