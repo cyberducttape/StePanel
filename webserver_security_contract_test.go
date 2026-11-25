@@ -314,7 +314,7 @@ func TestCaddyRouteIsRemovedBeforeItsViewMount(t *testing.T) {
 	}
 	deletion := source[deleteStart : deleteStart+deleteEnd]
 	removeRoute := strings.Index(deletion, `rm -f "$path"`)
-	activate := strings.Index(deletion, `! activate_caddy_after_route_delete "$view_was_mounted"`)
+	activate := strings.Index(deletion, `! validate_and_activate_caddy_after_route_delete "$view_was_mounted"`)
 	removeView := strings.Index(deletion, `if ! remove_view "$site"; then`)
 	if removeRoute < 0 || activate < 0 || removeView < 0 || removeRoute > activate || activate > removeView {
 		t.Fatal("Caddy must remove and activate the route while its document-root view is mounted")
@@ -379,4 +379,31 @@ func mustReadTestFile(t *testing.T, path string) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+// A Caddy reload validates and keeps the running configuration when the new
+// one is rejected, so route changes skip a separate validation before a
+// reload. A restart would stop Caddy on an invalid configuration, so it must
+// always be validated first.
+func TestCaddyValidatesBeforeEveryRestart(t *testing.T) {
+	source := string(mustReadTestFile(t, "deploy/integrations/stepanel-caddy-vhostctl"))
+	for _, function := range []string{
+		"validate_and_activate_caddy() {\n  if (( view_mount_changed )); then\n    caddy validate --config /etc/caddy/Caddyfile >/dev/null || return 1\n  fi\n  activate_caddy\n}",
+		"validate_and_activate_caddy_after_route_delete() {\n  local view_was_mounted=$1\n  if (( view_was_mounted )); then\n    caddy validate --config /etc/caddy/Caddyfile >/dev/null || return 1\n  fi\n  activate_caddy_after_route_delete \"$view_was_mounted\"\n}",
+	} {
+		if !strings.Contains(source, function) {
+			t.Errorf("Caddy activation must validate before the restart path:\n%s", function)
+		}
+	}
+	// activate_caddy restarts exactly when view_mount_changed is set, and the
+	// delete variant exactly when the view was mounted; those are the
+	// conditions guarded above.
+	if !strings.Contains(source, "activate_caddy() {\n  if (( view_mount_changed )); then\n    systemctl restart \"$service\"") {
+		t.Error("activate_caddy must restart only when the view mount changed")
+	}
+	for _, unguarded := range []string{"|| ! activate_caddy; then", "! activate_caddy_after_route_delete \"$view_was_mounted\"; then"} {
+		if strings.Contains(source, unguarded) {
+			t.Errorf("route changes must activate through the validating wrappers, found %q", unguarded)
+		}
+	}
 }

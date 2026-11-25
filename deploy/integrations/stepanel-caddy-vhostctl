@@ -34,6 +34,26 @@ activate_caddy() {
   fi
 }
 
+# Activate a changed configuration. A reload (caddy reload) validates the new
+# configuration and keeps the running one when it is rejected, so a separate
+# `caddy validate` is needed only before a restart, which would otherwise stop
+# Caddy on an invalid configuration. Skipping the duplicate full parse halves
+# the cost of a route change on hosts with thousands of routes.
+validate_and_activate_caddy() {
+  if (( view_mount_changed )); then
+    caddy validate --config /etc/caddy/Caddyfile >/dev/null || return 1
+  fi
+  activate_caddy
+}
+
+validate_and_activate_caddy_after_route_delete() {
+  local view_was_mounted=$1
+  if (( view_was_mounted )); then
+    caddy validate --config /etc/caddy/Caddyfile >/dev/null || return 1
+  fi
+  activate_caddy_after_route_delete "$view_was_mounted"
+}
+
 activate_caddy_after_route_delete() {
   local view_was_mounted=$1
   if (( view_was_mounted )); then
@@ -280,8 +300,7 @@ if [[ $action == delete ]]; then
   systemctl is-active --quiet "$(mount_unit "$view")" && view_was_mounted=1
   cp -p "$path" "$backup"
   rm -f "$path"
-  if ! caddy validate --config /etc/caddy/Caddyfile >/dev/null || \
-    ! activate_caddy_after_route_delete "$view_was_mounted"; then
+  if ! validate_and_activate_caddy_after_route_delete "$view_was_mounted"; then
     mv -f "$backup" "$path"
     ensure_view "$site" "$site_home" || true
     if caddy validate --config /etc/caddy/Caddyfile >/dev/null; then activate_caddy || true; fi
@@ -419,7 +438,7 @@ EOF
     chmod 0644 "$staged"
     chown root:root "$staged"
     mv -f "$staged" "$path"
-    if ! caddy validate --config /etc/caddy/Caddyfile >/dev/null || ! activate_caddy; then
+    if ! validate_and_activate_caddy; then
       restore
       exit 1
     fi
@@ -444,7 +463,7 @@ EOF
     chmod 0644 "$staged"
     chown root:root "$staged"
     mv -f "$staged" "$path"
-    if ! caddy validate --config /etc/caddy/Caddyfile >/dev/null || ! activate_caddy; then
+    if ! validate_and_activate_caddy; then
       restore
       exit 1
     fi
