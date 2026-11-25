@@ -20,91 +20,30 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cyberducttape/StePanel/internal/accounts"
 	"github.com/cyberducttape/StePanel/internal/secretbox"
 	"github.com/skip2/go-qrcode"
 	"golang.org/x/crypto/bcrypt"
 )
 
-// HostingPlan contains the assignment and host-enforced application envelope
-// for the built-in plans. Database and logical Redis allocations are admitted
-// against these limits; bandwidth remains a provider-specific concern.
-type HostingPlan struct {
-	Name          string `json:"name"`
-	SiteLimit     int    `json:"site_limit"`
-	CPUPercent    int    `json:"cpu_percent"`
-	MemoryMB      int    `json:"memory_mb"`
-	TasksMax      int    `json:"tasks_max"`
-	PHPWorkers    int    `json:"php_workers"`
-	DiskMB        int    `json:"disk_mb"`
-	Inodes        int    `json:"inodes"`
-	DatabaseLimit int    `json:"database_limit"`
-	RedisMemoryMB int    `json:"redis_memory_mb"`
-}
+// The account model lives in internal/accounts; these names keep the root
+// package's callers unchanged while the store is extracted incrementally.
+type (
+	HostingPlan           = accounts.HostingPlan
+	HostingAccount        = accounts.HostingAccount
+	HostingAccountSummary = accounts.Summary
+)
 
-var hostingPlans = map[string]HostingPlan{
-	"starter":      {Name: "starter", SiteLimit: 1, CPUPercent: 100, MemoryMB: 512, TasksMax: 128, PHPWorkers: 8, DiskMB: 10240, Inodes: 200000, DatabaseLimit: 1, RedisMemoryMB: 128},
-	"professional": {Name: "professional", SiteLimit: 5, CPUPercent: 200, MemoryMB: 1024, TasksMax: 256, PHPWorkers: 16, DiskMB: 51200, Inodes: 1000000, DatabaseLimit: 10, RedisMemoryMB: 1024},
-	"agency":       {Name: "agency", SiteLimit: 25, CPUPercent: 400, MemoryMB: 2048, TasksMax: 512, PHPWorkers: 32, DiskMB: 204800, Inodes: 5000000, DatabaseLimit: 50, RedisMemoryMB: 4096},
-}
-
-type HostingAccount struct {
-	Username              string    `json:"username"`
-	TenantID              string    `json:"tenant_id,omitempty"`
-	Role                  string    `json:"role,omitempty"`
-	PasswordHash          string    `json:"password_hash"`
-	TOTPSecret            string    `json:"totp_secret"`
-	TOTPEncrypted         bool      `json:"totp_encrypted,omitempty"`
-	RecoveryCodeHashes    []string  `json:"recovery_code_hashes,omitempty"`
-	SessionGeneration     uint64    `json:"session_generation,omitempty"`
-	PasswordResetRequired bool      `json:"password_reset_required,omitempty"`
-	MFAEnrollmentRequired bool      `json:"mfa_enrollment_required,omitempty"`
-	MFAConfigured         bool      `json:"mfa_configured,omitempty"`
-	Plan                  string    `json:"plan"`
-	Sites                 []string  `json:"sites"`
-	Suspended             bool      `json:"suspended"`
-	CreatedAt             time.Time `json:"created_at"`
-}
-
-// HostingAccountSummary is safe for account inventory and mutation responses.
-// Credential hashes, TOTP material, and recovery-code hashes never cross the
-// HTTP boundary, including to an administrator browser.
-type HostingAccountSummary struct {
-	Username              string    `json:"username"`
-	TenantID              string    `json:"tenant_id,omitempty"`
-	Role                  string    `json:"role,omitempty"`
-	Plan                  string    `json:"plan"`
-	Sites                 []string  `json:"sites"`
-	Suspended             bool      `json:"suspended"`
-	CreatedAt             time.Time `json:"created_at"`
-	MFAEnabled            bool      `json:"mfa_enabled"`
-	PasswordResetRequired bool      `json:"password_reset_required"`
-	MFAEnrollmentRequired bool      `json:"mfa_enrollment_required"`
-}
+// hostingPlans is the built-in plan table (the same map as accounts.Plans).
+var hostingPlans = accounts.Plans
 
 func publicHostingAccount(account HostingAccount) HostingAccountSummary {
-	return HostingAccountSummary{
-		Username: account.Username, TenantID: accountTenantID(account), Role: accountRole(account), Plan: account.Plan,
-		Sites: append([]string(nil), account.Sites...), Suspended: account.Suspended,
-		CreatedAt: account.CreatedAt, MFAEnabled: account.MFAConfigured || account.TOTPSecret != "",
-		PasswordResetRequired: account.PasswordResetRequired,
-		MFAEnrollmentRequired: account.MFAEnrollmentRequired,
-	}
+	return accounts.Public(account)
 }
 
-func accountTenantID(account HostingAccount) string {
-	if strings.TrimSpace(account.TenantID) != "" {
-		return account.TenantID
-	}
-	return account.Username
-}
+func accountTenantID(account HostingAccount) string { return accounts.TenantID(account) }
 
-func accountRole(account HostingAccount) string {
-	role := strings.ToLower(strings.TrimSpace(account.Role))
-	if role == "" {
-		return "owner"
-	}
-	return role
-}
+func accountRole(account HostingAccount) string { return accounts.Role(account) }
 
 // AccountStore holds customer identities and site assignments. Administrator
 // credentials remain environment-managed and are deliberately never copied to
@@ -459,43 +398,7 @@ func (s *AccountStore) refreshFromDBLocked() error {
 }
 
 func validateHostingAccount(account HostingAccount, requireCreated bool) error {
-	if safeUser(account.Username) == "" || len(account.PasswordHash) == 0 || account.TOTPSecret == "" {
-		return errors.New("account username, password hash, and TOTP secret are required")
-	}
-	if safeUser(account.TenantID) == "" {
-		return errors.New("account tenant ID is invalid")
-	}
-	role := accountRole(account)
-	if role != "owner" && role != "manager" && role != "developer" && role != "viewer" {
-		return errors.New("account role is invalid")
-	}
-	if role == "owner" && account.TenantID != account.Username {
-		return errors.New("tenant owner must own the tenant identity")
-	}
-	if role != "owner" && len(account.Sites) != 0 {
-		return errors.New("tenant members cannot own site assignments")
-	}
-	if _, err := bcryptCost(account.PasswordHash); err != nil {
-		return errors.New("account password hash must be valid bcrypt")
-	}
-	if _, err := decodeTOTPSecret(account.TOTPSecret); err != nil {
-		return errors.New("account TOTP secret must be unpadded base32 with at least 160 bits")
-	}
-	plan, ok := hostingPlans[account.Plan]
-	if !ok || len(account.Sites) > plan.SiteLimit {
-		return errors.New("account plan or assigned sites are invalid")
-	}
-	seen := make(map[string]bool, len(account.Sites))
-	for _, site := range account.Sites {
-		if safeUser(site) == "" || seen[site] {
-			return errors.New("account sites must be unique valid site names")
-		}
-		seen[site] = true
-	}
-	if requireCreated && account.CreatedAt.IsZero() {
-		return errors.New("account creation time is required")
-	}
-	return nil
+	return accounts.Validate(account, requireCreated)
 }
 
 func bcryptCost(hash string) (int, error) { return bcrypt.Cost([]byte(hash)) }
@@ -917,14 +820,7 @@ func (s *AccountStore) ListWithError() ([]HostingAccount, error) {
 	return accounts, nil
 }
 
-func decodeTOTPSecret(value string) ([]byte, error) {
-	value = strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(value), " ", ""))
-	secret, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(value)
-	if err != nil || len(secret) < 20 {
-		return nil, errors.New("invalid TOTP secret")
-	}
-	return secret, nil
-}
+func decodeTOTPSecret(value string) ([]byte, error) { return accounts.DecodeTOTPSecret(value) }
 
 func (s *AccountStore) Create(username, password, totpSecret, plan string, sites []string) (HostingAccount, error) {
 	username, plan = safeUser(username), strings.ToLower(strings.TrimSpace(plan))

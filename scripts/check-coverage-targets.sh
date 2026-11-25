@@ -12,6 +12,7 @@ declare -A COVERAGE_TARGETS=(
   # dedicated floor so aggregate coverage cannot hide regressions there.
   ["github.com/cyberducttape/StePanel"]="48"
   ["github.com/cyberducttape/StePanel/internal/auth"]="90"
+  ["github.com/cyberducttape/StePanel/internal/accounts"]="95"
   ["github.com/cyberducttape/StePanel/internal/helper"]="90"
   ["github.com/cyberducttape/StePanel/internal/state"]="85"
   ["github.com/cyberducttape/StePanel/internal/migration"]="85"

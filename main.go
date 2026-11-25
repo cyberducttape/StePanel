@@ -22,6 +22,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cyberducttape/StePanel/internal/accounts"
 	"github.com/cyberducttape/StePanel/internal/audit"
 	authpolicy "github.com/cyberducttape/StePanel/internal/auth"
 	"github.com/cyberducttape/StePanel/internal/backup"
@@ -2318,18 +2319,7 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 		return
 	}
 }
-func safeUser(value string) string {
-	value = strings.TrimSpace(value)
-	if len(value) > 32 || value == "" {
-		return ""
-	}
-	for _, r := range value {
-		if !(r == '_' || r == '-' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9') {
-			return ""
-		}
-	}
-	return value
-}
+func safeUser(value string) string { return accounts.SafeName(value) }
 
 // Backward compatibility wrappers for audit package
 type AuditEvent = audit.Event

@@ -69,7 +69,7 @@ orchestration:
 
 | Package | Responsibility |
 |---------|----------------|
-| `accounts` | Hosting account and plan store |
+| `accounts` | Hosting account domain model: built-in plans, account records and public summaries, tenant and role rules, validation (the account store remains in the root `accounts.go`) |
 | `archivesafe` | The single policy for reading untrusted archives: format detection, entry-type rules, path normalization, confined extraction |
 | `audit` | HMAC-chained audit logger, audit levels and handlers |
 | `auth` | Authentication policy independent of the HTTP assembly: login rate limiting, legacy token deprecation |
