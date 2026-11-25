@@ -275,3 +275,36 @@ class EnvelopeSeedTests(unittest.TestCase):
         self.assertIsNone(capacity_profile.isolation_violation(["a", "b"], ["b", "a"]))
         self.assertIn("unexpected ['c']", capacity_profile.isolation_violation(["a", "b"], ["a", "b", "c"]))
         self.assertIn("missing ['b']", capacity_profile.isolation_violation(["a", "b"], ["a"]))
+
+
+class ScheduledAndRestartTests(unittest.TestCase):
+    def test_parse_job_time_handles_nanoseconds_and_z(self):
+        self.assertAlmostEqual(capacity_profile.parse_job_time("2026-11-25T02:40:17.123456789Z"),
+                               capacity_profile.parse_job_time("2026-11-25T02:40:17.123456Z"), places=5)
+        self.assertIsNone(capacity_profile.parse_job_time(""))
+        # Go trims trailing zeros; Python 3.9 accepts only 3 or 6 digits.
+        self.assertAlmostEqual(capacity_profile.parse_job_time("2026-11-25T02:40:17.5Z") % 60, 17.5, places=5)
+
+    def test_errors_inside_a_restart_window_are_excluded(self):
+        results = [(10.0, 200, 0.1), (20.0, 503, 0.1), (21.0, 0, 0.1), (40.0, 500, 0.1)]
+        self.assertEqual(capacity_profile.errors_outside_windows(results, [(19.0, 25.0)]), 1)
+        self.assertEqual(capacity_profile.errors_outside_windows(results, []), 3)
+
+    def test_scheduled_jobs_must_run_complete_and_not_duplicate(self):
+        base = capacity_profile.parse_job_time("2026-11-25T03:00:00Z")
+        def job(site, minute, state="completed", kind="site.backup", job_id=None):
+            return {"kind": kind, "user": site, "state": state, "id": job_id or f"{site}-{minute}",
+                    "started_at": f"2026-11-25T03:{minute:02d}:00Z"}
+        jobs = [job("cap-000", 5), job("cap-000", 10), job("cap-001", 5), job("cap-002", 1, kind="site.create")]
+        count, problems = capacity_profile.scheduled_job_findings(jobs, ["cap-000", "cap-001"], base, 150)
+        self.assertEqual((count, problems), (3, []))
+        count, problems = capacity_profile.scheduled_job_findings(
+            jobs + [job("cap-001", 6, job_id="dup")], ["cap-000", "cap-001", "cap-002"], base, 150)
+        self.assertEqual(count, 4)
+        self.assertTrue(any("dup ran 60s" in p for p in problems), problems)
+        self.assertTrue(any("cap-002: no scheduled backup ran" in p for p in problems), problems)
+        _, problems = capacity_profile.scheduled_job_findings([job("cap-000", 5, state="dead-letter")], ["cap-000"], base, 150)
+        self.assertTrue(any("ended dead-letter" in p for p in problems), problems)
+        # Jobs that started before measurement are not counted.
+        count, problems = capacity_profile.scheduled_job_findings([job("cap-000", 5)], ["cap-000"], base + 3600, 150)
+        self.assertEqual(count, 0)

@@ -16,7 +16,14 @@ leaves the panel at 127.0.0.1:8090 with known lab credentials). It:
      sees exactly its own sites;
   3. a quarter of the way in, starts two heavy customer operations at once
      (backups of large incompressible sites) and measures their queue wait
-     and duration;
+     and duration; meanwhile CAPACITY_SCHEDULED_SITES sites carry backup
+     schedules every CAPACITY_SCHEDULE_MINUTES (five sites every five
+     minutes by default, 60 scheduled jobs an hour against the envelope's
+     50), and every scheduled job must complete exactly once;
+  3b. three quarters of the way in (CAPACITY_RESTART=1, the default),
+     restarts the panel and worker under load, measures the time until the
+     host is ready again, and requires site traffic to keep succeeding and
+     admin and customer probes to succeed outside the restart window;
   4. samples CPU, memory, disk I/O, process RSS, and control-plane
      database-lock errors throughout;
 
@@ -66,6 +73,62 @@ DOMAINS = int(os.environ.get("CAPACITY_DOMAINS", 4 * SITES))
 ACCOUNT_SITE_LIMIT = 5
 ACCOUNTS = int(os.environ.get("CAPACITY_ACCOUNTS", SITES // ACCOUNT_SITE_LIMIT))
 CUSTOMER_PROBES = int(os.environ.get("CAPACITY_CUSTOMER_PROBES", "4"))
+SCHEDULED_SITES = int(os.environ.get("CAPACITY_SCHEDULED_SITES", "5"))
+SCHEDULE_MINUTES = int(os.environ.get("CAPACITY_SCHEDULE_MINUTES", "5"))
+RESTART = os.environ.get("CAPACITY_RESTART", "1") == "1"
+RESTART_AT = float(os.environ.get("CAPACITY_RESTART_AT", "0.75"))
+# Probes are retried while the panel restarts; failures within this many
+# seconds after readiness returns are part of the restart window.
+RESTART_SETTLE_S = 5
+
+
+def parse_job_time(value):
+    """Parse the API's RFC 3339 timestamps (Z suffix, nanoseconds) to epoch
+    seconds without third-party modules."""
+    if not value:
+        return None
+    text = value.replace("Z", "+00:00")
+    main, _, zone = text.partition("+")
+    if "." in main:
+        whole, fraction = main.split(".", 1)
+        main = whole + "." + fraction[:6].ljust(6, "0")
+    from datetime import datetime
+    return datetime.fromisoformat(main + ("+" + zone if zone else "")).timestamp()
+
+
+def errors_outside_windows(results, windows):
+    """Count failed probes (status outside 200-399) not inside any window."""
+    def inside(t):
+        return any(begin <= t <= end for begin, end in windows)
+    return sum(1 for (t, status, _) in results if not 200 <= status < 400 and not inside(t))
+
+
+def scheduled_job_findings(jobs, sites, since, min_gap_s):
+    """Check scheduled backup jobs for the given sites that started at or
+    after since: every site ran, every job completed, and no site ran twice
+    within min_gap_s (a duplicated schedule slot). Returns (count, problems)."""
+    by_site = {site: [] for site in sites}
+    for job in jobs:
+        if job.get("kind") != "site.backup" or job.get("user") not in by_site:
+            continue
+        started = parse_job_time(job.get("started_at"))
+        if started is None or started < since:
+            continue
+        by_site[job["user"]].append((started, job.get("state"), job.get("id")))
+    problems = []
+    count = 0
+    for site, runs in sorted(by_site.items()):
+        runs.sort()
+        count += len(runs)
+        if not runs:
+            problems.append(f"{site}: no scheduled backup ran")
+        for started, state, job_id in runs:
+            if state != "completed":
+                problems.append(f"{site}: scheduled backup {job_id} ended {state}")
+        for (first, _, _), (second, _, second_id) in zip(runs, runs[1:]):
+            if second - first < min_gap_s:
+                problems.append(f"{site}: scheduled backup {second_id} ran {round(second - first)}s after the previous one")
+    return count, problems
 
 
 def alias_domains(site_names, total_domains):
@@ -668,6 +731,15 @@ def main():
             raise SystemExit(f"host not ready 180s after setup: HTTP {ready_status} {failure_detail(ready_body)}")
         time.sleep(2)
 
+    scheduled_sites = site_names[:max(SCHEDULED_SITES, 0)]
+    for name in scheduled_sites:
+        status, schedule = panel.call("PUT", "/api/backup-schedules", {
+            "site": name, "interval_minutes": SCHEDULE_MINUTES, "keep_last": 2})
+        if status != 200:
+            raise SystemExit(f"backup schedule {name}: HTTP {status} {schedule!r}")
+    if scheduled_sites:
+        log(f"{len(scheduled_sites)} sites back up every {SCHEDULE_MINUTES} min ({len(scheduled_sites) * 60 // SCHEDULE_MINUTES} scheduled jobs/hour)")
+
     stop = threading.Event()
     fpm_offsets = fpm_log_offsets()
     fpm_since = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -796,6 +868,35 @@ def main():
     threads.extend(threading.Thread(target=customer_probe, args=probe, daemon=True) for probe in customer_sessions)
     threads.append(threading.Thread(target=admin_probe, daemon=True))
     threads.append(threading.Thread(target=static_probe, daemon=True))
+    restart = {"started": None, "ready": None, "error": None}
+
+    def restart_under_load():
+        if stop.wait(DURATION * RESTART_AT):
+            return
+        units = ["stepanel.service"]
+        if subprocess.run(["systemctl", "is-enabled", "--quiet", "stepanel-worker.service"]).returncode == 0:
+            units.append("stepanel-worker.service")
+        log(f"restarting {' '.join(units)} under load")
+        restart["started"] = time.time()
+        result = subprocess.run(["systemctl", "restart", *units], capture_output=True, text=True)
+        if result.returncode != 0:
+            restart["error"] = f"systemctl restart failed: {result.stderr.strip()[:300]}"
+            return
+        deadline = time.time() + 300
+        while time.time() < deadline:
+            try:
+                ready_status, _ = Panel().call("GET", "/readyz", timeout=10)
+            except OSError:
+                ready_status = 0
+            if 200 <= ready_status < 400:
+                restart["ready"] = time.time()
+                log(f"ready again {round(restart['ready'] - restart['started'], 1)}s after the restart")
+                return
+            time.sleep(0.5)
+        restart["error"] = "the host was not ready 300s after the restart"
+
+    if RESTART:
+        threads.append(threading.Thread(target=restart_under_load, daemon=True))
     for thread in threads:
         thread.start()
 
@@ -828,6 +929,32 @@ def main():
     for thread in threads:
         thread.join(timeout=30)
     sampler.join(timeout=10)
+
+    restart_windows = []
+    if restart["started"] is not None:
+        restart_windows.append((restart["started"], (restart["ready"] or time.time()) + RESTART_SETTLE_S))
+    scheduled_count, scheduled_problems = 0, []
+    if scheduled_sites:
+        for name in scheduled_sites:
+            status, _ = panel.call("DELETE", "/api/backup-schedules?site=" + urllib.parse.quote(name))
+            if not 200 <= status < 300:
+                scheduled_problems.append(f"{name}: could not remove the schedule (HTTP {status})")
+        # Jobs straddling the restart must still finish; none may be lost.
+        settle_deadline = time.time() + 600
+        while True:
+            status, listing = panel.call("GET", "/api/jobs", timeout=60)
+            jobs = listing.get("jobs", []) if status == 200 and isinstance(listing, dict) else []
+            pending = [job for job in jobs if job.get("kind") == "site.backup" and job.get("user") in scheduled_sites
+                       and job.get("state") in ("queued", "running")]
+            if status == 200 and not pending:
+                break
+            if time.time() >= settle_deadline:
+                scheduled_problems.append(f"{len(pending)} scheduled backup(s) were still queued or running 600s after measurement")
+                break
+            time.sleep(2)
+        scheduled_count, findings = scheduled_job_findings(jobs, scheduled_sites, measurement_started,
+                                                           SCHEDULE_MINUTES * 60 * 0.5)
+        scheduled_problems.extend(findings)
 
     lock_errors = subprocess.run(
         ["journalctl", "--since", since, "-u", "stepanel", "-u", "stepanel-worker", "--no-pager", "-q"],
@@ -894,6 +1021,20 @@ def main():
         } for path, results in customer_results.items()},
         "customer_failures": customer_failures,
         "tenant_isolation_failures": isolation_failures,
+        "restart_under_load": {
+            "enabled": RESTART,
+            "ready_after_s": round(restart["ready"] - restart["started"], 1) if restart["ready"] and restart["started"] else None,
+            "error": restart["error"],
+            "admin_errors_in_window": sum(1 for results in admin_results.values() for (t, status, _) in results
+                                          if not 200 <= status < 400 and any(b <= t <= e for b, e in restart_windows)),
+            "customer_errors_in_window": sum(1 for results in customer_results.values() for (t, status, _) in results
+                                             if not 200 <= status < 400 and any(b <= t <= e for b, e in restart_windows)),
+        },
+        "scheduled_jobs": {
+            "sites": len(scheduled_sites), "interval_minutes": SCHEDULE_MINUTES,
+            "rate_per_hour": len(scheduled_sites) * 60 // SCHEDULE_MINUTES if SCHEDULE_MINUTES else 0,
+            "completed_in_window": scheduled_count, "problems": scheduled_problems,
+        },
         "site_runtime_diagnostics": {
             **summarize_runtime_metrics(runtime_metric_samples),
             "samples": runtime_metric_samples,
@@ -988,9 +1129,22 @@ def main():
         print("| ---: | --- | --- | ---: | --- |")
         for failure in customer_failures[:20]:
             print(f"| {failure['t']} | {failure['account']} | {failure['path']} | {failure['status']} | {failure['detail'][:200].replace('|', '/')} |")
-    failed = (report["site_requests"]["errors"] or any(d["errors"] for d in report["admin"].values())
-              or any(d["errors"] for d in report["customer"].values()) or isolation_failures
-              or any(j["state"] != "completed" for j in report["heavy_operations"]))
+    restart_report = report["restart_under_load"]
+    if RESTART:
+        print(f"\nRestart under load: ready again after {restart_report['ready_after_s']} s; "
+              f"{restart_report['admin_errors_in_window']} admin and {restart_report['customer_errors_in_window']} customer probe failure(s) inside the restart window"
+              + (f"; error: {restart_report['error']}" if restart_report["error"] else ""))
+    scheduled_report = report["scheduled_jobs"]
+    if scheduled_sites:
+        print(f"\nScheduled jobs: {scheduled_report['sites']} sites every {SCHEDULE_MINUTES} min ({scheduled_report['rate_per_hour']}/hour); "
+              f"{scheduled_count} scheduled backup(s) ran during measurement; {len(scheduled_problems)} problem(s).")
+        for problem in scheduled_problems[:20]:
+            print(f"- {problem}")
+    admin_errors = sum(errors_outside_windows(results, restart_windows) for results in admin_results.values())
+    customer_errors = sum(errors_outside_windows(results, restart_windows) for results in customer_results.values())
+    failed = (report["site_requests"]["errors"] or admin_errors or customer_errors or isolation_failures
+              or any(j["state"] != "completed" for j in report["heavy_operations"])
+              or restart_report["error"] or scheduled_problems)
     sys.exit(1 if failed else 0)
 
 
