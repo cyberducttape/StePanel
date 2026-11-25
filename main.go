@@ -518,6 +518,7 @@ func Main() {
 	if err := webhookConfigStore.PrepareSecrets(cfg.EnvironmentKey, cfg.EnvironmentPreviousKeys...); err != nil {
 		log.Fatalf("prepare webhook signing secrets: %v", err)
 	}
+	auditKeyRotation(cfg, "webhook-secrets", uint64(webhookConfigStore.rotationResealed))
 	if groups, err := webhookConfigStore.SitesSharingSecrets(); err != nil {
 		log.Fatalf("check webhook secret uniqueness: %v", err)
 	} else {
@@ -554,6 +555,7 @@ func Main() {
 			log.Fatalf("re-seal API token idempotency results under the current STEPANEL_ACCOUNT_KEY: %v", err)
 		} else if resealed > 0 {
 			log.Printf("key rotation: re-sealed %d API token idempotency result(s) sealed under a previous STEPANEL_ACCOUNT_KEY", resealed)
+			auditKeyRotation(cfg, "api-token-idempotency", uint64(resealed))
 		}
 	}
 	if err := auth.enforceLegacyTokenCutoff(); err != nil {
@@ -562,6 +564,9 @@ func Main() {
 	accounts, err := OpenAccountStoreDB(controlPlaneDB, cfg.AccountState, append([]string{cfg.AccountKey}, cfg.AccountPreviousKeys...)...)
 	if err != nil {
 		log.Fatalf("open persistent shared-hosting account state: %v", err)
+	}
+	if accounts.box != nil {
+		auditKeyRotation(cfg, "account-totp", accounts.box.OpenedWithPrevious())
 	}
 	if err := accounts.SetAdministratorUsername(auth.Username); err != nil {
 		log.Fatalf("validate administrator/customer identity boundary: %v", err)
@@ -641,6 +646,7 @@ func Main() {
 		log.Fatalf("%v", err)
 	} else if resealed > 0 {
 		log.Printf("key rotation: re-sealed environment secrets after %d opened with a previous STEPANEL_ENVIRONMENT_KEY", resealed)
+		auditKeyRotation(cfg, "environment", resealed)
 	}
 	bindState(redisAllocations, "redis", &redisAllocations.values, redisAllocations.persistLocked)
 	bindState(access, "site-access", &access.values, access.persistLocked)
@@ -687,6 +693,7 @@ func Main() {
 	if err != nil {
 		log.Fatalf("open durable control-plane job state: %v", err)
 	}
+	auditKeyRotation(cfg, "job-payloads", uint64(jobs.rotationResealed))
 	jobs.RequireCompatibleWorker(cfg.WorkerMode == "external")
 	jobs.SetMaxPending(cfg.MaxPendingJobs)
 	if cfg.WorkerMode == "external" && !workerMode {

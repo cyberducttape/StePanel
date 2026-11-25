@@ -27,6 +27,9 @@ type WebhookConfigStore struct {
 	// configured (PrepareSecrets); without one they stay plaintext, as on
 	// development hosts.
 	box *secretbox.Box
+	// rotationResealed counts secrets the last PrepareSecrets re-sealed
+	// because they opened only with a previous key.
+	rotationResealed int
 	// fingerprintKey keys secret_fingerprint, which lets the store find a
 	// secret shared by several sites without opening every sealed row.
 	fingerprintKey []byte
@@ -133,6 +136,7 @@ func (wcs *WebhookConfigStore) prepareSecretsReporting(key string, previous []st
 		return err
 	}
 	var unreadable []string
+	resealed := 0
 	for _, item := range stored {
 		plaintext, readable, rotated := item.secret, true, false
 		switch {
@@ -175,6 +179,9 @@ func (wcs *WebhookConfigStore) prepareSecretsReporting(key string, previous []st
 		if value == item.secret && sealed == item.sealed && fingerprint == item.fingerprint {
 			continue
 		}
+		if rotated {
+			resealed++
+		}
 		if _, err := tx.Exec(`UPDATE webhook_configs SET webhook_secret = ?, secret_sealed = ?, secret_fingerprint = ? WHERE id = ?`, value, sealed, fingerprint, item.id); err != nil {
 			return fmt.Errorf("seal webhook secret for %s: %w", item.site, err)
 		}
@@ -185,7 +192,7 @@ func (wcs *WebhookConfigStore) prepareSecretsReporting(key string, previous []st
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	wcs.box, wcs.fingerprintKey = box, fingerprintKey
+	wcs.box, wcs.fingerprintKey, wcs.rotationResealed = box, fingerprintKey, resealed
 	return nil
 }
 

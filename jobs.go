@@ -1881,6 +1881,9 @@ func decodeJobStore(data []byte) (jobStore, error) {
 }
 
 type Jobs struct {
+	// rotationResealed counts payloads re-sealed at open because they opened
+	// only with a previous STEPANEL_ACCOUNT_KEY.
+	rotationResealed int
 	// maxPending bounds queued plus running durable jobs at enqueue; 0 means
 	// defaultMaxPendingJobs.
 	maxPending    atomic.Int64
@@ -2148,6 +2151,7 @@ func openDurableJobsDBWithKeys(db *sql.DB, legacyPath, payloadKey string, previo
 		if err != nil {
 			return nil, fmt.Errorf("re-seal job payloads under the current STEPANEL_ACCOUNT_KEY: %w", err)
 		}
+		j.rotationResealed = resealed
 		if resealed > 0 {
 			log.Printf("key rotation: re-sealed %d job payload(s) sealed under a previous STEPANEL_ACCOUNT_KEY", resealed)
 		}

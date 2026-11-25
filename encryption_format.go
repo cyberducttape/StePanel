@@ -62,3 +62,13 @@ func keyBytes(keys []string) [][]byte {
 	}
 	return out
 }
+
+// auditKeyRotation records, as telemetry, that a store re-sealed secrets
+// under the current master key because they opened only with a previous
+// one (docs/AUDIT_CONTRACT.md, class B).
+func auditKeyRotation(cfg Config, store string, resealed uint64) {
+	if resealed == 0 {
+		return
+	}
+	TelemetryAudit(cfg.AuditLog, "system", "security.key_rotation.resealed", store, fmt.Sprintf("%d secret(s) that opened only with a previous key were re-sealed under the current key", resealed))
+}

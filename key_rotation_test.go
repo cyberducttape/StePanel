@@ -35,6 +35,9 @@ func TestAccountKeyRotationReSealsTOTPSeeds(t *testing.T) {
 	if account, ok := rotated.Get("customer"); !ok || account.TOTPSecret != testTOTPSecret {
 		t.Fatalf("rotated account = %#v, %v", account, ok)
 	}
+	if opened := rotated.box.OpenedWithPrevious(); opened != 1 {
+		t.Fatalf("account seeds opened with the previous key = %d, want 1", opened)
+	}
 	reopened, err := OpenAccountStoreDB(db, "", rotationNewKey)
 	if err != nil {
 		t.Fatalf("seeds were not re-sealed under the current key: %v", err)
@@ -116,6 +119,9 @@ func TestJobPayloadKeyRotationReSealsEveryRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open with the previous key listed: %v", err)
 	}
+	if rotated.rotationResealed != 2 {
+		t.Fatalf("job payloads re-sealed = %d, want 2", rotated.rotationResealed)
+	}
 	if job, ok := rotated.Get(queued.ID); !ok || string(job.Payload) != `{"secret":"archive-db-password"}` {
 		t.Fatalf("rotated queued job = %q, %v", job.Payload, ok)
 	}
@@ -161,12 +167,19 @@ func TestWebhookSecretKeyRotationReSealsSecrets(t *testing.T) {
 	if err := NewWebhookConfigStore(db).PrepareSecrets(rotationNewKey); !errors.As(err, &unreadable) {
 		t.Fatalf("secrets sealed under the previous key opened without it: %v", err)
 	}
-	if err := NewWebhookConfigStore(db).PrepareSecrets(rotationNewKey, rotationOldKey); err != nil {
+	rotating := NewWebhookConfigStore(db)
+	if err := rotating.PrepareSecrets(rotationNewKey, rotationOldKey); err != nil {
 		t.Fatalf("prepare with the previous key listed: %v", err)
+	}
+	if rotating.rotationResealed != 1 {
+		t.Fatalf("webhook secrets re-sealed = %d, want 1", rotating.rotationResealed)
 	}
 	retired := NewWebhookConfigStore(db)
 	if err := retired.PrepareSecrets(rotationNewKey); err != nil {
 		t.Fatalf("secrets were not re-sealed under the current key: %v", err)
+	}
+	if retired.rotationResealed != 0 {
+		t.Fatalf("a store with nothing to re-seal reported %d", retired.rotationResealed)
 	}
 	config, err := retired.GetWebhookConfig("shop")
 	if err != nil || config == nil || config.WebhookSecret != webhookTestSecret {
