@@ -547,6 +547,9 @@ func Main() {
 		if err := auth.apiTokens.configureIdempotencyKey(cfg.AccountKey, cfg.AccountPreviousKeys...); err != nil {
 			log.Fatalf("configure API token idempotency: %v", err)
 		}
+		if _, err := pruneExpiredIdempotency(controlPlaneDB, time.Now()); err != nil {
+			log.Fatalf("%v", err)
+		}
 		if resealed, err := auth.apiTokens.resealRotatedIdempotencyResults(); err != nil {
 			log.Fatalf("re-seal API token idempotency results under the current STEPANEL_ACCOUNT_KEY: %v", err)
 		} else if resealed > 0 {

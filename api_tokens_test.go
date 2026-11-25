@@ -406,3 +406,54 @@ func TestExpiredAPITokenIsRejected(t *testing.T) {
 		}
 	}
 }
+
+// A completed idempotent result holds the issued token secret, so it is kept
+// only for the retry window and then pruned.
+func TestAPITokenIdempotencyResultsExpire(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := &apiTokenStore{db: db}
+	if err := store.configureIdempotencyKey("12345678901234567890123456789012"); err != nil {
+		t.Fatal(err)
+	}
+	expires := time.Now().Add(48 * time.Hour).Unix()
+	create := func() (apiTokenInfo, string, error) {
+		return store.createScopedIdempotent("customer", "automation", &expires, []string{"site:read"}, customerAPIScopes, "auth.api_token.create", "retry-expiry")
+	}
+	first, secret, err := create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replay, replaySecret, err := create(); err != nil || replay.ID != first.ID || replaySecret != secret {
+		t.Fatalf("retry inside the window = %s/%v, want a replay of %s", replay.ID, err, first.ID)
+	}
+	aged := time.Now().Add(-apiTokenIdempotencyRetention - time.Minute).Unix()
+	if _, err := db.Exec(`UPDATE idempotency_records SET created_at = ?, updated_at = ?`, aged, aged); err != nil {
+		t.Fatal(err)
+	}
+	if pruned, err := pruneExpiredIdempotency(db, time.Now()); err != nil || pruned != 1 {
+		t.Fatalf("pruneExpiredIdempotency = %d, %v; want 1", pruned, err)
+	}
+	var remaining int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM idempotency_records`).Scan(&remaining); err != nil || remaining != 0 {
+		t.Fatalf("records after pruning = %d, %v", remaining, err)
+	}
+	second, secondSecret, err := create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ID == first.ID || secondSecret == secret {
+		t.Fatal("an expired idempotency key replayed the old token instead of starting a new request")
+	}
+	// Records expire on use too, without a startup prune.
+	if _, err := db.Exec(`UPDATE idempotency_records SET created_at = ?, updated_at = ?`, aged, aged); err != nil {
+		t.Fatal(err)
+	}
+	third, _, err := create()
+	if err != nil || third.ID == second.ID {
+		t.Fatalf("an expired record was replayed on use: %s/%v", third.ID, err)
+	}
+}

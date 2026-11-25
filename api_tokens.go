@@ -107,6 +107,24 @@ func (s *apiTokenStore) resealRotatedIdempotencyResults() (int, error) {
 	return len(stale), nil
 }
 
+// apiTokenIdempotencyRetention bounds how long an idempotent token result is
+// kept. A completed result holds the issued token secret (sealed); tokens are
+// otherwise stored only as hashes, so the replay window is kept to what a
+// client retry needs rather than kept forever.
+const apiTokenIdempotencyRetention = 24 * time.Hour
+
+// pruneExpiredIdempotency deletes idempotency records older than the
+// retention window, so their sealed token secrets do not outlive it.
+func pruneExpiredIdempotency(execer interface {
+	Exec(string, ...any) (sql.Result, error)
+}, now time.Time) (int64, error) {
+	result, err := execer.Exec(`DELETE FROM idempotency_records WHERE created_at < ?`, now.Add(-apiTokenIdempotencyRetention).Unix())
+	if err != nil {
+		return 0, fmt.Errorf("prune expired idempotency records: %w", err)
+	}
+	return result.RowsAffected()
+}
+
 var (
 	errIdempotencyConflict = errors.New("idempotency key was reused for a different request")
 	errIdempotencyInFlight = errors.New("idempotent operation is already in progress")
@@ -164,6 +182,10 @@ func (s *apiTokenStore) lookupIdempotency(tx *sql.Tx, principal, operation, key,
 }
 
 func (s *apiTokenStore) beginIdempotency(tx *sql.Tx, principal, operation, key, requestHash string) (bool, error) {
+	// An expired record no longer replays: the key starts a new request.
+	if _, err := pruneExpiredIdempotency(tx, time.Now()); err != nil {
+		return false, err
+	}
 	now := time.Now().Unix()
 	result, err := tx.Exec(`INSERT INTO idempotency_records (principal, operation, idempotency_key, request_hash, state, result, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', X'', ?, ?) ON CONFLICT(principal, operation, idempotency_key) DO NOTHING`, principal, operation, key, requestHash, now, now)
 	if err != nil {

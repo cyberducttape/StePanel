@@ -88,6 +88,9 @@ CSRF token; the secret is returned only when created.
 Manage customer tokens with `GET`/`POST /api/account/tokens` and
 `DELETE /api/account/tokens/{id}`. Administrators manage scoped tokens with
 `GET`/`POST /api/admin/tokens` and `DELETE /api/admin/tokens/{id}`.
+A token creation sent with an `Idempotency-Key` replays the same token and
+secret if retried within 24 hours. After that the record, and its sealed
+copy of the secret, is deleted and the same key creates a new token.
 
 ## Response and safety rules
 
