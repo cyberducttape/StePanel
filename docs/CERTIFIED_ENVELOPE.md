@@ -41,10 +41,16 @@ that change. Host CPU peaked at 99.5%; summed PHP-FPM RSS reached 9.4 GiB, with
 6.9 GiB minimum available memory. The [reviewed report](./lab-results/2026-11-24-capacity-large-c6425b0.md)
 contains workload and measurement details.
 
-This is the third passing 500-site run on one runner VM type and the first on
-that source, not a certified limit. It did not include real WordPress/database
-traffic, migrations, restart or recovery under load, or the 2,000-domain and
-100-account targets. The earlier Ubuntu 26.04.1 synthetic HTTP run is recorded
+The full-envelope profile
+[45531628244](https://github.com/cyberducttape/StePanel/actions/runs/45531628244)
+on `23980ad1` then seeded all three structural targets at once: 500 sites,
+2,000 served domains and 100 customer accounts. It passed with no site,
+admin or customer errors and no tenant-isolation differences; route changes
+slowed to about 3 s each at that scale. See the
+[reviewed report](./lab-results/2026-11-25-capacity-envelope-23980ad.md).
+
+These are passing runs on one runner VM type, not a certified limit. They did not include real WordPress/database traffic, migrations, the
+scheduled-job target, or restart and recovery under load. The earlier Ubuntu 26.04.1 synthetic HTTP run is recorded
 in the [2026-10-24 lab report](./lab-results/2026-10-24-500-site-mixed-load.md);
 it lacked resource monitoring and ran outside the declared supported OS
 matrix, so it is exploratory evidence only.
