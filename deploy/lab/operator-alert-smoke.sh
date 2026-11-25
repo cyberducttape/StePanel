@@ -8,12 +8,22 @@
 #      and /api/health/operational reports the delivery failure.
 #   3. After the SMTP server returns, the outbox retries and delivers the
 #      second alert, and the failure clears.
+#   4. A failed job is delivered to an HTTPS webhook receiver with a valid
+#      HMAC-SHA256 signature over the exact body.
+#   5. While the receiver answers HTTP 503, a failed job stays undelivered
+#      and operational health reports it; once it answers 200 again, the
+#      outbox retries, delivers, and the failure clears.
+#   6. The same hostname resolved to loopback is refused at connect time,
+#      and the alert is delivered once the name is public again.
 #
-# The webhook channel is not covered: its SSRF policy refuses loopback and
-# private destinations by design, so it needs a separately hosted receiver.
+# The webhook SSRF policy permits only public internet addresses, so the
+# receiver listens on a public address bound to a dummy interface inside
+# this disposable guest; no packet to it leaves the guest. That exercises
+# the production policy, certificate verification and signing unchanged.
 #
-# Changes /etc/ste-panel.env, /etc/hosts and the system trust store, and
-# restores them on exit. Run only on a disposable --unsafe-lab install.
+# Changes /etc/ste-panel.env, /etc/hosts, the system trust store and network
+# interfaces, and restores them on exit. Run only on a disposable
+# --unsafe-lab install.
 set -Eeuo pipefail
 
 [[ $EUID -eq 0 ]] || { echo 'operator alert smoke must run as root' >&2; exit 1; }
@@ -21,7 +31,7 @@ grep -q '^STEPANEL_UNSAFE_LAB="\?1"\?$' /etc/ste-panel.env || {
   echo 'refusing to run: /etc/ste-panel.env is not an --unsafe-lab install' >&2
   exit 1
 }
-for tool in openssl python3 curl; do command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }; done
+for tool in openssl python3 curl ip; do command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }; done
 
 : "${PANEL:=http://127.0.0.1:8090}"
 : "${STEPANEL_ADMIN_USERNAME:=admin}"
@@ -31,6 +41,14 @@ for tool in openssl python3 curl; do command -v "$tool" >/dev/null || { echo "$t
 
 smtp_host=alerts.stepanel-lab.test
 smtp_port=2525
+hook_host=hooks.stepanel-lab.test
+hook_port=8443
+# A public address that is not routed off this guest during the drill
+# (US DoD 22.0.0.0/8, not announced for general internet use). It must be
+# public: the production policy refuses every special-purpose range.
+hook_addr=${ALERT_WEBHOOK_LAB_ADDRESS:-22.255.0.10}
+hook_link=stephook0
+hook_secret=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
 suffix=$(date -u +%H%M%S)
 site=alert-smoke-$suffix
 env_file=/etc/ste-panel.env
@@ -55,6 +73,7 @@ services=(stepanel.service)
 if systemctl is-enabled --quiet stepanel-worker.service 2>/dev/null; then services+=(stepanel-worker.service); fi
 
 smtp_pid=
+hook_pid=
 fail() { echo "operator alert smoke: $*" >&2; exit 1; }
 restart_panel() {
   systemctl restart "${services[@]}"
@@ -67,6 +86,8 @@ restart_panel() {
 cleanup() {
   local status=$?
   [[ -z $smtp_pid ]] || kill "$smtp_pid" 2>/dev/null || true
+  [[ -z $hook_pid ]] || kill "$hook_pid" 2>/dev/null || true
+  ip link del "$hook_link" 2>/dev/null || true
   cp -p "$env_backup" "$env_file"
   cp -p "$hosts_backup" /etc/hosts
   rm -f "$ca_anchor"
@@ -82,7 +103,7 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=StePanel alert smok
   -keyout "$work/ca.key" -out "$work/ca.crt" \
   -addext basicConstraints=critical,CA:TRUE -addext keyUsage=critical,keyCertSign >/dev/null 2>&1
 openssl req -newkey rsa:2048 -nodes -subj "/CN=$smtp_host" -keyout "$work/server.key" -out "$work/server.csr" >/dev/null 2>&1
-printf 'subjectAltName=DNS:%s\nextendedKeyUsage=serverAuth\n' "$smtp_host" > "$work/server.ext"
+printf 'subjectAltName=DNS:%s,DNS:%s\nextendedKeyUsage=serverAuth\n' "$smtp_host" "$hook_host" > "$work/server.ext"
 openssl x509 -req -in "$work/server.csr" -CA "$work/ca.crt" -CAkey "$work/ca.key" -CAcreateserial \
   -days 1 -extfile "$work/server.ext" -out "$work/server.crt" >/dev/null 2>&1
 install -m 0644 "$work/ca.crt" "$ca_anchor"
@@ -275,4 +296,156 @@ for _ in $(seq 1 30); do
 done
 [[ $(notification_field failed_deliveries) == 0 ]] || fail 'operational health still reports failed deliveries after recovery'
 echo "recovered: alert for job $job2 delivered on retry; failed deliveries cleared"
-echo 'operator alert smoke passed: STARTTLS delivery, outage visibility, and retry after recovery'
+
+# --- 4. Signed webhook delivery ---------------------------------------------
+ip link add "$hook_link" type dummy
+ip addr add "$hook_addr/32" dev "$hook_link"
+ip link set "$hook_link" up
+hook_dir=$work/hooks
+mkdir -p "$hook_dir"
+printf '200\n' > "$work/hook-status"
+cat > "$work/hook.py" <<'PY'
+"""HTTPS webhook sink: checks the StePanel signature and records every
+delivery. The response status is read from a file so the drill can make the
+receiver fail and recover without restarting it."""
+import hashlib
+import hmac
+import http.server
+import json
+import os
+import ssl
+import sys
+import uuid
+
+addr, port, cert, key = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
+secret, out, status_file = sys.argv[5].encode(), sys.argv[6], sys.argv[7]
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        body = self.rfile.read(min(length, 1 << 20))
+        with open(status_file) as source:
+            status = int(source.read().strip())
+        expected = "sha256=" + hmac.new(secret, body, hashlib.sha256).hexdigest()
+        signed = hmac.compare_digest(self.headers.get("X-StePanel-Signature", ""), expected)
+        try:
+            job = json.loads(body).get("job_id", "")
+        except ValueError:
+            job = ""
+        record = {"status": status, "signed": signed, "job_id": job,
+                  "event": self.headers.get("X-StePanel-Event-ID", ""),
+                  "agent": self.headers.get("User-Agent", ""),
+                  "body": body.decode("utf-8", "replace")}
+        accepted = status == 200 and signed
+        name = ("accepted-" if accepted else "refused-") + uuid.uuid4().hex + ".json"
+        stage = os.path.join(out, "." + name)
+        with open(stage, "w") as target:
+            json.dump(record, target)
+        os.replace(stage, os.path.join(out, name))
+        self.send_response(status if signed else 401)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+
+context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+context.minimum_version = ssl.TLSVersion.TLSv1_2
+context.load_cert_chain(cert, key)
+server = http.server.ThreadingHTTPServer((addr, port), Handler)
+server.socket = context.wrap_socket(server.socket, server_side=True)
+server.serve_forever()
+PY
+python3 -I "$work/hook.py" "$hook_addr" "$hook_port" "$work/server.crt" "$work/server.key" "$hook_secret" "$hook_dir" "$work/hook-status" &
+hook_pid=$!
+hook_up=0
+for _ in $(seq 1 50); do
+  if (exec 3<>"/dev/tcp/$hook_addr/$hook_port") 2>/dev/null; then hook_up=1; break; fi
+  sleep 0.1
+done
+(( hook_up )) || fail 'webhook receiver did not start'
+printf '%s %s\n' "$hook_addr" "$hook_host" >> /etc/hosts
+stop_smtp
+sed -i '/^STEPANEL_ALERT_/d' "$env_file"
+printf 'STEPANEL_ALERT_WEBHOOK_URL=https://%s:%s/stepanel/alerts\nSTEPANEL_ALERT_WEBHOOK_SECRET=%s\n' "$hook_host" "$hook_port" "$hook_secret" >> "$env_file"
+restart_panel
+login
+# hook_record KIND JOB prints the first recorded delivery of KIND
+# (accepted|refused) for JOB; accepted deliveries are always signed.
+hook_record() {
+  python3 -I -c '
+import glob, json, os, sys
+for path in sorted(glob.glob(os.path.join(sys.argv[1], sys.argv[2] + "-*.json"))):
+    with open(path) as source:
+        if json.load(source).get("job_id") == sys.argv[3]:
+            print(path)
+            break
+' "$hook_dir" "$1" "$2"
+}
+job3=$(failing_deploy three)
+for _ in $(seq 1 90); do [[ -n $(hook_record accepted "$job3") ]] && break; sleep 1; done
+delivery=$(hook_record accepted "$job3")
+[[ -n $delivery ]] || fail "no signed webhook delivery arrived for failed job $job3"
+python3 -I -c '
+import json, sys
+record = json.load(open(sys.argv[1]))
+payload = json.loads(record["body"])
+assert record["signed"] and record["event"], record
+assert record["agent"] == "StePanel-Operator-Alerts", record
+assert payload.get("state") in ("failed", "dead-letter"), payload
+' "$delivery" || fail 'webhook delivery is missing its signature, event identity, or failed state'
+echo "delivered: signed webhook for failed job $job3 arrived at a public-address HTTPS receiver"
+
+# --- 5. Receiver outage: visible, then retried --------------------------------
+printf '503\n' > "$work/hook-status"
+job4=$(failing_deploy four)
+failed=0
+for _ in $(seq 1 90); do
+  failed=$(notification_field failed_deliveries)
+  [[ $failed =~ ^[0-9]+$ ]] && (( failed >= 1 )) && break
+  sleep 1
+done
+(( failed >= 1 )) || fail "operational health did not report the webhook outage (failed_deliveries=$failed)"
+[[ -n $(hook_record refused "$job4") ]] || fail "the webhook for job $job4 never reached the failing receiver"
+[[ -z $(hook_record accepted "$job4") ]] || fail 'a webhook was accepted while the receiver returned 503'
+echo "outage: webhook for job $job4 refused with HTTP 503; operational health reports $failed failed delivery(ies)"
+printf '200\n' > "$work/hook-status"
+for _ in $(seq 1 240); do [[ -n $(hook_record accepted "$job4") ]] && break; sleep 1; done
+[[ -n $(hook_record accepted "$job4") ]] || fail "webhook for job $job4 was not retried after the receiver recovered"
+for _ in $(seq 1 30); do
+  [[ $(notification_field failed_deliveries) == 0 ]] && break
+  sleep 1
+done
+[[ $(notification_field failed_deliveries) == 0 ]] || fail 'operational health still reports failed deliveries after webhook recovery'
+echo "recovered: webhook for job $job4 delivered on retry; failed deliveries cleared"
+
+# --- 6. Private destination refused at connect time ---------------------------
+grep -vF " $hook_host" /etc/hosts > "$work/hosts.next"
+printf '127.0.0.1 %s\n' "$hook_host" >> "$work/hosts.next"
+cat "$work/hosts.next" > /etc/hosts
+job5=$(failing_deploy five)
+failed=0
+for _ in $(seq 1 90); do
+  failed=$(notification_field failed_deliveries)
+  [[ $failed =~ ^[0-9]+$ ]] && (( failed >= 1 )) && break
+  sleep 1
+done
+(( failed >= 1 )) || fail 'a webhook resolved to loopback was not reported as a failed delivery'
+[[ -z $(hook_record refused "$job5") && -z $(hook_record accepted "$job5") ]] || fail 'a webhook resolved to loopback reached a receiver'
+echo "refused: webhook for job $job5 resolved to 127.0.0.1 was blocked by the outbound policy"
+# The refused alert stays queued, not lost: once the name points back at the
+# receiver it is retried and delivered, leaving the outbox clean.
+grep -vF " $hook_host" /etc/hosts > "$work/hosts.next"
+printf '%s %s\n' "$hook_addr" "$hook_host" >> "$work/hosts.next"
+cat "$work/hosts.next" > /etc/hosts
+for _ in $(seq 1 240); do [[ -n $(hook_record accepted "$job5") ]] && break; sleep 1; done
+[[ -n $(hook_record accepted "$job5") ]] || fail "the refused webhook for job $job5 was lost instead of retried"
+for _ in $(seq 1 30); do
+  [[ $(notification_field failed_deliveries) == 0 ]] && break
+  sleep 1
+done
+[[ $(notification_field failed_deliveries) == 0 ]] || fail 'operational health still reports failed deliveries after the refused webhook was delivered'
+echo "requeued: webhook for job $job5 delivered once its destination was public again"
+echo 'operator alert smoke passed: STARTTLS and signed webhook delivery, outage visibility, retry after recovery, and private-destination refusal'
