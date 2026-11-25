@@ -5,9 +5,15 @@ Runs on a disposable host where StePanel is installed (the lab install smoke
 leaves the panel at 127.0.0.1:8090 with known lab credentials). It:
 
   1. creates N live PHP sites through the API, each with a route served by
-     the real web server and PHP-FPM;
-  2. for CAPACITY_DURATION seconds, sends customer traffic to the sites and
-     continuously probes the administrative API;
+     the real web server and PHP-FPM, then adds alias domain routes until the
+     host carries CAPACITY_DOMAINS domains (four per site by default, the
+     envelope's 2,000 for 500 sites), checks that every domain answers, and
+     creates CAPACITY_ACCOUNTS customer accounts (one per five sites by
+     default, the envelope's 100 for 500 sites) that own those sites;
+  2. for CAPACITY_DURATION seconds, sends customer traffic to every domain,
+     continuously probes the administrative API, and runs logged-in customer
+     probes that time tenant-scoped API calls and check that each customer
+     sees exactly its own sites;
   3. a quarter of the way in, starts two heavy customer operations at once
      (backups of large incompressible sites) and measures their queue wait
      and duration;
@@ -18,7 +24,8 @@ and prints a Markdown report (also written as JSON next to it). Profiles:
 small (25 sites), node (150), large (500); CAPACITY_SITES overrides.
 
 This produces measurements for one host and run, not a certified limit.
-Lab only: it creates and leaves sites named cap-* and cap-heavy-*.
+Lab only: it creates and leaves sites named cap-* and cap-heavy-*, alias
+domains alias*-cap-*.localhost, and customer accounts named capacct*.
 """
 
 import base64
@@ -54,6 +61,43 @@ DURATION = int(os.environ.get("CAPACITY_DURATION", "600"))
 CLIENTS = int(os.environ.get("CAPACITY_SITE_CLIENTS", "8"))
 HEAVY_MIB = int(os.environ.get("CAPACITY_HEAVY_MIB", "512"))
 REPORT = os.environ.get("CAPACITY_REPORT", "/var/log/stepanel-cert/capacity-report.json")
+DOMAINS = int(os.environ.get("CAPACITY_DOMAINS", 4 * SITES))
+# The professional plan allows five sites per account.
+ACCOUNT_SITE_LIMIT = 5
+ACCOUNTS = int(os.environ.get("CAPACITY_ACCOUNTS", SITES // ACCOUNT_SITE_LIMIT))
+CUSTOMER_PROBES = int(os.environ.get("CAPACITY_CUSTOMER_PROBES", "4"))
+
+
+def alias_domains(site_names, total_domains):
+    """Alias domains to add so the host carries total_domains routes: one
+    primary per site already exists; the rest are spread round-robin."""
+    extra = max(total_domains - len(site_names), 0)
+    if not site_names:
+        return []
+    return [(site_names[i % len(site_names)], f"alias{i // len(site_names) + 1}-{site_names[i % len(site_names)]}.localhost")
+            for i in range(extra)]
+
+
+def plan_accounts(site_names, accounts, per_account):
+    """Assign consecutive sites to accounts named capacct000...; every site
+    goes to at most one account, no account exceeds its plan limit, and sites
+    beyond accounts * per_account stay with the administrator."""
+    if accounts <= 0 or per_account <= 0:
+        return {}
+    plan = {}
+    for index in range(accounts):
+        owned = site_names[index * per_account:(index + 1) * per_account]
+        plan[f"capacct{index:03d}"] = owned
+    return plan
+
+
+def isolation_violation(expected, listed):
+    """A tenant-scoped listing must show exactly the sites the customer owns.
+    Returns a description of the difference, or None."""
+    expected, listed = set(expected), set(listed)
+    if listed == expected:
+        return None
+    return f"unexpected {sorted(listed - expected)[:5]}, missing {sorted(expected - listed)[:5]}"
 
 
 def log(message):
@@ -75,11 +119,12 @@ class Panel:
         self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.jar))
         self.csrf = ""
 
-    def login(self):
+    def login(self, user=USER, password=PASSWORD, secret=TOTP_SECRET, fresh_window=True):
         # A fresh TOTP window, so an earlier lab login's code is not replayed.
-        time.sleep(31 - int(time.time()) % 30)
+        if fresh_window:
+            time.sleep(31 - int(time.time()) % 30)
         self.opener.open(PANEL + "/login", timeout=10).read()
-        body = urllib.parse.urlencode({"username": USER, "password": PASSWORD, "totp": totp(TOTP_SECRET)}).encode()
+        body = urllib.parse.urlencode({"username": user, "password": password, "totp": totp(secret)}).encode()
         self.opener.open(urllib.request.Request(PANEL + "/login", data=body), timeout=10).read()
         for cookie in self.jar:
             if cookie.name == "stepanel_csrf":
@@ -292,6 +337,15 @@ def parse_site_runtime_diagnostic(body, site_name, now=None):
         "memory_limit_utilization_pct": round(max(memory_pct), 1) if memory_pct else None,
         "fpm_sample_age_s": round(max(0, now - max(timestamps)), 1) if timestamps else None,
     }
+
+
+def add_route(panel, name, domain):
+    status, preview = panel.call("POST", "/api/sites/deploy", {"site": name, "domain": domain})
+    if status != 200:
+        raise SystemExit(f"route preview {name} {domain}: HTTP {status} {preview!r}")
+    status, applied = panel.call("POST", "/api/sites/deploy", {"site": name, "domain": domain, "preview_token": preview["preview_token"]})
+    if status != 202:
+        raise SystemExit(f"route apply {name} {domain}: HTTP {status} {applied!r}")
 
 
 def create_site(panel, name, domain):
@@ -543,7 +597,7 @@ def main():
     since = time.strftime("%Y-%m-%d %H:%M:%S")
     panel = Panel()
     panel.login()
-    log(f"profile {PROFILE}: {SITES} sites, {DURATION}s measurement, {CLIENTS} site clients, two {HEAVY_MIB} MiB heavy backups")
+    log(f"profile {PROFILE}: {SITES} sites, {DOMAINS} domains, {ACCOUNTS} accounts, {DURATION}s measurement, {CLIENTS} site clients, {CUSTOMER_PROBES} customer probes, two {HEAVY_MIB} MiB heavy backups")
 
     setup_started = time.time()
     domains = []
@@ -568,8 +622,36 @@ def main():
                 payload.write(os.urandom(1 << 20))
         os.chown(os.path.join(docroot, "payload.bin"), owner.st_uid, owner.st_gid)
         heavy.append(name)
+    site_names = [f"cap-{index:03d}" for index in range(SITES)]
+    aliases = alias_domains(site_names, DOMAINS)
+    for count, (name, domain) in enumerate(aliases, 1):
+        add_route(panel, name, domain)
+        domains.append(domain)
+        if count % 100 == 0:
+            log(f"added {count}/{len(aliases)} alias domains")
+    # Every route must actually be served before it carries measured traffic.
+    unserved = []
+    for domain in domains:
+        status, _, detail, _ = site_get(domain)
+        if not 200 <= status < 400:
+            unserved.append(f"{domain}: HTTP {status} {detail[:120]}")
+    if unserved:
+        raise SystemExit(f"{len(unserved)} of {len(domains)} domains are not served: {unserved[:5]}")
+    log(f"all {len(domains)} domains answered")
+    account_plan = plan_accounts(site_names, ACCOUNTS, ACCOUNT_SITE_LIMIT)
+    account_credentials = {}
+    for count, (username, owned) in enumerate(account_plan.items(), 1):
+        password = base64.urlsafe_b64encode(os.urandom(24)).decode()
+        secret = base64.b32encode(os.urandom(20)).decode().rstrip("=")
+        status, created = panel.call("POST", "/api/accounts", {"username": username, "password": password,
+                                                               "totp_secret": secret, "plan": "professional", "sites": owned})
+        if status != 201:
+            raise SystemExit(f"create account {username}: HTTP {status} {created!r}")
+        account_credentials[username] = (password, secret)
+        if count % 25 == 0:
+            log(f"created {count}/{len(account_plan)} customer accounts")
     setup_seconds = round(time.time() - setup_started)
-    log(f"setup finished in {setup_seconds}s")
+    log(f"setup finished in {setup_seconds}s: {len(domains)} domains, {len(account_plan)} accounts")
 
     # Start measuring from a ready host. Setup can leave a transient readiness
     # check running (for example a scheduled off-site target probe); any
@@ -594,6 +676,7 @@ def main():
     lock = threading.Lock()
     site_results, site_failures, admin_results, admin_failures = [], [], {}, []
     runtime_metric_samples = []
+    customer_results, customer_failures, isolation_failures = {}, [], []
     latest_runtime_metrics = {"sampled_at": None, "body": None}
     measurement_started = time.time()
     heavy_window = [None, None]
@@ -626,7 +709,7 @@ def main():
     def admin_probe():
         probe = Panel()
         probe.jar, probe.opener, probe.csrf = panel.jar, panel.opener, panel.csrf
-        paths = ["/api/sites", "/api/jobs", "/readyz", "/api/sites/overview"]
+        paths = ["/api/sites", "/api/jobs", "/readyz", "/api/sites/overview", "/api/accounts"]
         next_metrics_scrape = 0
         while not stop.is_set():
             for path in paths:
@@ -679,7 +762,38 @@ def main():
                 static_results.append((time.time(), status, seconds, timings))
             stop.wait(1)
 
+    customer_sessions = []
+    for username in list(account_plan)[:max(CUSTOMER_PROBES, 0)]:
+        session = Panel()
+        password, secret = account_credentials[username]
+        session.login(username, password, secret, fresh_window=False)
+        customer_sessions.append((username, session))
+
+    def customer_probe(username, session):
+        owned = account_plan[username]
+        while not stop.is_set():
+            for path, key in (("/api/account/hosting", "sites"), ("/api/sites/overview", "sites")):
+                begin = time.perf_counter()
+                try:
+                    status, body = session.call("GET", path, timeout=60)
+                except OSError as error:
+                    status, body = 0, str(error)
+                elapsed = time.perf_counter() - begin
+                violation = None
+                if status == 200 and isinstance(body, dict):
+                    violation = isolation_violation(owned, [item.get("site") for item in body.get(key) or []])
+                with lock:
+                    customer_results.setdefault(path, []).append((time.time(), status, elapsed))
+                    if not 200 <= status < 400 and len(customer_failures) < 50:
+                        customer_failures.append({"t": round(time.time() - measurement_started, 1), "account": username,
+                                                  "path": path, "status": status, "detail": failure_detail(body)})
+                    if violation and len(isolation_failures) < 50:
+                        isolation_failures.append({"t": round(time.time() - measurement_started, 1), "account": username,
+                                                   "path": path, "difference": violation})
+            stop.wait(1)
+
     threads = [threading.Thread(target=site_client, daemon=True) for _ in range(CLIENTS)]
+    threads.extend(threading.Thread(target=customer_probe, args=probe, daemon=True) for probe in customer_sessions)
     threads.append(threading.Thread(target=admin_probe, daemon=True))
     threads.append(threading.Thread(target=static_probe, daemon=True))
     for thread in threads:
@@ -739,7 +853,8 @@ def main():
         return phases
 
     report = {
-        "profile": PROFILE, "sites": SITES, "duration_s": DURATION, "site_clients": CLIENTS,
+        "profile": PROFILE, "sites": SITES, "domains": len(domains), "accounts": len(account_plan),
+        "customer_probes": len(customer_sessions), "duration_s": DURATION, "site_clients": CLIENTS,
         "heavy_mib": HEAVY_MIB, "started_utc": started_at, "setup_s": setup_seconds,
         "host": {"kernel": platform.release(), "machine": platform.machine(),
                  "logical_cpus": os.cpu_count()},
@@ -772,6 +887,13 @@ def main():
             "baseline": summarize(window(results, False)),
             "during_heavy": summarize(window(results, True)),
         } for path, results in admin_results.items()},
+        "customer": {path: {
+            "errors": sum(1 for (_, status, _) in results if not 200 <= status < 400),
+            "baseline": summarize(window(results, False)),
+            "during_heavy": summarize(window(results, True)),
+        } for path, results in customer_results.items()},
+        "customer_failures": customer_failures,
+        "tenant_isolation_failures": isolation_failures,
         "site_runtime_diagnostics": {
             **summarize_runtime_metrics(runtime_metric_samples),
             "samples": runtime_metric_samples,
@@ -795,17 +917,17 @@ def main():
     with open(REPORT, "w") as handle:
         json.dump(report, handle, indent=2)
 
-    print(f"# Capacity profile `{PROFILE}`: {SITES} sites\n")
+    print(f"# Capacity profile `{PROFILE}`: {SITES} sites, {len(domains)} domains, {len(account_plan)} customer accounts\n")
     print(f"Started {started_at} UTC; setup {setup_seconds}s; {DURATION}s measured with {CLIENTS} site clients; two {HEAVY_MIB} MiB backups started at {DURATION // 4}s.\n")
     print("| Traffic | Window | Requests | p50 ms | p95 ms | p99 ms | max ms | Errors |")
     print("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |")
-    rows = [("site pages", report["site_requests"])] + [(path, data) for path, data in report["admin"].items()]
-    for name, data in rows:
+    rows = ([("site pages", report["site_requests"], site_results)]
+            + [(path, data, admin_results[path]) for path, data in report["admin"].items()]
+            + [(f"customer {path}", data, customer_results[path]) for path, data in report["customer"].items()])
+    for name, data, results in rows:
         for label in ("baseline", "during_heavy"):
             stats = data[label]
-            outcomes = window_status_counts(
-                site_results if name == "site pages" else admin_results[name],
-                label == "during_heavy", *heavy_window)
+            outcomes = window_status_counts(results, label == "during_heavy", *heavy_window)
             print(f"| {name} | {label.replace('_', ' ')} | {stats['count']} | {stats['p50_ms']} | {stats['p95_ms']} | {stats['p99_ms']} | {stats['max_ms']} | {outcomes['errors']} |")
     print("\n| Heavy operation | State | Queue wait s | Duration s |")
     print("| --- | --- | ---: | ---: |")
@@ -858,7 +980,17 @@ def main():
         print("| ---: | --- | ---: | --- |")
         for failure in admin_failures[:20]:
             print(f"| {failure['t']} | {failure['path']} | {failure['status']} | {failure['detail'][:200].replace('|', '/')} |")
-    failed = report["site_requests"]["errors"] or any(d["errors"] for d in report["admin"].values()) or any(j["state"] != "completed" for j in report["heavy_operations"])
+    print(f"\nTenant isolation: {len(customer_sessions)} customer probe(s); {len(isolation_failures)} listing(s) differed from the account's own sites.")
+    for failure in isolation_failures[:20]:
+        print(f"- t={failure['t']}s {failure['account']} {failure['path']}: {failure['difference']}")
+    if customer_failures:
+        print("\n| Customer failure at s | Account | Path | Status | Detail |")
+        print("| ---: | --- | --- | ---: | --- |")
+        for failure in customer_failures[:20]:
+            print(f"| {failure['t']} | {failure['account']} | {failure['path']} | {failure['status']} | {failure['detail'][:200].replace('|', '/')} |")
+    failed = (report["site_requests"]["errors"] or any(d["errors"] for d in report["admin"].values())
+              or any(d["errors"] for d in report["customer"].values()) or isolation_failures
+              or any(j["state"] != "completed" for j in report["heavy_operations"]))
     sys.exit(1 if failed else 0)
 
 

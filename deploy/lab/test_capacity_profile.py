@@ -239,3 +239,39 @@ class RequestTimelineTest(unittest.TestCase):
             (1007.0, 200, 0.1, {}),   # started at 6.9 s
         ]
         self.assertEqual(capacity_profile.request_timeline(results, started), [[0, 1, 1], [5, 1, 0]])
+
+
+class EnvelopeSeedTests(unittest.TestCase):
+    def test_alias_domains_reach_the_envelope_ratio(self):
+        sites = [f"cap-{index:03d}" for index in range(500)]
+        aliases = capacity_profile.alias_domains(sites, 2000)
+        self.assertEqual(len(aliases), 1500)
+        self.assertEqual(len({domain for _, domain in aliases}), 1500)
+        per_site = {}
+        for site, domain in aliases:
+            self.assertTrue(domain.endswith(f"-{site}.localhost"), domain)
+            per_site[site] = per_site.get(site, 0) + 1
+        self.assertEqual(set(per_site.values()), {3})
+
+    def test_alias_domains_never_go_negative(self):
+        self.assertEqual(capacity_profile.alias_domains(["cap-000", "cap-001"], 1), [])
+        self.assertEqual(capacity_profile.alias_domains([], 10), [])
+
+    def test_accounts_own_disjoint_sites_within_the_plan_limit(self):
+        sites = [f"cap-{index:03d}" for index in range(500)]
+        plan = capacity_profile.plan_accounts(sites, 100, 5)
+        self.assertEqual(len(plan), 100)
+        owned = [site for assigned in plan.values() for site in assigned]
+        self.assertEqual(sorted(owned), sites)
+        self.assertTrue(all(len(assigned) <= 5 for assigned in plan.values()))
+        self.assertTrue(all(len(name) <= 32 and name.isalnum() for name in plan))
+
+    def test_sites_beyond_the_account_capacity_stay_unassigned(self):
+        plan = capacity_profile.plan_accounts([f"s{index}" for index in range(11)], 2, 5)
+        self.assertEqual(plan, {"capacct000": ["s0", "s1", "s2", "s3", "s4"], "capacct001": ["s5", "s6", "s7", "s8", "s9"]})
+        self.assertEqual(capacity_profile.plan_accounts(["s0"], 0, 5), {})
+
+    def test_isolation_requires_exactly_the_owned_sites(self):
+        self.assertIsNone(capacity_profile.isolation_violation(["a", "b"], ["b", "a"]))
+        self.assertIn("unexpected ['c']", capacity_profile.isolation_violation(["a", "b"], ["a", "b", "c"]))
+        self.assertIn("missing ['b']", capacity_profile.isolation_violation(["a", "b"], ["a"]))
