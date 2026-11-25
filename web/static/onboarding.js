@@ -136,7 +136,7 @@
         const ready = readiness.operational === true && checks.length > 0 && failed.length === 0;
         notificationSetupIsOnlyHealthIssue = failed.length > 0 && failed.every(([name, check]) => (
           name === 'operator_notifications' &&
-          check.detail === 'no SMTP or webhook alert destination is configured'
+          check?.detail === 'no SMTP or webhook alert destination is configured'
         ));
         const details = failed.slice(0, 2).map(([name, check]) => readinessFailure(name, check));
         steps.push({

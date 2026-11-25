@@ -55,6 +55,24 @@ func TestCustomerPanelExplainsSitePlanLimit(t *testing.T) {
 	}
 }
 
+func TestCustomerSiteCreationStateTreatsMembersAsMembersBeforePlanLookup(t *testing.T) {
+	for _, plan := range []string{"", "retired-plan", "starter"} {
+		state, _ := customerSiteCreationState(HostingAccount{Username: "alice-dev", TenantID: "alice", Role: "developer", Plan: plan})
+		if state != "member" {
+			t.Errorf("member with plan %q state = %q, want member", plan, state)
+		}
+	}
+	if state, limit := customerSiteCreationState(HostingAccount{Username: "bob", Plan: "retired-plan"}); state != "unavailable" || limit != 0 {
+		t.Errorf("owner with unknown plan = %q/%d, want unavailable/0", state, limit)
+	}
+	if state, limit := customerSiteCreationState(HostingAccount{Username: "carol", Plan: "starter", Suspended: true}); state != "suspended" || limit != 1 {
+		t.Errorf("suspended owner = %q/%d, want suspended/1", state, limit)
+	}
+	if state, _ := customerSiteCreationState(HostingAccount{Username: "dave", Plan: "professional", Sites: []string{"dave"}}); state != "available" {
+		t.Errorf("owner under limit = %q, want available", state)
+	}
+}
+
 func TestCustomersGetTheirOwnPanel(t *testing.T) {
 	a := newCustomerPanelApp(t)
 	w := httptest.NewRecorder()

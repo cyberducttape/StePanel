@@ -59,11 +59,13 @@ func (a *App) customerPanel(w http.ResponseWriter, r *http.Request) {
 // state. Site assignment remains enforced transactionally by AccountStore.
 func customerSiteCreationState(account HostingAccount) (string, int) {
 	plan, ok := hostingPlans[account.Plan]
-	if !ok {
-		return "unavailable", 0
-	}
+	// Members never create sites, so a member record whose copied plan is
+	// stale or empty must not surface an "eligibility unavailable" error.
 	if accountRole(account) != "owner" {
 		return "member", plan.SiteLimit
+	}
+	if !ok {
+		return "unavailable", 0
 	}
 	if account.Suspended {
 		return "suspended", plan.SiteLimit
