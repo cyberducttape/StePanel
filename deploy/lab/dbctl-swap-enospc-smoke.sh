@@ -199,6 +199,8 @@ elif wait "$restore_pid"; then
   restore_pid=
 else
   swap_during_full="failed while the filesystem was full: $(tail -1 "$work/restore.err")"
+  echo 'helper output while the filesystem was full:'
+  tail -n 8 "$work/restore.err" | sed 's/^/  /'
   restore_pid=
 fi
 echo "restore $fill_phase phase on a full filesystem: $swap_during_full"
@@ -222,7 +224,10 @@ server_messages() {
   journalctl -u "$service" --since "$journal_since" --no-pager -q 2>/dev/null || true
   if [[ -n $error_log && -f $error_log ]]; then tail -c "+$((error_log_offset + 1))" "$error_log" 2>/dev/null || true; fi
 }
-out_of_space=$(server_messages | grep -Eci 'disk is full|no space left|errcode: 28|error 28|out of disk|binlog_error_action' || true)
+space_pattern='disk is full|disk full|no space left|errcode: 28|error 28|errno: 28|out of disk|binlog_error_action|table .* is full'
+out_of_space=$(server_messages | grep -Eci "$space_pattern" || true)
+# The server may report the condition only to the failing client.
+client_out_of_space=$(grep -Eci "$space_pattern" "$work/restore.err" || true)
 [[ $(snapshot) == "$expected" ]] || fail 'the database does not hold exactly the backup contents after the swap'
 app -e 'SELECT COUNT(*) FROM order_notes' | grep -qx 2 || fail 'the site account cannot read the restored view'
 app -e "INSERT INTO orders VALUES (98, 'write after swap', 1)" || fail 'the site account cannot write after the swap (fence not lifted?)'
@@ -237,8 +242,10 @@ shadow=$(M -e "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_
 pass 'the swap rolled forward: backup contents, view and trigger restored, site account unfenced, no shadow or record left'
 if (( inconclusive )); then
   echo "database $fill_phase-phase ENOSPC smoke inconclusive: the restore $swap_during_full; the final state was verified but no out-of-space condition was exercised"
-elif (( out_of_space > 0 )); then
-  echo "database $fill_phase-phase ENOSPC smoke passed: the server logged $out_of_space out-of-space message(s); restore $swap_during_full"
+elif (( out_of_space + client_out_of_space > 0 )); then
+  echo "database $fill_phase-phase ENOSPC smoke passed: out-of-space reported $out_of_space time(s) in the server log and $client_out_of_space time(s) to the helper; restore $swap_during_full"
+elif [[ $swap_during_full == completed* ]]; then
+  echo "database $fill_phase-phase ENOSPC smoke passed without an out-of-space report: restore $swap_during_full (the $fill_phase phase needed no new space)"
 else
-  echo "database $fill_phase-phase ENOSPC smoke passed without an out-of-space message from the server: restore $swap_during_full (the $fill_phase phase needed no new space)"
+  echo "database $fill_phase-phase ENOSPC smoke passed; the restore $swap_during_full, but neither the server log nor the helper reported out-of-space, so the failure cause is unconfirmed"
 fi
