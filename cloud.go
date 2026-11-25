@@ -156,6 +156,34 @@ func cloudOperationKey(request durableCloudRequest, suppliedKey string, _ time.T
 	return request.Operation + ":" + request.Action + ":" + suppliedKey
 }
 
+// cloudAuditEvent names a cloud job's audit event and target, and reports
+// whether it is a class A security-ledger mutation (docs/AUDIT_CONTRACT.md).
+// SSH service actions are service restarts and stay class B.
+func cloudAuditEvent(request durableCloudRequest) (action, target string, securityLedger bool) {
+	switch request.Operation {
+	case "ssh":
+		return "ssh." + request.Action, request.ID, false
+	case "dns":
+		return "cloud.dns." + request.Action, request.DNS.DomainID, true
+	case "loadbalancer":
+		return "cloud.loadbalancer." + request.LB.Action, request.LB.NodeBalancerID, true
+	default:
+		return "cloud." + request.Action, request.ID, true
+	}
+}
+
+// cloudAuditDetail describes the requested provider change without secrets.
+func cloudAuditDetail(request durableCloudRequest) string {
+	switch {
+	case request.Operation == "dns":
+		return fmt.Sprintf("provider=%s record=%s type=%s name=%s", request.Provider, request.DNS.RecordID, request.DNS.Type, request.DNS.Name)
+	case request.Operation == "loadbalancer":
+		return fmt.Sprintf("provider=%s config=%s node=%s", request.Provider, request.LB.ConfigID, request.LB.NodeID)
+	default:
+		return fmt.Sprintf("provider=%s operation=%s", request.Provider, request.Operation)
+	}
+}
+
 func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 	var request durableCloudRequest
 	if err := json.Unmarshal(item.Payload, &request); err != nil {
@@ -179,6 +207,17 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 	}
 	if err := a.Jobs.CheckNotCancelled(item.ID); err != nil {
 		return nil, err
+	}
+	auditAction, auditTarget, securityLedger := cloudAuditEvent(request)
+	// Provider mutations change infrastructure outside this host (instances,
+	// DNS records, load-balancer membership): record the intent durably
+	// before calling the provider, and refuse rather than act unrecorded.
+	var intent *SecurityAudit
+	if securityLedger {
+		var auditErr error
+		if intent, auditErr = BeginSecurityAudit(a.Config.AuditLog, request.Actor, auditAction, auditTarget, cloudAuditDetail(request)); auditErr != nil {
+			return nil, fmt.Errorf("refusing %s: the security audit intent could not be recorded: %w", auditAction, auditErr)
+		}
 	}
 	var result CloudActionResult
 	var err error
@@ -289,17 +328,11 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 				return nil, fmt.Errorf("%w; persist DNS failure state: %v", err, desiredErr)
 			}
 		}
-		auditPrefix := "cloud."
-		if request.Operation == "ssh" {
-			auditPrefix = "ssh."
+		if intent != nil {
+			intent.Failed(err.Error())
+		} else {
+			TelemetryAudit(a.Config.AuditLog, request.Actor, auditAction+".failed", auditTarget, err.Error())
 		}
-		auditAction := request.Action
-		if request.Operation == "dns" {
-			auditAction = "dns." + request.Action
-		} else if request.Operation == "loadbalancer" {
-			auditAction = "loadbalancer." + request.Action
-		}
-		TelemetryAudit(a.Config.AuditLog, request.Actor, auditPrefix+auditAction+".failed", result.ID, err.Error())
 		return nil, err
 	}
 	if request.Operation == "dns" && a.DNSDesired != nil {
@@ -312,17 +345,11 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 			TelemetryAudit(a.Config.AuditLog, request.Actor, "cloud.dns.state_persistence_failed", request.DNS.DomainID, result.StateWarning)
 		}
 	}
-	auditPrefix := "cloud."
-	if request.Operation == "ssh" {
-		auditPrefix = "ssh."
+	if intent != nil {
+		intent.Completed(result.Provider)
+	} else {
+		TelemetryAudit(a.Config.AuditLog, request.Actor, auditAction, auditTarget, result.Provider)
 	}
-	auditAction := request.Action
-	if request.Operation == "dns" {
-		auditAction = "dns." + request.Action
-	} else if request.Operation == "loadbalancer" {
-		auditAction = "loadbalancer." + request.Action
-	}
-	TelemetryAudit(a.Config.AuditLog, request.Actor, auditPrefix+auditAction, result.ID, result.Provider)
 	output, err := json.Marshal(result)
 	if err != nil {
 		return nil, err

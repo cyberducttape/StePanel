@@ -29,6 +29,27 @@ type durableArchiveImportRequest struct {
 	Account string `json:"account,omitempty"`
 	Kind    string `json:"kind,omitempty"`
 	Domain  string `json:"domain,omitempty"`
+	// Actor is the requester recorded in the security audit (Auth.AuditActor).
+	Actor string `json:"actor,omitempty"`
+}
+
+// administratorJobOwner is the owner recorded on jobs queued from
+// administrator-only routes: the configured administrator username.
+func (a *App) administratorJobOwner() string {
+	if a.Auth.Username != "" {
+		return a.Auth.Username
+	}
+	return "admin"
+}
+
+// archiveImportAuditDetail describes an import for the audit without the
+// archive URL's path or query, which may carry a presigned token.
+func archiveImportAuditDetail(req durableArchiveImportRequest) string {
+	host := "unknown"
+	if parsed, err := url.Parse(req.ArchiveURL); err == nil && parsed.Host != "" {
+		host = parsed.Host
+	}
+	return fmt.Sprintf("source_host=%s account=%s database_restore=%t", host, req.Account, req.AutoRestoreDB)
 }
 
 // durableArchiveInspectionRequest is the job payload for archive inspections
@@ -119,7 +140,7 @@ func (a *App) inspectArchive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job, err := a.Jobs.Enqueue("archive.inspect", "admin", "archive-inspection", payload, 3)
+	job, err := a.Jobs.Enqueue("archive.inspect", a.administratorJobOwner(), "archive-inspection", payload, 3)
 	if err != nil {
 		writeJobEnqueueError(w, err, "failed to enqueue inspection job: "+err.Error())
 		return
@@ -250,13 +271,17 @@ func (a *App) archiveImportStart(w http.ResponseWriter, r *http.Request) {
 		Account:          req.Account,
 		Kind:             req.Kind,
 		Domain:           req.Domain,
+		Actor:            a.Auth.AuditActor(r),
 	})
 	if err != nil {
 		http.Error(w, "failed to marshal job payload: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	job, err := a.Jobs.Enqueue("archive.import", "admin", req.SiteName, payload, 3)
+	// The worker authorizes the job as the administrator by comparing its
+	// owner with the configured administrator username, which need not be
+	// "admin" (STEPANEL_ADMIN_USERNAME).
+	job, err := a.Jobs.Enqueue("archive.import", a.administratorJobOwner(), req.SiteName, payload, 3)
 	if err != nil {
 		writeJobEnqueueError(w, err, "failed to enqueue import job: "+err.Error())
 		return
@@ -325,7 +350,7 @@ func (a *App) archiveImportStatus(w http.ResponseWriter, r *http.Request) {
 // activation so a crash between rename and commit is recoverable on boot via
 // RecoverSiteTransactions. On any failure the staging tree is removed and the
 // canonical path is left untouched.
-func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) ([]byte, error) {
+func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) (output []byte, err error) {
 	var req durableArchiveImportRequest
 	if err := json.Unmarshal(job.Payload, &req); err != nil {
 		return nil, fmt.Errorf("failed to parse job payload: %w", err)
@@ -339,7 +364,7 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) ([]byte, err
 
 	actor := job.User
 	if actor == "" {
-		actor = "admin"
+		actor = a.administratorJobOwner()
 	}
 	access, err := a.authorizeDurableSiteJob(req.SiteName, actor, false)
 	if err != nil {
@@ -358,6 +383,25 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) ([]byte, err
 		return nil, fmt.Errorf("acquire site mutation lock: %w", lockErr)
 	}
 	defer releaseSite()
+
+	// An import creates a site, its account placement and database: a class
+	// A mutation. Record the intent before anything changes; every return
+	// below records the outcome.
+	auditActor := req.Actor
+	if auditActor == "" {
+		auditActor = actor
+	}
+	intent, auditErr := BeginSecurityAudit(a.Config.AuditLog, auditActor, "archive.import", req.SiteName, archiveImportAuditDetail(req))
+	if auditErr != nil {
+		return nil, fmt.Errorf("refusing archive import: the security audit intent could not be recorded: %w", auditErr)
+	}
+	defer func() {
+		if err != nil {
+			intent.Failed(err.Error())
+		} else {
+			intent.Completed(archiveImportAuditDetail(req))
+		}
+	}()
 
 	// A new site goes into a hosting account (ADR-0007). A site that already
 	// exists in either layout is refused below, never overwritten.
@@ -447,7 +491,6 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) ([]byte, err
 		}
 	})
 	if err != nil {
-		TelemetryAudit(a.Config.AuditLog, actor, "archive.import.failed", req.SiteName, err.Error())
 		return nil, fmt.Errorf("archive extraction failed: %w", err)
 	}
 	var databaseCleanup importer.DatabaseCleanup
@@ -513,8 +556,6 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) ([]byte, err
 		// imported application still needs database work.
 		result.CreatedAt = time.Now().UTC()
 	}
-
-	TelemetryAudit(a.Config.AuditLog, actor, "archive.import.completed", req.SiteName, req.ArchiveURL)
 
 	resultJSON, err := json.Marshal(result)
 	if err != nil {

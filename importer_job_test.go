@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -206,5 +207,57 @@ func TestArchiveImportPlacesSitesInHostingAccounts(t *testing.T) {
 	}
 	if got := importPlacementRequest("blog", "", "", ""); got.Account != "blog" || got.Kind != "" {
 		t.Fatalf("default import placement = %+v, want a new account named after the site", got)
+	}
+}
+
+// Archive imports are queued as the configured administrator (which need
+// not be named "admin"), carry the requesting actor for the audit, and are
+// refused before any change when the audit intent cannot be recorded.
+func TestArchiveImportUsesConfiguredAdministratorAndAuditsIntent(t *testing.T) {
+	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("k", 32))
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jobs, err := openDurableJobsDBWithKey(db, "", "test-account-key", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocker := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(blocker, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Auth: Auth{Username: "ops"}, Jobs: jobs,
+		Config: Config{WebRoot: t.TempDir(), AuditLog: filepath.Join(blocker, "audit.jsonl")}}
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/archive/import", strings.NewReader(`{"url":"https://example.test/site.tar.gz?token=secret","config_path":"wp-config.php","site_name":"example"}`))
+	request = request.WithContext(context.WithValue(request.Context(), apiTokenUsernameKey{}, "ops"))
+	response := httptest.NewRecorder()
+	app.archiveImportStart(response, request)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var queued []Job
+	for _, job := range jobs.List(100) {
+		if job.Kind == "archive.import" {
+			queued = append(queued, job)
+		}
+	}
+	if len(queued) != 1 || queued[0].User != "ops" {
+		t.Fatalf("queued archive import jobs = %+v, want one owned by the configured administrator", queued)
+	}
+	var payload durableArchiveImportRequest
+	if err := json.Unmarshal(queued[0].Payload, &payload); err != nil || payload.Actor != "ops" {
+		t.Fatalf("payload actor = %q (%v), want ops", payload.Actor, err)
+	}
+	if detail := archiveImportAuditDetail(payload); strings.Contains(detail, "token") || !strings.Contains(detail, "example.test") {
+		t.Fatalf("audit detail %q must name the host without the URL's query", detail)
+	}
+	job := queued[0]
+	if _, err := app.handleArchiveImportJob(context.Background(), &job); err == nil || !strings.Contains(err.Error(), "security audit intent") {
+		t.Fatalf("archive import without an audit intent = %v, want a refusal", err)
+	}
+	if entries, err := os.ReadDir(app.Config.WebRoot); err != nil || len(entries) != 0 {
+		t.Fatalf("a refused import changed the web root: %v, %v", entries, err)
 	}
 }

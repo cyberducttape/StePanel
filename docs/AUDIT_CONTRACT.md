@@ -116,6 +116,11 @@ and never affects the operation; failures are logged.
 | Database provisioning, credential rotation, deletion | A, intent-first | `database.provisioned`, `database.credentials_rotated`, `database.deleted` |
 | Database session termination | A, revocation | `database.session_terminated` |
 | Backup, cpMove and WordPress restores | A, intent-first | `backup.<mode>`, `cpmove.restore`, `wordpress.restore` |
+| Archive import (new site, placement and database from a remote archive; the detail names the source host, never the URL path or query) | A, intent-first, recorded by the worker | `archive.import` |
+| Cloud provider mutations: instance start, stop, reboot and snapshot; DNS record create, update and delete; load-balancer node add and remove | A, intent-first, recorded by the worker before the provider call | `cloud.<action>`, `cloud.dns.<action>`, `cloud.loadbalancer.<action>` |
+| Remote SSH service actions | B | `ssh.<action>` |
+| TLS certificate issuance | B | `certificate.issued` |
+| Backup schedule changes and removal | B | `backup.schedule.updated`, `backup.schedule.deleted` |
 | SSH access policy, SSH key addition, Git deploy key creation | A, intent-first | `site.ssh-access.updated`, `site.ssh-key.added`, `site.git-deploy-key.created` |
 | SSH key removal, Git deploy key deletion | A, revocation | `site.ssh-key.removed`, `site.git-deploy-key.deleted` |
 | FTPS enablement (password install) | A, intent-first | `site.ftps.enabled` |
@@ -131,6 +136,9 @@ and never affects the operation; failures are logged.
 | Login failures, logout, throttling, tenant access denials, scans | B | `auth.login.failed`, `*.throttled`, `tenant.access_denied`, ... |
 
 When adding an operation, classify it here in the same change.
+
+The [completeness review](./AUDIT_COMPLETENESS_REVIEW.md) records how every
+mutating HTTP route was checked against this table.
 
 ## Actor attribution
 

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -853,5 +854,69 @@ func TestDNSRecordExists(t *testing.T) {
 	desired.Priority++
 	if dnsRecordExists(srv, desired) {
 		t.Fatal("SRV record with a different priority was incorrectly treated as configured")
+	}
+}
+
+// A cloud provider mutation records its class A intent before the provider
+// is called, and is refused when the intent cannot be recorded.
+func TestCloudMutationAuditsIntentBeforeProviderCall(t *testing.T) {
+	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("k", 32))
+	t.Setenv("STEPANEL_LINODE_TOKEN", "")
+	db := openTestControlPlane(t)
+	jobs, err := openDurableJobsDBWithKey(db, "", "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(durableCloudRequest{Operation: "dns", Provider: "linode", Action: "delete", Actor: "admin",
+		DNS: cloudDNSRequest{DomainID: "123", RecordID: "456"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := jobs.Enqueue("cloud.action", "linode:dns:123", "", payload, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	blocker := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(blocker, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	refused := &App{Config: Config{AuditLog: filepath.Join(blocker, "audit.jsonl")}, Jobs: jobs}
+	if _, err := refused.handleCloudJob(context.Background(), item); err == nil || !strings.Contains(err.Error(), "security audit intent") {
+		t.Fatalf("cloud DNS delete without an audit intent = %v, want a refusal before the provider call", err)
+	}
+
+	auditLog := filepath.Join(t.TempDir(), "audit.jsonl")
+	app := &App{Config: Config{AuditLog: auditLog}, Jobs: jobs}
+	if _, err := app.handleCloudJob(context.Background(), item); err == nil || !strings.Contains(err.Error(), "STEPANEL_LINODE_TOKEN") {
+		t.Fatalf("cloud DNS delete with no provider token = %v, want the provider error", err)
+	}
+	data, err := os.ReadFile(auditLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"cloud.dns.delete.initiated"`, `"cloud.dns.delete.failed"`} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("audit log is missing %s:\n%s", want, data)
+		}
+	}
+}
+
+func TestCloudAuditEventClassification(t *testing.T) {
+	for _, test := range []struct {
+		request durableCloudRequest
+		action  string
+		target  string
+		ledger  bool
+	}{
+		{durableCloudRequest{Operation: "instance", Action: "stop", ID: "42"}, "cloud.stop", "42", true},
+		{durableCloudRequest{Operation: "dns", Action: "update", DNS: cloudDNSRequest{DomainID: "7"}}, "cloud.dns.update", "7", true},
+		{durableCloudRequest{Operation: "loadbalancer", LB: cloudLBRequest{Action: "remove", NodeBalancerID: "9"}}, "cloud.loadbalancer.remove", "9", true},
+		{durableCloudRequest{Operation: "ssh", Action: "restart", ID: "web1"}, "ssh.restart", "web1", false},
+	} {
+		action, target, ledger := cloudAuditEvent(test.request)
+		if action != test.action || target != test.target || ledger != test.ledger {
+			t.Errorf("%s/%s = %q %q %v, want %q %q %v", test.request.Operation, test.request.Action, action, target, ledger, test.action, test.target, test.ledger)
+		}
 	}
 }
