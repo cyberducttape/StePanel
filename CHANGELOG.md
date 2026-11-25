@@ -14,6 +14,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   them under the current key: customer TOTP seeds, every job payload,
   environment and webhook secrets, and API-token idempotency results. See
   [key rotation](docs/ENCRYPTION_KEYS.md#rotating-the-account-and-environment-keys).
+- `STEPANEL_AUDIT_PREVIOUS_KEYS` makes the audit-chain key rotatable without
+  re-signing history: the chain verifies across the rotation, may only move
+  to newer keys, and records `security.audit_key.rotated`.
 
 ### Fixed
 

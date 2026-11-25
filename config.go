@@ -710,6 +710,7 @@ func ValidateConfig(c Config) error {
 		if key != "" && key == os.Getenv("STEPANEL_SESSION_SECRET") {
 			problems = append(problems, errors.New("STEPANEL_AUDIT_KEY must differ from STEPANEL_SESSION_SECRET"))
 		}
+		problems = append(problems, previousKeyProblems("STEPANEL_AUDIT_PREVIOUS_KEYS", splitKeyList(os.Getenv("STEPANEL_AUDIT_PREVIOUS_KEYS")), "STEPANEL_AUDIT_KEY", key)...)
 		// Filesystem quotas are advertised to customers, so they must be enforced.
 		// If /var/www doesn't support quota enforcement, customers can't use their paid quota allocation.
 		// (Can be skipped with STEPANEL_SKIP_QUOTA_CHECK=1 for testing lab environments)

@@ -148,17 +148,23 @@ Starting in production, StePanel validates encryption keys at startup and reject
 - **Storage:** Either `/etc/stepanel-audit.key` or `STEPANEL_AUDIT_KEY` environment variable
 - **Separation:** Must be independent of `STEPANEL_SESSION_SECRET`; the audit
   logger refuses to use the session secret as a fallback.
-- **Rotation:** In-place rotation is not supported. Preserve and verify the
-  existing chain before planning a versioned keyring migration; never replace
-  this key merely to rotate it.
+- **Rotation:** Verify the chain first (`stepanel verify-audit <log>`), then
+  set the new key and list the old one in `STEPANEL_AUDIT_PREVIOUS_KEYS`
+  (comma-separated, newest first) and restart both services. Startup appends
+  a `security.audit_key.rotated` event, the first one signed with the new
+  key; it commits to the whole earlier chain, and the chain state is
+  re-signed with the new key. Events may only move to newer keys along the
+  chain, so the retired key cannot add events after the rotation. History is
+  never re-signed: keep the previous key listed for as long as the
+  pre-rotation log is retained, or verification fails closed.
 - **Checkpoint signing:** Use `STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY` for an
   independent HMAC key when remote checkpoints are enabled. It can be rotated
   separately by retaining the previous key as
   `<key-id>.key` in `STEPANEL_AUDIT_CHECKPOINT_KEYRING_DIR` before changing the
   key and `STEPANEL_AUDIT_CHECKPOINT_KEY_ID` together. Keep the directory
   root-owned, readable by the `stepanel` group, and not group/other-writable.
-  This rotates checkpoint signatures only; the local audit-chain key remains
-  non-rotatable until the event format supports per-record key IDs.
+  This rotates checkpoint signatures only; rotate the audit-chain key as
+  described above.
 - **Example:** `3b6e9a2c5d8e1f4a7b0c3d6e9f2a5b8c1d4e7a0c3f6b9e2d5f8a1b4c7d`
 
 ---

@@ -1401,6 +1401,9 @@ TXN_TEMPS+=("$env_tmp")
   # unreadable.
   if [[ -n "${STEPANEL_ACCOUNT_PREVIOUS_KEYS:-}" ]]; then write_env STEPANEL_ACCOUNT_PREVIOUS_KEYS "$STEPANEL_ACCOUNT_PREVIOUS_KEYS"; fi
   if [[ -n "${STEPANEL_ENVIRONMENT_PREVIOUS_KEYS:-}" ]]; then write_env STEPANEL_ENVIRONMENT_PREVIOUS_KEYS "$STEPANEL_ENVIRONMENT_PREVIOUS_KEYS"; fi
+  # Retired audit-chain keys verify history signed before a rotation and
+  # must stay while that history is retained.
+  if [[ -n "${STEPANEL_AUDIT_PREVIOUS_KEYS:-}" ]]; then write_env STEPANEL_AUDIT_PREVIOUS_KEYS "$STEPANEL_AUDIT_PREVIOUS_KEYS"; fi
   write_env STEPANEL_PANEL_HOSTNAME "$PANEL_HOSTNAME"
   write_env STEPANEL_DB_ENGINE "$DB_ENGINE"
   write_env STEPANEL_DB_VERSION "$DB_VERSION"

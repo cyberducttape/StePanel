@@ -469,6 +469,11 @@ func Main() {
 		log.Fatalf("initialize audit outbox: %v", err)
 	}
 	defaultAuditOutbox = auditOutbox
+	// After an audit-key rotation the chain state is still signed with the
+	// previous key; record the rotation so the next append re-signs it.
+	if rotating, err := audit.ChainSignedWithPreviousKey(cfg.AuditLog); err == nil && rotating {
+		TelemetryAudit(cfg.AuditLog, "system", "security.audit_key.rotated", "audit-log", "the audit chain continues under the current STEPANEL_AUDIT_KEY; keep the previous key in STEPANEL_AUDIT_PREVIOUS_KEYS while pre-rotation history is retained")
+	}
 	notifications, err := newOperatorNotificationStore(controlPlaneDB, cfg)
 	if err != nil {
 		log.Fatalf("initialize operator notification outbox: %v", err)

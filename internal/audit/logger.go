@@ -246,13 +246,18 @@ func (l *defaultLogger) appendEvent(actor, action, target, detail string) error 
 		finalModTimeNS = info.ModTime().UnixNano()
 	}
 
+	// Always re-sign with the current key, which completes a key rotation.
+	currentKeyCheck, err := auditKeyCheck()
+	if err != nil {
+		return err
+	}
 	return l.writeState(statePath, state{
 		Version:                1,
 		Sequence:               event.Sequence,
 		Hash:                   event.Hash,
 		FirstSequence:          s.FirstSequence,
 		FirstPreviousHash:      s.FirstPreviousHash,
-		KeyCheck:               s.KeyCheck,
+		KeyCheck:               currentKeyCheck,
 		LastValidatedSize:      finalSize,
 		LastValidatedModTimeNS: finalModTimeNS,
 		LastFullVerifyTimeNS:   s.LastFullVerifyTimeNS,
@@ -479,6 +484,10 @@ func (l *defaultLogger) reconcileTail(s state) (state, error) {
 
 	var first, last Event
 	var previous *Event
+	verifier, err := newChainVerifier()
+	if err != nil {
+		return s, err
+	}
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 4096), 1<<20)
 
@@ -490,9 +499,8 @@ func (l *defaultLogger) reconcileTail(s state) (state, error) {
 		if err := validateEvent(event); err != nil {
 			return s, err
 		}
-		expected, hashErr := hashEvent(event)
-		if hashErr != nil || !hmac.Equal([]byte(expected), []byte(event.Hash)) {
-			return s, fmt.Errorf("audit event %d has an invalid signature", event.Sequence)
+		if err := verifier.verify(event); err != nil {
+			return s, err
 		}
 		if previous != nil && (event.Sequence != previous.Sequence+1 || event.PreviousHash != previous.Hash) {
 			return s, fmt.Errorf("audit chain breaks at event %d", event.Sequence)
@@ -554,7 +562,7 @@ func (l *defaultLogger) loadState(path string) (state, error) {
 		return state{}, err
 	}
 
-	keyCheck, err := auditKeyCheck()
+	keys, err := chainKeys()
 	if err != nil {
 		return state{}, err
 	}
@@ -563,17 +571,29 @@ func (l *defaultLogger) loadState(path string) (state, error) {
 	if err := json.Unmarshal(data, &s); err != nil || s.Version != 1 ||
 		s.Sequence == 0 && s.Hash != "" ||
 		s.Sequence > 0 && len(s.Hash) != sha256.Size*2 ||
-		s.FirstSequence > s.Sequence+1 ||
-		!hmac.Equal([]byte(s.KeyCheck), []byte(keyCheck)) {
+		s.FirstSequence > s.Sequence+1 {
 		return s, errors.New("invalid audit chain state")
 	}
+	// The state is signed with the key its key check names: the current key,
+	// or a previous key until the first append after a rotation re-signs it.
+	stateKey := -1
+	for i, key := range keys {
+		if hmac.Equal([]byte(s.KeyCheck), []byte(keyCheckWithKey(key))) {
+			stateKey = i
+			break
+		}
+	}
+	if stateKey < 0 {
+		return s, errors.New("invalid audit chain state")
+	}
+	s.signedWithPrevious = stateKey > 0
 
-	expected, err := signState(s)
+	expected, err := signStateWithKey(s, keys[stateKey])
 	if err != nil || !hmac.Equal([]byte(s.Signature), []byte(expected)) {
 		return s, errors.New("audit chain state has an invalid signature")
 	}
 	if s.LastValidatedSize > 0 {
-		cacheSignature, cacheErr := signCacheState(s)
+		cacheSignature, cacheErr := signCacheStateWithKey(s, keys[stateKey])
 		if cacheErr != nil || !hmac.Equal([]byte(s.CacheSignature), []byte(cacheSignature)) ||
 			s.LastValidatedModTimeNS <= 0 || s.LastFullVerifyTimeNS <= 0 {
 			// The cache is only an optimization. A missing or stale cache
@@ -667,6 +687,10 @@ func (l *defaultLogger) Verify(path string) error {
 	defer file.Close()
 
 	var first, previous *Event
+	verifier, err := newChainVerifier()
+	if err != nil {
+		return err
+	}
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 4096), 1<<20)
 
@@ -679,9 +703,8 @@ func (l *defaultLogger) Verify(path string) error {
 			return err
 		}
 
-		expected, err := hashEvent(event)
-		if err != nil || !hmac.Equal([]byte(expected), []byte(event.Hash)) {
-			return fmt.Errorf("audit event %d has an invalid signature", event.Sequence)
+		if err := verifier.verify(event); err != nil {
+			return err
 		}
 
 		if previous != nil && (event.Sequence != previous.Sequence+1 || event.PreviousHash != previous.Hash) {
@@ -720,12 +743,16 @@ func (l *defaultLogger) Verify(path string) error {
 }
 
 func hashEvent(event Event) (string, error) {
-	event.Hash = ""
-	data, err := json.Marshal(event)
+	key, err := auditSigningKey()
 	if err != nil {
 		return "", err
 	}
-	key, err := auditSigningKey()
+	return hashEventWithKey(event, key)
+}
+
+func hashEventWithKey(event Event, key []byte) (string, error) {
+	event.Hash = ""
+	data, err := json.Marshal(event)
 	if err != nil {
 		return "", err
 	}
@@ -739,12 +766,91 @@ func auditKeyCheck() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return keyCheckWithKey(key), nil
+}
+
+func keyCheckWithKey(key []byte) string {
 	mac := hmac.New(sha256.New, key)
 	_, _ = mac.Write([]byte("stepanel-audit-state-key-check-v1"))
-	return hex.EncodeToString(mac.Sum(nil)), nil
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// chainKeys returns the current audit-chain key followed by the keys in
+// STEPANEL_AUDIT_PREVIOUS_KEYS (newest first), which only verify.
+func chainKeys() ([][]byte, error) {
+	current, err := auditSigningKey()
+	if err != nil {
+		return nil, err
+	}
+	keys := [][]byte{current}
+	for i, raw := range strings.Split(os.Getenv("STEPANEL_AUDIT_PREVIOUS_KEYS"), ",") {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		if len(raw) < 32 {
+			return nil, fmt.Errorf("STEPANEL_AUDIT_PREVIOUS_KEYS entry %d is shorter than 32 characters", i+1)
+		}
+		key := []byte(auditKeyPrefix + raw)
+		for _, existing := range keys {
+			if hmac.Equal(existing, key) {
+				return nil, fmt.Errorf("STEPANEL_AUDIT_PREVIOUS_KEYS entry %d repeats the current or an earlier key", i+1)
+			}
+		}
+		keys = append(keys, key)
+	}
+	return keys, nil
+}
+
+// chainVerifier checks event signatures against the chain keys. Along the
+// chain the signing key may only move to a newer key: once an event verifies
+// under a key, no later event may verify only under an older one, so a
+// retired key cannot extend the chain after a rotation.
+type chainVerifier struct {
+	keys   [][]byte
+	oldest int
+}
+
+func newChainVerifier() (*chainVerifier, error) {
+	keys, err := chainKeys()
+	if err != nil {
+		return nil, err
+	}
+	return &chainVerifier{keys: keys, oldest: len(keys) - 1}, nil
+}
+
+func (v *chainVerifier) verify(event Event) error {
+	for i := 0; i <= v.oldest; i++ {
+		expected, err := hashEventWithKey(event, v.keys[i])
+		if err == nil && hmac.Equal([]byte(expected), []byte(event.Hash)) {
+			v.oldest = i
+			return nil
+		}
+	}
+	return fmt.Errorf("audit event %d has an invalid signature", event.Sequence)
+}
+
+// ChainSignedWithPreviousKey reports whether the audit chain state at path
+// is still signed with a key from STEPANEL_AUDIT_PREVIOUS_KEYS, so the next
+// appended event completes a key rotation.
+func ChainSignedWithPreviousKey(path string) (bool, error) {
+	l := &defaultLogger{path: path}
+	s, err := l.loadState(path + ".state")
+	if err != nil {
+		return false, err
+	}
+	return s.signedWithPrevious, nil
 }
 
 func signState(s state) (string, error) {
+	key, err := auditSigningKey()
+	if err != nil {
+		return "", err
+	}
+	return signStateWithKey(s, key)
+}
+
+func signStateWithKey(s state, key []byte) (string, error) {
 	// Keep the primary state signature byte-for-byte compatible with the v0.6
 	// format. The cache hint is separately authenticated below so an older
 	// binary can still verify and recover from a failed upgrade.
@@ -757,10 +863,6 @@ func signState(s state) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	key, err := auditSigningKey()
-	if err != nil {
-		return "", err
-	}
 	mac := hmac.New(sha256.New, key)
 	_, _ = mac.Write([]byte("stepanel-audit-state-v1\x00"))
 	_, _ = mac.Write(data)
@@ -768,6 +870,14 @@ func signState(s state) (string, error) {
 }
 
 func signCacheState(s state) (string, error) {
+	key, err := auditSigningKey()
+	if err != nil {
+		return "", err
+	}
+	return signCacheStateWithKey(s, key)
+}
+
+func signCacheStateWithKey(s state, key []byte) (string, error) {
 	data, err := json.Marshal(struct {
 		Version           int    `json:"version"`
 		Sequence          uint64 `json:"sequence"`
@@ -792,10 +902,6 @@ func signCacheState(s state) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	key, err := auditSigningKey()
-	if err != nil {
-		return "", err
-	}
 	mac := hmac.New(sha256.New, key)
 	_, _ = mac.Write([]byte("stepanel-audit-cache-v1\x00"))
 	_, _ = mac.Write(data)
@@ -812,8 +918,11 @@ func auditSigningKey() ([]byte, error) {
 	if len(key) < 32 {
 		return nil, errors.New("an independent STEPANEL_AUDIT_KEY or protected audit key file with at least 32 characters is required")
 	}
-	return []byte("stepanel-audit-v1\x00" + key), nil
+	return []byte(auditKeyPrefix + key), nil
 }
+
+// auditKeyPrefix domain-separates the audit-chain key from other uses.
+const auditKeyPrefix = "stepanel-audit-v1\x00"
 
 func truncateValue(value string, limit int) string {
 	runes := []rune(value)

@@ -2,7 +2,6 @@ package audit
 
 import (
 	"bufio"
-	"crypto/hmac"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -142,6 +141,10 @@ func (l *defaultLogger) readVerifiedEvents(target, action string, limit int) ([]
 
 	events := make([]Event, 0, limit)
 	var first, previous *Event
+	verifier, err := newChainVerifier()
+	if err != nil {
+		return nil, err
+	}
 
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 4096), 1<<20)
@@ -156,9 +159,8 @@ func (l *defaultLogger) readVerifiedEvents(target, action string, limit int) ([]
 			return nil, err
 		}
 
-		expected, err := hashEvent(event)
-		if err != nil || !hmac.Equal([]byte(expected), []byte(event.Hash)) {
-			return nil, fmt.Errorf("audit event %d has an invalid signature", event.Sequence)
+		if err := verifier.verify(event); err != nil {
+			return nil, err
 		}
 
 		if previous != nil && (event.Sequence != previous.Sequence+1 || event.PreviousHash != previous.Hash) {

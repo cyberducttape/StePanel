@@ -31,6 +31,9 @@ type state struct {
 	LastValidatedModTimeNS int64  `json:"last_validated_mtime_ns,omitempty"`
 	LastFullVerifyTimeNS   int64  `json:"last_full_verify_time_ns,omitempty"`
 	CacheSignature         string `json:"cache_signature,omitempty"`
+	// signedWithPrevious is set by loadState when the state was signed with
+	// a key from STEPANEL_AUDIT_PREVIOUS_KEYS; the next append re-signs it.
+	signedWithPrevious bool
 }
 
 type Logger interface {
