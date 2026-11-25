@@ -311,10 +311,15 @@ jobs:
           [[ $options =~ (^|,)(usrquota|uquota)(,|$) ]]
           [[ $options =~ (^|,)(prjquota|pquota)(,|$) ]]
           # Kernel-enabled quotas must not leave the distribution
-          # quotaon.service failed after boot (install.sh drop-in).
+          # quotaon.service failed after boot (install.sh drop-in). On XFS the
+          # fstab generator does not start it at all, so require "not failed"
+          # rather than "active".
           if [[ -n $(systemctl show -p FragmentPath --value quotaon.service) ]]; then
             journalctl -b -u quotaon.service --no-pager || true
-            systemctl is-active --quiet quotaon.service
+            if systemctl is-failed --quiet quotaon.service; then
+              echo 'quotaon.service failed after boot' >&2
+              exit 1
+            fi
           fi
           home_options=$(findmnt -no OPTIONS -T /home)
           printf 'post-reboot home mount options=%s\n' "$home_options"
