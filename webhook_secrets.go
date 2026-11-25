@@ -72,30 +72,32 @@ func (wcs *WebhookConfigStore) UseEncryptionKey(key string) error {
 // seals every plaintext secret, refreshes every fingerprint and proves that
 // every sealed secret opens. It changes nothing and returns
 // *UnreadableWebhookSecretsError when any sealed secret does not open.
-func (wcs *WebhookConfigStore) PrepareSecrets(key string) error {
-	return wcs.prepareSecrets(key, false)
+//
+// previous lists retired keys (newest first) for a key rotation: a secret
+// that opens only with one of them is re-sealed under key.
+func (wcs *WebhookConfigStore) PrepareSecrets(key string, previous ...string) error {
+	return wcs.prepareSecretsReporting(key, previous, false, nil)
 }
 
 // DisableUnreadableSecrets clears the secret of, and disables, every webhook
 // whose sealed secret does not open with key, then prepares the rest. It is
 // the recovery path when the key the secrets were sealed with is lost; the
 // affected sites need a new secret configured. It returns the sites changed.
-func (wcs *WebhookConfigStore) DisableUnreadableSecrets(key string) ([]string, error) {
+func (wcs *WebhookConfigStore) DisableUnreadableSecrets(key string, previous ...string) ([]string, error) {
 	var disabled []string
-	err := wcs.prepareSecretsReporting(key, true, &disabled)
+	err := wcs.prepareSecretsReporting(key, previous, true, &disabled)
 	return disabled, err
 }
 
-func (wcs *WebhookConfigStore) prepareSecrets(key string, disableUnreadable bool) error {
-	return wcs.prepareSecretsReporting(key, disableUnreadable, nil)
-}
-
-func (wcs *WebhookConfigStore) prepareSecretsReporting(key string, disableUnreadable bool, disabled *[]string) error {
+func (wcs *WebhookConfigStore) prepareSecretsReporting(key string, previous []string, disableUnreadable bool, disabled *[]string) error {
 	var box *secretbox.Box
 	fingerprintKey := unkeyedWebhookFingerprintKey
+	if strings.TrimSpace(key) == "" && len(previous) > 0 {
+		return errors.New("previous environment keys require STEPANEL_ENVIRONMENT_KEY")
+	}
 	if strings.TrimSpace(key) != "" {
 		var err error
-		if box, err = secretbox.New([]byte(key), "webhook-secret"); err != nil {
+		if box, err = secretbox.NewWithPrevious([]byte(key), keyBytes(previous), "webhook-secret"); err != nil {
 			return fmt.Errorf("initialize webhook secret encryption: %w", err)
 		}
 		if fingerprintKey, err = hkdf.Key(sha256.New, []byte(key), nil, "stepanel/webhook-secret-fingerprint/v1", 32); err != nil {
@@ -132,10 +134,10 @@ func (wcs *WebhookConfigStore) prepareSecretsReporting(key string, disableUnread
 	}
 	var unreadable []string
 	for _, item := range stored {
-		plaintext, readable := item.secret, true
+		plaintext, readable, rotated := item.secret, true, false
 		switch {
 		case item.sealed:
-			plaintext, readable = openWebhookSecret(box, item.site, item.secret)
+			plaintext, readable, rotated = openWebhookSecretReporting(box, item.site, item.secret)
 		case strings.HasPrefix(item.secret, webhookSecretSealedPrefix):
 			// Rows sealed before secret_sealed existed carry only the
 			// prefix. A value counts as sealed only if it authenticates
@@ -143,8 +145,8 @@ func (wcs *WebhookConfigStore) prepareSecretsReporting(key string, disableUnread
 			// that happens to start with the prefix. A value in the sealed
 			// format that does not open (no key, or a different key) is
 			// refused rather than taken for plaintext.
-			if opened, ok := openWebhookSecret(box, item.site, item.secret); ok {
-				plaintext = opened
+			if opened, ok, previous := openWebhookSecretReporting(box, item.site, item.secret); ok {
+				plaintext, rotated = opened, previous
 			} else if looksLikeSealedWebhookSecret(item.secret) {
 				readable = false
 			}
@@ -166,8 +168,8 @@ func (wcs *WebhookConfigStore) prepareSecretsReporting(key string, disableUnread
 		if err != nil {
 			return err
 		}
-		if sealed == item.sealed && sealed {
-			value = item.secret // already sealed; keep the ciphertext
+		if sealed == item.sealed && sealed && !rotated {
+			value = item.secret // already sealed under the current key; keep the ciphertext
 		}
 		fingerprint := webhookSecretFingerprint(fingerprintKey, plaintext)
 		if value == item.secret && sealed == item.sealed && fingerprint == item.fingerprint {
@@ -194,18 +196,25 @@ func looksLikeSealedWebhookSecret(value string) bool {
 }
 
 func openWebhookSecret(box *secretbox.Box, site, stored string) (string, bool) {
+	plaintext, ok, _ := openWebhookSecretReporting(box, site, stored)
+	return plaintext, ok
+}
+
+// openWebhookSecretReporting also reports whether the secret opened only
+// with a previous key and so must be re-sealed.
+func openWebhookSecretReporting(box *secretbox.Box, site, stored string) (string, bool, bool) {
 	if box == nil || !strings.HasPrefix(stored, webhookSecretSealedPrefix) {
-		return "", false
+		return "", false, false
 	}
 	raw, err := base64.RawStdEncoding.DecodeString(strings.TrimPrefix(stored, webhookSecretSealedPrefix))
 	if err != nil {
-		return "", false
+		return "", false, false
 	}
-	plaintext, err := box.Open(raw, site)
+	plaintext, previous, err := box.OpenReportingPrevious(raw, site)
 	if err != nil {
-		return "", false
+		return "", false, false
 	}
-	return string(plaintext), true
+	return string(plaintext), true, previous
 }
 
 func sealWebhookSecret(box *secretbox.Box, site, secret string) (string, bool, error) {
@@ -331,7 +340,7 @@ func runDisableUnreadableWebhookSecrets(cfg Config) error {
 	if err != nil {
 		return fmt.Errorf("refusing to change webhook secrets without a durable audit record: %w", err)
 	}
-	disabled, err := store.DisableUnreadableSecrets(cfg.EnvironmentKey)
+	disabled, err := store.DisableUnreadableSecrets(cfg.EnvironmentKey, cfg.EnvironmentPreviousKeys...)
 	if err != nil {
 		intent.Failed(err.Error())
 		return err

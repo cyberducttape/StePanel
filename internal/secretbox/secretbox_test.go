@@ -99,3 +99,60 @@ func TestOpenLegacyReadsPreviousFormat(t *testing.T) {
 		t.Fatal("legacy ciphertext accepted as context-bound")
 	}
 }
+
+func TestPreviousKeysOpenButNeverSeal(t *testing.T) {
+	oldKey, newKey := []byte("old-master-key-0123456789abcdef0123"), []byte("new-master-key-0123456789abcdef0123")
+	oldBox, err := New(oldKey, "purpose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealedOld, err := oldBox.Seal([]byte("secret"), "site", "NAME")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rotated, err := NewWithPrevious(newKey, [][]byte{oldKey}, "purpose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, previous, err := rotated.OpenReportingPrevious(sealedOld, "site", "NAME")
+	if err != nil || string(plain) != "secret" || !previous {
+		t.Fatalf("open under previous key = %q, %v, %v", plain, previous, err)
+	}
+	if rotated.OpenedWithPrevious() != 1 {
+		t.Fatalf("OpenedWithPrevious = %d, want 1", rotated.OpenedWithPrevious())
+	}
+	// Context binding still applies to previous keys.
+	if _, _, err := rotated.OpenReportingPrevious(sealedOld, "site", "OTHER"); err == nil {
+		t.Fatal("a previous-key value opened in another context")
+	}
+	resealed, err := rotated.Seal(plain, "site", "NAME")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, previous, err := rotated.OpenReportingPrevious(resealed, "site", "NAME"); err != nil || previous {
+		t.Fatalf("a re-sealed value must open with the current key: previous=%v err=%v", previous, err)
+	}
+	if _, err := oldBox.Open(resealed, "site", "NAME"); err == nil {
+		t.Fatal("Seal used a previous key")
+	}
+	newOnly, err := New(newKey, "purpose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newOnly.Open(sealedOld, "site", "NAME"); err == nil {
+		t.Fatal("a value sealed under a retired key opened without it")
+	}
+	if got := newOnly.OpenedWithPrevious(); got != 0 {
+		t.Fatalf("OpenedWithPrevious without previous keys = %d", got)
+	}
+}
+
+func TestPreviousKeysAreValidated(t *testing.T) {
+	key := []byte("current-master-key-0123456789abcdef")
+	if _, err := NewWithPrevious(key, [][]byte{key}, "purpose"); err == nil {
+		t.Fatal("a previous key equal to the current key was accepted")
+	}
+	if _, err := NewWithPrevious(key, [][]byte{nil}, "purpose"); err == nil {
+		t.Fatal("an empty previous key was accepted")
+	}
+}

@@ -236,6 +236,38 @@ manifest). To rotate:
 Production startup rejects previous keys shorter than 32 characters or equal
 to the current key.
 
+### Rotating the account and environment keys
+
+`STEPANEL_ACCOUNT_KEY` seals customer TOTP seeds and sensitive durable job
+payloads (for example restore credentials) and keys API-token idempotency
+results. `STEPANEL_ENVIRONMENT_KEY` seals site environment secrets and
+webhook signing secrets. Rotate either one after a suspected exposure, or on
+a schedule:
+
+1. Generate a new key: `openssl rand -hex 32`. Escrow it before continuing.
+2. In `/etc/ste-panel.env`, set the new key as `STEPANEL_ACCOUNT_KEY` (or
+   `STEPANEL_ENVIRONMENT_KEY`) and move the old key into
+   `STEPANEL_ACCOUNT_PREVIOUS_KEYS` (or `STEPANEL_ENVIRONMENT_PREVIOUS_KEYS`),
+   comma-separated, newest first.
+3. Restart both `stepanel` and `stepanel-worker`; each process reads secrets,
+   so both need the previous key until the rotation completes.
+4. At startup each store opens what the previous key sealed and re-seals it
+   under the current key in place, and logs a `key rotation: re-sealed …`
+   line for each store that changed. Job payloads are re-sealed across the
+   whole jobs table, including finished jobs, and stored API-token
+   idempotency results are re-sealed so a client retry still replays its
+   original token. Check the journal:
+   `journalctl -u stepanel -u stepanel-worker -b | grep 'key rotation'`.
+5. Remove the previous key from the env file and restart both services
+   again. If an account seed, environment or webhook secret, or job payload
+   still needs the retired key, startup fails closed and names the store;
+   put the key back and restart to finish the re-seal.
+
+Production startup rejects previous keys shorter than 32 characters, equal
+to the current key, repeated, or listed without a current key. Rotating a
+key does not re-encrypt backups: backup archives use
+`STEPANEL_BACKUP_ENCRYPTION_KEY`, rotated as described above.
+
 ---
 
 ## Security Posture

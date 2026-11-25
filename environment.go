@@ -183,12 +183,18 @@ type EnvironmentStore struct {
 const environmentSecretPrefix = "v2:"
 const maxEnvironmentStateBytes = 4 << 20
 
-func OpenEnvironmentStore(path, secret string) (*EnvironmentStore, error) {
+// OpenEnvironmentStore opens the store sealed with secret. previous lists
+// retired keys (newest first) that still open secrets sealed before a key
+// rotation; completeKeyRotation re-seals them under secret.
+func OpenEnvironmentStore(path, secret string, previous ...string) (*EnvironmentStore, error) {
 	store := &EnvironmentStore{path: path, values: map[string]map[string]environmentValue{}, legacyAllowed: true}
+	if strings.TrimSpace(secret) == "" && len(previous) > 0 {
+		return nil, errors.New("previous environment keys require STEPANEL_ENVIRONMENT_KEY")
+	}
 	if strings.TrimSpace(secret) != "" {
 		h := sha256.Sum256([]byte(secret))
 		store.key = h[:]
-		box, err := secretbox.New([]byte(secret), "environment")
+		box, err := secretbox.NewWithPrevious([]byte(secret), keyBytes(previous), "environment")
 		if err != nil {
 			return nil, err
 		}
@@ -313,6 +319,24 @@ func (s *EnvironmentStore) setLegacyCiphertextAllowed(allowed bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.legacyAllowed = allowed
+}
+
+// completeKeyRotation re-seals every secret under the current key when any
+// secret loaded so far opened only with a previous key.
+func (s *EnvironmentStore) completeKeyRotation() (uint64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.box == nil {
+		return 0, nil
+	}
+	opened := s.box.OpenedWithPrevious()
+	if opened == 0 {
+		return 0, nil
+	}
+	if err := s.persistLocked(); err != nil {
+		return 0, fmt.Errorf("re-seal environment secrets under the current STEPANEL_ENVIRONMENT_KEY: %w", err)
+	}
+	return opened, nil
 }
 
 // completeEncryptionMigration re-seals any legacy secret in the

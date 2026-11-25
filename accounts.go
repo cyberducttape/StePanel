@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -134,14 +135,19 @@ type AccountStore struct {
 const accountTOTPPrefix = "v2:"
 
 // configureAccountKey derives both the legacy key and the context-bound box.
+// accountKey is the current key followed by previous keys (newest first)
+// that still open seeds sealed before a key rotation.
 func (s *AccountStore) configureAccountKey(accountKey []string) error {
 	s.legacyTOTP.Store(true)
 	if len(accountKey) == 0 || strings.TrimSpace(accountKey[0]) == "" {
+		if len(accountKey) > 1 {
+			return errors.New("previous account keys require STEPANEL_ACCOUNT_KEY")
+		}
 		return nil
 	}
 	h := sha256.Sum256([]byte(accountKey[0]))
 	s.key = h[:]
-	box, err := secretbox.New([]byte(accountKey[0]), "account-totp")
+	box, err := secretbox.NewWithPrevious([]byte(accountKey[0]), keyBytes(accountKey[1:]), "account-totp")
 	if err != nil {
 		return err
 	}
@@ -300,6 +306,14 @@ func OpenAccountStoreDB(db *sql.DB, legacyPath string, accountKey ...string) (*A
 				return nil, fmt.Errorf("migrate durable site ownership: %w", err)
 			}
 		}
+	}
+	if store.box != nil && store.box.OpenedWithPrevious() > 0 {
+		// A key rotation: seal every seed under the current key so the
+		// previous key can be retired.
+		if err := store.persistAllLocked(); err != nil {
+			return nil, fmt.Errorf("re-seal account TOTP seeds under the current STEPANEL_ACCOUNT_KEY: %w", err)
+		}
+		log.Printf("key rotation: re-sealed %d account TOTP seed(s) opened with a previous STEPANEL_ACCOUNT_KEY", store.box.OpenedWithPrevious())
 	}
 	if store.legacyTOTP.Load() {
 		// Re-seal legacy TOTP seeds bound to their usernames, then refuse the

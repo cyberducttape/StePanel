@@ -6,6 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- `STEPANEL_ACCOUNT_PREVIOUS_KEYS` and `STEPANEL_ENVIRONMENT_PREVIOUS_KEYS`
+  make `STEPANEL_ACCOUNT_KEY` and `STEPANEL_ENVIRONMENT_KEY` rotatable.
+  Startup opens secrets sealed under a listed previous key and re-seals
+  them under the current key: customer TOTP seeds, every job payload,
+  environment and webhook secrets, and API-token idempotency results. See
+  [key rotation](docs/ENCRYPTION_KEYS.md#rotating-the-account-and-environment-keys).
+
+### Fixed
+
+- Kernel-enabled quotas (the ext4 `quota` feature, XFS) no longer leave the
+  distribution `quotaon.service` failed at boot; the installer adds a
+  drop-in that still fails when a requested quota is not on.
+
 ## [0.9.0] - release candidate
 
 The first release since v0.7.0. It replaces JSON state with a durable SQLite

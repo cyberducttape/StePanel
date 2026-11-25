@@ -2082,10 +2082,20 @@ func openDurableJobsDB(db *sql.DB, legacyPath string, limits ...int) (*Jobs, err
 }
 
 func openDurableJobsDBWithKey(db *sql.DB, legacyPath, payloadKey string, limits ...int) (*Jobs, error) {
+	return openDurableJobsDBWithKeys(db, legacyPath, payloadKey, nil, limits...)
+}
+
+// openDurableJobsDBWithKeys opens the job store with payloads sealed under
+// payloadKey; previousKeys (newest first) still open payloads sealed before
+// a key rotation, and every such payload is re-sealed under payloadKey.
+func openDurableJobsDBWithKeys(db *sql.DB, legacyPath, payloadKey string, previousKeys []string, limits ...int) (*Jobs, error) {
 	j := newJobsWithDB(db, limits...)
+	if strings.TrimSpace(payloadKey) == "" && len(previousKeys) > 0 {
+		return nil, errors.New("previous account keys require STEPANEL_ACCOUNT_KEY")
+	}
 	if strings.TrimSpace(payloadKey) != "" {
 		j.payloadKey = jobPayloadKey(payloadKey)
-		box, err := secretbox.New([]byte(payloadKey), "job-payload")
+		box, err := secretbox.NewWithPrevious([]byte(payloadKey), keyBytes(previousKeys), "job-payload")
 		if err != nil {
 			return nil, err
 		}
@@ -2130,7 +2140,105 @@ func openDurableJobsDBWithKey(db *sql.DB, legacyPath, payloadKey string, limits 
 		j.legacyPayloads.Store(false)
 		j.legacyPayloadsSeen.Store(false)
 	}
+	if j.payloadBox != nil && j.payloadBox.HasPrevious() {
+		// Startup loads only active and recent jobs, so scan every row:
+		// an older job sealed under a previous key must stay readable
+		// after that key is retired.
+		resealed, err := j.resealRotatedPayloads()
+		if err != nil {
+			return nil, fmt.Errorf("re-seal job payloads under the current STEPANEL_ACCOUNT_KEY: %w", err)
+		}
+		if resealed > 0 {
+			log.Printf("key rotation: re-sealed %d job payload(s) sealed under a previous STEPANEL_ACCOUNT_KEY", resealed)
+		}
+	}
 	return j, nil
+}
+
+// resealRotatedPayloads re-seals, under the current key, every stored job
+// payload that opens only with a previous key. Each row is replaced only if
+// it is unchanged since it was read; a concurrently changed row is retried.
+func (j *Jobs) resealRotatedPayloads() (int, error) {
+	total := 0
+	for pass := 0; pass < 5; pass++ {
+		rows, err := j.db.Query(`SELECT id, payload FROM jobs`)
+		if err != nil {
+			return total, err
+		}
+		type pending struct {
+			id  string
+			raw []byte
+		}
+		var stale []pending
+		for rows.Next() {
+			var item pending
+			if err := rows.Scan(&item.id, &item.raw); err != nil {
+				_ = rows.Close()
+				return total, err
+			}
+			var persisted persistedJob
+			if err := json.Unmarshal(item.raw, &persisted); err != nil {
+				_ = rows.Close()
+				return total, fmt.Errorf("decode job %s: %w", item.id, err)
+			}
+			payload := decodePersistedJobPayload(persisted.Payload)
+			if !secretbox.IsSealed(payload) {
+				continue
+			}
+			if _, previous, err := j.payloadBox.OpenReportingPrevious(payload, persisted.Job.ID, persisted.Job.Kind, persisted.Job.User); err != nil {
+				_ = rows.Close()
+				return total, fmt.Errorf("job %s payload opens with neither the current nor a previous key: %w", item.id, err)
+			} else if previous {
+				stale = append(stale, item)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return total, err
+		}
+		if err := rows.Close(); err != nil {
+			return total, err
+		}
+		if len(stale) == 0 {
+			return total, nil
+		}
+		for _, item := range stale {
+			var persisted persistedJob
+			if err := json.Unmarshal(item.raw, &persisted); err != nil {
+				return total, fmt.Errorf("decode job %s: %w", item.id, err)
+			}
+			if persisted.Job.ID != item.id {
+				return total, fmt.Errorf("job row %s holds the record of job %s", item.id, persisted.Job.ID)
+			}
+			opened, err := j.payloadBox.Open(decodePersistedJobPayload(persisted.Payload), persisted.Job.ID, persisted.Job.Kind, persisted.Job.User)
+			if err != nil {
+				return total, fmt.Errorf("open payload of job %s: %w", item.id, err)
+			}
+			persisted.Job.Payload = opened
+			sealed, err := j.sealPayload(&persisted.Job)
+			if err != nil {
+				return total, err
+			}
+			encoded, err := json.Marshal(sealed)
+			if err != nil {
+				return total, err
+			}
+			data, err := json.Marshal(&persistedJob{Job: persisted.Job, Payload: encoded})
+			if err != nil {
+				return total, err
+			}
+			result, err := j.db.Exec(`UPDATE jobs SET payload = ? WHERE id = ? AND payload = ?`, data, item.id, item.raw)
+			if err != nil {
+				return total, fmt.Errorf("re-seal job %s: %w", item.id, err)
+			}
+			if changed, err := result.RowsAffected(); err != nil {
+				return total, err
+			} else if changed == 1 {
+				total++
+			}
+		}
+	}
+	return total, errors.New("job payloads kept changing during re-sealing")
 }
 
 // normalizeLegacyCloudJobOwners upgrades pre-namespace job owners after their

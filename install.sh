@@ -1396,6 +1396,11 @@ TXN_TEMPS+=("$env_tmp")
   write_env STEPANEL_SESSION_SECRET "$SESSION_SECRET"
   write_env STEPANEL_ACCOUNT_KEY "$ACCOUNT_KEY"
   write_env STEPANEL_ENVIRONMENT_KEY "$ENVIRONMENT_KEY"
+  # Retired master keys kept during a rotation; dropping them on upgrade
+  # before startup has re-sealed every secret would make those secrets
+  # unreadable.
+  if [[ -n "${STEPANEL_ACCOUNT_PREVIOUS_KEYS:-}" ]]; then write_env STEPANEL_ACCOUNT_PREVIOUS_KEYS "$STEPANEL_ACCOUNT_PREVIOUS_KEYS"; fi
+  if [[ -n "${STEPANEL_ENVIRONMENT_PREVIOUS_KEYS:-}" ]]; then write_env STEPANEL_ENVIRONMENT_PREVIOUS_KEYS "$STEPANEL_ENVIRONMENT_PREVIOUS_KEYS"; fi
   write_env STEPANEL_PANEL_HOSTNAME "$PANEL_HOSTNAME"
   write_env STEPANEL_DB_ENGINE "$DB_ENGINE"
   write_env STEPANEL_DB_VERSION "$DB_VERSION"

@@ -50,3 +50,15 @@ func markContextBoundEncryption(db *sql.DB, store string) error {
 	}
 	return nil
 }
+
+// keyBytes converts configured previous master keys for secretbox.
+func keyBytes(keys []string) [][]byte {
+	if len(keys) == 0 {
+		return nil
+	}
+	out := make([][]byte, len(keys))
+	for i, key := range keys {
+		out[i] = []byte(key)
+	}
+	return out
+}

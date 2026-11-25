@@ -515,7 +515,7 @@ func Main() {
 	// which production requires; existing plaintext secrets are sealed and
 	// every sealed secret must open, or startup stops (see
 	// docs/ENCRYPTION_KEYS.md for recovery).
-	if err := webhookConfigStore.PrepareSecrets(cfg.EnvironmentKey); err != nil {
+	if err := webhookConfigStore.PrepareSecrets(cfg.EnvironmentKey, cfg.EnvironmentPreviousKeys...); err != nil {
 		log.Fatalf("prepare webhook signing secrets: %v", err)
 	}
 	if groups, err := webhookConfigStore.SitesSharingSecrets(); err != nil {
@@ -544,14 +544,19 @@ func Main() {
 	}
 	auth.apiTokens = &apiTokenStore{db: controlPlaneDB}
 	if strings.TrimSpace(cfg.AccountKey) != "" {
-		if err := auth.apiTokens.configureIdempotencyKey(cfg.AccountKey); err != nil {
+		if err := auth.apiTokens.configureIdempotencyKey(cfg.AccountKey, cfg.AccountPreviousKeys...); err != nil {
 			log.Fatalf("configure API token idempotency: %v", err)
+		}
+		if resealed, err := auth.apiTokens.resealRotatedIdempotencyResults(); err != nil {
+			log.Fatalf("re-seal API token idempotency results under the current STEPANEL_ACCOUNT_KEY: %v", err)
+		} else if resealed > 0 {
+			log.Printf("key rotation: re-sealed %d API token idempotency result(s) sealed under a previous STEPANEL_ACCOUNT_KEY", resealed)
 		}
 	}
 	if err := auth.enforceLegacyTokenCutoff(); err != nil {
 		log.Fatalf("enforce legacy API token cutoff: %v", err)
 	}
-	accounts, err := OpenAccountStoreDB(controlPlaneDB, cfg.AccountState, cfg.AccountKey)
+	accounts, err := OpenAccountStoreDB(controlPlaneDB, cfg.AccountState, append([]string{cfg.AccountKey}, cfg.AccountPreviousKeys...)...)
 	if err != nil {
 		log.Fatalf("open persistent shared-hosting account state: %v", err)
 	}
@@ -559,7 +564,7 @@ func Main() {
 		log.Fatalf("validate administrator/customer identity boundary: %v", err)
 	}
 	auth.Accounts = accounts
-	environments, err := OpenEnvironmentStore(cfg.EnvironmentState, cfg.EnvironmentKey)
+	environments, err := OpenEnvironmentStore(cfg.EnvironmentState, cfg.EnvironmentKey, cfg.EnvironmentPreviousKeys...)
 	if err != nil {
 		log.Fatalf("open site environment state: %v", err)
 	}
@@ -629,6 +634,11 @@ func Main() {
 	if err := environments.completeEncryptionMigration(controlPlaneDB); err != nil {
 		log.Fatalf("migrate environment secrets to context-bound encryption: %v", err)
 	}
+	if resealed, err := environments.completeKeyRotation(); err != nil {
+		log.Fatalf("%v", err)
+	} else if resealed > 0 {
+		log.Printf("key rotation: re-sealed environment secrets after %d opened with a previous STEPANEL_ENVIRONMENT_KEY", resealed)
+	}
 	bindState(redisAllocations, "redis", &redisAllocations.values, redisAllocations.persistLocked)
 	bindState(access, "site-access", &access.values, access.persistLocked)
 	bindState(workers, "workers", &workers.values, workers.persistLocked)
@@ -670,7 +680,7 @@ func Main() {
 	if err != nil {
 		log.Fatalf("fingerprint embedded static assets: %v", err)
 	}
-	jobs, err := openDurableJobsDBWithKey(controlPlaneDB, cfg.JobState, cfg.AccountKey, cfg.MaxConcurrentJobs)
+	jobs, err := openDurableJobsDBWithKeys(controlPlaneDB, cfg.JobState, cfg.AccountKey, cfg.AccountPreviousKeys, cfg.MaxConcurrentJobs)
 	if err != nil {
 		log.Fatalf("open durable control-plane job state: %v", err)
 	}

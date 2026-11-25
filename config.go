@@ -46,8 +46,12 @@ type Config struct {
 	EnvironmentState, EnvironmentKey string
 	ControlPlaneDB                   string
 	AccountKey                       string
-	BackupSigningKey                 string
-	BackupEncryptionKey              string
+	// AccountPreviousKeys and EnvironmentPreviousKeys are retired master
+	// keys, newest first, that still open secrets sealed before a rotation.
+	// Stores re-seal those secrets under the current key at startup.
+	AccountPreviousKeys, EnvironmentPreviousKeys []string
+	BackupSigningKey                             string
+	BackupEncryptionKey                          string
 	// BackupPreviousEncryptionKeys are retired keys that still decrypt
 	// older backups; new backups always use BackupEncryptionKey.
 	BackupPreviousEncryptionKeys                                                  []string
@@ -168,6 +172,8 @@ func LoadConfig() Config {
 	}
 	c.EnvironmentKey = os.Getenv("STEPANEL_ENVIRONMENT_KEY")
 	c.AccountKey = os.Getenv("STEPANEL_ACCOUNT_KEY")
+	c.AccountPreviousKeys = splitKeyList(os.Getenv("STEPANEL_ACCOUNT_PREVIOUS_KEYS"))
+	c.EnvironmentPreviousKeys = splitKeyList(os.Getenv("STEPANEL_ENVIRONMENT_PREVIOUS_KEYS"))
 	c.BackupSigningKey = os.Getenv("STEPANEL_BACKUP_SIGNING_KEY")
 	c.BackupEncryptionKey = os.Getenv("STEPANEL_BACKUP_ENCRYPTION_KEY")
 	c.BackupPreviousEncryptionKeys = splitKeyList(os.Getenv("STEPANEL_BACKUP_ENCRYPTION_PREVIOUS_KEYS"))
@@ -641,6 +647,8 @@ func ValidateConfig(c Config) error {
 				problems = append(problems, err)
 			}
 		}
+		problems = append(problems, previousKeyProblems("STEPANEL_ACCOUNT_PREVIOUS_KEYS", c.AccountPreviousKeys, "STEPANEL_ACCOUNT_KEY", c.AccountKey)...)
+		problems = append(problems, previousKeyProblems("STEPANEL_ENVIRONMENT_PREVIOUS_KEYS", c.EnvironmentPreviousKeys, "STEPANEL_ENVIRONMENT_KEY", c.EnvironmentKey)...)
 		if strings.TrimSpace(os.Getenv("STEPANEL_ADMIN_TOTP_SECRET")) == "" {
 			problems = append(problems, errors.New("production requires STEPANEL_ADMIN_TOTP_SECRET for administrator MFA"))
 		}
@@ -1003,6 +1011,27 @@ func (c Config) backupDecryptionKeys() []string {
 }
 
 // splitKeyList parses a comma-separated key list, ignoring blank entries.
+// previousKeyProblems validates retired master keys kept for a rotation.
+func previousKeyProblems(name string, previous []string, currentName, current string) []error {
+	var problems []error
+	if len(previous) > 0 && strings.TrimSpace(current) == "" {
+		problems = append(problems, fmt.Errorf("%s requires %s: previous keys only open secrets while the current key re-seals them", name, currentName))
+	}
+	seen := map[string]bool{}
+	for i, key := range previous {
+		switch {
+		case len(key) < 32:
+			problems = append(problems, fmt.Errorf("%s entry %d is shorter than 32 characters", name, i+1))
+		case key == current:
+			problems = append(problems, fmt.Errorf("%s entry %d repeats the current %s", name, i+1, currentName))
+		case seen[key]:
+			problems = append(problems, fmt.Errorf("%s entry %d repeats an earlier entry", name, i+1))
+		}
+		seen[key] = true
+	}
+	return problems
+}
+
 func splitKeyList(value string) []string {
 	var keys []string
 	for _, key := range strings.Split(value, ",") {

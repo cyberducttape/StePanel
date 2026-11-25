@@ -1,6 +1,7 @@
 package stepanel
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -35,16 +36,75 @@ type apiTokenStore struct {
 	idempotencyBox *secretbox.Box
 }
 
-func (s *apiTokenStore) configureIdempotencyKey(masterKey string) error {
+// configureIdempotencyKey seals idempotent results under masterKey. Results
+// sealed under a previous key (newest first) still open, and
+// resealRotatedIdempotencyResults re-seals them under masterKey.
+func (s *apiTokenStore) configureIdempotencyKey(masterKey string, previous ...string) error {
 	if strings.TrimSpace(masterKey) == "" {
 		return errors.New("API token idempotency requires STEPANEL_ACCOUNT_KEY")
 	}
-	box, err := secretbox.New([]byte(masterKey), "api-token-idempotency")
+	box, err := secretbox.NewWithPrevious([]byte(masterKey), keyBytes(previous), "api-token-idempotency")
 	if err != nil {
 		return err
 	}
 	s.idempotencyBox = box
 	return nil
+}
+
+// resealRotatedIdempotencyResults re-seals, under the current key, every
+// stored idempotent result that opens only with a previous key. Records are
+// kept indefinitely, so a retry of a request first sent before the rotation
+// must still find its result after the previous key is retired.
+func (s *apiTokenStore) resealRotatedIdempotencyResults() (int, error) {
+	if s.idempotencyBox == nil || !s.idempotencyBox.HasPrevious() {
+		return 0, nil
+	}
+	tx, err := beginImmediate(context.Background(), s.db)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.Query(`SELECT principal, operation, idempotency_key, result FROM idempotency_records WHERE state = 'completed' AND length(result) > 0`)
+	if err != nil {
+		return 0, fmt.Errorf("read idempotency records: %w", err)
+	}
+	type record struct {
+		principal, operation, key string
+		result                    []byte
+	}
+	var stale []record
+	for rows.Next() {
+		var item record
+		if err := rows.Scan(&item.principal, &item.operation, &item.key, &item.result); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		plain, previous, err := s.idempotencyBox.OpenReportingPrevious(item.result, item.principal, item.operation, item.key)
+		if err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("idempotent result for %s/%s opens with neither the current nor a previous key: %w", item.principal, item.operation, err)
+		}
+		if previous {
+			item.result = plain
+			stale = append(stale, item)
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+	for _, item := range stale {
+		sealed, err := s.idempotencyBox.Seal(item.result, item.principal, item.operation, item.key)
+		if err != nil {
+			return 0, err
+		}
+		if _, err := tx.Exec(`UPDATE idempotency_records SET result = ? WHERE principal = ? AND operation = ? AND idempotency_key = ?`, sealed, item.principal, item.operation, item.key); err != nil {
+			return 0, fmt.Errorf("re-seal idempotent result: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return len(stale), nil
 }
 
 var (
