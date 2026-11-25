@@ -43,10 +43,9 @@ latencies, but an operator adding many domains on a large host will notice
 them. On Caddy the route helper (`deploy/integrations/stepanel-caddy-vhostctl`)
 runs `caddy validate` over the whole Caddyfile and then reloads it for every
 change, so each change costs time proportional to the number of routes. A
-candidate improvement is to rely on the reload's own validation, which keeps
-the running configuration when the new one is rejected, instead of parsing
-the full configuration twice; it was not changed during this certification
-freeze.
+`dc8eac9a` now relies on the reload's own validation, which keeps the running
+configuration when the new one is rejected, and validates separately only
+before a restart; the next full-envelope run measures the effect.
 
 ## Limits
 
