@@ -21,6 +21,10 @@
 #   - no shadow or retired database and no restore record remain;
 #   - the server still serves.
 #
+# STEPANEL_DB_ENOSPC_FILL_PHASE=done fills the filesystem instead when the
+# swap has finished and cleanup (dropping the shadow and the retired copy of
+# the old tables) begins; the same final state is required.
+#
 # It reports whether the server actually logged an out-of-space condition,
 # so a run in which the swap needed no new space is not mistaken for one
 # that survived a full disk.
@@ -38,6 +42,8 @@ service=${STEPANEL_DB_SERVICE:-}
 # estimate; leave enough for that so the restore reaches the swap.
 headroom_mib=${STEPANEL_DB_ENOSPC_HEADROOM_MIB:-1400}
 full_seconds=${STEPANEL_DB_SWAP_FULL_SECONDS:-45}
+fill_phase=${STEPANEL_DB_ENOSPC_FILL_PHASE:-swap}
+[[ $fill_phase == swap || $fill_phase == 'done' ]] || { echo 'STEPANEL_DB_ENOSPC_FILL_PHASE must be swap or done' >&2; exit 64; }
 client=$(command -v mariadb || command -v mysql) || { echo 'no MySQL/MariaDB client' >&2; exit 1; }
 dump_client=$(command -v mariadb-dump || command -v mysqldump) || { echo 'no MySQL/MariaDB dump client' >&2; exit 1; }
 for tool in mkfs.ext4 rsync losetup fallocate; do command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }; done
@@ -134,7 +140,7 @@ pass "backed up $db and changed it"
     for candidate in "$registry"/stepanel_restore_*; do
       [[ -f $candidate ]] || continue
       value=$(<"$candidate") || continue
-      if [[ $value == "pending-restore:$site:$db:swap" ]]; then record=$candidate; break 2; fi
+      if [[ $value == "pending-restore:$site:$db:$fill_phase" ]]; then record=$candidate; break 2; fi
     done
     sleep 0.005
   done
@@ -163,14 +169,30 @@ error_log_offset=0
 restore_pid=$!
 
 for _ in $(seq 1 600); do [[ -s $work/filled ]] && break; kill -0 "$restore_pid" 2>/dev/null || break; sleep 0.1; done
-[[ -s $work/filled ]] || fail "the restore never reached its swap phase: $(cat "$work/restore.err")"
+inconclusive=0
+if [[ ! -s $work/filled ]]; then
+  # The cleanup phase is short; if it finished before the watcher could
+  # fill the filesystem, the run proves nothing about ENOSPC but the final
+  # state is still checked. The swap phase must always be reached.
+  sleep 1
+  [[ ! -s $work/filled && $fill_phase == 'done' ]] && ! kill -0 "$restore_pid" 2>/dev/null && wait "$restore_pid" && inconclusive=1
+  (( inconclusive )) || [[ -s $work/filled ]] || fail "the restore never reached its $fill_phase phase: $(cat "$work/restore.err")"
+fi
+kill "$watcher" 2>/dev/null || true
 watcher=
-pass "filled the database filesystem as the swap started ($(cat "$work/filled") KiB left)"
+if (( inconclusive )); then
+  restore_pid=
+  swap_during_full='finished cleanup before the filesystem could be filled'
+else
+  pass "filled the database filesystem as the $fill_phase phase started ($(cat "$work/filled") KiB left)"
+fi
 
-# Hold the filesystem full while the swap runs into it.
+# Hold the filesystem full while the restore runs into it.
 held=0
-while (( held < full_seconds )) && kill -0 "$restore_pid" 2>/dev/null; do sleep 1; held=$((held + 1)); done
-if kill -0 "$restore_pid" 2>/dev/null; then
+while (( ! inconclusive && held < full_seconds )) && kill -0 "$restore_pid" 2>/dev/null; do sleep 1; held=$((held + 1)); done
+if (( inconclusive )); then
+  :
+elif kill -0 "$restore_pid" 2>/dev/null; then
   swap_during_full="still running after ${full_seconds}s on the full filesystem"
 elif wait "$restore_pid"; then
   swap_during_full='completed while the filesystem was full'
@@ -179,7 +201,7 @@ else
   swap_during_full="failed while the filesystem was full: $(tail -1 "$work/restore.err")"
   restore_pid=
 fi
-echo "swap on a full filesystem: $swap_during_full"
+echo "restore $fill_phase phase on a full filesystem: $swap_during_full"
 
 # Space returns; the swap must roll forward.
 rm -f -- "$filler" "$filler.tail"
@@ -213,8 +235,10 @@ done
 shadow=$(M -e "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME LIKE 'stepanel\\_restore\\_%' OR SCHEMA_NAME LIKE 'stepanel\\_retired\\_%'")
 [[ -z $shadow ]] || fail "shadow database(s) remain: $shadow"
 pass 'the swap rolled forward: backup contents, view and trigger restored, site account unfenced, no shadow or record left'
-if (( out_of_space > 0 )); then
-  echo "database swap ENOSPC smoke passed: the server logged $out_of_space out-of-space message(s); swap $swap_during_full"
+if (( inconclusive )); then
+  echo "database $fill_phase-phase ENOSPC smoke inconclusive: the restore $swap_during_full; the final state was verified but no out-of-space condition was exercised"
+elif (( out_of_space > 0 )); then
+  echo "database $fill_phase-phase ENOSPC smoke passed: the server logged $out_of_space out-of-space message(s); restore $swap_during_full"
 else
-  echo "database swap ENOSPC smoke passed without an out-of-space message from the server: swap $swap_during_full (the swap needed no new space)"
+  echo "database $fill_phase-phase ENOSPC smoke passed without an out-of-space message from the server: restore $swap_during_full (the $fill_phase phase needed no new space)"
 fi

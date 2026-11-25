@@ -439,7 +439,7 @@ fi
 # unchanged live database, no leftover shadow or record, and a later restore.
 if has_phase db-enospc; then
   start=$SECONDS
-  if guest_job db-enospc 40 'command -v rsync >/dev/null || dnf -y -q install rsync; bash /work/deploy/lab/dbctl-restore-enospc-smoke.sh && bash /work/deploy/lab/dbctl-swap-enospc-smoke.sh'; then
+  if guest_job db-enospc 40 'command -v rsync >/dev/null || dnf -y -q install rsync; bash /work/deploy/lab/dbctl-restore-enospc-smoke.sh && bash /work/deploy/lab/dbctl-swap-enospc-smoke.sh && STEPANEL_DB_ENOSPC_FILL_PHASE=done bash /work/deploy/lab/dbctl-swap-enospc-smoke.sh'; then
     record db-enospc PASS $((SECONDS - start)) "$(tail -1 "$run_dir/db-enospc.log")"
   else
     record db-enospc FAIL $((SECONDS - start)) "$(tail -1 "$run_dir/db-enospc.log")"

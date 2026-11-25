@@ -238,6 +238,11 @@ jobs:
         # swap, frees it, and checks the swap rolled forward to exactly the
         # backup with the site account unfenced and no shadow left.
         run: sudo STEPANEL_DBCTL="$PWD/deploy/integrations/stepanel-dbctl" bash deploy/lab/dbctl-swap-enospc-smoke.sh
+      - name: Fill the database filesystem as a restore cleans up (MySQL 8.0)
+        # The same drill, filling the filesystem when the swap is done and the
+        # shadow and retired tables are being dropped. Reports inconclusive if
+        # cleanup finishes before the fill lands.
+        run: sudo STEPANEL_DBCTL="$PWD/deploy/integrations/stepanel-dbctl" STEPANEL_DB_ENOSPC_FILL_PHASE=done bash deploy/lab/dbctl-swap-enospc-smoke.sh
       - name: Kill the database server during a restore (MySQL 8.0)
         # SIGKILLs mysqld while a restore loads its shadow database, restarts
         # it, reconciles as startup does, and checks the live database,
