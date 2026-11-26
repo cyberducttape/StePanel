@@ -56,6 +56,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Session validation, job status reads and control-plane store loads no
+  longer return 503 while a queued write waits out SQLite's 5-second busy
+  timeout (for example during a worker restart): their read deadlines are
+  now 7 seconds instead of 2 to 5.
 - **Offsite restores failed with real rclone.** Every offsite download used
   `rclone copyto` with `--max-size`, which rclone refuses for a single file,
   so restoring from offsite storage failed and signed backups lost their

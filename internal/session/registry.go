@@ -17,9 +17,12 @@ import (
 
 // ReadTimeout bounds a registry read on a request path (session validation,
 // revocation generation). With one control-plane connection per process, a
-// request queued behind a slow maintenance transaction fails as unavailable
+// read can queue behind a write that is itself waiting up to SQLite's
+// 5-second busy timeout for the other process's lock (for example while the
+// worker restarts), so the deadline is longer than one such wait. A request
+// stuck behind a genuinely slow transaction still fails as unavailable
 // instead of hanging.
-var ReadTimeout = 2 * time.Second
+var ReadTimeout = 7 * time.Second
 
 // WriteTimeout bounds a registry write (login, logout, revocation). It is
 // longer than SQLite's 5-second busy timeout so lock waits are not cut short.

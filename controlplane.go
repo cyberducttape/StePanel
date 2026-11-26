@@ -1078,8 +1078,9 @@ func controlPlaneStorageReadiness() ReadinessCheck {
 var controlPlaneStateWriteTimeout = 10 * time.Second
 
 // controlPlaneStateReadTimeout bounds a store load, including the reload
-// after a revision conflict.
-var controlPlaneStateReadTimeout = 2 * time.Second
+// after a revision conflict. Like session.ReadTimeout it outlasts one
+// 5-second busy wait by a write queued ahead on the single connection.
+var controlPlaneStateReadTimeout = 7 * time.Second
 
 func backupControlPlane(source, destination string) error {
 	info, err := os.Lstat(source)

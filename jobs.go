@@ -2159,10 +2159,11 @@ func openDurableJobsDBWithKeys(db *sql.DB, legacyPath, payloadKey string, previo
 }
 
 // durableJobReadTimeout bounds job status reads, listings and the
-// idempotency lookup at submission, which serve requests. A request queued behind a slow
-// maintenance transaction on the single control-plane connection fails as
-// unavailable instead of hanging.
-var durableJobReadTimeout = 5 * time.Second
+// idempotency lookup at submission, which serve requests. It outlasts one
+// 5-second SQLite busy wait by a write queued ahead on the single
+// control-plane connection; a request behind a genuinely slow transaction
+// still fails as unavailable instead of hanging.
+var durableJobReadTimeout = 7 * time.Second
 
 // jobPayloadResealBatch bounds the rows read and rewritten per transaction
 // when re-sealing job payloads, so a large job history never becomes one long
