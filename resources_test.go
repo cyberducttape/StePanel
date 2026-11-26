@@ -296,3 +296,57 @@ func TestResourceProfileSaveKeepsRefreshedPeerStateAfterCASConflict(t *testing.T
 		t.Fatalf("stale resource cache = %#v, want refreshed durable peer value %#v", got, committed)
 	}
 }
+
+// A peer process (the worker) writing the resource store between this
+// process's read and write must not fail account creation: the refreshed
+// state is re-read and the plan profiles are applied to it.
+func TestEnsurePlanResourcesRetriesAfterAPeerWrite(t *testing.T) {
+	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("k", 32))
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "control-plane.db")
+	panelDB, err := openControlPlaneDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer panelDB.Close()
+	workerDB, err := openControlPlaneDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer workerDB.Close()
+	panel := &ResourceStore{values: map[string]ResourceProfile{}}
+	if _, err := bindControlPlaneState(panel, panelDB, "resources", &panel.values); err != nil {
+		t.Fatal(err)
+	}
+	worker := &ResourceStore{values: map[string]ResourceProfile{}}
+	if _, err := bindControlPlaneState(worker, workerDB, "resources", &worker.values); err != nil {
+		t.Fatal(err)
+	}
+	// The worker records the site's own profile (as site creation does) after
+	// the panel last read, so the panel's write collides on the same key.
+	worker.mu.Lock()
+	worker.values["shop"] = ResourceProfile{Site: "shop", Account: "alice", CPUPercent: 100, MemoryMB: 512, TasksMax: 128, PHPWorkers: 8, State: "applied"}
+	err = worker.persistLocked()
+	worker.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	appctl := filepath.Join(root, "fake-appctl")
+	if err := os.WriteFile(appctl, []byte("#!/usr/bin/env bash\n[[ $1 == resource-status ]] && echo ActiveState=active\nexit 0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "www", "sites", "shop", "public"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Resources: panel, Config: Config{AppCtl: appctl, WebRoot: filepath.Join(root, "www"), AuditLog: filepath.Join(root, "audit.jsonl")}}
+	account := HostingAccount{Username: "alice", TenantID: "alice", Plan: "starter", Sites: []string{"shop"}}
+	if _, err := app.ensurePlanResourcesContext(context.Background(), account); err != nil {
+		t.Fatalf("account resources after a peer write: %v", err)
+	}
+	panel.mu.Lock()
+	defer panel.mu.Unlock()
+	if profile, ok := panel.values["shop"]; !ok || profile.State != "applied" {
+		t.Fatalf("the site's profile after the refresh = %#v, %v; want the peer's applied profile kept", profile, ok)
+	}
+}

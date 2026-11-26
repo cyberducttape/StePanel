@@ -143,23 +143,34 @@ func (a *App) ensurePlanResourcesContext(ctx context.Context, account HostingAcc
 	if err := operationCtx.Err(); err != nil {
 		return nil, err
 	}
-	profiles := make([]ResourceProfile, 0, len(account.Sites))
-	a.Resources.mu.Lock()
-	for _, site := range account.Sites {
-		if _, exists := a.Resources.values[site]; exists {
-			continue
+	var profiles []ResourceProfile
+	// A peer process (the worker creating these sites) may have written a
+	// profile for one of them since this process last read the store. The
+	// write then reloads the peer state; re-plan against it so an existing
+	// profile is kept rather than failing the account.
+	err := retryRefreshedStateChange(func() error {
+		a.Resources.mu.Lock()
+		defer a.Resources.mu.Unlock()
+		profiles = profiles[:0]
+		for _, site := range account.Sites {
+			if _, exists := a.Resources.values[site]; exists {
+				continue
+			}
+			profile := resourceProfileForPlan(account.Username, site, plan)
+			a.Resources.values[site] = profile
+			profiles = append(profiles, profile)
 		}
-		profile := resourceProfileForPlan(account.Username, site, plan)
-		a.Resources.values[site] = profile
-		profiles = append(profiles, profile)
-	}
-	err := a.Resources.persistLocked()
-	if err != nil && !errors.Is(err, errControlPlaneStateRefreshed) {
-		for _, profile := range profiles {
-			delete(a.Resources.values, profile.Site)
+		if len(profiles) == 0 {
+			return nil
 		}
-	}
-	a.Resources.mu.Unlock()
+		err := a.Resources.persistLocked()
+		if err != nil && !errors.Is(err, errControlPlaneStateRefreshed) {
+			for _, profile := range profiles {
+				delete(a.Resources.values, profile.Site)
+			}
+		}
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("persist plan resource profiles: %w", err)
 	}
