@@ -76,9 +76,21 @@ for _ in $(seq 1 50); do (exec 3<>"/dev/tcp/$public_addr/$port") 2>/dev/null && 
 connects() {
   local name=$1 address=$2
   shift 2
-  systemd-run --quiet --wait --pipe --collect -p User=nobody "$@" \
-    /bin/bash -c "timeout 5 bash -c 'exec 3<>/dev/tcp/$address/$port' && echo connected" \
-    > "$work/$name.out" 2>&1
+  run_unit "$name" "$@" /bin/bash -c "timeout 5 bash -c 'exec 3<>/dev/tcp/$address/$port' && echo connected"
+}
+# run_unit NAME [property...] COMMAND... runs COMMAND as an unprivileged user
+# in a transient unit; PID 1 appends its output to $work/NAME.out. Not
+# systemd-run --pipe: handing the caller's pipes to PID 1 fails ("Remote peer
+# disconnected") when the drill itself runs inside a system service.
+run_unit() {
+  local name=$1
+  shift
+  local -a properties=()
+  while [[ $1 == -p ]]; do properties+=("$1" "$2"); shift 2; done
+  : > "$work/$name.out"
+  systemd-run --quiet --wait --collect -p User=nobody \
+    -p "StandardOutput=append:$work/$name.out" -p "StandardError=append:$work/$name.out" \
+    "${properties[@]}" -- "$@"
 }
 show() { sed 's/^/    /' "$work/$1.out" >&2; }
 policy=(-p "IPAddressAllow=$allow" -p "IPAddressDeny=$deny")
@@ -97,7 +109,7 @@ for address in "$private_addr" "$metadata_addr"; do
     fail "tenant code reached $address under the policy"
   fi
 done
-systemd-run --quiet --wait --pipe --collect -p User=nobody "${policy[@]}" /bin/bash -c 'getent ahosts github.com' > "$work/dns.out" 2>&1 \
+run_unit dns "${policy[@]}" /bin/bash -c 'getent ahosts github.com' \
   || { show dns; fail 'DNS resolution failed under the policy (are the nameservers allowed?)'; }
 echo "ok: under the policy tenant code reached the public address and DNS, and was refused $private_addr and $metadata_addr"
 echo 'tenant egress smoke passed'
