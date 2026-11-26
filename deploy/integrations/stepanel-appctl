@@ -379,6 +379,9 @@ ExecStart=$node_bin $npm_cli start
 Restart=on-failure
 RestartSec=5s
 NoNewPrivileges=true
+# Application code must not reach cloud instance metadata, which can hand
+# out host credentials; specific endpoints only, so link-local DNS works.
+IPAddressDeny=169.254.169.254/32 169.254.170.2/32 100.100.100.200/32 fd00:ec2::254/128
 PrivateDevices=true
 PrivateTmp=true
 ProtectControlGroups=true
@@ -464,6 +467,9 @@ RestartSec=5s
 MemoryMax=${memory}M
 TasksMax=$((processes * 64))
 NoNewPrivileges=true
+# Application code must not reach cloud instance metadata, which can hand
+# out host credentials; specific endpoints only, so link-local DNS works.
+IPAddressDeny=169.254.169.254/32 169.254.170.2/32 100.100.100.200/32 fd00:ec2::254/128
 PrivateDevices=true
 ProtectSystem=strict
 $home_protection
@@ -573,6 +579,9 @@ ExecStart=$venv/bin/python -m gunicorn --workers $workers --bind 127.0.0.1:$port
 Restart=on-failure
 RestartSec=5s
 NoNewPrivileges=true
+# Application code must not reach cloud instance metadata, which can hand
+# out host credentials; specific endpoints only, so link-local DNS works.
+IPAddressDeny=169.254.169.254/32 169.254.170.2/32 100.100.100.200/32 fd00:ec2::254/128
 PrivateDevices=true
 ProtectSystem=strict
 $home_protection

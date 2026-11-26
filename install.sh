@@ -1202,7 +1202,10 @@ FPM_DROPIN_CHANGED=0
 for fpm_unit in "${FPM_UNITS[@]}"; do
   dropin="/etc/systemd/system/$fpm_unit.d/stepanel-socket-root.conf"
   install -d -o root -g root -m 0755 "$(dirname "$dropin")"
-  printf '[Service]\nExecStartPre=/usr/local/sbin/stepanel-ensure-php-socket-root %s\nLimitNOFILE=65536\n' "$PHP_SOCKET_ROOT" > "$INSTALL_TXN/fpm-socket-root.conf"
+  # Site PHP (every pool runs under this service) must not reach cloud instance
+  # metadata, which can hand out host credentials to a compromised plugin or an
+  # SSRF bug. Deny the metadata endpoints only, so link-local DNS keeps working.
+  printf '[Service]\nExecStartPre=/usr/local/sbin/stepanel-ensure-php-socket-root %s\nLimitNOFILE=65536\nIPAddressDeny=169.254.169.254/32 169.254.170.2/32 100.100.100.200/32 fd00:ec2::254/128\n' "$PHP_SOCKET_ROOT" > "$INSTALL_TXN/fpm-socket-root.conf"
   if ! { [[ -f $dropin ]] && [[ "$(cat "$dropin")" == "$(cat "$INSTALL_TXN/fpm-socket-root.conf")" ]]; }; then FPM_DROPIN_CHANGED=1; fi
   dropin_tmp=$(mktemp "${dropin}.XXXXXX")
   TXN_TEMPS+=("$dropin_tmp")
@@ -1549,6 +1552,18 @@ for app_unit in /etc/systemd/system/stepanel-task-*.service /etc/systemd/system/
       -e 's#^ExecStart=/var/lib/stepanel/tasks/#ExecStart=/bin/bash /var/lib/stepanel/tasks/#' \
       -e 's#^ExecStart=\([^ ]*\)/bin/gunicorn #ExecStart=\1/bin/python -m gunicorn #' \
       "$app_unit" > "$unit_staged"
+  chmod 0644 "$unit_staged"; chown root:root "$unit_staged"
+  mv -f "$unit_staged" "$app_unit"
+  units_migrated=1
+done
+# App units generated before cloud-metadata egress was denied gain the same
+# IPAddressDeny new units get; each app applies it at its next restart.
+for app_unit in /etc/systemd/system/stepanel-app-*.service; do
+  [[ -f $app_unit && ! -L $app_unit ]] || continue
+  ! grep -q '^IPAddressDeny=' "$app_unit" || continue
+  grep -qx 'NoNewPrivileges=true' "$app_unit" || continue
+  unit_staged=$(mktemp /etc/systemd/system/.stepanel-unit-migrate.XXXXXX)
+  sed -e '0,/^NoNewPrivileges=true$/s##NoNewPrivileges=true\nIPAddressDeny=169.254.169.254/32 169.254.170.2/32 100.100.100.200/32 fd00:ec2::254/128#' "$app_unit" > "$unit_staged"
   chmod 0644 "$unit_staged"; chown root:root "$unit_staged"
   mv -f "$unit_staged" "$app_unit"
   units_migrated=1
