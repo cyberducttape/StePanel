@@ -522,8 +522,10 @@ environment. Preserve both in the host's secret backup.
 
 Production validation also requires `STEPANEL_REQUIRE_OFFSITE_BACKUP=1` and a
 valid `STEPANEL_OFFSITE_TARGET` (for example `s3:my-bucket/stepanel`). Configure
-and test the rclone destination before running the installer; rclone must be
-installed and available on `PATH`. To keep backups out of reach of a
+and test the rclone destination before running the installer; rclone 1.57 or
+newer must be installed and available on `PATH` (restores stat each object
+with `rclone lsjson --stat`, and the readiness probe fails on an older
+rclone). To keep backups out of reach of a
 compromised panel, use an S3 bucket with Object Lock and set
 `STEPANEL_OFFSITE_OBJECT_LOCK=1`; readiness then proves the panel's credentials
 cannot delete what they wrote ([OFFSITE_OBJECT_LOCK.md](OFFSITE_OBJECT_LOCK.md)).

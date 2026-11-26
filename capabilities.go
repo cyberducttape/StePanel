@@ -89,6 +89,19 @@ func probeOffsiteRemoteWithRunner(ctx context.Context, target, rclone string, ru
 	if err != nil || !bytes.Equal(got, want) {
 		return fmt.Errorf("offsite probe readback did not match written object")
 	}
+	// Restores stat each object before streaming it (rclone lsjson --stat,
+	// rclone 1.57 or newer). Prove that works now rather than at restore time.
+	statOutput, err := run(ctx, rclone, "lsjson", "--stat", "-q", remote)
+	if err != nil {
+		return fmt.Errorf("offsite probe could not stat the written object (restores need rclone 1.57 or newer): %w: %s", err, strings.TrimSpace(string(statOutput)))
+	}
+	var stat struct {
+		Size  int64
+		IsDir bool
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(statOutput), &stat); err != nil || stat.IsDir || stat.Size != int64(len(want)) {
+		return errors.New("offsite probe stat did not report the written object (restores need rclone 1.57 or newer)")
+	}
 	return nil
 }
 

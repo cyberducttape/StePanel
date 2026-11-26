@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -555,5 +556,40 @@ func TestOffsiteReadinessKeepsLastResultWhileRefreshing(t *testing.T) {
 	offsiteProbeCache.Unlock()
 	if err := schedule(); !errors.Is(err, errOffsiteProbePending) {
 		t.Fatalf("stale refresh = %v, want pending", err)
+	}
+}
+
+// Restores stat each object with rclone lsjson --stat (rclone 1.57+). The
+// readiness probe must exercise that, so a host with an older rclone fails
+// readiness instead of failing its first restore.
+func TestOffsiteProbeRequiresObjectStat(t *testing.T) {
+	var written []byte
+	run := func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		switch {
+		case args[0] == "copyto" && !strings.HasPrefix(args[1], "s3:"):
+			data, err := os.ReadFile(args[1])
+			written = data
+			return nil, err
+		case args[0] == "copyto":
+			return nil, os.WriteFile(args[2], written, 0o600)
+		case args[0] == "deletefile":
+			return nil, nil
+		case args[0] == "lsjson":
+			return nil, errors.New("unknown flag: --stat")
+		}
+		return nil, fmt.Errorf("unexpected command %q", args)
+	}
+	err := probeOffsiteRemoteWithRunner(t.Context(), "s3:bucket", "/usr/bin/rclone", run)
+	if err == nil || !strings.Contains(err.Error(), "rclone 1.57 or newer") {
+		t.Fatalf("probe with an rclone that cannot stat = %v", err)
+	}
+	statOK := func(_ context.Context, executable string, args ...string) ([]byte, error) {
+		if args[0] == "lsjson" {
+			return []byte(fmt.Sprintf(`{"Path":"probe","Size":%d,"IsDir":false}`, len(written))), nil
+		}
+		return run(context.Background(), executable, args...)
+	}
+	if err := probeOffsiteRemoteWithRunner(t.Context(), "s3:bucket", "/usr/bin/rclone", statOK); err != nil {
+		t.Fatalf("probe with a working stat: %v", err)
 	}
 }
