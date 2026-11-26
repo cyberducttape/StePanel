@@ -588,7 +588,20 @@ install_journal_on_exit() {
 trap install_journal_on_exit EXIT
 
 install_phase "installing base PHP and host utility packages"
-if [[ "$PKG" == "apt" ]]; then export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y php php-cli php-fpm "$DB_PHP_PACKAGE" "$PHP_CURL_PACKAGE" php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl curl git util-linux sudo logrotate "$PROCPS_PACKAGE"
+# apt_update retries apt-get update. An Ubuntu mirror in the middle of a sync
+# briefly serves index files whose size does not match its Release file
+# ("Mirror sync in progress?"), which would otherwise abort the install.
+apt_update() {
+  local attempt
+  for attempt in 1 2 3 4; do
+    apt-get -o Acquire::Retries=3 update && return 0
+    (( attempt < 4 )) || break
+    echo "apt-get update failed (attempt $attempt of 4); retrying in $((attempt * 30)) seconds" >&2
+    sleep $((attempt * 30))
+  done
+  return 1
+}
+if [[ "$PKG" == "apt" ]]; then export DEBIAN_FRONTEND=noninteractive; apt_update; apt-get install -y php php-cli php-fpm "$DB_PHP_PACKAGE" "$PHP_CURL_PACKAGE" php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl curl git util-linux sudo logrotate "$PROCPS_PACKAGE"
 else
   # Rocky/Alma cloud images may ship the full curl package while minimal
   # images ship curl-minimal. They provide conflicting binaries, so do not

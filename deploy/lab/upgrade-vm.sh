@@ -27,7 +27,7 @@ for tree in "$previous_tree" "$candidate_tree" "$broken_tree"; do
 done
 mkdir -p "$vm_root"
 
-sudo apt-get update
+for attempt in 1 2 3 4; do sudo apt-get -o Acquire::Retries=3 update && break; (( attempt < 4 )) || exit 1; sleep $((attempt * 30)); done
 sudo apt-get install -y cloud-image-utils openssh-client qemu-system-x86 qemu-utils
 accel=tcg
 if [[ -e /dev/kvm ]]; then

@@ -58,7 +58,7 @@ jobs:
           cache: true
       - name: Install rclone (distribution package, the oldest a host is likely to run)
         run: |
-          sudo apt-get update -qq
+          for attempt in 1 2 3 4; do sudo apt-get -o Acquire::Retries=3 update -qq && break; (( attempt < 4 )) || exit 1; sleep $((attempt * 30)); done
           sudo apt-get install -y -qq rclone
           rclone version | head -1
       - name: Start versitygw
