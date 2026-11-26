@@ -225,6 +225,16 @@ jobs:
           fixture_dir="$RUNNER_TEMP/stepanel-wordpress-fixtures"
           bash deploy/lab/fetch-wordpress-smoke-fixtures.sh "$fixture_dir"
           echo "STEPANEL_WORDPRESS_FIXTURES_DIR=$fixture_dir" >> "$GITHUB_ENV"
+      # Two full recovery shards lost their runner mid-run with no logs or
+      # diagnostics left behind. The long matrix fills the runner's disk with
+      # backups, images and journals, so drop preinstalled toolchains this
+      # job never uses before it starts.
+      - name: Free runner disk for the full recovery matrix
+        if: ${{ inputs.full_recovery_matrix }}
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h / | tail -1
       - name: Build disposable systemd host image
         timeout-minutes: 20
         env:
@@ -261,6 +271,7 @@ jobs:
               --userns=host \
               --cgroupns=host \
               --tmpfs /run --tmpfs /run/lock \
+              --memory=12g --memory-swap=12g \
               -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
               -v "$STEPANEL_WORDPRESS_FIXTURES_DIR:/opt/stepanel-wordpress-fixtures:ro" \
               -v "$STEPANEL_RELEASE_TREE:/work" "$HOST_IMAGE" /sbin/init; then
@@ -322,6 +333,28 @@ jobs:
             docker_diag logs --tail 200 stepanel-install >&2 || true
             exit 1
           fi
+          # Watch the runner itself. If memory or disk nearly runs out, stop
+          # the disposable host while the runner can still report: otherwise
+          # the runner agent is starved, GitHub loses it, and the job ends with
+          # no log and no diagnostics. Samples are kept as a diagnostic.
+          watch_runner_resources() {
+            local mem root docker
+            while sleep 60; do
+              mem=$(awk '/^MemAvailable:/ { print int($2 / 1024) }' /proc/meminfo)
+              root=$(df -Pm / | awk 'NR == 2 { print $4 }')
+              docker=$(df -Pm /var/lib/docker 2>/dev/null | awk 'NR == 2 { print $4 }')
+              printf '%s mem_available_mib=%s root_free_mib=%s docker_free_mib=%s\n' "$(date -u +%FT%TZ)" "$mem" "$root" "${docker:-$root}" >> "$diagnostics_dir/runner-resources.txt"
+              if (( mem < 768 || root < 1536 || ${docker:-$root} < 1536 )); then
+                echo "::error::runner resources nearly exhausted (memory available ${mem} MiB, disk free ${root} MiB); stopping the disposable host before the runner is lost"
+                { docker_diag stats --no-stream; ps -eo pid,rss,comm --sort=-rss | head -15; df -h; docker_diag exec stepanel-install df -h; docker_diag exec stepanel-install du -xsh /var/log /var/lib /var/www /home /tmp /var/backups; } > "$diagnostics_dir/runner-exhaustion.txt" 2>&1 || true
+                timeout --foreground --kill-after=2s 15s docker kill stepanel-install >/dev/null 2>&1 || true
+                return
+              fi
+            done
+          }
+          watch_runner_resources &
+          resource_watcher=$!
+          trap 'kill "$resource_watcher" 2>/dev/null || true; cleanup' EXIT
           set +e
           # Bound host-install validation so a stuck package manager or
           # service transition yields diagnostics rather than consuming the
@@ -344,7 +377,12 @@ jobs:
             stepanel-install /work/deploy/lab/install-smoke.sh \
             2>&1 | tee "$diagnostics_dir/install-smoke-output.txt"
           smoke_status=${PIPESTATUS[0]}
+          kill "$resource_watcher" 2>/dev/null || true
           set -e
+          if [[ -s "$diagnostics_dir/runner-resources.txt" ]]; then
+            awk '{ for (i = 2; i <= NF; i++) { split($i, kv, "="); if (!(kv[1] in low) || kv[2] + 0 < low[kv[1]]) low[kv[1]] = kv[2] + 0 } }
+              END { printf "runner resource low-water marks:"; for (k in low) printf " %s=%s", k, low[k]; print "" }' "$diagnostics_dir/runner-resources.txt"
+          fi
           if [[ "$smoke_status" != 0 ]]; then
             echo "install smoke exited with status $smoke_status; collecting host diagnostics" >&2
             cat "$diagnostics_dir/install-smoke-output.txt" >&2 || true
