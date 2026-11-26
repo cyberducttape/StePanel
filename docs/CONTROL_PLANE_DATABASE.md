@@ -74,4 +74,8 @@ changes transaction behavior and is unsafe without the steps below.
    access is done** (migration 34, `site_access_table.go`): `site_access`
    rows with their SSH keys in `site_access_keys`. Both use the shared
    `keyedRowTable` (`keyed_rows.go`), which the remaining map-shaped stores
-   can adopt the same way.
+   can adopt the same way. Environment secrets need more than that: key
+   rotation and the context-binding migration re-seal every secret without
+   changing its plaintext, so a row diff on plaintext would never rewrite
+   the ciphertext. Their table needs a forced rewrite for re-sealing, tested
+   with a key removed afterwards, before it replaces the blob.
