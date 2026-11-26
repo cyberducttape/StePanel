@@ -57,6 +57,10 @@ errors occurred only during the deliberate restart, after which the panel
 was ready in 1.7 s. A run on the previous source failed at customer account
 72 and its cause was not captured. See the
 [reviewed report](./lab-results/2026-11-26-capacity-envelope-f471efc.md).
+A repeat, [45795590563](https://github.com/cyberducttape/StePanel/actions/runs/45795590563)
+on `d73cd963`, passed the same profile with customer accounts created in
+8.5 to 10 s each after unchanged resource applies stopped reloading
+systemd and PHP-FPM ([report](./lab-results/2026-11-26-capacity-envelope-d73cd96.md)).
 
 These are passing runs on one runner VM type, not a certified limit. They did not include real WordPress/database traffic, migrations,
 worker interruption, or backup restore under load. The earlier Ubuntu 26.04.1 synthetic HTTP run is recorded
