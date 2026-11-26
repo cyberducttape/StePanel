@@ -218,6 +218,10 @@ func (a *App) handleNodeDeploymentJob(ctx context.Context, item Job) ([]byte, er
 		if err := a.persistNodeDeploymentCheckpoint(item, input); err != nil {
 			return nil, fmt.Errorf("persist Node deployment stage %s: %w", input.Stage, err)
 		}
+		// Lab kill/pause boundary after each durable step (for example
+		// node-deploy:deploy-app, after the app moved but before the proxy):
+		// deploy/lab/abrupt-loss-operation-drill.sh app-deploy.
+		processKillInjection("node-deploy", deploymentStep.name)
 	}
 	input.Stage = "completed"
 	if err := a.persistNodeDeploymentCheckpoint(item, input); err != nil {

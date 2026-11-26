@@ -27,6 +27,11 @@
 #                    recorded it. The original release must be back, the job
 #                    must report the interruption, and no activation journal
 #                    may remain. A fresh deploy must then succeed.
+#   app-deploy       Guest dies at node-deploy:deploy-app, after a Node
+#                    deployment moved the app to a new port but before the
+#                    proxy followed. Recovery must roll back to the snapshot
+#                    and the retried job must complete: manifest, systemd
+#                    unit, listener and proxy all on the new port.
 #   retention        Guest dies at backup:prune, while scheduled-backup
 #                    retention is deleting an old backup (renamed out of the
 #                    inventory, not yet removed). Every backup the site still
@@ -80,6 +85,7 @@ site_scenario=$scenario
 [[ $site_scenario != database-restore ]] || site_scenario=dbrestore
 # Site names are at most 32 characters; keep this one short.
 [[ $site_scenario != backup-interrupted ]] || site_scenario=bkintr
+[[ $site_scenario != app-deploy ]] || site_scenario=appdeploy
 site=drill-${site_scenario}-${DRILL_RUN_SUFFIX}
 domain=$site.localhost
 # shellcheck source=../integrations/stepanel-site-location.sh
@@ -483,6 +489,95 @@ git_deploy() {
   esac
 }
 
+# --- app-deploy ----------------------------------------------------------------
+app_manifest=/var/lib/ste-panel/apps
+: "${DRILL_APP_PORT_BEFORE:=38211}"
+: "${DRILL_APP_PORT_AFTER:=38212}"
+
+# install_app_runtime puts a Node application in the site and prints the Node
+# version to deploy: the installed one, or (with STEPANEL_INSTALL_NODE=0) a
+# stand-in runtime in nvm's layout whose node serves the site directory, as
+# in app-lifecycle-smoke.sh.
+install_app_runtime() {
+  local nvm_dir=/opt/stepanel/.nvm version stub_dir owner
+  owner=$(stat -c %U:%G "$public")
+  printf '{"private": true, "scripts": {"start": "node server.js"}}\n' > "$public/package.json"
+  printf "require('http').createServer((req, res) => res.end('DRILL_APP\\\\n')).listen(Number(process.env.PORT), '127.0.0.1');\n" > "$public/server.js"
+  printf 'DRILL_APP\n' > "$public/index.html"
+  chown "$owner" "$public/package.json" "$public/server.js" "$public/index.html"
+  if [[ -f $nvm_dir/nvm.sh ]]; then
+    version=$(find "$nvm_dir/versions/node" -mindepth 1 -maxdepth 1 -type d -name 'v*' -printf '%f\n' 2>/dev/null | sort -V | tail -n 1)
+    version=${version#v}
+    [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "no installed Node version under $nvm_dir"
+  else
+    version=22.0.0
+    stub_dir="$nvm_dir/versions/node/v$version"
+    install -d -m 0755 "$nvm_dir" "$stub_dir/bin" "$stub_dir/lib/node_modules/npm/bin"
+    printf '#!/bin/sh\nif [ "$1" = --version ]; then echo v%s; exit 0; fi\nexec python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$PWD"\n' "$version" > "$stub_dir/bin/node"
+    printf '// stand-in npm\n' > "$stub_dir/lib/node_modules/npm/bin/npm-cli.js"
+    chmod 0755 "$stub_dir/bin/node"
+    chmod 0644 "$stub_dir/lib/node_modules/npm/bin/npm-cli.js"
+  fi
+  printf '%s' "$version"
+}
+
+deploy_app() {
+  local port=$1 version=$2
+  api POST /api/deployments "$(python3 -c 'import json, sys; print(json.dumps({"site": sys.argv[1], "domain": sys.argv[2], "node_version": sys.argv[3], "port": int(sys.argv[4]), "backend": "http://127.0.0.1:" + sys.argv[4]}))' "$site" "$domain" "$version" "$port")"
+}
+
+manifest_port() {
+  python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("port", ""))' "$app_manifest/$site.json" 2>/dev/null || true
+}
+
+listening_on() {
+  ss -ltnH "sport = :$1" | grep -q .
+}
+
+app_deploy() {
+  case "$action" in
+    prepare)
+      login
+      create_site
+      version=$(install_app_runtime)
+      printf '%s\n' "$version" > "$state_dir/node-version"
+      require_completed "$(job_id_of "$(deploy_app "$DRILL_APP_PORT_BEFORE" "$version")")" 'initial app deployment'
+      [[ $(manifest_port) == "$DRILL_APP_PORT_BEFORE" ]] || fail "initial manifest port is $(manifest_port)"
+      probe / | grep -Fq DRILL_APP || fail 'the app is not served through the proxy'
+      echo "prepared $site with its app on port $DRILL_APP_PORT_BEFORE"
+      ;;
+    start)
+      set_pause "${DRILL_PAUSE_AT:-node-deploy:deploy-app}"
+      login
+      response=$(deploy_app "$DRILL_APP_PORT_AFTER" "$(<"$state_dir/node-version")")
+      job=$(job_id_of "$response")
+      [[ -n $job ]] || fail "app deployment was not queued: $response"
+      printf '%s\n' "$job" > "$state_dir/job"
+      sync
+      wait_pause "${DRILL_PAUSE_AT:-node-deploy:deploy-app}"
+      echo "app deployment $job paused at ${DRILL_PAUSE_AT:-node-deploy:deploy-app}"
+      ;;
+    verify)
+      clear_pause_after_reboot
+      wait_panel_ready
+      login
+      job=$(<"$state_dir/job")
+      final=$(wait_terminal "$job") || fail "interrupted app deployment $job did not finish ($final)"
+      # Recovery rolls back to the pre-deployment snapshot, then the retried
+      # job deploys again, so the requested deployment must be complete and
+      # every layer must agree on it.
+      [[ $final == completed ]] || fail "interrupted app deployment $job ended $final: $(job_error "$job")"
+      [[ $(manifest_port) == "$DRILL_APP_PORT_AFTER" ]] || fail "the manifest records port $(manifest_port), not the deployed $DRILL_APP_PORT_AFTER"
+      systemctl is-active --quiet "stepanel-app-$site.service" || fail "stepanel-app-$site.service is not running"
+      for _ in $(seq 1 30); do listening_on "$DRILL_APP_PORT_AFTER" && break; sleep 1; done
+      listening_on "$DRILL_APP_PORT_AFTER" || fail "nothing listens on the deployed port $DRILL_APP_PORT_AFTER"
+      ! listening_on "$DRILL_APP_PORT_BEFORE" || fail "the previous port $DRILL_APP_PORT_BEFORE is still served"
+      probe / | grep -Fq DRILL_APP || fail 'the app is not served through the proxy after recovery'
+      echo "interrupted app deployment $job completed after recovery; manifest, unit, listener and proxy agree on port $DRILL_APP_PORT_AFTER"
+      ;;
+  esac
+}
+
 # --- control-plane -------------------------------------------------------------
 # --- retention ---------------------------------------------------------------
 backup_root=$(sed -n 's/^STEPANEL_BACKUP_ROOT="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /etc/ste-panel.env)
@@ -670,6 +765,7 @@ case "$scenario" in
   file-restore) file_restore ;;
   database-restore) database_restore ;;
   git-deploy) git_deploy ;;
+  app-deploy) app_deploy ;;
   retention) retention ;;
   control-plane) control_plane ;;
   backup-interrupted) backup_interrupted ;;
