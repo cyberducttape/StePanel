@@ -25,13 +25,16 @@ metadata_addr=169.254.169.254
 public_addr=22.255.0.11
 port=18080
 work=$(mktemp -d)
+probe_dir=/run/stepanel-egress-probe
 listener=
 fail() { echo "tenant egress smoke: $*" >&2; exit 1; }
 cleanup() {
   local status=$?
   [[ -z $listener ]] || kill "$listener" 2>/dev/null || true
   ip link del "$link" 2>/dev/null || true
-  rm -rf -- "$work"
+  rm -f /run/systemd/system/stepanel-egress-probe-*.service
+  systemctl daemon-reload 2>/dev/null || true
+  rm -rf -- "$work" "$probe_dir"
   exit "$status"
 }
 trap cleanup EXIT
@@ -48,6 +51,9 @@ for unit in $fpm_units; do
   for range in 10.0.0.0/8 192.168.0.0/16 169.254.0.0/16; do
     [[ " $shown " == *" $range"* ]] || fail "$unit IPAddressDeny lacks $range: $shown"
   done
+  # "localhost" is unit-file syntax; systemd must have expanded it.
+  allowed=$(systemctl show "$unit" -p IPAddressAllow --value)
+  [[ " $allowed " == *" 127.0.0.0/8"* ]] || fail "$unit IPAddressAllow lacks loopback (was localhost parsed?): $allowed"
 done
 echo "ok: PHP-FPM ($fpm_units) carries the tenant egress policy"
 
@@ -70,49 +76,48 @@ listener=$!
 for _ in $(seq 1 50); do (exec 3<>"/dev/tcp/$public_addr/$port") 2>/dev/null && break; sleep 0.1; done
 (exec 3<>"/dev/tcp/$public_addr/$port") 2>/dev/null || fail 'listener did not start'
 
-# connects NAME ADDRESS [systemd-run property...] tries one TCP connection to
-# ADDRESS as an unprivileged user in a transient unit with the given
-# properties, keeping the unit's output in $work/NAME.out.
-connects() {
-  local name=$1 address=$2
-  shift 2
-  run_unit "$name" "$@" /bin/bash -c "timeout 5 bash -c 'exec 3<>/dev/tcp/$address/$port' && echo connected"
-}
-# run_unit NAME [property...] COMMAND... runs COMMAND as an unprivileged user
-# in a transient unit named for NAME and keeps the unit's journal and result
-# in $work/NAME.out. Output goes to the journal, not a file: systemd-run
-# --pipe fails when the drill runs inside a system service ("Remote peer
-# disconnected"), and under SELinux PID 1 may not open a file the drill
-# created, which fails the unit before its command runs.
-run_unit() {
-  local name=$1 unit status=0
-  shift
-  local -a properties=()
-  while [[ $1 == -p ]]; do properties+=("$1" "$2"); shift 2; done
-  unit="stepanel-egress-probe-$name-$$-$RANDOM"
-  unit=${unit//./-}
-  systemd-run --quiet --wait --collect --unit="$unit" -p User=nobody "${properties[@]}" -- "$@" || status=$?
-  { echo "exit status $status"; journalctl --no-pager -o cat -u "$unit" 2>/dev/null | tail -20; } > "$work/$name.out"
+# probe NAME POLICY COMMAND runs COMMAND as nobody in a oneshot unit file
+# (not systemd-run properties: those reject unit-file syntax such as
+# "localhost") carrying POLICY: "full" for the installed policy lines
+# verbatim, "deny" for its IPAddressDeny line alone, or "none". The unit's
+# exit status and journal are kept in $work/NAME.out.
+install -d -m 0755 -o root -g root "$probe_dir"
+probe() {
+  local name=$1 mode=$2 command=$3 unit status=0
+  unit="stepanel-egress-probe-${name//./-}"
+  printf '#!/bin/bash\n%s\n' "$command" > "$probe_dir/$name.sh"
+  chmod 0755 "$probe_dir/$name.sh"
+  {
+    printf '[Service]\nType=oneshot\nUser=nobody\nExecStart=/bin/bash %s\n' "$probe_dir/$name.sh"
+    case $mode in
+      full) cat "$policy_file" ;;
+      deny) grep '^IPAddressDeny=' "$policy_file" ;;
+      none) ;;
+    esac
+  } > "/run/systemd/system/$unit.service"
+  systemctl daemon-reload
+  systemctl start "$unit.service" >/dev/null 2>&1 || status=$?
+  { echo "exit status $status"; journalctl --no-pager -o cat -u "$unit.service" 2>/dev/null | tail -20; } > "$work/$name.out"
+  systemctl reset-failed "$unit.service" 2>/dev/null || true
   return "$status"
 }
+connect_command() { printf "timeout 5 bash -c 'exec 3<>/dev/tcp/%s/%s' && echo connected" "$1" "$port"; }
 show() { sed 's/^/    /' "$work/$1.out" >&2; }
-policy=(-p "IPAddressAllow=$allow" -p "IPAddressDeny=$deny")
 
 # The probe itself must work before its refusals mean anything.
-connects baseline "$public_addr" || { show baseline; fail 'a transient unit cannot reach the public listener even without a policy; the probe proves nothing'; }
-connects baseline-private "$private_addr" || { show baseline-private; fail 'a transient unit cannot reach the private listener even without a policy; the probe proves nothing'; }
-if ! connects public "$public_addr" "${policy[@]}"; then
+probe baseline none "$(connect_command "$public_addr")" || { show baseline; fail 'a probe unit cannot reach the public listener even without a policy; the probe proves nothing'; }
+probe baseline-private none "$(connect_command "$private_addr")" || { show baseline-private; fail 'a probe unit cannot reach the private listener even without a policy; the probe proves nothing'; }
+if ! probe public full "$(connect_command "$public_addr")"; then
   show public
-  connects public-deny-only "$public_addr" -p "IPAddressDeny=$deny" && deny_only=reachable || deny_only=refused
-  connects public-allow-only "$public_addr" -p "IPAddressAllow=$allow" && allow_only=reachable || allow_only=refused
-  fail "the policy refused a public address (deny list alone: $deny_only; allow list alone: $allow_only; allow=$allow; deny=$deny)"
+  probe public-deny-only deny "$(connect_command "$public_addr")" && deny_only=reachable || deny_only=refused
+  fail "the installed policy refused a public address (deny line alone: $deny_only; allow=$allow; deny=$deny)"
 fi
 for address in "$private_addr" "$metadata_addr"; do
-  if connects "refused-$address" "$address" "${policy[@]}"; then
-    fail "tenant code reached $address under the policy"
+  if probe "refused-$address" full "$(connect_command "$address")"; then
+    fail "tenant code reached $address under the installed policy"
   fi
 done
-run_unit dns "${policy[@]}" /bin/bash -c 'getent ahosts github.com' \
-  || { show dns; fail 'DNS resolution failed under the policy (are the nameservers allowed?)'; }
-echo "ok: under the policy tenant code reached the public address and DNS, and was refused $private_addr and $metadata_addr"
+probe dns full 'getent ahosts github.com' \
+  || { show dns; fail 'DNS resolution failed under the installed policy (are the nameservers allowed?)'; }
+echo "ok: under the installed policy tenant code reached the public address and DNS, and was refused $private_addr and $metadata_addr"
 echo 'tenant egress smoke passed'
