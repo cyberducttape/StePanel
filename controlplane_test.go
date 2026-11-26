@@ -3,6 +3,7 @@ package stepanel
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/cyberducttape/StePanel/internal/migration"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -607,5 +609,101 @@ func TestControlPlaneMigrationsSerializeConcurrentOpen(t *testing.T) {
 		if err != nil {
 			t.Fatalf("concurrent control-plane open failed: %v", err)
 		}
+	}
+}
+
+// The control-plane database holds sessions and tokens: it is created 0600
+// before SQLite opens it, whatever the umask, and unsafe locations are refused.
+func TestControlPlaneDatabaseIsCreatedPrivatelyAndRefusesUnsafePaths(t *testing.T) {
+	old := syscall.Umask(0)
+	defer syscall.Umask(old)
+	dir := filepath.Join(t.TempDir(), "state")
+	if err := os.Mkdir(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "control.db")
+	db, err := openControlPlaneDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS permission_probe (id INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{path, path + "-wal", path + "-shm"} {
+		info, err := os.Stat(name)
+		if errors.Is(err, os.ErrNotExist) && name != path {
+			continue
+		}
+		if err != nil || info.Mode().Perm() != 0o600 {
+			t.Errorf("%s mode = %v, %v; want 0600", name, info.Mode().Perm(), err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// An existing database or sidecar with a loose mode is tightened before open.
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path+"-journal", nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareControlPlaneDatabaseFile(path); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{path, path + "-journal"} {
+		if info, err := os.Stat(name); err != nil || info.Mode().Perm() != 0o600 {
+			t.Errorf("%s mode after prepare = %v, %v; want 0600", name, info.Mode().Perm(), err)
+		}
+	}
+
+	// A symlinked database is refused rather than followed.
+	linkDir := filepath.Join(t.TempDir(), "linked")
+	if err := os.Mkdir(linkDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(path, filepath.Join(linkDir, "control.db")); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareControlPlaneDatabaseFile(filepath.Join(linkDir, "control.db")); err == nil {
+		t.Error("a symlinked database was accepted")
+	}
+
+	// A directory writable by others is refused.
+	shared := filepath.Join(t.TempDir(), "shared")
+	if err := os.Mkdir(shared, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(shared, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := openControlPlaneDB(filepath.Join(shared, "control.db")); err == nil || !strings.Contains(err.Error(), "writable by others") {
+		t.Errorf("world-writable directory = %v, want refusal", err)
+	}
+	if _, err := os.Stat(filepath.Join(shared, "control.db")); !errors.Is(err, os.ErrNotExist) {
+		t.Error("a database was created in a refused directory")
+	}
+}
+
+// A volume made group-writable for the service's own group (Kubernetes
+// fsGroup) is accepted.
+func TestControlPlaneDatabaseAcceptsItsOwnGroupWritableDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "volume")
+	if err := os.Mkdir(dir, 0o770); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o2770); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chown(dir, -1, os.Getegid()); err != nil {
+		t.Fatal(err)
+	}
+	db, err := openControlPlaneDB(filepath.Join(dir, "control.db"))
+	if err != nil {
+		t.Fatalf("own-group-writable volume: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
 	}
 }

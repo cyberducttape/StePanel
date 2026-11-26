@@ -154,6 +154,11 @@ func openControlPlaneDBWithMaxBytes(path string, maxBytes int64) (*sql.DB, error
 	if err != nil {
 		return nil, fmt.Errorf("resolve control-plane database path: %w", err)
 	}
+	// Create or verify the database privately before SQLite opens it, so no
+	// window exists in which a newly created database follows the umask.
+	if err := prepareControlPlaneDatabaseFile(abs); err != nil {
+		return nil, err
+	}
 	dsn := "file:" + abs + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -181,7 +186,120 @@ func openControlPlaneDBWithMaxBytes(path string, maxBytes int64) (*sql.DB, error
 		_ = db.Close()
 		return nil, fmt.Errorf("secure control-plane database: %w", err)
 	}
+	// WAL mode created the -wal and -shm sidecars, which carry the same
+	// sensitive pages; SQLite copies the database mode, but verify it.
+	if err := secureControlPlaneSidecars(abs); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	return db, nil
+}
+
+// controlPlaneSidecarSuffixes are the files SQLite keeps beside the database.
+var controlPlaneSidecarSuffixes = []string{"-wal", "-shm", "-journal"}
+
+// prepareControlPlaneDatabaseFile refuses an unsafe database location and
+// makes sure the database file exists with mode 0600 before SQLite opens it:
+// the directory must be a real directory owned by this user or root, not
+// writable by others, and writable by group only for this process's group; an existing database or sidecar must be a
+// regular file (never a symlink) owned by this user, or opened by root.
+func prepareControlPlaneDatabaseFile(abs string) error {
+	dir := filepath.Dir(abs)
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return fmt.Errorf("inspect control-plane database directory: %w", err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("control-plane database directory %s is not a real directory", dir)
+	}
+	// Other users must never be able to replace the database. A group-writable
+	// directory is accepted only when that group is this process's own, as on
+	// a Kubernetes volume prepared with fsGroup.
+	perm := info.Mode().Perm()
+	if perm&0o002 != 0 {
+		return fmt.Errorf("control-plane database directory %s is writable by others (mode %04o)", dir, perm)
+	}
+	if perm&0o020 != 0 {
+		if stat, ok := info.Sys().(*syscall.Stat_t); ok && int(stat.Gid) != os.Getegid() {
+			return fmt.Errorf("control-plane database directory %s is writable by group %d, not this process's group (mode %04o)", dir, stat.Gid, perm)
+		}
+	}
+	if err := checkControlPlaneOwner(dir, info); err != nil {
+		return err
+	}
+	created, err := os.OpenFile(abs, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+	switch {
+	case err == nil:
+		if err := created.Close(); err != nil {
+			return fmt.Errorf("create control-plane database: %w", err)
+		}
+	case errors.Is(err, os.ErrExist):
+	default:
+		return fmt.Errorf("create control-plane database: %w", err)
+	}
+	for _, name := range append([]string{abs}, controlPlaneSidecarPaths(abs)...) {
+		if err := secureControlPlaneFile(name, name == abs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func controlPlaneSidecarPaths(abs string) []string {
+	paths := make([]string, 0, len(controlPlaneSidecarSuffixes))
+	for _, suffix := range controlPlaneSidecarSuffixes {
+		paths = append(paths, abs+suffix)
+	}
+	return paths
+}
+
+// secureControlPlaneSidecars verifies and restricts the sidecars that exist.
+func secureControlPlaneSidecars(abs string) error {
+	for _, name := range controlPlaneSidecarPaths(abs) {
+		if err := secureControlPlaneFile(name, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// secureControlPlaneFile checks that name is a regular file owned by this
+// user (or that root is opening it) and sets mode 0600. A missing sidecar is
+// fine; a missing database is not.
+func secureControlPlaneFile(name string, required bool) error {
+	info, err := os.Lstat(name)
+	if errors.Is(err, os.ErrNotExist) && !required {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect control-plane database file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("control-plane database file %s is not a regular file", name)
+	}
+	if err := checkControlPlaneOwner(name, info); err != nil {
+		return err
+	}
+	if info.Mode().Perm() != 0o600 {
+		if err := os.Chmod(name, 0o600); err != nil {
+			return fmt.Errorf("secure control-plane database file %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// checkControlPlaneOwner accepts files owned by the current user; root may
+// open the service account's database (offline repair tools).
+func checkControlPlaneOwner(name string, info os.FileInfo) error {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return nil
+	}
+	euid := os.Geteuid()
+	if euid == 0 || int(stat.Uid) == euid {
+		return nil
+	}
+	return fmt.Errorf("control-plane database path %s is owned by uid %d, not the current user (uid %d)", name, stat.Uid, euid)
 }
 
 func setControlPlaneDBLimit(db *sql.DB, maxBytes int64) error {
