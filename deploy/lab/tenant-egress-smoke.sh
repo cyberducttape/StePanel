@@ -79,18 +79,21 @@ connects() {
   run_unit "$name" "$@" /bin/bash -c "timeout 5 bash -c 'exec 3<>/dev/tcp/$address/$port' && echo connected"
 }
 # run_unit NAME [property...] COMMAND... runs COMMAND as an unprivileged user
-# in a transient unit; PID 1 appends its output to $work/NAME.out. Not
-# systemd-run --pipe: handing the caller's pipes to PID 1 fails ("Remote peer
-# disconnected") when the drill itself runs inside a system service.
+# in a transient unit named for NAME and keeps the unit's journal and result
+# in $work/NAME.out. Output goes to the journal, not a file: systemd-run
+# --pipe fails when the drill runs inside a system service ("Remote peer
+# disconnected"), and under SELinux PID 1 may not open a file the drill
+# created, which fails the unit before its command runs.
 run_unit() {
-  local name=$1
+  local name=$1 unit status=0
   shift
   local -a properties=()
   while [[ $1 == -p ]]; do properties+=("$1" "$2"); shift 2; done
-  : > "$work/$name.out"
-  systemd-run --quiet --wait --collect -p User=nobody \
-    -p "StandardOutput=append:$work/$name.out" -p "StandardError=append:$work/$name.out" \
-    "${properties[@]}" -- "$@"
+  unit="stepanel-egress-probe-$name-$$-$RANDOM"
+  unit=${unit//./-}
+  systemd-run --quiet --wait --collect --unit="$unit" -p User=nobody "${properties[@]}" -- "$@" || status=$?
+  { echo "exit status $status"; journalctl --no-pager -o cat -u "$unit" 2>/dev/null | tail -20; } > "$work/$name.out"
+  return "$status"
 }
 show() { sed 's/^/    /' "$work/$1.out" >&2; }
 policy=(-p "IPAddressAllow=$allow" -p "IPAddressDeny=$deny")
