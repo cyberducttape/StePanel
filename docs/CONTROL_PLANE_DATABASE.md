@@ -88,8 +88,11 @@ changes transaction behavior and is unsafe without the steps below.
    its table has, so a later field cannot break upgrading an older
    database. PHP profiles and Composer operations followed (migrations 41
    and 42); a short string list such as a profile's verification messages
-   is one JSON-array column of its row. Still on blobs: environment secrets
-   (see above) and deployments (`internal/deployment`, its own store). Both use the shared
+   is one JSON-array column of its row. Deployment history is done
+   (migration 43, `internal/deployment`): an append table pruned to the
+   newest 1,000 records in the same transaction, so appends from the panel
+   and the worker never conflict. Still on a blob: environment secrets
+   (see above). Both use the shared
    `keyedRowTable` (`keyed_rows.go`), which the remaining map-shaped stores
    can adopt the same way. Environment secrets need more than that: key
    rotation and the context-binding migration re-seal every secret without

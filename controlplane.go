@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cyberducttape/StePanel/internal/deployment"
 	"github.com/cyberducttape/StePanel/internal/migration"
 	"github.com/cyberducttape/StePanel/internal/recovery"
 	"github.com/cyberducttape/StePanel/internal/sitelayout"
@@ -692,6 +693,9 @@ CREATE INDEX IF NOT EXISTS jobs_state_started_idx ON jobs(state, started_at, id)
 	migration.NewMigration(40, "store Redis allocations relationally", migrateRedisAllocationsBlob),
 	migration.NewMigration(41, "store PHP profiles relationally", migratePHPProfilesBlob),
 	migration.NewMigration(42, "store Composer operations relationally", migrateComposerOperationsBlob),
+	// Deployment history moves from the "deployments" state blob, rewritten
+	// in full on every record, to one row per record (internal/deployment).
+	migration.NewMigration(43, "store deployment history relationally", deployment.MigrateBlob),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {
