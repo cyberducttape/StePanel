@@ -75,7 +75,8 @@ changes transaction behavior and is unsafe without the steps below.
    rows with their SSH keys in `site_access_keys`. **Domain claims are
    done** (migration 35, `domain_claims_table.go`): one row per domain, so
    one claim per domain is a database invariant and a claim change no
-   longer rewrites every claim. Both use the shared
+   longer rewrites every claim. **Desired routes are done** (migration 36,
+   `routes_table.go`). Both use the shared
    `keyedRowTable` (`keyed_rows.go`), which the remaining map-shaped stores
    can adopt the same way. Environment secrets need more than that: key
    rotation and the context-binding migration re-seal every secret without

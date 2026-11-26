@@ -679,6 +679,9 @@ CREATE INDEX IF NOT EXISTS jobs_state_started_idx ON jobs(state, started_at, id)
 	// Domain claims move from the "domain-claims" state blob to one row per
 	// domain (domain_claims_table.go).
 	migration.NewMigration(35, "store domain claims relationally", migrateDomainClaimsBlob),
+	// Desired proxy routes move from the "routes" state blob to one row per
+	// route (routes_table.go).
+	migration.NewMigration(36, "store desired routes relationally", migrateRoutesBlob),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {

@@ -26,6 +26,9 @@ type RouteStore struct {
 	mu     sync.RWMutex
 	path   string
 	values map[string]RouteDesired
+	// rows, when bound (bindRoutes), makes the desired_routes table the
+	// store's persistence.
+	rows *keyedRowState[RouteDesired]
 }
 
 func OpenRouteStore(path string) (*RouteStore, error) {
@@ -55,6 +58,9 @@ func OpenRouteStore(path string) (*RouteStore, error) {
 }
 
 func (s *RouteStore) persistLocked() error {
+	if s.rows.bound() {
+		return routeRows.persist(s.rows, s.values)
+	}
 	b, err := json.MarshalIndent(s.values, "", "  ")
 	if err != nil {
 		return err

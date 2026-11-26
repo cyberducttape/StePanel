@@ -683,7 +683,9 @@ func Main() {
 		log.Fatalf("load resource profiles: %v", err)
 	}
 	bindState(dnsDesired, "dns-desired", &dnsDesired.values, dnsDesired.persistLocked)
-	bindState(routes, "routes", &routes.values, routes.persistLocked)
+	if err := bindRoutes(routes, controlPlaneDB); err != nil {
+		log.Fatalf("load desired routes: %v", err)
+	}
 	if err := bindDomainClaims(domains, controlPlaneDB); err != nil {
 		log.Fatalf("load domain claims: %v", err)
 	}
