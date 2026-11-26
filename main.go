@@ -677,7 +677,9 @@ func Main() {
 	if err := tasks.normalizeSafeguards(); err != nil {
 		log.Fatalf("normalize scheduled task safeguards: %v", err)
 	}
-	bindState(resources, "resources", &resources.values, resources.persistLocked)
+	if err := bindResourceProfiles(resources, controlPlaneDB); err != nil {
+		log.Fatalf("load resource profiles: %v", err)
+	}
 	bindState(dnsDesired, "dns-desired", &dnsDesired.values, dnsDesired.persistLocked)
 	bindState(routes, "routes", &routes.values, routes.persistLocked)
 	bindState(domains, "domain-claims", &domains.values, domains.persistLocked)

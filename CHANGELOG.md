@@ -32,6 +32,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Resource profiles are stored one row per site in a `resource_profiles`
+  table instead of a whole-object JSON blob (control-plane migration 33,
+  applied automatically). Changes to different sites no longer conflict.
+
 - **Tenant code can no longer reach private networks.** Site PHP-FPM pools,
   Node and Python apps, and scheduled tasks are denied private, shared and
   link-local addresses (10/8, 172.16/12, 192.168/16, 100.64/10,

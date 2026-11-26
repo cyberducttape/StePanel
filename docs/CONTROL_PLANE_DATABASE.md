@@ -65,4 +65,9 @@ changes transaction behavior and is unsafe without the steps below.
    a transitional layer whose cost grows with the number of objects. New
    features must use relational tables. Existing blobs move to tables
    gradually, frequently updated and security-sensitive ones first: resource
-   profiles, environment secrets, site access, then the rest.
+   profiles, environment secrets, site access, then the rest. **Resource
+   profiles are done** (migration 33, `resource_profiles_table.go`): one row
+   per site with a revision. `ResourceStore` keeps its map and lock, and a
+   write sends only the rows that changed, each guarded by its revision, so
+   writes to different sites no longer conflict; a write over a row another
+   process changed reloads the table and is retried by the caller.

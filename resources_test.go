@@ -261,8 +261,8 @@ func TestResourceProfileSaveKeepsRefreshedPeerStateAfterCASConflict(t *testing.T
 	defer secondDB.Close()
 
 	first := &ResourceStore{values: map[string]ResourceProfile{}}
-	if found, err := bindControlPlaneState(first, firstDB, "resource-cas", &first.values); err != nil || found {
-		t.Fatalf("first resource state binding = found %v err %v", found, err)
+	if err := bindResourceProfiles(first, firstDB); err != nil {
+		t.Fatalf("first resource profile binding: %v", err)
 	}
 	original := ResourceProfile{Site: "demo", CPUPercent: 100, MemoryMB: 512, State: "pending"}
 	first.values[original.Site] = original
@@ -271,8 +271,8 @@ func TestResourceProfileSaveKeepsRefreshedPeerStateAfterCASConflict(t *testing.T
 	}
 
 	second := &ResourceStore{values: map[string]ResourceProfile{}}
-	if found, err := bindControlPlaneState(second, secondDB, "resource-cas", &second.values); err != nil || !found {
-		t.Fatalf("second resource state binding = found %v err %v", found, err)
+	if err := bindResourceProfiles(second, secondDB); err != nil || len(second.values) != 1 {
+		t.Fatalf("second resource profile binding = %d profiles, %v", len(second.values), err)
 	}
 
 	committed := original
@@ -315,11 +315,11 @@ func TestEnsurePlanResourcesRetriesAfterAPeerWrite(t *testing.T) {
 	}
 	defer workerDB.Close()
 	panel := &ResourceStore{values: map[string]ResourceProfile{}}
-	if _, err := bindControlPlaneState(panel, panelDB, "resources", &panel.values); err != nil {
+	if err := bindResourceProfiles(panel, panelDB); err != nil {
 		t.Fatal(err)
 	}
 	worker := &ResourceStore{values: map[string]ResourceProfile{}}
-	if _, err := bindControlPlaneState(worker, workerDB, "resources", &worker.values); err != nil {
+	if err := bindResourceProfiles(worker, workerDB); err != nil {
 		t.Fatal(err)
 	}
 	// The worker records the site's own profile (as site creation does) after
