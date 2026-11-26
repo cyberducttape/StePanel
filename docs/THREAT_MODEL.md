@@ -140,7 +140,7 @@ panel, but it runs as the site.
 | --- | --- | --- |
 | Tampering | Replacing an archive and its manifest | Manifests signed with `STEPANEL_BACKUP_SIGNING_KEY`, which is kept outside the backup root |
 | Information disclosure | Reading offsite copies | Archives encrypted per backup (HKDF subkey, AES-256-GCM); only the key ID leaves the host |
-| Tampering | Deleting offsite copies | Out of scope for the panel; use object lock or immutable retention at the provider |
+| Tampering | A compromised panel host deleting the offsite copies needed to recover from it | S3 Object Lock in compliance mode with `STEPANEL_OFFSITE_OBJECT_LOCK=1`: uploads never need to delete, and readiness fails unless the panel's own credentials are refused when deleting an object version ([OFFSITE_OBJECT_LOCK.md](OFFSITE_OBJECT_LOCK.md)). Without it, deletion is left to the provider's controls |
 | Spoofing | One site restoring another's backup | Each site's backups live in their own directory; the manifest's site must match the directory and the requesting site |
 
 ## Findings from this review
@@ -166,14 +166,17 @@ example NFS), release activation leaves the document root briefly absent.
   credential; local installs use the restricted helper instead.
 - Allowlisted Git providers and their repositories are trusted for the code
   they deliver.
-- Offsite deletion and retention are the storage provider's controls.
+- Offsite retention is enforced by the storage provider. StePanel verifies an
+  Object Lock bucket refuses deletion, but cannot verify compliance mode as
+  opposed to governance mode.
 
 ## Operator requirements
 
 Run StePanel behind HTTPS and keep the listener on a private interface or
 behind a reverse proxy. Keep the backup signing and encryption keys outside
-the backup root and escrow them separately. Use object lock or immutable
-retention for offsite backups. Keep site homes on a local filesystem that
+the backup root and escrow them separately. Use an S3 bucket with Object Lock
+in compliance mode for offsite backups and set
+`STEPANEL_OFFSITE_OBJECT_LOCK=1`. Keep site homes on a local filesystem that
 supports `RENAME_EXCHANGE`. Never set the safety-bypass variables the
 installer warns about (`STEPANEL_SKIP_*`, `STEPANEL_LAB_*`) on a production
 host. Snapshot a destination before a restore, and review the audit log after

@@ -99,6 +99,20 @@ func uploadOffsiteContext(parent context.Context, cfg Config, result BackupResul
 		}
 		return nil
 	}
+	if cfg.OffsiteObjectLock {
+		// Every object written to an Object Lock bucket is retained for the
+		// bucket's default retention, so a staging copy would double the locked
+		// storage of each backup and could never be removed. Write straight to
+		// the final prefix instead: readers select only backups with a
+		// completion marker, which is written last, and a retried upload of the
+		// same backup is accepted by --immutable because its files are
+		// unchanged.
+		copyArgs := append([]string{"copy", backupPath, destination}, offsiteRcloneTransferArgs(maxOffsiteObjectBytes)...)
+		if output, err := runOffsiteRclone(ctx, copyArgs...); err != nil {
+			return fmt.Errorf("offsite upload failed: %w: %s", err, strings.TrimSpace(string(output)))
+		}
+		return publishOffsiteBackup(ctx, backupPath, destination, expected)
+	}
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return fmt.Errorf("create offsite upload identity: %w", err)
@@ -133,6 +147,22 @@ func uploadOffsiteContext(parent context.Context, cfg Config, result BackupResul
 	if output, err := runOffsiteRclone(ctx, copyFinalArgs...); err != nil {
 		return fmt.Errorf("publish offsite backup objects failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
+	if err := publishOffsiteBackup(ctx, backupPath, destination, expected); err != nil {
+		return err
+	}
+	completed = true
+	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), time.Minute)
+	if output, cleanupErr := runOffsiteRclone(cleanupCtx, "purge", temporary); cleanupErr != nil {
+		log.Printf("remove verified offsite upload staging prefix %s (the periodic sweep will retry): %v: %s", temporary, cleanupErr, strings.TrimSpace(string(output)))
+	}
+	cleanupCancel()
+	return nil
+}
+
+// publishOffsiteBackup verifies the objects at a backup's final prefix against
+// the local backup and then writes the completion marker that makes the
+// backup selectable for restore.
+func publishOffsiteBackup(ctx context.Context, backupPath, destination string, expected map[string]bool) error {
 	if output, err := runOffsiteRclone(ctx, "check", backupPath, destination, "--one-way"); err != nil {
 		return fmt.Errorf("published offsite backup verification failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
@@ -163,12 +193,6 @@ func uploadOffsiteContext(parent context.Context, cfg Config, result BackupResul
 	if output, err := runOffsiteRclone(ctx, "copyto", markerPath, markerRemote, "--immutable"); err != nil {
 		return fmt.Errorf("publish offsite completion marker failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
-	completed = true
-	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), time.Minute)
-	if output, cleanupErr := runOffsiteRclone(cleanupCtx, "purge", temporary); cleanupErr != nil {
-		log.Printf("remove verified offsite upload staging prefix %s (the periodic sweep will retry): %v: %s", temporary, cleanupErr, strings.TrimSpace(string(output)))
-	}
-	cleanupCancel()
 	return nil
 }
 

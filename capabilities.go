@@ -616,7 +616,7 @@ func (a *App) checkOffsiteTargetReadiness() (bool, string) {
 		}
 		return false, fmt.Sprintf("rclone and target syntax are valid, but remote access was not verified: %v", err)
 	}
-	return true, "remote target write/read/delete verified; backup recoverability evidence is reported separately"
+	return a.offsiteObjectLockReadiness(true)
 }
 
 // checkOffsiteTargetReadinessAsync is used by HTTP readiness endpoints. It
@@ -638,7 +638,24 @@ func (a *App) checkOffsiteTargetReadinessAsync() (bool, string) {
 		}
 		return false, fmt.Sprintf("rclone and target syntax are valid, but remote access was not verified: %v", err)
 	}
-	return true, "remote target write/read/delete verified; backup recoverability evidence is reported separately"
+	return a.offsiteObjectLockReadiness(false)
+}
+
+// offsiteObjectLockReadiness adds the Object Lock proof to a target whose
+// access probe passed, when STEPANEL_OFFSITE_OBJECT_LOCK=1. With wait, a
+// target never proven is proven inline instead of reporting pending.
+func (a *App) offsiteObjectLockReadiness(wait bool) (bool, string) {
+	const verified = "remote target write/read/delete verified; backup recoverability evidence is reported separately"
+	if !a.Config.OffsiteObjectLock {
+		return true, verified
+	}
+	if err := offsiteObjectLockProof(a.Config.OffsiteTarget, wait); err != nil {
+		if errors.Is(err, errOffsiteObjectLockProofPending) {
+			return false, "remote access verified; Object Lock proof is in progress"
+		}
+		return false, fmt.Sprintf("remote access verified, but Object Lock was not: %v", err)
+	}
+	return true, verified + "; Object Lock verified: the panel's credentials cannot delete object versions"
 }
 
 // checkBuildCapability reports on the sandboxed-build path end-to-end.

@@ -18,6 +18,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   re-signing history: the chain verifies across the rotation, may only move
   to newer keys, and records `security.audit_key.rotated`.
 
+### Added
+
+- **Immutable offsite backups with S3 Object Lock.**
+  `STEPANEL_OFFSITE_OBJECT_LOCK=1` declares the offsite target an S3 bucket
+  with Object Lock. Uploads then write straight to the final prefix, so no
+  staging copy is retained, and readiness fails unless the panel's own
+  credentials are refused when deleting an object version. Bucket setup and
+  a least-privilege IAM policy are in `docs/OFFSITE_OBJECT_LOCK.md`.
+
 ### Changed
 
 - **Tenant code can no longer reach private networks.** Site PHP-FPM pools,

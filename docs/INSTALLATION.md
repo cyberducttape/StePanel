@@ -523,8 +523,10 @@ environment. Preserve both in the host's secret backup.
 Production validation also requires `STEPANEL_REQUIRE_OFFSITE_BACKUP=1` and a
 valid `STEPANEL_OFFSITE_TARGET` (for example `s3:my-bucket/stepanel`). Configure
 and test the rclone destination before running the installer; rclone must be
-installed and available on `PATH`. Provider-side
-retention lock/immutability remains an operator responsibility.
+installed and available on `PATH`. To keep backups out of reach of a
+compromised panel, use an S3 bucket with Object Lock and set
+`STEPANEL_OFFSITE_OBJECT_LOCK=1`; readiness then proves the panel's credentials
+cannot delete what they wrote ([OFFSITE_OBJECT_LOCK.md](OFFSITE_OBJECT_LOCK.md)).
 
 Production also requires stable `STEPANEL_ENVIRONMENT_KEY`,
 `STEPANEL_BACKUP_SIGNING_KEY`, and `STEPANEL_BACKUP_ENCRYPTION_KEY` values, each
@@ -568,6 +570,7 @@ In an interactive terminal, the installer asks for the database engine and versi
 | `STEPANEL_RUNNERCTL` | Absolute helper path | Rootless Podman build-runner helper; defaults to `/usr/local/sbin/stepanel-runnerctl` |
 | `STEPANEL_INSTALL_SECURITY` | `0` or `1` | Install ClamAV and the PHP malware guard. The guard watches legacy sites under `/var/www/sites` only; sites placed in hosting accounts under `/home` are covered by the on-demand malware scan, not the background guard. |
 | `STEPANEL_OFFSITE_TARGET` | rclone destination | Offsite copy target, required for production installs, for example `s3:bucket/stepanel` |
+| `STEPANEL_OFFSITE_OBJECT_LOCK` | `0` or `1`, default `0` | `1` declares the target an S3 bucket with Object Lock and a default retention: uploads write straight to the final prefix (no staging copy to retain), and readiness fails unless the panel's credentials are refused when deleting an object version ([OFFSITE_OBJECT_LOCK.md](OFFSITE_OBJECT_LOCK.md)) |
 | `STEPANEL_AUDIT_CHECKPOINT_TARGET` | rclone destination | Optional destination for daily signed audit-chain checkpoints. Production startup requires a dedicated checkpoint-signing key when this target is set. Use a separately administered remote/account and restrict its policy to append/read where supported; do not point it at the backup target if independent evidence is required. A checkpoint proves the signed chain head at publication time, not completeness before the first checkpoint. |
 | `STEPANEL_AUDIT_CHECKPOINT_KEY_ID` | 1–64 safe identifier characters; default `primary` | Identifier embedded in published audit checkpoints. Retain historical verification keys in the protected keyring when rotating the checkpoint signing key. |
 | `STEPANEL_AUDIT_CHECKPOINT_SIGNING_KEY` | Secret, at least 32 bytes | Dedicated checkpoint HMAC key, independent of the audit-chain and session keys. Production startup requires it whenever `STEPANEL_AUDIT_CHECKPOINT_TARGET` is configured. Nonproduction compatibility callers may fall back to the audit key. Rotate this key by retaining each prior key as `<key-id>.key` in the protected keyring and changing the key ID and secret together. This does not rotate the audit-chain key. |

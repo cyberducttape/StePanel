@@ -54,14 +54,18 @@ type Config struct {
 	BackupEncryptionKey                          string
 	// BackupPreviousEncryptionKeys are retired keys that still decrypt
 	// older backups; new backups always use BackupEncryptionKey.
-	BackupPreviousEncryptionKeys                                                  []string
-	RedisState                                                                    string
-	OffsiteTarget                                                                 string
-	AuditCheckpointTarget                                                         string
-	AuditCheckpointKeyID                                                          string
-	AuditCheckpointKeyringDir                                                     string
-	CloudProvider                                                                 string
-	RequireOffsiteBackup                                                          bool
+	BackupPreviousEncryptionKeys []string
+	RedisState                   string
+	OffsiteTarget                string
+	AuditCheckpointTarget        string
+	AuditCheckpointKeyID         string
+	AuditCheckpointKeyringDir    string
+	CloudProvider                string
+	RequireOffsiteBackup         bool
+	// OffsiteObjectLock declares that STEPANEL_OFFSITE_TARGET is an S3 bucket
+	// with Object Lock and a default retention. Uploads then skip the staging
+	// copy and readiness proves object versions cannot be deleted.
+	OffsiteObjectLock                                                             bool
 	AlertWebhookURL, AlertWebhookSecret                                           string
 	AlertEmailTo, AlertEmailFrom, AlertSMTPHost, AlertSMTPUser, AlertSMTPPassword string
 	AlertSMTPPort                                                                 int
@@ -316,6 +320,7 @@ func LoadConfig() Config {
 	if v := strings.TrimSpace(os.Getenv("STEPANEL_REQUIRE_OFFSITE_BACKUP")); v == "1" {
 		c.RequireOffsiteBackup = true
 	}
+	c.OffsiteObjectLock = strings.TrimSpace(os.Getenv("STEPANEL_OFFSITE_OBJECT_LOCK")) == "1"
 	if v := strings.TrimSpace(os.Getenv("STEPANEL_TLS_TERMINATED")); v == "1" {
 		c.TLSAlreadyTerminated = true
 	}
@@ -471,6 +476,12 @@ func ValidateConfig(c Config) error {
 		if raw := os.Getenv(name); raw != "" && raw != "0" && raw != "1" {
 			problems = append(problems, fmt.Errorf("%s must be 0 or 1", name))
 		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("STEPANEL_OFFSITE_OBJECT_LOCK")); raw != "" && raw != "0" && raw != "1" {
+		problems = append(problems, errors.New("STEPANEL_OFFSITE_OBJECT_LOCK must be 0 or 1"))
+	}
+	if c.OffsiteObjectLock && c.OffsiteTarget == "" {
+		problems = append(problems, errors.New("STEPANEL_OFFSITE_OBJECT_LOCK=1 requires STEPANEL_OFFSITE_TARGET"))
 	}
 	if c.RequireOffsiteBackup && c.OffsiteTarget == "" {
 		problems = append(problems, errors.New("STEPANEL_REQUIRE_OFFSITE_BACKUP=1 requires STEPANEL_OFFSITE_TARGET"))
