@@ -11,11 +11,26 @@ type MetadataCache struct {
 	mu sync.RWMutex
 
 	// The assembled site overview is expensive because it combines filesystem,
-	// route, app, and database inventory. Keep one immutable snapshot and
-	// serialize refreshes; authorization is always applied by the handler.
-	overviewMu      sync.Mutex
+	// route, app, and database inventory. One snapshot is kept and refreshed
+	// by at most one build at a time (stale-while-revalidate); overviewMu
+	// guards only these fields and is never held during a build, so readers
+	// and invalidations do not wait for a slow scan. Authorization is always
+	// applied by the handler, never cached.
+	overviewMu sync.Mutex
+	// siteOverviews is the last good snapshot; overviewsGen is the
+	// invalidation generation it was built in.
 	siteOverviews   []siteOverview
 	overviewsExpire time.Time
+	overviewsGen    uint64
+	// overviewInvalidGen is bumped by every invalidation; a snapshot from an
+	// older generation predates a change and is never served as current.
+	overviewInvalidGen uint64
+	// overviewRefresh is non-nil while a build runs and is closed when it ends.
+	overviewRefresh chan struct{}
+	// overviewErr records the latest failed build without discarding the
+	// snapshot.
+	overviewErr   error
+	overviewErrAt time.Time
 
 	// Site list cache
 	sites        []string
@@ -102,33 +117,89 @@ func (mc *MetadataCache) InvalidateSite(site string) {
 	mc.proxiesMu.Unlock()
 }
 
-// GetOrBuildSiteOverviews returns the immutable full overview snapshot. The
-// caller must treat the returned slice and its nested slices as read-only. The
-// cache is capped at the same five-second freshness bound as
-// database inventory, even when the general metadata cache has a longer TTL.
-// The callback runs under overviewMu so simultaneous cold requests share one
-// filesystem/database scan. Authorization must be applied after this method.
+// GetOrBuildSiteOverviews returns a copy of the full overview snapshot, owned
+// by the caller. Freshness is capped at the database inventory's five-second
+// bound even when the general metadata cache has a longer TTL.
+//
+// It never holds a lock while building. A snapshot that is merely past its
+// TTL is returned at once while one background build refreshes it; a missing
+// or invalidated snapshot (a change happened since it was built) is waited
+// for, so a reader never sees state from before a change it may have made.
+// A failed build keeps the previous snapshot and is recorded. Authorization
+// must be applied after this method.
 func (mc *MetadataCache) GetOrBuildSiteOverviews(build func() ([]siteOverview, error)) ([]siteOverview, error) {
-	mc.overviewMu.Lock()
-	defer mc.overviewMu.Unlock()
-	now := time.Now()
-	if mc.siteOverviews != nil && now.Before(mc.overviewsExpire) {
-		return mc.siteOverviews, nil
+	for {
+		mc.overviewMu.Lock()
+		current := mc.siteOverviews != nil && mc.overviewsGen == mc.overviewInvalidGen
+		if current {
+			if !time.Now().Before(mc.overviewsExpire) && mc.overviewRefresh == nil {
+				mc.startOverviewRefreshLocked(build)
+			}
+			snapshot := cloneSiteOverviews(mc.siteOverviews)
+			mc.overviewMu.Unlock()
+			return snapshot, nil
+		}
+		// No snapshot valid for the current generation: wait for a build that
+		// starts in this generation.
+		wanted := mc.overviewInvalidGen
+		if mc.overviewRefresh == nil {
+			mc.startOverviewRefreshLocked(build)
+		}
+		done := mc.overviewRefresh
+		mc.overviewMu.Unlock()
+		<-done
+		mc.overviewMu.Lock()
+		valid := mc.siteOverviews != nil && mc.overviewsGen >= wanted && mc.overviewsGen == mc.overviewInvalidGen
+		switch {
+		case valid:
+			snapshot := cloneSiteOverviews(mc.siteOverviews)
+			mc.overviewMu.Unlock()
+			return snapshot, nil
+		case mc.overviewErr != nil && mc.overviewInvalidGen == wanted:
+			// The build for this generation failed; report it rather than
+			// serve a snapshot from before the change or retry in a loop.
+			err := mc.overviewErr
+			mc.overviewMu.Unlock()
+			return nil, err
+		}
+		// Invalidated again during the build: wait for the next one.
+		mc.overviewMu.Unlock()
 	}
-	items, err := build()
-	if err != nil {
-		return nil, err
-	}
-	mc.siteOverviews = cloneSiteOverviews(items)
-	ttl := mc.ttl
-	if ttl > overviewInventoryMaxAge {
-		ttl = overviewInventoryMaxAge
-	}
-	mc.overviewsExpire = now.Add(ttl)
-	mc.mu.Lock()
-	mc.lastRefresh = time.Now()
-	mc.mu.Unlock()
-	return mc.siteOverviews, nil
+}
+
+// startOverviewRefreshLocked starts one background build of the overview for
+// the current invalidation generation. The caller holds overviewMu.
+func (mc *MetadataCache) startOverviewRefreshLocked(build func() ([]siteOverview, error)) {
+	done := make(chan struct{})
+	mc.overviewRefresh = done
+	gen := mc.overviewInvalidGen
+	go func() {
+		items, err := build()
+		mc.overviewMu.Lock()
+		defer mc.overviewMu.Unlock()
+		defer close(done)
+		mc.overviewRefresh = nil
+		if err != nil {
+			mc.overviewErr, mc.overviewErrAt = err, time.Now()
+			return
+		}
+		mc.overviewErr = nil
+		// A build that raced an invalidation still replaces the snapshot as a
+		// fallback, but keeps its older generation so it is not served as
+		// current.
+		mc.siteOverviews = cloneSiteOverviews(items)
+		mc.overviewsGen = gen
+		ttl := mc.ttl
+		if ttl > overviewInventoryMaxAge {
+			ttl = overviewInventoryMaxAge
+		}
+		// Expiry counts from the end of the build, so a slow build does not
+		// return an already-expired snapshot.
+		mc.overviewsExpire = time.Now().Add(ttl)
+		mc.mu.Lock()
+		mc.lastRefresh = time.Now()
+		mc.mu.Unlock()
+	}()
 }
 
 func cloneSiteOverviews(items []siteOverview) []siteOverview {
@@ -142,10 +213,11 @@ func cloneSiteOverviews(items []siteOverview) []siteOverview {
 	return cloned
 }
 
+// invalidateSiteOverviews marks the snapshot as predating a change. It does
+// not wait for a running build; the next reader waits for a fresh one.
 func (mc *MetadataCache) invalidateSiteOverviews() {
 	mc.overviewMu.Lock()
-	mc.siteOverviews = nil
-	mc.overviewsExpire = time.Time{}
+	mc.overviewInvalidGen++
 	mc.overviewMu.Unlock()
 }
 

@@ -1,6 +1,7 @@
 package stepanel
 
 import (
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -219,5 +220,130 @@ func TestMetadataCacheStaleness(t *testing.T) {
 	staleness = cache.StalenessSeconds()
 	if staleness < 1 {
 		t.Fatalf("staleness should be >= 1 after wait, got %d", staleness)
+	}
+}
+
+// A snapshot past its TTL is served at once while one background build
+// refreshes it, and the expiry counts from the end of that build.
+func TestMetadataCacheServesStaleSnapshotDuringRefresh(t *testing.T) {
+	cache := NewMetadataCache(20 * time.Millisecond)
+	if _, err := cache.GetOrBuildSiteOverviews(func() ([]siteOverview, error) {
+		return []siteOverview{{Site: "old"}}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(30 * time.Millisecond)
+	release := make(chan struct{})
+	var builds atomic.Int32
+	slow := func() ([]siteOverview, error) {
+		builds.Add(1)
+		<-release
+		return []siteOverview{{Site: "new"}}, nil
+	}
+	for range 5 {
+		start := time.Now()
+		items, err := cache.GetOrBuildSiteOverviews(slow)
+		if err != nil || items[0].Site != "old" {
+			t.Fatalf("stale read = %v, %v; want the old snapshot", items, err)
+		}
+		if time.Since(start) > 100*time.Millisecond {
+			t.Fatal("a stale read waited for the refresh")
+		}
+	}
+	close(release)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		items, err := cache.GetOrBuildSiteOverviews(slow)
+		if err == nil && items[0].Site == "new" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the background refresh never landed: %v, %v", items, err)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := builds.Load(); got != 1 {
+		t.Fatalf("stale reads started %d refreshes, want 1", got)
+	}
+}
+
+// Invalidation never waits for a running build, and a reader after it never
+// receives a snapshot from before the change.
+func TestMetadataCacheInvalidationDoesNotBlockAndIsNotServedStale(t *testing.T) {
+	cache := NewMetadataCache(time.Minute)
+	started, release := make(chan struct{}), make(chan struct{})
+	// A build reads the state current when it starts: only the build that
+	// began before the change sees "before-change". Every reader's build
+	// function behaves like this, as the real inventory scan does.
+	var changed atomic.Bool
+	var once sync.Once
+	build := func() ([]siteOverview, error) {
+		if changed.Load() {
+			return []siteOverview{{Site: "after-change"}}, nil
+		}
+		once.Do(func() { close(started) })
+		<-release
+		return []siteOverview{{Site: "before-change"}}, nil
+	}
+	go func() {
+		_, _ = cache.GetOrBuildSiteOverviews(build)
+	}()
+	<-started
+	invalidated := make(chan struct{})
+	go func() {
+		changed.Store(true)
+		cache.InvalidateSite("site-a")
+		close(invalidated)
+	}()
+	select {
+	case <-invalidated:
+	case <-time.After(time.Second):
+		t.Fatal("invalidation waited for a running build")
+	}
+	result := make(chan []siteOverview, 1)
+	go func() {
+		items, _ := cache.GetOrBuildSiteOverviews(build)
+		result <- items
+	}()
+	close(release)
+	select {
+	case items := <-result:
+		if len(items) != 1 || items[0].Site != "after-change" {
+			t.Fatalf("read after invalidation = %v, want a build from after the change", items)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the read after invalidation never completed")
+	}
+}
+
+// A failed refresh keeps the usable snapshot; a cold failure is returned, not
+// retried in a loop; and callers own their copy.
+func TestMetadataCacheRefreshFailuresAndSnapshotOwnership(t *testing.T) {
+	cold := NewMetadataCache(time.Minute)
+	var coldBuilds atomic.Int32
+	if _, err := cold.GetOrBuildSiteOverviews(func() ([]siteOverview, error) {
+		coldBuilds.Add(1)
+		return nil, errors.New("inventory unavailable")
+	}); err == nil || coldBuilds.Load() != 1 {
+		t.Fatalf("cold failure = %v after %d builds, want the error after one", err, coldBuilds.Load())
+	}
+
+	cache := NewMetadataCache(10 * time.Millisecond)
+	items, err := cache.GetOrBuildSiteOverviews(func() ([]siteOverview, error) {
+		return []siteOverview{{Site: "kept", Routes: []siteRoute{{Domain: "kept.example"}}}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items[0].Site, items[0].Routes[0].Domain = "mutated", "mutated.example"
+	time.Sleep(20 * time.Millisecond)
+	failing := func() ([]siteOverview, error) { return nil, errors.New("scan failed") }
+	again, err := cache.GetOrBuildSiteOverviews(failing)
+	if err != nil || again[0].Site != "kept" || again[0].Routes[0].Domain != "kept.example" {
+		t.Fatalf("snapshot after a caller mutation and a failing refresh = %v, %v", again, err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	if still, err := cache.GetOrBuildSiteOverviews(failing); err != nil || still[0].Site != "kept" {
+		t.Fatalf("a failed refresh discarded the usable snapshot: %v, %v", still, err)
 	}
 }
