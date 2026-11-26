@@ -329,6 +329,11 @@ if has_phase capacity; then
     record capacity PASS $((SECONDS - start)) "profile $capacity_profile; see capacity-report.md"
   else
     record capacity FAIL $((SECONDS - start)) "$(tail -1 "$run_dir/capacity.log")"
+    # The client sees only a sanitized 503; the cause is in the panel and
+    # broker journals. Also record how large systemd has grown and what one
+    # daemon-reload costs at this size.
+    guest 'sudo journalctl -u stepanel.service -u stepanel-worker.service -u stepanel-root-broker.service --since "-30 min" --no-pager' > "$run_dir/capacity-journal.log" 2>&1 || true
+    guest 'echo "units: $(systemctl list-units --all --no-legend | wc -l)"; echo "unit files: $(ls /etc/systemd/system | wc -l)"; start=$(date +%s%N); sudo systemctl daemon-reload; echo "daemon-reload ms: $(( ($(date +%s%N) - start) / 1000000 ))"' > "$run_dir/capacity-systemd.log" 2>&1 || true
   fi
   guest 'sudo cat /var/log/stepanel-cert/capacity-report.md' > "$run_dir/capacity-report.md" 2>/dev/null || true
   guest 'sudo cat /var/log/stepanel-cert/capacity-report.json' > "$run_dir/capacity-report.json" 2>/dev/null || true
