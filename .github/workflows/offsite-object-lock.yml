@@ -1,0 +1,97 @@
+name: Offsite Object Lock
+
+# Runs the Object Lock proof and a locked upload with the real rclone against
+# a live S3 server that enforces Object Lock (versitygw), with three buckets:
+# compliance-locked, versioned without lock, and unversioned. The proof must
+# pass only for the first.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'offsite*.go'
+      - 'capabilities.go'
+      - '.github/workflows/offsite-object-lock.yml'
+  pull_request:
+    paths:
+      - 'offsite*.go'
+      - 'capabilities.go'
+      - '.github/workflows/offsite-object-lock.yml'
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: offsite-object-lock-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VERSITYGW_VERSION: v1.11.0
+  VERSITYGW_SHA256: 1f075c9dc92fef232f5b3c7465711ddc5e1b062b2b6df4a3bd246a4be5b35b52
+
+jobs:
+  object-lock:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      AWS_ACCESS_KEY_ID: stepanel-ci
+      AWS_SECRET_ACCESS_KEY: stepanel-ci-secret-not-sensitive
+      AWS_DEFAULT_REGION: us-east-1
+      S3_ENDPOINT: http://127.0.0.1:7070
+      RCLONE_CONFIG_VGW_TYPE: s3
+      RCLONE_CONFIG_VGW_PROVIDER: Other
+      RCLONE_CONFIG_VGW_ENDPOINT: http://127.0.0.1:7070
+      RCLONE_CONFIG_VGW_REGION: us-east-1
+      RCLONE_CONFIG_VGW_ACCESS_KEY_ID: stepanel-ci
+      RCLONE_CONFIG_VGW_SECRET_ACCESS_KEY: stepanel-ci-secret-not-sensitive
+      RCLONE_CONFIG_VGW_FORCE_PATH_STYLE: 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: '1.26.11'
+          cache: true
+      - name: Install rclone (distribution package, the oldest a host is likely to run)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          rclone version | head -1
+      - name: Start versitygw
+        run: |
+          work=$(mktemp -d)
+          archive="versitygw_${VERSITYGW_VERSION}_Linux_x86_64.tar.gz"
+          curl -fsSL -o "$work/$archive" "https://github.com/versity/versitygw/releases/download/${VERSITYGW_VERSION}/${archive}"
+          echo "${VERSITYGW_SHA256}  $work/$archive" | sha256sum -c -
+          tar -xzf "$work/$archive" -C "$work"
+          gw=$(find "$work" -type f -name versitygw | head -1)
+          [[ -x $gw ]] || { echo 'versitygw binary not found in the release archive' >&2; exit 1; }
+          mkdir -p "$RUNNER_TEMP/vgw/data" "$RUNNER_TEMP/vgw/versions" "$RUNNER_TEMP/vgw/iam"
+          ROOT_ACCESS_KEY="$AWS_ACCESS_KEY_ID" ROOT_SECRET_KEY="$AWS_SECRET_ACCESS_KEY" \
+            nohup "$gw" --port :7070 --iam-dir "$RUNNER_TEMP/vgw/iam" \
+            posix --versioning-dir "$RUNNER_TEMP/vgw/versions" "$RUNNER_TEMP/vgw/data" \
+            > "$RUNNER_TEMP/vgw.log" 2>&1 &
+          # Any HTTP response (an unauthenticated request gets 403) means it is up.
+          for _ in $(seq 1 50); do curl -s -o /dev/null -m 1 "$S3_ENDPOINT" && break; sleep 0.2; done
+          curl -s -o /dev/null -m 1 "$S3_ENDPOINT" || { cat "$RUNNER_TEMP/vgw.log"; exit 1; }
+      - name: Create the locked, versioned and unversioned buckets
+        run: |
+          s3() { aws --endpoint-url "$S3_ENDPOINT" s3api "$@"; }
+          s3 create-bucket --bucket stepanel-locked --object-lock-enabled-for-bucket
+          s3 put-object-lock-configuration --bucket stepanel-locked \
+            --object-lock-configuration '{"ObjectLockEnabled":"Enabled","Rule":{"DefaultRetention":{"Mode":"COMPLIANCE","Days":1}}}'
+          s3 get-object-lock-configuration --bucket stepanel-locked
+          s3 create-bucket --bucket stepanel-versioned
+          s3 put-bucket-versioning --bucket stepanel-versioned --versioning-configuration Status=Enabled
+          s3 create-bucket --bucket stepanel-unversioned
+      - name: Run the live Object Lock tests
+        env:
+          STEPANEL_S3_LOCK_TEST_LOCKED: vgw:stepanel-locked/stepanel
+          STEPANEL_S3_LOCK_TEST_VERSIONED: vgw:stepanel-versioned/stepanel
+          STEPANEL_S3_LOCK_TEST_UNVERSIONED: vgw:stepanel-unversioned/stepanel
+        run: go test -count=1 -v -run '^TestLiveS3' .
+      - name: versitygw log
+        if: failure()
+        run: tail -100 "$RUNNER_TEMP/vgw.log"
