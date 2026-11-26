@@ -62,6 +62,13 @@ on `d73cd963`, passed the same profile with customer accounts created in
 8.5 to 10 s each after unchanged resource applies stopped reloading
 systemd and PHP-FPM ([report](./lab-results/2026-11-26-capacity-envelope-d73cd96.md)).
 
+Route changes are the slowest operation at this scale: on Caddy each one
+reloads the whole configuration (about 3 s with 500 sites and 2,000
+routes; the duplicate validation pass was already removed). Adding many
+domains therefore takes minutes per hundred. Updating Caddy through its
+admin API one route at a time would remove the full reload; it is not
+implemented.
+
 These are passing runs on one runner VM type, not a certified limit. They did not include real WordPress/database traffic, migrations,
 worker interruption, or backup restore under load. The earlier Ubuntu 26.04.1 synthetic HTTP run is recorded
 in the [2026-10-24 lab report](./lab-results/2026-10-24-500-site-mixed-load.md);

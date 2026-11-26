@@ -7,7 +7,7 @@ first, and what automated analysis has already been done, so review time is
 spent on attack paths rather than orientation. It is not a review and makes
 no claim that one has happened.
 
-**Prepared:** 2026-11-25 against `main` at `defd0db2`.
+**Prepared:** 2026-11-25 against `main` at `defd0db2`; updated 2026-11-26 at `44661a0c` (see [changes since](#changes-since-the-first-preparation)).
 
 ## What is promised
 
@@ -37,11 +37,13 @@ Ordered by the damage a flaw would do.
 | Boundary | Entry points | Key code |
 | --- | --- | --- |
 | Panel → root broker | 97 typed request kinds over a Unix socket authorized by peer UID/GID | `cmd/stepanel-root/main.go` (`authorizePeerCredential`), `internal/rootbroker/broker.go`, `internal/rootbroker/validator.go` |
-| Root helpers | 22 scripts run as root from the broker | `deploy/integrations/stepanel-*` (start with `stepanel-filectl`, `stepanel-sitectl`, `stepanel-userctl`, `stepanel-dbctl`, `stepanel-gitctl`) |
+| Root helpers | 21 scripts run as root from the broker or root timers | `deploy/integrations/stepanel-*` (start with `stepanel-filectl`, `stepanel-sitectl`, `stepanel-userctl`, `stepanel-dbctl`, `stepanel-gitctl`) |
 | Browser and API → panel | 138 routes; sessions, CSRF, scoped API tokens, tenant authorization | `http_routes.go`, `auth.go`, `tenancy.go`, `api_tokens.go`, `csrf_protection_test.go` |
 | Untrusted archives and dumps | cPanel, WPress, tar/zip imports; SQL dumps loaded into shadow databases | `internal/archivesafe`, `internal/importer`, `cpmove.go`, `wpress.go`, `stepanel-dbctl restore-dump` |
 | Tenant filesystem | File manager, restores, rollback copies through descriptor-rooted operations | `site_files.go`, `internal/sitefiles`, `stepanel-filectl` |
 | Outbound requests | Archive URLs, webhooks; public destinations only, checked at connect time | `internal/safehttp` |
+| Tenant code egress | Site PHP-FPM, Node/Python apps and scheduled tasks denied private, shared and link-local networks by systemd IP filtering | `deploy/lib/install-tenant-egress.sh`, `install.sh` (PHP-FPM drop-in), `stepanel-appctl` (`tenant_egress_policy`), `deploy/lab/tenant-egress-smoke.sh` |
+| Offsite storage | rclone uploads and restores; optional S3 Object Lock proof run with the panel's own credentials | `offsite.go` (`downloadOffsiteObjectLimit`), `offsite_object_lock.go`, `capabilities.go` |
 | Secrets and audit | Sealed secrets, key rotation, audit hash chain and checkpoints | `internal/secretbox`, `internal/audit`, `audit_contract.go`, `audit_outbox.go` |
 
 Suggested attack hypotheses:
@@ -58,6 +60,13 @@ Suggested attack hypotheses:
    rebinding, redirects, IPv6 forms).
 6. Make a Class A operation happen without its audit intent, or rewrite
    audit history.
+7. Reach a private address or cloud metadata from tenant code: an address
+   form or protocol the IPAddressDeny ranges miss, a path the allow list
+   (loopback, resolvers, `STEPANEL_TENANT_EGRESS_ALLOW`) opens too wide, or
+   a tenant process outside the units that carry the policy.
+8. Make a restore accept attacker-controlled offsite objects: oversized or
+   replaced objects between the stat and the stream, a missing signature
+   that strict verification should reject.
 
 ## Automated analysis already done
 
@@ -93,6 +102,35 @@ Triage of the static analysis:
   enforced by `TestDurableMutationErrorsAreChecked`; the rest are
   best-effort cleanup.
 
+## Changes since the first preparation
+
+Security-relevant changes on 2026-11-26:
+
+- **Tenant egress policy.** Tenant code cannot reach private, shared or
+  link-local ranges (including cloud metadata); proven on an installed Rocky
+  Linux 9 host by the KVM drill. Operators open exceptions with
+  `STEPANEL_TENANT_EGRESS_ALLOW` (validated before the installer changes
+  anything).
+- **Offsite restores.** Every download now stats the object with
+  `rclone lsjson --stat` and streams it with a byte bound
+  (`rclone cat --count`), refusing missing, oversized or short objects and
+  leaving no partial file. Before this, restores with real rclone failed
+  outright and signed backups lost their signature.
+- **Object Lock.** `STEPANEL_OFFSITE_OBJECT_LOCK=1` makes readiness prove
+  the panel's credentials cannot delete object versions; verified against a
+  live S3 server that enforces Object Lock.
+- **Configuration drift.** A root timer compares installer-managed files
+  (units, helpers, sudoers, keys) with a manifest and reports changes; it
+  runs with only `CAP_DAC_READ_SEARCH` and no network.
+- **Control-plane state.** Every startup-bound store moved from whole-object
+  JSON blobs to tables with per-row revisions (migrations 33 to 45).
+  Environment secrets stay sealed bound to their site and name; key rotation
+  forces every sealed value to be rewritten, and a test removes the previous
+  key afterwards.
+- **Supply chain.** The nvm installer is checksum-verified before it runs,
+  and a test requires every shipped HTTPS download to verify a pinned
+  SHA-256.
+
 ## Evidence a reviewer can rerun
 
 - Adversarial cross-tenant tests: `adversarial_test.go`,
@@ -101,7 +139,9 @@ Triage of the static analysis:
 - Root helper smokes on an installed host: `deploy/lab/filectl-smoke.sh`,
   `deploy/lab/dbctl-client-command-smoke.sh`, `deploy/lab/sitectl-acl-smoke.sh`.
 - Installed-host drills: `deploy/lab/local-kvm-certification.sh` (boot,
-  install, abrupt loss, ENOSPC, alerts, capacity).
+  install, abrupt loss, ENOSPC, alerts, tenant egress, capacity).
+- Live offsite storage: `.github/workflows/offsite-object-lock.yml` (real
+  rclone against an S3 server enforcing Object Lock).
 - Audit chain verification: `stepanel verify-audit <log>`.
 
 ## Reporting
