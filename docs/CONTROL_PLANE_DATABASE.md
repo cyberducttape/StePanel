@@ -34,7 +34,7 @@ changes transaction behavior and is unsafe without the steps below.
 | --- | --- |
 | `max_page_count` was applied once to the pooled connection, so a connection replaced after a driver error lost the size limit | Fixed: the limit is in the DSN (`TestControlPlaneSizeLimitSurvivesConnectionReplacement`) |
 | No visibility into connection waits | Fixed: `stepanel_control_plane_db_connection_waits_total`, `..._wait_seconds_total`, `..._connections_in_use`, `..._connections_max` |
-| 178 query and exec calls carry no context, so no deadline; 64 do | In progress (phase 2): session validation and revocation (`session.ReadTimeout` 2 s, `session.WriteTimeout` 10 s), job status reads, listings and the submission idempotency lookup (`durableJobReadTimeout` 5 s), and state-blob writes (accounts, site access and the other bound stores; `controlPlaneStateWriteTimeout` 10 s) now have deadlines; worker, lease and maintenance paths do not yet |
+| 178 query and exec calls carry no context, so no deadline; 64 do | Request paths done (phase 2): session validation and revocation (`session.ReadTimeout` 2 s, `session.WriteTimeout` 10 s), job status reads, listings and the submission idempotency lookup (`durableJobReadTimeout` 5 s), and state-blob writes (accounts, site access and the other bound stores; `controlPlaneStateWriteTimeout` 10 s) now have deadlines; worker, lease and maintenance paths do not yet |
 | Transactions rely on being the only connection; with more connections a stray `db.Query` inside a transaction would read outside it instead of deadlocking | Open: must be ruled out before a read pool (phase 3) |
 | The panel and worker each hold a connection; WAL already gives cross-process read concurrency | By design |
 
@@ -42,15 +42,17 @@ changes transaction behavior and is unsafe without the steps below.
 
 1. **Instrumentation (done).** Watch the wait metrics on real hosts before
    changing the pool. The capacity profile reports them under load.
-2. **Deadlines on request paths (in progress).** Session validation, job
-   admission and progress, account management and dashboard queries take a
+2. **Deadlines on request paths (done).** Request-path queries take a
    context with a short deadline, so a slow maintenance operation fails a
-   request quickly instead of stalling it. Done: the session registry, the
-   job store's status reads, listings and idempotency lookup, and state-blob writes
-   (which carry account management), each with a test that
-   holds the single connection and requires the call to fail at its
-   deadline. Next: dashboard queries.
+   request quickly instead of stalling it: the session registry, the job
+   store's status reads, listings and idempotency lookup, and state-blob
+   writes (which carry account management). Each has a test that holds the
+   single connection and requires the call to fail at its deadline. The
+   dashboard's database reads are its job history, which uses those bounded
+   listings; its site overviews come from the stale-while-revalidate cache.
    Writes keep a deadline longer than SQLite's 5-second busy timeout.
+   Worker, lease and maintenance queries are not request paths and keep
+   waiting for the connection.
 3. **Bounded read concurrency, serialized writes.** Open a second `*sql.DB`
    per process for read-only request paths with `_pragma=query_only(1)` and a
    small connection limit, and keep the writer at one connection. Move read
