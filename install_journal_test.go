@@ -80,7 +80,7 @@ func TestInstallerJournalsBeforeMutationAndRecordsPartialRollbackContract(t *tes
 	}
 	text := string(script)
 	journal := strings.Index(text, "INSTALL_JOURNAL_DIR=/var/lib/stepanel/install-journal")
-	firstMutation := strings.Index(text, "; apt-get update; apt-get install")
+	firstMutation := strings.Index(text, "; apt_update; apt-get install")
 	if journal < 0 || firstMutation < 0 || journal > firstMutation {
 		t.Fatal("installer journal must be initialized before package/host mutations")
 	}
@@ -225,7 +225,7 @@ func TestInstallerAcquiresHostMutationLockBeforePackageChanges(t *testing.T) {
 	text := string(script)
 	lock := strings.Index(text, `. "$ROOT_DIR/deploy/lib/install-lock.sh"`)
 	acquire := strings.Index(text, "install_acquire_host_lock /run/stepanel-installer 0 0")
-	firstPackageMutation := strings.Index(text, "; apt-get update; apt-get install")
+	firstPackageMutation := strings.Index(text, "; apt_update; apt-get install")
 	if lock < 0 || acquire < 0 || firstPackageMutation < 0 || !(lock < acquire && acquire < firstPackageMutation) {
 		t.Fatal("installer must hold its host-wide lock before package or service mutations")
 	}

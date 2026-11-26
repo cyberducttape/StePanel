@@ -5,7 +5,7 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=../deploy/lib/install-database-version-preflight.sh
 . "$ROOT_DIR/deploy/lib/install-database-version-preflight.sh"
 version_check_line=$(grep -n 'install_preflight_database_version "\$PKG"' "$ROOT_DIR/install.sh" | cut -d: -f1)
-package_mutation_line=$(grep -n 'apt-get update; apt-get install' "$ROOT_DIR/install.sh" | cut -d: -f1)
+package_mutation_line=$(grep -n 'apt_update; apt-get install' "$ROOT_DIR/install.sh" | cut -d: -f1)
 (( version_check_line < package_mutation_line ))
 
 tmp=$(mktemp -d)

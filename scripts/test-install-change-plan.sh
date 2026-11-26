@@ -30,7 +30,7 @@ none=$(install_print_optional_change_plan caddy 0 0 DetectionOnly 0 0 0 0 0 0 0 
 
 source_line=$(grep -Fn ". \"\$ROOT_DIR/deploy/lib/install-change-plan.sh\"" "$ROOT_DIR/install.sh" | cut -d: -f1)
 preview_line=$(grep -n 'install_print_optional_change_plan' "$ROOT_DIR/install.sh" | cut -d: -f1)
-mutation_line=$(grep -n 'apt-get update; apt-get install' "$ROOT_DIR/install.sh" | cut -d: -f1)
+mutation_line=$(grep -n 'apt_update; apt-get install' "$ROOT_DIR/install.sh" | cut -d: -f1)
 (( source_line < preview_line && preview_line < mutation_line ))
 
 echo 'installer change-plan contract passed'

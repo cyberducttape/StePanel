@@ -6,7 +6,7 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 . "$ROOT_DIR/deploy/lib/install-systemd-preflight.sh"
 systemd_check_line=$(grep -n 'install_preflight_systemd); then' "$ROOT_DIR/install.sh" | sed -n '1p' | cut -d: -f1)
 guided_setup_line=$(grep -n 'stepanel" setup --output' "$ROOT_DIR/install.sh" | cut -d: -f1)
-package_mutation_line=$(grep -n 'apt-get update; apt-get install' "$ROOT_DIR/install.sh" | cut -d: -f1)
+package_mutation_line=$(grep -n 'apt_update; apt-get install' "$ROOT_DIR/install.sh" | cut -d: -f1)
 (( systemd_check_line < guided_setup_line && systemd_check_line < package_mutation_line ))
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
