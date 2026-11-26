@@ -70,24 +70,34 @@ listener=$!
 for _ in $(seq 1 50); do (exec 3<>"/dev/tcp/$public_addr/$port") 2>/dev/null && break; sleep 0.1; done
 (exec 3<>"/dev/tcp/$public_addr/$port") 2>/dev/null || fail 'listener did not start'
 
-# Run a probe as an unprivileged user under exactly the installed policy.
-probe() {
-  systemd-run --quiet --wait --pipe --collect -p User=nobody -p "IPAddressAllow=$allow" -p "IPAddressDeny=$deny" \
-    /bin/bash -c "$1" >/dev/null 2>&1
+# connects NAME ADDRESS [systemd-run property...] tries one TCP connection to
+# ADDRESS as an unprivileged user in a transient unit with the given
+# properties, keeping the unit's output in $work/NAME.out.
+connects() {
+  local name=$1 address=$2
+  shift 2
+  systemd-run --quiet --wait --pipe --collect -p User=nobody "$@" \
+    /bin/bash -c "timeout 5 bash -c 'exec 3<>/dev/tcp/$address/$port' && echo connected" \
+    > "$work/$name.out" 2>&1
 }
-connect="timeout 5 bash -c 'exec 3<>/dev/tcp/%s/$port'"
-# shellcheck disable=SC2059
-probe "$(printf "$connect" "$public_addr")" || fail "a public address was not reachable under the policy"
+show() { sed 's/^/    /' "$work/$1.out" >&2; }
+policy=(-p "IPAddressAllow=$allow" -p "IPAddressDeny=$deny")
+
+# The probe itself must work before its refusals mean anything.
+connects baseline "$public_addr" || { show baseline; fail 'a transient unit cannot reach the public listener even without a policy; the probe proves nothing'; }
+connects baseline-private "$private_addr" || { show baseline-private; fail 'a transient unit cannot reach the private listener even without a policy; the probe proves nothing'; }
+if ! connects public "$public_addr" "${policy[@]}"; then
+  show public
+  connects public-deny-only "$public_addr" -p "IPAddressDeny=$deny" && deny_only=reachable || deny_only=refused
+  connects public-allow-only "$public_addr" -p "IPAddressAllow=$allow" && allow_only=reachable || allow_only=refused
+  fail "the policy refused a public address (deny list alone: $deny_only; allow list alone: $allow_only; allow=$allow; deny=$deny)"
+fi
 for address in "$private_addr" "$metadata_addr"; do
-  # shellcheck disable=SC2059
-  if probe "$(printf "$connect" "$address")"; then
+  if connects "refused-$address" "$address" "${policy[@]}"; then
     fail "tenant code reached $address under the policy"
   fi
 done
-# Without the policy the private address is reachable, so the refusal above
-# comes from the policy, not from the network.
-systemd-run --quiet --wait --pipe --collect -p User=nobody /bin/bash -c "timeout 5 bash -c 'exec 3<>/dev/tcp/$private_addr/$port'" >/dev/null 2>&1 \
-  || fail 'the private listener is unreachable even without the policy; the probe proves nothing'
-probe 'getent ahosts github.com' || fail 'DNS resolution failed under the policy (are the nameservers allowed?)'
+systemd-run --quiet --wait --pipe --collect -p User=nobody "${policy[@]}" /bin/bash -c 'getent ahosts github.com' > "$work/dns.out" 2>&1 \
+  || { show dns; fail 'DNS resolution failed under the policy (are the nameservers allowed?)'; }
 echo "ok: under the policy tenant code reached the public address and DNS, and was refused $private_addr and $metadata_addr"
 echo 'tenant egress smoke passed'
