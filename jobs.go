@@ -2158,8 +2158,8 @@ func openDurableJobsDBWithKeys(db *sql.DB, legacyPath, payloadKey string, previo
 	return j, nil
 }
 
-// durableJobReadTimeout bounds job listings and the idempotency lookup at
-// submission, which serve requests. A request queued behind a slow
+// durableJobReadTimeout bounds job status reads, listings and the
+// idempotency lookup at submission, which serve requests. A request queued behind a slow
 // maintenance transaction on the single control-plane connection fails as
 // unavailable instead of hanging.
 var durableJobReadTimeout = 5 * time.Second
@@ -2917,6 +2917,8 @@ func (j *Jobs) SubmitWPress(id, user string, work func() (WPressResult, error)) 
 }
 
 func (j *Jobs) loadDurableJob(id string) (Job, bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), durableJobReadTimeout)
+	defer cancel()
 	if j.db == nil {
 		return Job{}, false, nil
 	}
@@ -2925,7 +2927,7 @@ func (j *Jobs) loadDurableJob(id string) (Job, bool, error) {
 	var leaseOwner, leaseToken sql.NullString
 	var leaseExpires, nextAttempt sql.NullInt64
 	var cancelRequested int
-	err := j.db.QueryRow(`SELECT `+durableJobColumns+` FROM jobs WHERE id = ?`, id).Scan(&state, &data, &leaseOwner, &leaseToken, &leaseExpires, &nextAttempt, &cancelRequested)
+	err := j.db.QueryRowContext(ctx, `SELECT `+durableJobColumns+` FROM jobs WHERE id = ?`, id).Scan(&state, &data, &leaseOwner, &leaseToken, &leaseExpires, &nextAttempt, &cancelRequested)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Job{}, false, nil
 	}

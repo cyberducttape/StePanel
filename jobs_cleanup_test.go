@@ -440,6 +440,7 @@ func TestJobRequestReadsFailFastWhenTheConnectionIsHeld(t *testing.T) {
 		"listDurable":       func() error { _, err := jobs.listDurable(10, false); return err },
 		"ListActiveForSite": func() error { _, err := jobs.ListActiveForSite("site-a"); return err },
 		"IdempotentJob":     func() error { _, _, err := jobs.IdempotentJob("site.backup", "site-a", "key"); return err },
+		"GetWithError":      func() error { _, _, err := jobs.GetWithError("any-job"); return err },
 	} {
 		start := time.Now()
 		if err := read(); err == nil {
