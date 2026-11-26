@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/audit"
+	"github.com/cyberducttape/StePanel/internal/configdrift"
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
@@ -249,6 +250,11 @@ func operationalChecks(cfg Config, jobs *Jobs) map[string]ReadinessCheck {
 		} else {
 			checks["security_audit_outcomes"] = ReadinessCheck{Ready: true}
 		}
+	}
+	if cfg.Production {
+		status, err := configdrift.Read(configDriftStatusPath)
+		ok, detail := configdrift.Health(status, err, time.Now())
+		checks["config_drift"] = ReadinessCheck{Ready: ok, Detail: detail}
 	}
 	if jobs == nil || jobs.db == nil {
 		checks["dead_letter_jobs"] = ReadinessCheck{Ready: false, Detail: "job store is not initialized"}

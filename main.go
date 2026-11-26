@@ -1136,6 +1136,9 @@ func (a *App) metrics(w http.ResponseWriter, r *http.Request) {
 	}
 	writeDatabaseMetrics(w, a.cachedDatabaseDiagnostics(15*time.Second))
 	writeHostFilesystemMetrics(w, a.Config)
+	if a.Config.Production {
+		writeConfigDriftMetrics(w, configDriftStatusPath)
+	}
 	a.writeSiteRuntimeMetrics(w)
 	writeReadinessMetrics(w, readinessChecks(a.Config, a.Jobs))
 	schedules := []BackupSchedule{}

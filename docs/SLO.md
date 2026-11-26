@@ -26,6 +26,11 @@ recorded; they are not implied by a locally verified archive.
   scheduled migration window.
 - Warn when `stepanel_restore_jobs_active > 0` for longer than the expected
   restore duration.
+- Warn when a file the installer manages has changed for 10 minutes
+  (`StePanelConfigDrift`), or the hourly drift check has produced no result
+  against a recorded manifest for 3 hours
+  (`StePanelConfigDriftCheckNotRunning`); see
+  [OPERATIONS.md](OPERATIONS.md#configuration-drift).
 - Warn when `stepanel_jobs_dead_letter_oldest_age_seconds` exceeds seven days
   (`StePanelDeadLetterBacklogAging`) or more than 100 jobs are dead-lettered
   (`StePanelDeadLetterBacklogGrowing`, the review budget). Startup loads only

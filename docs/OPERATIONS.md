@@ -267,6 +267,41 @@ status includes the age of the latest uploaded backup, latest verified restore,
 and oldest unreplicated backup; remote object connectivity alone is not a
 recoverability proof.
 
+### Configuration drift
+
+After every successful install or upgrade, the installer records the files it
+manages (the panel binary, privileged helpers, systemd units and drop-ins
+including the PHP-FPM tenant egress policy, sudoers, keys, the environment
+file and web server configuration) in `/etc/stepanel/managed-files.manifest`:
+the SHA-256, mode and owner of each file, and the target of each link.
+`stepanel-config-drift.timer` runs `stepanel-driftctl check` as root every
+hour and writes the result to `/var/lib/stepanel-drift/status`, listing paths
+and the kind of change (`content`, `mode`, `owner`, `type`, `missing`), never
+contents. The rclone configuration is not checked, because rclone rewrites it
+when it refreshes OAuth tokens.
+
+In production the operational endpoint reports a `config_drift` check, and
+metrics expose `stepanel_config_drift_files`,
+`stepanel_config_drift_check_up` and
+`stepanel_config_drift_last_check_timestamp_seconds`. `StePanelConfigDrift`
+fires after 10 minutes of drift; `StePanelConfigDriftCheckNotRunning` fires
+when the check has no result for 3 hours or the manifest is missing.
+
+When drift is reported:
+
+```sh
+sudo systemctl status stepanel-config-drift.service   # the drifted paths
+sudo cat /var/lib/stepanel-drift/status
+```
+
+Treat a change nobody made as a possible compromise: preserve the file and
+the journal before touching anything. To undo an unintended change, restore
+the file from the release or re-run the installer, which rewrites managed
+files. To accept an intended change, make it through the installer's settings
+(for example `/etc/ste-panel.env`, then re-run the installer), which records a
+new manifest. Run `sudo systemctl start stepanel-config-drift.service` to
+check again immediately.
+
 ### Startup recovery barrier
 
 After a restart the panel listens at once, but it recovers interrupted

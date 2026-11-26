@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- **Configuration drift detection.** The installer records the hash, mode
+  and owner of every file it manages after each successful install, and an
+  hourly root timer (`stepanel-config-drift.timer`) reports changed, missing
+  or re-permissioned files through the operational health check, metrics and
+  the `StePanelConfigDrift` alert. See "Configuration drift" in
+  `docs/OPERATIONS.md`.
 - `STEPANEL_ACCOUNT_PREVIOUS_KEYS` and `STEPANEL_ENVIRONMENT_PREVIOUS_KEYS`
   make `STEPANEL_ACCOUNT_KEY` and `STEPANEL_ENVIRONMENT_KEY` rotatable.
   Startup opens secrets sealed under a listed previous key and re-seals
@@ -17,9 +23,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `STEPANEL_AUDIT_PREVIOUS_KEYS` makes the audit-chain key rotatable without
   re-signing history: the chain verifies across the rotation, may only move
   to newer keys, and records `security.audit_key.rotated`.
-
-### Added
-
 - **Immutable offsite backups with S3 Object Lock.**
   `STEPANEL_OFFSITE_OBJECT_LOCK=1` declares the offsite target an S3 bucket
   with Object Lock. Uploads then write straight to the final prefix, so no

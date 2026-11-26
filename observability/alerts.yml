@@ -73,6 +73,24 @@ groups:
           summary: StePanel has jobs requiring operator review
           description: "{{ $value }} durable job(s) exhausted retries and require operator review. Inspect each job's error, affected resource, and recovery state before explicitly retrying, resolving, or archiving it."
 
+      - alert: StePanelConfigDrift
+        expr: stepanel_config_drift_files{job="stepanel"} > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Files the StePanel installer manages have changed
+          description: "{{ $value }} managed file(s) (units, helpers, sudoers, keys or web server configuration) no longer match what the installer recorded. Read the list in /api/health/operational or the status of stepanel-config-drift.service; investigate any change you did not make, then restore the file or re-run the installer to accept it."
+
+      - alert: StePanelConfigDriftCheckNotRunning
+        expr: stepanel_config_drift_check_up{job="stepanel"} == 0 or (time() - stepanel_config_drift_last_check_timestamp_seconds{job="stepanel"}) > 10800
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: The StePanel configuration drift check is not producing results
+          description: "The hourly drift check has no recent result against a recorded manifest. Check systemctl status stepanel-config-drift.timer stepanel-config-drift.service; re-run the installer if the manifest is missing."
+
       - alert: StePanelDeadLetterBacklogAging
         expr: stepanel_jobs_dead_letter_oldest_age_seconds{job="stepanel"} > 604800 and stepanel_jobs_dead_letter{job="stepanel"} > 0
         for: 1h

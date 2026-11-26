@@ -498,6 +498,66 @@ tests:
 
   - interval: 1m
     input_series:
+      - series: 'stepanel_config_drift_files{job="stepanel"}'
+        values: '0x20 2+0x40'
+      - series: 'stepanel_config_drift_check_up{job="stepanel"}'
+        values: '1+0x60'
+      - series: 'stepanel_config_drift_last_check_timestamp_seconds{job="stepanel"}'
+        values: '0+60x60'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: StePanelConfigDrift
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: StePanelConfigDrift
+        exp_alerts:
+          - exp_labels:
+              job: stepanel
+              severity: warning
+            exp_annotations:
+              summary: Files the StePanel installer manages have changed
+              description: "2 managed file(s) (units, helpers, sudoers, keys or web server configuration) no longer match what the installer recorded. Read the list in /api/health/operational or the status of stepanel-config-drift.service; investigate any change you did not make, then restore the file or re-run the installer to accept it."
+      - eval_time: 55m
+        alertname: StePanelConfigDriftCheckNotRunning
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'stepanel_config_drift_check_up{job="stepanel"}'
+        values: '0+0x60'
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: StePanelConfigDriftCheckNotRunning
+        exp_alerts:
+          - exp_labels:
+              job: stepanel
+              severity: warning
+            exp_annotations:
+              summary: The StePanel configuration drift check is not producing results
+              description: "The hourly drift check has no recent result against a recorded manifest. Check systemctl status stepanel-config-drift.timer stepanel-config-drift.service; re-run the installer if the manifest is missing."
+
+  - interval: 1m
+    input_series:
+      - series: 'stepanel_config_drift_check_up{job="stepanel"}'
+        values: '1+0x300'
+      - series: 'stepanel_config_drift_last_check_timestamp_seconds{job="stepanel"}'
+        values: '0+0x300'
+    alert_rule_test:
+      - eval_time: 3h20m
+        alertname: StePanelConfigDriftCheckNotRunning
+        exp_alerts: []
+      - eval_time: 3h45m
+        alertname: StePanelConfigDriftCheckNotRunning
+        exp_alerts:
+          - exp_labels:
+              job: stepanel
+              severity: warning
+            exp_annotations:
+              summary: The StePanel configuration drift check is not producing results
+              description: "The hourly drift check has no recent result against a recorded manifest. Check systemctl status stepanel-config-drift.timer stepanel-config-drift.service; re-run the installer if the manifest is missing."
+
+  - interval: 1m
+    input_series:
       - series: 'stepanel_jobs_dead_letter{job="stepanel"}'
         values: '150+0x150'
       - series: 'stepanel_jobs_dead_letter_oldest_age_seconds{job="stepanel"}'

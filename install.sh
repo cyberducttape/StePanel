@@ -1091,6 +1091,10 @@ managed_targets=(
   /etc/logrotate.d/stepanel
   /etc/sudoers.d/stepanel
   /etc/stepanel-audit.key
+  /usr/local/sbin/stepanel-driftctl
+  /etc/systemd/system/stepanel-config-drift.service
+  /etc/systemd/system/stepanel-config-drift.timer
+  /etc/stepanel/managed-files.manifest
 )
 for fpm_unit in "${FPM_UNITS[@]}"; do
   [[ $fpm_unit =~ ^[A-Za-z0-9_.@:-]+\.service$ ]] || { echo "unexpected PHP-FPM unit name: $fpm_unit" >&2; exit 1; }
@@ -1502,6 +1506,10 @@ install_journal_record control_plane_database initialization_complete reversible
 install -m 0644 "$ROOT_DIR/deploy/stepanel.service" /etc/systemd/system/stepanel.service
 install -m 0644 "$ROOT_DIR/deploy/stepanel-worker.service" /etc/systemd/system/stepanel-worker.service
 install -m 0644 "$ROOT_DIR/deploy/stepanel-root-broker.service" /etc/systemd/system/stepanel-root-broker.service
+# Hourly comparison of the managed files with the manifest recorded after commit.
+install -m 0755 -o root -g root "$ROOT_DIR/deploy/integrations/stepanel-driftctl" /usr/local/sbin/stepanel-driftctl
+install -m 0644 -o root -g root "$ROOT_DIR/deploy/stepanel-config-drift.service" /etc/systemd/system/stepanel-config-drift.service
+install -m 0644 -o root -g root "$ROOT_DIR/deploy/stepanel-config-drift.timer" /etc/systemd/system/stepanel-config-drift.timer
 # useradd/usermod take the account database lock files under /etc. Keep the
 # broker's ProtectSystem=full policy narrow while making those namespace paths
 # present; touch never truncates an existing lock held by another process.
@@ -1698,6 +1706,7 @@ elif [[ "$INSTALL_FTP" == "1" && "$FTP_PREEXISTING" == "0" ]]; then
 fi
 if [[ "$INSTALL_TLS" == "1" && "$WEB_SERVER" == "apache" ]]; then POST_INSTALL_PLAN+=(enable:certbot.timer); fi
 if [[ "$INSTALL_FAIL2BAN" == "1" ]]; then POST_INSTALL_PLAN+=(configure:fail2ban); fi
+POST_INSTALL_PLAN+=(record:managed-files enable:stepanel-config-drift.timer)
 POST_INSTALL_PLAN_TEXT=none
 if (( ${#POST_INSTALL_PLAN[@]} )); then
   POST_INSTALL_PLAN_TEXT=$(IFS=,; printf '%s' "${POST_INSTALL_PLAN[*]}")
@@ -1756,6 +1765,22 @@ fi
 if [[ "$INSTALL_FAIL2BAN" == "1" ]]; then
   install_optional_postcommit_action fail2ban 'rerun the integration installer after resolving the error' bash "$APP_DIR/integrations/install-fail2ban.sh" --yes --jails "$FAIL2BAN_JAILS" --ignore-ip "$FAIL2BAN_IGNORE_IP"
 fi
+# Record the managed files as this installation left them, after every
+# optional integration, then start the hourly drift check. Excluded: the
+# manifest itself, which changes on every install, and the rclone
+# configuration, which rclone rewrites when it refreshes OAuth tokens.
+drift_targets=()
+for managed_target in "${managed_targets[@]}"; do
+  case $managed_target in
+    /etc/stepanel/managed-files.manifest|/etc/stepanel/rclone.conf) ;;
+    *) drift_targets+=("$managed_target") ;;
+  esac
+done
+install_optional_postcommit_action record:managed-files 'rerun the installer' \
+  /usr/local/sbin/stepanel-driftctl record /etc/stepanel/managed-files.manifest "${drift_targets[@]}"
+install_optional_postcommit_action stepanel-config-drift.timer 'systemctl enable --now stepanel-config-drift.timer' \
+  systemctl enable --now stepanel-config-drift.timer
+systemctl start stepanel-config-drift.service 2>/dev/null || echo 'Configuration drift check reported drift or failed; see: systemctl status stepanel-config-drift.service' >&2
 if (( ${#POST_INSTALL_PENDING[@]} )); then
   printf 'post_install_status=pending actions='
   printf '%s ' "${POST_INSTALL_PENDING[@]}"

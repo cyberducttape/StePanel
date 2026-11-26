@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# Configuration drift detection for the files the installer manages.
+#
+#   stepanel-driftctl record MANIFEST PATH...
+#       Record each existing PATH (regular file: mode, owner, SHA-256;
+#       symbolic link: its target) in MANIFEST, written atomically. The
+#       installer runs this after it commits.
+#   stepanel-driftctl check [MANIFEST [STATUS]]
+#       Compare the files with MANIFEST and write the result to STATUS,
+#       atomically. Exits 0 when nothing drifted, 1 when something did, 2 on
+#       an error. Run hourly by stepanel-config-drift.timer.
+#
+# The status lists paths and the kind of change (content, mode, owner, type,
+# missing), never contents, so the unprivileged panel may read it.
+set -Eeuo pipefail
+umask 022
+
+manifest_default=/etc/stepanel/managed-files.manifest
+status_default=/var/lib/stepanel-drift/status
+path_pattern='^/[A-Za-z0-9._/@:+-]+$'
+
+die() { echo "stepanel-driftctl: $*" >&2; exit 2; }
+
+# describe PATH prints "type<TAB>mode<TAB>owner<TAB>digest", or nothing when
+# PATH does not exist.
+describe() {
+  local path=$1 digest
+  if [[ -L $path ]]; then
+    printf 'link\t-\t-\t%s\n' "$(readlink -- "$path")"
+  elif [[ -f $path ]]; then
+    digest=$(sha256sum -- "$path") || return 1
+    printf 'file\t%s\t%s\t%s\n' "$(stat -c '%a' -- "$path")" "$(stat -c '%u:%g' -- "$path")" "${digest%% *}"
+  elif [[ -e $path ]]; then
+    printf 'other\t-\t-\t-\n'
+  fi
+}
+
+record() {
+  local manifest=$1 path entry tmp
+  shift
+  [[ $manifest =~ $path_pattern ]] || die "invalid manifest path: $manifest"
+  tmp=$(mktemp "$(dirname -- "$manifest")/.managed-files.XXXXXX")
+  trap 'rm -f -- "$tmp"' EXIT
+  printf '# stepanel-config-drift-v1: path type mode owner digest, tab-separated\n' > "$tmp"
+  declare -A seen=()
+  for path in "$@"; do
+    [[ $path =~ $path_pattern ]] || die "invalid managed path: $path"
+    [[ -z ${seen[$path]:-} ]] || continue
+    seen[$path]=1
+    entry=$(describe "$path") || die "cannot read $path"
+    [[ -z $entry ]] || printf '%s\t%s\n' "$path" "$entry" >> "$tmp"
+  done
+  chmod 0600 "$tmp"
+  mv -f -- "$tmp" "$manifest"
+  trap - EXIT
+}
+
+check() {
+  local manifest=${1:-$manifest_default} status=${2:-$status_default}
+  local tmp path type mode owner digest now current entry cur_type cur_mode cur_owner cur_digest reason files=0 drifted=0
+  local -a drift=()
+  [[ $status =~ $path_pattern ]] || die "invalid status path: $status"
+  now=$(date +%s)
+  tmp=$(mktemp "$(dirname -- "$status")/.status.XXXXXX")
+  trap 'rm -f -- "$tmp"' EXIT
+  if [[ ! -f $manifest || -L $manifest ]]; then
+    printf 'format=stepanel-config-drift-v1\nchecked_unix=%s\nmanifest=missing\nfiles=0\ndrifted=0\n' "$now" > "$tmp"
+    chmod 0644 "$tmp"; mv -f -- "$tmp" "$status"; trap - EXIT
+    echo "no manifest at $manifest; re-run the installer to record one" >&2
+    return 1
+  fi
+  while IFS=$'\t' read -r path type mode owner digest; do
+    [[ -z $path || $path == \#* ]] && continue
+    [[ $path =~ $path_pattern ]] || die "manifest holds an invalid path: $path"
+    files=$((files + 1))
+    reason=
+    if ! current=$(describe "$path"); then
+      reason=unreadable
+    elif [[ -z $current ]]; then
+      reason=missing
+    else
+      IFS=$'\t' read -r cur_type cur_mode cur_owner cur_digest <<<"$current"
+      if [[ $cur_type != "$type" ]]; then reason='type'
+      elif [[ $cur_digest != "$digest" ]]; then reason='content'
+      elif [[ $cur_owner != "$owner" ]]; then reason='owner'
+      elif [[ $cur_mode != "$mode" ]]; then reason='mode'
+      fi
+    fi
+    if [[ -n $reason ]]; then
+      drifted=$((drifted + 1))
+      drift+=("$path"$'\t'"$reason")
+    fi
+  done < "$manifest"
+  {
+    printf 'format=stepanel-config-drift-v1\nchecked_unix=%s\nmanifest=present\nmanifest_unix=%s\nfiles=%s\ndrifted=%s\n' \
+      "$now" "$(stat -c '%Y' -- "$manifest")" "$files" "$drifted"
+    for entry in "${drift[@]}"; do printf 'drift\t%s\n' "$entry"; done
+  } > "$tmp"
+  chmod 0644 "$tmp"
+  mv -f -- "$tmp" "$status"
+  trap - EXIT
+  if (( drifted )); then
+    printf 'configuration drift: %s\n' "${drift[@]}" >&2
+    return 1
+  fi
+  echo "no configuration drift in $files managed files"
+}
+
+case ${1:-} in
+  record) shift; (( $# >= 1 )) || die 'usage: stepanel-driftctl record MANIFEST PATH...'; record "$@" ;;
+  check) shift; check "$@" ;;
+  *) die 'usage: stepanel-driftctl record MANIFEST PATH... | check [MANIFEST [STATUS]]' ;;
+esac

@@ -1,0 +1,38 @@
+[Unit]
+Description=StePanel configuration drift check
+Documentation=file:///opt/stepanel/docs/OPERATIONS.md
+After=local-fs.target
+
+[Service]
+Type=oneshot
+# Exits 1 when a managed file drifted, so the unit shows as failed.
+ExecStart=/usr/local/sbin/stepanel-driftctl check
+StateDirectory=stepanel-drift
+StateDirectoryMode=0755
+UMask=0022
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+PrivateNetwork=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+# Read files whatever their owner and mode; never write or change them.
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX
+LockPersonality=true
+ProtectControlGroups=true
+ProtectHome=read-only
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectKernelLogs=true
+ProtectSystem=strict
+RestrictNamespaces=true
+RestrictRealtime=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources

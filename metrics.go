@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/audit"
+	"github.com/cyberducttape/StePanel/internal/configdrift"
 	"github.com/cyberducttape/StePanel/internal/domainname"
 	"github.com/cyberducttape/StePanel/internal/recovery"
 )
@@ -452,6 +453,32 @@ func databaseDiagnosticsMetricReason(code string) string {
 // writeHostFilesystemMetrics exports byte and inode headroom for the few
 // operator-configured storage roots that affect hosting recovery. Labels are
 // fixed role names; host paths and customer data are never included.
+// configDriftStatusPath is where the root drift check writes its result.
+var configDriftStatusPath = configdrift.DefaultStatusPath
+
+// writeConfigDriftMetrics reports the root configuration drift check: whether
+// it has a usable result, when it last ran, and how many managed files differ
+// from the manifest the installer recorded.
+func writeConfigDriftMetrics(w io.Writer, path string) {
+	status, err := configdrift.Read(path)
+	up := 0
+	if err == nil && status.ManifestPresent {
+		up = 1
+	}
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_config_drift_check_up Whether the configuration drift check has a result against a recorded manifest")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_config_drift_check_up gauge")
+	_, _ = fmt.Fprintf(w, "stepanel_config_drift_check_up %d\n", up)
+	if up == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_config_drift_last_check_timestamp_seconds When the configuration drift check last ran")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_config_drift_last_check_timestamp_seconds gauge")
+	_, _ = fmt.Fprintf(w, "stepanel_config_drift_last_check_timestamp_seconds %d\n", status.CheckedAt.Unix())
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_config_drift_files Managed files that differ from the manifest the installer recorded")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_config_drift_files gauge")
+	_, _ = fmt.Fprintf(w, "stepanel_config_drift_files %d\n", status.Drifted)
+}
+
 func writeHostFilesystemMetrics(w io.Writer, cfg Config) {
 	roots := []struct{ role, path string }{
 		{"sites", cfg.WebRoot},
