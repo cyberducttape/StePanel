@@ -6,6 +6,8 @@ APP_USER=${1:-stepanel}
 NVM_DIR=${2:-/opt/stepanel/.nvm}
 VERSIONS=${3:-20.18.0}
 NVM_COMMIT='179d45050be0a71fd57591b0ed8aedf9b177ba10'
+# SHA-256 of install.sh at NVM_COMMIT; update both together.
+NVM_INSTALLER_SHA256='abdb525ee9f5b48b34d8ed9fc67c6013fb0f659712e401ecd88ab989b3af8f53'
 
 id "$APP_USER" >/dev/null 2>&1 || { echo "user not found: $APP_USER" >&2; exit 1; }
 # 0755 (not 0750): isolated per-site identities (sp-*) are not members of
@@ -16,6 +18,11 @@ if [[ ! -s "$NVM_DIR/nvm.sh" ]]; then
   installer=$(mktemp)
   trap 'rm -f "$installer"' EXIT
   curl --proto '=https' --tlsv1.2 -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/$NVM_COMMIT/install.sh" -o "$installer"
+  if ! printf '%s  %s\n' "$NVM_INSTALLER_SHA256" "$installer" | sha256sum --check --status; then
+    echo "The downloaded nvm installer failed its SHA-256 check; it was not run." >&2
+    exit 1
+  fi
+  chmod 0644 "$installer"
   runuser -u "$APP_USER" -- env NVM_DIR="$NVM_DIR" bash "$installer"
 fi
 for version in ${VERSIONS//,/ }; do
