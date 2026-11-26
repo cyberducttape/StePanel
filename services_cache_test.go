@@ -9,6 +9,10 @@ import (
 // and apachectl probes), a snapshot within the stale limit is served at once;
 // only a snapshot past the limit makes the caller wait for fresh data.
 func TestServiceStatusServesStaleSnapshotsWithoutWaiting(t *testing.T) {
+	// Hold the refresh lock first: it waits out any background refresh an
+	// earlier test started, which would otherwise overwrite the snapshot
+	// planted here, and it simulates a slow refresh in progress.
+	serviceStatusCache.refresh.Lock()
 	serviceStatusCache.Lock()
 	savedItems, savedAt := serviceStatusCache.items, serviceStatusCache.at
 	serviceStatusCache.items = map[string]string{"caddy": "active"}
@@ -20,8 +24,6 @@ func TestServiceStatusServesStaleSnapshotsWithoutWaiting(t *testing.T) {
 		serviceStatusCache.Unlock()
 	})
 
-	// Simulate a slow refresh already in progress.
-	serviceStatusCache.refresh.Lock()
 	got := make(chan map[string]string, 1)
 	go func() { got <- ServiceStatus() }()
 	select {
