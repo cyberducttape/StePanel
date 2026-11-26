@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -161,10 +162,22 @@ func openControlPlaneDBWithMaxBytes(path string, maxBytes int64) (*sql.DB, error
 		return nil, err
 	}
 	dsn := "file:" + abs + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)"
+	// max_page_count (the size limit) is a per-connection setting. Put it in
+	// the DSN like the other pragmas, so a connection that database/sql
+	// replaces after a driver error keeps the limit too. It depends on the
+	// database's page size, so read that first.
+	maxPages, err := controlPlaneMaxPages(dsn, maxBytes)
+	if err != nil {
+		return nil, err
+	}
+	dsn += "&_pragma=max_page_count(" + strconv.FormatInt(maxPages, 10) + ")"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open control-plane database: %w", err)
 	}
+	// One connection per process: transactions take it with BEGIN IMMEDIATE
+	// (sqlite_immediate.go) and code inside them relies on it being the only
+	// one. See docs/CONTROL_PLANE_DATABASE.md before changing the pool.
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	if err := db.Ping(); err != nil {
@@ -301,6 +314,24 @@ func checkControlPlaneOwner(name string, info os.FileInfo) error {
 		return nil
 	}
 	return fmt.Errorf("control-plane database path %s is owned by uid %d, not the current user (uid %d)", name, stat.Uid, euid)
+}
+
+// controlPlaneMaxPages returns the page count that keeps the database within
+// maxBytes for its page size.
+func controlPlaneMaxPages(dsn string, maxBytes int64) (int64, error) {
+	probe, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return 0, fmt.Errorf("open control-plane database: %w", err)
+	}
+	defer probe.Close()
+	var pageSize int64
+	if err := probe.QueryRow(`PRAGMA page_size`).Scan(&pageSize); err != nil {
+		return 0, fmt.Errorf("read control-plane database page size: %w", err)
+	}
+	if pageSize < 1 {
+		return 0, errors.New("control-plane database reported an invalid page size")
+	}
+	return maxBytes / pageSize, nil
 }
 
 func setControlPlaneDBLimit(db *sql.DB, maxBytes int64) error {

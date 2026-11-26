@@ -776,3 +776,35 @@ func TestControlPlaneStorageFailureIsNotAConflict(t *testing.T) {
 		t.Fatal("a successful write did not clear the degraded state")
 	}
 }
+
+// The size limit is a per-connection SQLite setting; a connection replaced by
+// database/sql (after a driver error, or here by lifetime) must keep it.
+func TestControlPlaneSizeLimitSurvivesConnectionReplacement(t *testing.T) {
+	const maxBytes = 32 << 20
+	db, err := openControlPlaneDBWithMaxBytes(filepath.Join(t.TempDir(), "control.db"), maxBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var pageSize, before int64
+	if err := db.QueryRow(`PRAGMA page_size`).Scan(&pageSize); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`PRAGMA max_page_count`).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	db.SetConnMaxLifetime(time.Nanosecond)
+	time.Sleep(10 * time.Millisecond)
+	var after int64
+	if err := db.QueryRow(`PRAGMA max_page_count`).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	want := int64(maxBytes) / pageSize
+	if before != want || after != want {
+		t.Fatalf("max_page_count before/after replacing the connection = %d/%d, want %d", before, after, want)
+	}
+	stats := db.Stats()
+	if stats.MaxIdleClosed+stats.MaxLifetimeClosed == 0 {
+		t.Fatal("the test did not replace the connection")
+	}
+}

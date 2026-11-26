@@ -211,6 +211,14 @@ nextSteps := []string{
 }
 ```
 
+## Control-Plane Persistence
+
+New features must store state in relational tables, not in the `state_blobs`
+whole-object JSON stores (`bindControlPlaneState`), which are a transitional
+layer. Do not raise the control-plane connection limit without the steps in
+[CONTROL_PLANE_DATABASE.md](docs/CONTROL_PLANE_DATABASE.md); per-connection
+SQLite settings belong in the DSN.
+
 ## Domain Boundary Interfaces
 
 Extract new domains with clear interface contracts. This enables testing, mocking, and failure injection.

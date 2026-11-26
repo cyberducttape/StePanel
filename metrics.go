@@ -344,6 +344,21 @@ func writeControlPlaneStorageMetrics(w io.Writer, db *sql.DB, path string, maxBy
 	_, _ = fmt.Fprintf(w, "# HELP stepanel_control_plane_database_physical_bytes Main database, WAL, and shared-memory file sizes\n# TYPE stepanel_control_plane_database_physical_bytes gauge\nstepanel_control_plane_database_physical_bytes %d\n", physicalBytes)
 	_, _ = fmt.Fprintf(w, "# HELP stepanel_control_plane_database_limit_bytes Configured SQLite maximum page allocation\n# TYPE stepanel_control_plane_database_limit_bytes gauge\nstepanel_control_plane_database_limit_bytes %d\n", limitBytes)
 	_, _ = fmt.Fprintf(w, "# HELP stepanel_control_plane_database_limit_ratio Fraction of configured maximum SQLite page allocation used\n# TYPE stepanel_control_plane_database_limit_ratio gauge\nstepanel_control_plane_database_limit_ratio %.6f\n", ratio)
+	writeControlPlanePoolMetrics(w, db)
+}
+
+// writeControlPlanePoolMetrics exposes how long requests wait for the
+// control-plane connection; sustained waits mean one slow operation is
+// delaying unrelated ones.
+func writeControlPlanePoolMetrics(w io.Writer, db *sql.DB) {
+	var stats sql.DBStats
+	if db != nil {
+		stats = db.Stats()
+	}
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_control_plane_db_connection_waits_total Requests that waited for a control-plane database connection\n# TYPE stepanel_control_plane_db_connection_waits_total counter\nstepanel_control_plane_db_connection_waits_total %d\n", stats.WaitCount)
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_control_plane_db_connection_wait_seconds_total Total time spent waiting for a control-plane database connection\n# TYPE stepanel_control_plane_db_connection_wait_seconds_total counter\nstepanel_control_plane_db_connection_wait_seconds_total %.6f\n", stats.WaitDuration.Seconds())
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_control_plane_db_connections_in_use Control-plane database connections currently in use\n# TYPE stepanel_control_plane_db_connections_in_use gauge\nstepanel_control_plane_db_connections_in_use %d\n", stats.InUse)
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_control_plane_db_connections_max Configured maximum control-plane database connections\n# TYPE stepanel_control_plane_db_connections_max gauge\nstepanel_control_plane_db_connections_max %d\n", stats.MaxOpenConnections)
 }
 
 // writeCapacityReservationMetrics exposes durable admission holds without
