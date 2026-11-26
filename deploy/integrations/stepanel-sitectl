@@ -763,9 +763,17 @@ php_admin_value[error_reporting] = $error_reporting
 EOF
   chmod 0644 "$staged"
   chown root:root "$staged"
+  # An identical pool needs no rewrite; pool_changed decides whether PHP-FPM
+  # must validate and reload, which costs seconds with hundreds of pools.
+  if (( existed )) && [[ -f $target && ! -L $target ]] && cmp -s "$staged" "$target"; then
+    rm -f "$staged"
+    return 0
+  fi
   mv -f "$staged" "$target"
+  pool_changed=1
 }
 
+pool_changed=0
 pool_written=0
 for pool_root in /etc/php/*/fpm/pool.d; do
   [[ -d $pool_root ]] || continue
@@ -790,6 +798,11 @@ if (( ! pool_written )); then
   exit 1
 fi
 
+# Skip validation and reload only when no pool changed and every PHP-FPM unit
+# is running: a reload also starts a stopped PHP-FPM.
+fpm_all_active=1
+for unit in "${fpm_units[@]}"; do systemctl is-active --quiet "$unit" || fpm_all_active=0; done
+if (( pool_changed == 0 && fpm_all_active == 1 )); then validators=(); fi
 for validator in "${validators[@]}"; do
   validator_output=$(mktemp)
   if ! "$validator" -tt >"$validator_output" 2>&1; then
@@ -800,7 +813,7 @@ for validator in "${validators[@]}"; do
   fi
   rm -f "$validator_output"
 done
-if [[ ${STEPANEL_IDENTITY_REPAIR_OFFLINE:-0} != 1 ]]; then
+if [[ ${STEPANEL_IDENTITY_REPAIR_OFFLINE:-0} != 1 ]] && (( pool_changed == 1 || fpm_all_active == 0 )); then
   for unit in "${fpm_units[@]}"; do systemctl reload-or-restart "$unit"; done
 fi
 trap - ERR

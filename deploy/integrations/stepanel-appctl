@@ -18,6 +18,26 @@ tenant_egress_policy() {
   printf '%s\n' 'IPAddressDeny=169.254.0.0/16 100.100.100.200/32 fd00:ec2::254/128'
 }
 if [[ $EUID -ne 0 ]]; then echo 'must run as root' >&2; exit 1; fi
+# publish_slice PATH reads a slice unit from stdin and publishes it at PATH.
+# An unchanged slice is left alone, without a daemon-reload, as long as
+# systemd does not already need one for it: on a host with hundreds of sites
+# every reload costs seconds, and plan application reapplies many slices
+# unchanged. Call with systemd_lock held.
+publish_slice() {
+  local path=$1 unit staged
+  unit=${path##*/}
+  staged=$(mktemp "$path.XXXXXX")
+  cat > "$staged"
+  chmod 0644 "$staged"; chown root:root "$staged"
+  if [[ -f $path && ! -L $path ]] && cmp -s "$staged" "$path" \
+    && [[ $(systemctl show -p NeedDaemonReload --value "$unit" 2>/dev/null) == no ]]; then
+    rm -f "$staged"
+    return 0
+  fi
+  mv -f "$staged" "$path"
+  systemctl daemon-reload
+}
+
 action=${1:-}; site=${2:-}
 [[ $site =~ ^[a-z0-9_-]{1,32}$ ]] || { echo 'invalid site' >&2; exit 1; }
 command -v flock >/dev/null 2>&1 || { echo 'flock is required for application lifecycle locking' >&2; exit 1; }
@@ -106,7 +126,7 @@ if [[ $action == account-resource-apply ]]; then
   (( cpu >= 25 && cpu <= 6400 && cpu_weight >= 1 && cpu_weight <= 10000 && memory_high >= 64 && memory_high <= memory && memory <= 1048576 && io_weight >= 1 && io_weight <= 10000 && tasks >= 16 && tasks <= 100000 )) || { echo 'account resource limits out of range' >&2; exit 1; }
   slice="/etc/systemd/system/stepanel-account-$account.slice"
   systemd_lock
-  cat > "$slice" <<EOF
+  publish_slice "$slice" <<EOF
 [Unit]
 Description=StePanel aggregate resource boundary for $account
 [Slice]
@@ -117,7 +137,6 @@ MemoryMax=${memory}M
 IOWeight=$io_weight
 TasksMax=$tasks
 EOF
-  chmod 0644 "$slice"; chown root:root "$slice"; systemctl daemon-reload
   systemd_unlock
   systemctl start "stepanel-account-$account.slice"
   exit 0
@@ -680,7 +699,7 @@ EOF
     parent_slice=""
     [[ -z $account ]] || parent_slice="Slice=stepanel-account-$account.slice"
     systemd_lock
-    cat > "$slice" <<EOF
+    publish_slice "$slice" <<EOF
 [Unit]
 Description=StePanel resource boundary for $site
 [Slice]
@@ -692,7 +711,6 @@ MemoryMax=${memory}M
 IOWeight=$io_weight
 TasksMax=$tasks
 EOF
-    chmod 0644 "$slice"; chown root:root "$slice"; systemctl daemon-reload
     systemd_unlock
     systemctl start "stepanel-site-$site.slice" ;;
   resource-status)
