@@ -363,3 +363,55 @@ func TestJobsCleanupReportsCategorizedPersistenceFailures(t *testing.T) {
 		t.Fatalf("observed %+v, want one temporary error", seen)
 	}
 }
+
+// Startup loads a bounded number of dead-letter jobs; older ones stay in the
+// database, readable on demand, and are counted by the queue statistics.
+func TestDeadLetterBacklogIsBoundedAtStartup(t *testing.T) {
+	db := openTestControlPlane(t)
+	jobs, err := openDurableJobsDBWithKey(db, "", "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := durableDeadLetterJobCacheLimit + 50
+	var oldestID string
+	base := time.Now().Add(-30 * 24 * time.Hour)
+	for i := 0; i < total; i++ {
+		item, err := jobs.Enqueue("site.backup", fmt.Sprintf("site-%03d", i), "", nil, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		finished := base.Add(time.Duration(i) * time.Minute).UnixNano()
+		if _, err := db.Exec(`UPDATE jobs SET state = 'dead-letter', finished_at = ? WHERE id = ?`, finished, item.ID); err != nil {
+			t.Fatal(err)
+		}
+		if i == 0 {
+			oldestID = item.ID
+		}
+	}
+	reopened, err := openDurableJobsDBWithKey(db, "", "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened.mu.RLock()
+	loaded := 0
+	for _, item := range reopened.items {
+		if item.State == "dead-letter" {
+			loaded++
+		}
+	}
+	_, oldestLoaded := reopened.items[oldestID]
+	reopened.mu.RUnlock()
+	if loaded != durableDeadLetterJobCacheLimit || oldestLoaded {
+		t.Fatalf("startup loaded %d dead-letter jobs (oldest loaded: %v), want the newest %d", loaded, oldestLoaded, durableDeadLetterJobCacheLimit)
+	}
+	if item, ok := reopened.Get(oldestID); !ok || item.State != "dead-letter" {
+		t.Fatalf("the oldest dead-letter job is not readable on demand: %+v, %v", item, ok)
+	}
+	stats, err := reopened.QueueStats()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.DeadLetter != total || stats.OldestDeadLetterAt.Unix() != base.Unix() {
+		t.Fatalf("queue stats = %d dead-letter, oldest %v; want %d, %v", stats.DeadLetter, stats.OldestDeadLetterAt, total, base)
+	}
+}

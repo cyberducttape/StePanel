@@ -1293,10 +1293,11 @@ func (j *Jobs) CheckNotCancelled(id string) error {
 type DurableJobHandler func(context.Context, Job) ([]byte, error)
 
 type JobQueueStats struct {
-	Queued         int
-	Running        int
-	DeadLetter     int
-	OldestQueuedAt time.Time
+	Queued             int
+	Running            int
+	DeadLetter         int
+	OldestQueuedAt     time.Time
+	OldestDeadLetterAt time.Time
 }
 
 const maxListedActiveJobs = 100
@@ -1306,19 +1307,23 @@ func (j *Jobs) QueueStats() (JobQueueStats, error) {
 		return JobQueueStats{}, errors.New("queue statistics require the control-plane database")
 	}
 	var stats JobQueueStats
-	var oldest sql.NullInt64
+	var oldest, oldestDeadLetter sql.NullInt64
 	err := j.db.QueryRow(`
 		SELECT
 			COALESCE(SUM(CASE WHEN state = 'queued' THEN 1 ELSE 0 END), 0),
 			COALESCE(SUM(CASE WHEN state = 'running' THEN 1 ELSE 0 END), 0),
 			COALESCE(SUM(CASE WHEN state = 'dead-letter' THEN 1 ELSE 0 END), 0),
-			MIN(CASE WHEN state = 'queued' THEN started_at END)
-		FROM jobs`).Scan(&stats.Queued, &stats.Running, &stats.DeadLetter, &oldest)
+			MIN(CASE WHEN state = 'queued' THEN started_at END),
+			MIN(CASE WHEN state = 'dead-letter' THEN finished_at END)
+		FROM jobs`).Scan(&stats.Queued, &stats.Running, &stats.DeadLetter, &oldest, &oldestDeadLetter)
 	if err != nil {
 		return JobQueueStats{}, err
 	}
 	if oldest.Valid {
 		stats.OldestQueuedAt = time.Unix(0, oldest.Int64)
+	}
+	if oldestDeadLetter.Valid {
+		stats.OldestDeadLetterAt = time.Unix(0, oldestDeadLetter.Int64)
 	}
 	return stats, nil
 }
@@ -2031,6 +2036,10 @@ func (j *Jobs) claimsOpen() (bool, string) {
 // only a bounded recent terminal window. Historical listings remain SQL-backed.
 const durableTerminalJobCacheLimit = 500
 
+// durableDeadLetterJobCacheLimit bounds the dead-letter jobs loaded at startup;
+// the rest stay in the database and are read on demand.
+const durableDeadLetterJobCacheLimit = 200
+
 // SetStateErrorObserver reports durable persistence failures to fn.
 func (j *Jobs) SetStateErrorObserver(fn func(state.StateError)) {
 	j.mu.Lock()
@@ -2489,7 +2498,14 @@ func newJobsWithDB(db *sql.DB, limits ...int) *Jobs {
 
 func (j *Jobs) load() error {
 	if j.db != nil {
-		rows, err := j.db.Query(`SELECT state, payload, lease_owner, lease_token, lease_expires_at, next_attempt_at, cancel_requested FROM jobs WHERE state IN ('queued','running','dead-letter') OR id IN (SELECT id FROM jobs WHERE state IN ('completed','failed','cancelled') ORDER BY finished_at DESC, id DESC LIMIT ?) ORDER BY started_at, id`, durableTerminalJobCacheLimit)
+		// Queued and running jobs are loaded in full (admission bounds them).
+		// Terminal and dead-letter history is bounded: older records are read
+		// from the database on demand, so a dead-letter backlog cannot grow
+		// startup time and memory without limit.
+		rows, err := j.db.Query(`SELECT state, payload, lease_owner, lease_token, lease_expires_at, next_attempt_at, cancel_requested FROM jobs WHERE state IN ('queued','running')
+			OR id IN (SELECT id FROM jobs WHERE state IN ('completed','failed','cancelled') ORDER BY finished_at DESC, id DESC LIMIT ?)
+			OR id IN (SELECT id FROM jobs WHERE state = 'dead-letter' ORDER BY finished_at DESC, id DESC LIMIT ?)
+			ORDER BY started_at, id`, durableTerminalJobCacheLimit, durableDeadLetterJobCacheLimit)
 		if err != nil {
 			return fmt.Errorf("read durable job state: %w", err)
 		}

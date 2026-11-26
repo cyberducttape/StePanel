@@ -495,3 +495,29 @@ tests:
             exp_annotations:
               summary: A host operation has no durable terminal audit outcome
               description: "1 security operation(s) have no durable terminal audit outcome: the outcome write failed, or the operation stayed pending past the three-hour operation bound (in-flight operations are not counted). Inspect /api/security/audit/reconciliation and compare the recorded operation ID, actor, target, host state, and job history. Record evidence-based reconciliation; do not rerun the mutation solely to obtain an audit event."
+
+  - interval: 1m
+    input_series:
+      - series: 'stepanel_jobs_dead_letter{job="stepanel"}'
+        values: '150+0x150'
+      - series: 'stepanel_jobs_dead_letter_oldest_age_seconds{job="stepanel"}'
+        values: '700000+0x150'
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: StePanelDeadLetterBacklogAging
+        exp_alerts:
+          - exp_labels:
+              job: stepanel
+              severity: warning
+            exp_annotations:
+              summary: StePanel dead-letter jobs have waited over a week for review
+              description: The oldest dead-letter job has waited 8d 2h 26m 40s. Review it before STEPANEL_DEAD_LETTER_RETENTION_DAYS expires and deletes it with its diagnostics.
+      - eval_time: 2h
+        alertname: StePanelDeadLetterBacklogGrowing
+        exp_alerts:
+          - exp_labels:
+              job: stepanel
+              severity: warning
+            exp_annotations:
+              summary: StePanel dead-letter backlog exceeds its budget
+              description: 150 dead-letter jobs exceed the 100-job review budget. Find the repeating failure (same kind or resource) and fix its cause before retrying jobs in bulk.

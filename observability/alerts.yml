@@ -73,6 +73,24 @@ groups:
           summary: StePanel has jobs requiring operator review
           description: "{{ $value }} durable job(s) exhausted retries and require operator review. Inspect each job's error, affected resource, and recovery state before explicitly retrying, resolving, or archiving it."
 
+      - alert: StePanelDeadLetterBacklogAging
+        expr: stepanel_jobs_dead_letter_oldest_age_seconds{job="stepanel"} > 604800 and stepanel_jobs_dead_letter{job="stepanel"} > 0
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: StePanel dead-letter jobs have waited over a week for review
+          description: "The oldest dead-letter job has waited {{ $value | humanizeDuration }}. Review it before STEPANEL_DEAD_LETTER_RETENTION_DAYS expires and deletes it with its diagnostics."
+
+      - alert: StePanelDeadLetterBacklogGrowing
+        expr: stepanel_jobs_dead_letter{job="stepanel"} > 100
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: StePanel dead-letter backlog exceeds its budget
+          description: "{{ $value }} dead-letter jobs exceed the 100-job review budget. Find the repeating failure (same kind or resource) and fix its cause before retrying jobs in bulk."
+
       - alert: StePanelQueueWaitTooLong
         expr: stepanel_jobs_oldest_queued_age_seconds{job="stepanel"} > 900 and stepanel_jobs_queued{job="stepanel"} > 0
         for: 10m

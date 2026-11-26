@@ -26,6 +26,11 @@ recorded; they are not implied by a locally verified archive.
   scheduled migration window.
 - Warn when `stepanel_restore_jobs_active > 0` for longer than the expected
   restore duration.
+- Warn when `stepanel_jobs_dead_letter_oldest_age_seconds` exceeds seven days
+  (`StePanelDeadLetterBacklogAging`) or more than 100 jobs are dead-lettered
+  (`StePanelDeadLetterBacklogGrowing`, the review budget). Startup loads only
+  the newest 200 dead-letter jobs; older ones are read from the database on
+  demand, so a backlog cannot stretch startup.
 - Page when `stepanel_jobs_dead_letter > 0`; investigate the payload and
   operation audit trail before replaying it.
 - Warn when `stepanel_jobs_queued` remains above the worker capacity for 10
