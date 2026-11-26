@@ -700,6 +700,10 @@ CREATE INDEX IF NOT EXISTS jobs_state_started_idx ON jobs(state, started_at, id)
 	// environment_sites and environment_variables, secrets still sealed
 	// (environment_table.go).
 	migration.NewMigration(44, "store environment variables relationally", migrateEnvironmentBlob),
+	// Backup schedules move from the "backup-schedules" state blob to one row
+	// per site; the scheduler still advances a schedule and records its
+	// outbox intent in one transaction (backup_schedule.go).
+	migration.NewMigration(45, "store backup schedules relationally", migrateBackupSchedulesBlob),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {

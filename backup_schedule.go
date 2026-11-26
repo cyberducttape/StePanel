@@ -2,6 +2,7 @@ package stepanel
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +22,18 @@ type backupSchedules struct {
 	mu    sync.Mutex
 	path  string
 	items map[string]BackupSchedule
+	// rows, when bound (bindBackupSchedules), makes backup_schedules the
+	// store's persistence; the scheduler advances a schedule and records its
+	// outbox intent in one transaction on that database.
+	rows *keyedRowState[BackupSchedule]
+}
+
+// durableDB returns the bound control-plane database, or nil.
+func (s *backupSchedules) durableDB() *sql.DB {
+	if s == nil || !s.rows.bound() {
+		return nil
+	}
+	return s.rows.db
 }
 
 type backupScheduleOutboxItem struct {
@@ -55,6 +68,9 @@ func openBackupSchedules(path string) (*backupSchedules, error) {
 	return s, nil
 }
 func (s *backupSchedules) persistLocked() error {
+	if s.rows.bound() {
+		return backupScheduleRows.persist(s.rows, s.items)
+	}
 	b, err := json.Marshal(s.items)
 	if err != nil {
 		return err
@@ -193,18 +209,17 @@ func (a *App) runDueBackups() {
 	if err := a.dispatchBackupScheduleOutbox(); err != nil {
 		log.Printf("dispatch scheduled backup outbox: %v", err)
 	}
-	bindingValue, bound := controlPlaneStateBindings.Load(a.Schedules)
-	if !bound {
+	db := a.Schedules.durableDB()
+	if db == nil {
 		TelemetryAudit(a.Config.AuditLog, "scheduler", "backup.schedule.persistence_failed", "", "schedule state is not bound to the durable control-plane database")
 		return
 	}
-	binding := bindingValue.(controlPlaneStateBinding)
-	if binding.db != a.Jobs.db || binding.name == "" {
+	if db != a.Jobs.db {
 		TelemetryAudit(a.Config.AuditLog, "scheduler", "backup.schedule.persistence_failed", "", "backup schedules and jobs do not share a control-plane database")
 		return
 	}
 	for _, schedule := range due {
-		if err := a.stageScheduledBackup(binding, schedule, now); err != nil {
+		if err := a.stageScheduledBackup(db, schedule, now); err != nil {
 			TelemetryAudit(a.Config.AuditLog, "scheduler", "backup.schedule.persistence_failed", schedule.Site, err.Error())
 		}
 	}
@@ -216,29 +231,25 @@ func (a *App) runDueBackups() {
 // stageScheduledBackup atomically advances the authoritative SQLite schedule
 // image and records a durable intent for job admission. The dispatcher may
 // safely replay the intent because its operation key is deterministic.
-func (a *App) stageScheduledBackup(binding controlPlaneStateBinding, due BackupSchedule, now time.Time) error {
+func (a *App) stageScheduledBackup(db *sql.DB, due BackupSchedule, now time.Time) error {
 	tenantID, tenantBound, err := a.durableTenantBinding(due.Site)
 	if err != nil {
 		return err
 	}
-	tx, err := binding.db.Begin()
+	ctx, cancel := context.WithTimeout(context.Background(), controlPlaneStateWriteTimeout)
+	defer cancel()
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
-	var raw []byte
-	var revision int64
-	if err := tx.QueryRow(`SELECT payload, revision FROM state_blobs WHERE name=?`, binding.name).Scan(&raw, &revision); err != nil {
-		return err
+	defer tx.Rollback() //nolint:errcheck // best-effort: a no-op after Commit
+	current, revision, exists, err := loadReflectRow[BackupSchedule](ctx, tx, "backup_schedules", due.Site)
+	if err != nil {
+		return fmt.Errorf("read authoritative backup schedule: %w", err)
 	}
-	var schedules map[string]BackupSchedule
-	if err := json.Unmarshal(raw, &schedules); err != nil {
-		return fmt.Errorf("decode authoritative backup schedules: %w", err)
-	}
-	current, exists := schedules[due.Site]
 	if !exists || !current.Enabled || !current.NextRun.Equal(due.NextRun) {
-		_ = tx.Rollback()
-		if err := a.refreshBoundBackupSchedules(binding); err != nil {
+		_ = tx.Rollback() // best-effort: nothing was written
+		if err := a.refreshBoundBackupSchedules(); err != nil {
 			return fmt.Errorf("refresh schedules changed by another process: %w", err)
 		}
 		return nil
@@ -248,23 +259,18 @@ func (a *App) stageScheduledBackup(binding controlPlaneStateBinding, due BackupS
 	updated := current
 	updated.LastRun = &started
 	updated.NextRun = now.Add(time.Duration(current.IntervalMinutes) * time.Minute)
-	schedules[current.Site] = updated
-	encodedState, err := json.Marshal(schedules)
-	if err != nil {
-		return err
-	}
 	payload, err := json.Marshal(durableBackupRequest{Site: current.Site, IncludeDatabases: current.IncludeDatabases, Scheduled: true, KeepLast: current.KeepLast, Actor: "scheduler", StartedAt: now, TenantID: tenantID, TenantBound: tenantBound})
 	if err != nil {
 		return err
 	}
-	result, err := tx.Exec(`UPDATE state_blobs SET payload=?, updated_at=unixepoch(), revision=revision+1 WHERE name=? AND revision=?`, encodedState, binding.name, revision)
+	applied, err := backupScheduleRows.update(ctx, tx, current.Site, updated, revision)
 	if err != nil {
 		return err
 	}
-	if changed, _ := result.RowsAffected(); changed != 1 {
+	if !applied {
 		return errors.New("backup schedule changed concurrently; retry on next scheduler tick")
 	}
-	if _, err := tx.Exec(`INSERT INTO backup_schedule_outbox(id, site, operation_key, payload, created_at) VALUES(?, ?, ?, ?, ?) ON CONFLICT(operation_key) DO NOTHING`, operationKey, current.Site, operationKey, payload, now.UnixNano()); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO backup_schedule_outbox(id, site, operation_key, payload, created_at) VALUES(?, ?, ?, ?, ?) ON CONFLICT(operation_key) DO NOTHING`, operationKey, current.Site, operationKey, payload, now.UnixNano()); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -274,7 +280,7 @@ func (a *App) stageScheduledBackup(binding controlPlaneStateBinding, due BackupS
 	// stale peer state cannot later persist an accidental deletion of another
 	// process's schedule. This small read is outside the queue dispatch and
 	// transaction; the mutex is held only while decoding the current image.
-	if err := a.refreshBoundBackupSchedules(binding); err != nil {
+	if err := a.refreshBoundBackupSchedules(); err != nil {
 		log.Printf("refresh committed backup schedule state: %v", err)
 		// The outbox and schedule transition are already durable; report success
 		// so this intent is not represented as uncommitted work.
@@ -282,18 +288,20 @@ func (a *App) stageScheduledBackup(binding controlPlaneStateBinding, due BackupS
 	return nil
 }
 
-func (a *App) refreshBoundBackupSchedules(binding controlPlaneStateBinding) error {
+// refreshBoundBackupSchedules reloads every schedule from the table, so a
+// process with a stale view never persists a deletion of another process's
+// schedule.
+func (a *App) refreshBoundBackupSchedules() error {
 	a.Schedules.mu.Lock()
 	defer a.Schedules.mu.Unlock()
-	raw, revision, err := readControlPlaneBlobWithRevision(binding.db, binding.name)
+	if !a.Schedules.rows.bound() {
+		return errors.New("backup schedules are not bound to durable control-plane state")
+	}
+	loaded, revisions, err := backupScheduleRows.loadWithTimeout(a.Schedules.rows.db)
 	if err != nil {
 		return err
 	}
-	if err := decodeBoundControlPlaneTarget(binding.target, raw); err != nil {
-		return err
-	}
-	controlPlaneStateRevisions.Store(a.Schedules, revision)
-	controlPlaneStateSnapshots.Store(a.Schedules, append([]byte(nil), raw...))
+	backupScheduleRows.replace(a.Schedules.rows, a.Schedules.items, loaded, revisions)
 	return nil
 }
 
@@ -301,12 +309,11 @@ func (a *App) dispatchBackupScheduleOutbox() error {
 	if a.Jobs == nil || a.Jobs.db == nil {
 		return errors.New("durable jobs are unavailable")
 	}
-	bindingValue, bound := controlPlaneStateBindings.Load(a.Schedules)
-	if !bound {
+	db := a.Schedules.durableDB()
+	if db == nil {
 		return errors.New("backup schedules are not bound to durable control-plane state")
 	}
-	binding := bindingValue.(controlPlaneStateBinding)
-	if binding.db != a.Jobs.db || binding.name == "" {
+	if db != a.Jobs.db {
 		return errors.New("backup schedules and jobs do not share a control-plane database")
 	}
 	// Only each site's oldest pending intent is eligible, so a site whose
@@ -340,7 +347,7 @@ func (a *App) dispatchBackupScheduleOutbox() error {
 	// (schedule state or outbox writes) stop the batch.
 	var siteFailures []error
 	for _, item := range batch {
-		retry, err := a.dispatchBackupScheduleItem(binding, item)
+		retry, err := a.dispatchBackupScheduleItem(item)
 		if err != nil && !retry {
 			return errors.Join(append(siteFailures, err)...)
 		}
@@ -353,7 +360,7 @@ func (a *App) dispatchBackupScheduleOutbox() error {
 
 // dispatchBackupScheduleItem delivers one outbox intent. retry reports that
 // err is local to the item's site and the intent stays pending.
-func (a *App) dispatchBackupScheduleItem(binding controlPlaneStateBinding, item backupScheduleOutboxItem) (retry bool, err error) {
+func (a *App) dispatchBackupScheduleItem(item backupScheduleOutboxItem) (retry bool, err error) {
 	operationCtx, release, lockErr := a.tryAcquireSiteMutationLockContext(context.Background(), item.site)
 	if errors.Is(lockErr, errSiteMutationBusy) {
 		return true, lockErr
@@ -362,7 +369,7 @@ func (a *App) dispatchBackupScheduleItem(binding controlPlaneStateBinding, item 
 		return false, fmt.Errorf("lock scheduled backup site %s: %w", item.site, lockErr)
 	}
 	defer release()
-	if err := a.refreshBoundBackupSchedules(binding); err != nil {
+	if err := a.refreshBoundBackupSchedules(); err != nil {
 		return false, fmt.Errorf("refresh schedule before dispatch for %s: %w", item.site, err)
 	}
 	a.Schedules.mu.Lock()

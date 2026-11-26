@@ -114,7 +114,7 @@ func TestTerminationRemovesBackupScheduleAcrossRestartAndSiteReuse(t *testing.T)
 		t.Fatal(err)
 	}
 	defer jobs.Close()
-	if _, err := bindControlPlaneState(restartedSchedules, jobs.db, "backup-schedules", &restartedSchedules.items); err != nil {
+	if err := bindBackupSchedules(restartedSchedules, jobs.db); err != nil {
 		t.Fatal(err)
 	}
 	if err := restartedSchedules.persistLocked(); err != nil {
@@ -153,7 +153,7 @@ func TestDueBackupScheduleAndOutboxCommitBeforeJobAdmission(t *testing.T) {
 	}
 	due := BackupSchedule{Site: "demo", IntervalMinutes: 60, KeepLast: 7, Enabled: true, NextRun: time.Now().UTC().Add(-time.Minute)}
 	schedules.items[due.Site] = due
-	if _, err := bindControlPlaneState(schedules, db, "backup-schedules", &schedules.items); err != nil {
+	if err := bindBackupSchedules(schedules, db); err != nil {
 		t.Fatal(err)
 	}
 	if err := schedules.persistLocked(); err != nil {
@@ -220,7 +220,7 @@ func TestScheduledBackupDispatchSkipsBusySitesWithoutBlockingOthers(t *testing.T
 	for _, site := range []string{"site-a", "site-b", "site-c"} {
 		schedules.items[site] = BackupSchedule{Site: site, IntervalMinutes: 60, KeepLast: 7, Enabled: true, NextRun: time.Now().UTC().Add(time.Hour)}
 	}
-	if _, err := bindControlPlaneState(schedules, db, "backup-schedules", &schedules.items); err != nil {
+	if err := bindBackupSchedules(schedules, db); err != nil {
 		t.Fatal(err)
 	}
 	if err := schedules.persistLocked(); err != nil {
@@ -329,7 +329,7 @@ func TestScheduledBackupDispatchContinuesPastSiteLocalEnqueueFailure(t *testing.
 	for _, site := range []string{"site-a", "site-b"} {
 		schedules.items[site] = BackupSchedule{Site: site, IntervalMinutes: 60, KeepLast: 7, Enabled: true, NextRun: time.Now().UTC().Add(time.Hour)}
 	}
-	if _, err := bindControlPlaneState(schedules, db, "backup-schedules", &schedules.items); err != nil {
+	if err := bindBackupSchedules(schedules, db); err != nil {
 		t.Fatal(err)
 	}
 	if err := schedules.persistLocked(); err != nil {
@@ -388,7 +388,7 @@ func TestBackupScheduleDeleteAppliesAfterTheWorkerRecordedARun(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := bindControlPlaneState(store, db, "backup-schedules", &store.items); err != nil {
+		if err := bindBackupSchedules(store, db); err != nil {
 			t.Fatal(err)
 		}
 		return store
@@ -416,11 +416,11 @@ func TestBackupScheduleDeleteAppliesAfterTheWorkerRecordedARun(t *testing.T) {
 	if res.Code != http.StatusNoContent {
 		t.Fatalf("delete after the worker's write = %d %s", res.Code, res.Body.String())
 	}
-	var payload string
-	if err := panelDB.QueryRow(`SELECT payload FROM state_blobs WHERE name = 'backup-schedules'`).Scan(&payload); err != nil {
+	var remaining int
+	if err := panelDB.QueryRow(`SELECT COUNT(*) FROM backup_schedules WHERE store_key = 'demo'`).Scan(&remaining); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(payload, `"demo"`) {
-		t.Fatalf("schedule survived the delete: %s", payload)
+	if remaining != 0 {
+		t.Fatal("schedule survived the delete")
 	}
 }

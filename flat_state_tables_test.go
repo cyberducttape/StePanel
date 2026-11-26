@@ -21,6 +21,7 @@ func TestReflectRowTablesMatchTheirStructs(t *testing.T) {
 		"redis_allocations":   reflect.TypeOf(RedisAllocation{}),
 		"php_profiles":        reflect.TypeOf(PHPProfile{}),
 		"composer_operations": reflect.TypeOf(ComposerOperation{}),
+		"backup_schedules":    reflect.TypeOf(BackupSchedule{}),
 	} {
 		columns, err := reflectColumnsOf(typ)
 		if err != nil {
@@ -239,5 +240,55 @@ func TestPHPProfilesAndComposerOperationsUseTheirTables(t *testing.T) {
 	var n int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM composer_operations`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("composer_operations after delete: %d, %v", n, err)
+	}
+}
+
+func TestBackupSchedulesMigrateWithOptionalTimes(t *testing.T) {
+	db := openTestControlPlane(t)
+	next := time.Date(2026, 11, 27, 1, 0, 0, 0, time.UTC)
+	last := time.Date(2026, 11, 26, 1, 0, 0, 3, time.UTC)
+	legacy := map[string]BackupSchedule{
+		"shop": {Site: "shop", IntervalMinutes: 60, KeepLast: 7, IncludeDatabases: true, Enabled: true, NextRun: next, LastRun: &last, LastSuccess: &last, LastDurationMS: 4200, RetentionCheckedAt: &last, RetentionUnattributed: []string{"stray.tar"}, RetentionUnattributedCount: 1},
+		"blog": {Site: "blog", IntervalMinutes: 1440, KeepLast: 3, NextRun: next},
+	}
+	payload, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO state_blobs (name, payload, updated_at, revision) VALUES ('backup-schedules', ?, unixepoch(), 1)`, payload); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateBackupSchedulesBlob(tx); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	store := &backupSchedules{items: map[string]BackupSchedule{}}
+	if err := bindBackupSchedules(store, db); err != nil {
+		t.Fatal(err)
+	}
+	shop := store.items["shop"]
+	if shop.LastRun == nil || !shop.LastRun.Equal(last) || shop.LastSuccess == nil || !shop.NextRun.Equal(next) || len(shop.RetentionUnattributed) != 1 || !shop.IncludeDatabases {
+		t.Fatalf("migrated shop schedule = %#v", shop)
+	}
+	if blog := store.items["blog"]; blog.LastRun != nil || blog.LastSuccess != nil || blog.RetentionCheckedAt != nil || blog.Enabled {
+		t.Fatalf("migrated blog schedule (no optional times) = %#v", blog)
+	}
+	// Changing a pointed-to time in place is still detected.
+	*store.items["shop"].LastRun = last.Add(time.Hour)
+	if err := store.persistLocked(); err != nil {
+		t.Fatal(err)
+	}
+	reopened := &backupSchedules{items: map[string]BackupSchedule{}}
+	if err := bindBackupSchedules(reopened, db); err != nil {
+		t.Fatal(err)
+	}
+	if got := reopened.items["shop"].LastRun; got == nil || !got.Equal(last.Add(time.Hour)) {
+		t.Fatalf("last run after an in-place change = %v", got)
 	}
 }

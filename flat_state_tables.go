@@ -157,3 +157,38 @@ func bindComposerOperations(s *ComposerStore, db *sql.DB) error {
 	}
 	return composerOperationRows.bind(s.rows, db, s.latest)
 }
+
+const backupSchedulesTable = `CREATE TABLE IF NOT EXISTS backup_schedules (
+	store_key TEXT PRIMARY KEY,
+	"site" TEXT NOT NULL,
+	"interval_minutes" INTEGER NOT NULL,
+	"keep_last" INTEGER NOT NULL,
+	"include_databases" INTEGER NOT NULL DEFAULT 0 CHECK ("include_databases" IN (0, 1)),
+	"enabled" INTEGER NOT NULL DEFAULT 0 CHECK ("enabled" IN (0, 1)),
+	"next_run" TEXT NOT NULL,
+	"last_run" TEXT NOT NULL DEFAULT '',
+	"last_success" TEXT NOT NULL DEFAULT '',
+	"last_error" TEXT NOT NULL DEFAULT '',
+	"last_duration_ms" INTEGER NOT NULL DEFAULT 0,
+	"consecutive_failures" INTEGER NOT NULL DEFAULT 0,
+	"retention_checked_at" TEXT NOT NULL DEFAULT '',
+	"retention_error" TEXT NOT NULL DEFAULT '',
+	"retention_unattributed" TEXT NOT NULL DEFAULT '',
+	"retention_unattributed_count" INTEGER NOT NULL DEFAULT 0,
+	revision INTEGER NOT NULL DEFAULT 1
+)`
+
+var backupScheduleRows = newReflectRowTable[BackupSchedule]("backup schedules", "backup_schedules")
+
+func migrateBackupSchedulesBlob(tx *sql.Tx) error {
+	return migrateBlobToReflectTable[BackupSchedule](tx, "backup-schedules", "backup_schedules", backupSchedulesTable)
+}
+
+func bindBackupSchedules(s *backupSchedules, db *sql.DB) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.rows == nil {
+		s.rows = &keyedRowState[BackupSchedule]{}
+	}
+	return backupScheduleRows.bind(s.rows, db, s.items)
+}

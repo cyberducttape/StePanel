@@ -626,17 +626,6 @@ func Main() {
 	if err != nil {
 		log.Fatalf("open domain claim state: %v", err)
 	}
-	bindState := func(store any, name string, target any, persist func() error) {
-		found, bindErr := bindControlPlaneState(store, controlPlaneDB, name, target)
-		if bindErr != nil {
-			log.Fatalf("load control-plane state %s: %v", name, bindErr)
-		}
-		if !found {
-			if err := persist(); err != nil {
-				log.Fatalf("migrate control-plane state %s: %v", name, err)
-			}
-		}
-	}
 	// The store is its own codec: durable payloads hold encrypted secrets and
 	// must be decrypted by the store, never unmarshalled into live state.
 	environmentLegacy, err := legacyCiphertextAllowed(controlPlaneDB, encryptionStoreEnvironment)
@@ -742,7 +731,9 @@ func Main() {
 	if err != nil {
 		log.Fatalf("open backup schedules: %v", err)
 	}
-	bindState(schedules, "backup-schedules", &schedules.items, schedules.persistLocked)
+	if err := bindBackupSchedules(schedules, controlPlaneDB); err != nil {
+		log.Fatalf("load backup schedules: %v", err)
+	}
 	capacity, err := newCapacityLedger(controlPlaneDB)
 	if err != nil {
 		log.Fatalf("initialize capacity ledger: %v", err)

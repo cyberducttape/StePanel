@@ -214,8 +214,12 @@ nextSteps := []string{
 ## Control-Plane Persistence
 
 New features must store state in relational tables, not in the `state_blobs`
-whole-object JSON stores (`bindControlPlaneState`), which are a transitional
-layer. Do not raise the control-plane connection limit without the steps in
+whole-object JSON stores (`bindControlPlaneState`). Every store bound at
+startup is now relational: for a map-shaped store use `keyedRowTable`
+(`keyed_rows.go`), or `newReflectRowTable` for a flat struct
+(`reflect_rows.go`), with the table created by literal SQL in a new
+migration and the struct listed in `TestReflectRowTablesMatchTheirStructs`
+or `TestRelationalStoresCoverEveryField`. Do not raise the control-plane connection limit without the steps in
 [CONTROL_PLANE_DATABASE.md](docs/CONTROL_PLANE_DATABASE.md); per-connection
 SQLite settings belong in the DSN.
 

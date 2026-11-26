@@ -28,6 +28,9 @@ type reflectColumn struct {
 
 var timeType = reflect.TypeOf(time.Time{})
 
+// timePointer marks a *time.Time column: stored like time.Time, nil as "".
+const timePointer = reflect.UnsafePointer
+
 func reflectColumnsOf(typ reflect.Type) ([]reflectColumn, error) {
 	var columns []reflectColumn
 	for i := 0; i < typ.NumField(); i++ {
@@ -40,6 +43,8 @@ func reflectColumnsOf(typ reflect.Type) ([]reflectColumn, error) {
 		switch {
 		case field.Type == timeType:
 			kind = reflect.Struct
+		case field.Type == reflect.PointerTo(timeType):
+			kind = timePointer
 		case kind == reflect.String || kind == reflect.Int || kind == reflect.Int64 || kind == reflect.Bool:
 		case kind == reflect.Slice && field.Type.Elem().Kind() == reflect.String:
 		default:
@@ -64,6 +69,11 @@ func encodeReflectRow(columns []reflectColumn, value reflect.Value) []any {
 			out[i] = int64(boolInt(field.Bool()))
 		case reflect.Struct:
 			out[i] = formatClaimTime(field.Interface().(time.Time))
+		case timePointer:
+			out[i] = ""
+			if !field.IsNil() {
+				out[i] = formatClaimTime(*field.Interface().(*time.Time))
+			}
 		case reflect.Slice:
 			// nil and empty are the same value (both omitted when encoded).
 			out[i] = ""
@@ -96,6 +106,16 @@ func decodeReflectRow(columns []reflectColumn, target reflect.Value, values []an
 				return fmt.Errorf("column %s: %w", c.name, err)
 			}
 			field.Set(reflect.ValueOf(parsed))
+		case timePointer:
+			text := *values[i].(*string)
+			if text == "" {
+				continue
+			}
+			parsed, err := time.Parse(time.RFC3339Nano, text)
+			if err != nil {
+				return fmt.Errorf("column %s: %w", c.name, err)
+			}
+			field.Set(reflect.ValueOf(&parsed))
 		case reflect.Slice:
 			text := *values[i].(*string)
 			if text == "" {
@@ -115,7 +135,7 @@ func scanTargets(columns []reflectColumn) []any {
 	out := make([]any, len(columns))
 	for i, c := range columns {
 		switch c.kind {
-		case reflect.String, reflect.Struct, reflect.Slice:
+		case reflect.String, reflect.Struct, reflect.Slice, timePointer:
 			out[i] = new(string)
 		default:
 			out[i] = new(int64)
@@ -155,19 +175,22 @@ func newReflectRowTable[V any](label, table string) keyedRowTable[V] {
 	selectAll := `SELECT store_key, revision, ` + strings.Join(names, ", ") + ` FROM ` + table
 	var clone func(V) V
 	for _, c := range columns {
-		if c.kind == reflect.Slice {
-			// Copy list fields so the persisted view never shares a backing
-			// array with the live value.
+		if c.kind == reflect.Slice || c.kind == timePointer {
+			// Copy list and pointer fields so the persisted view never shares
+			// memory with the live value.
 			clone = func(value V) V {
 				copied := reflect.ValueOf(&value).Elem()
 				for _, c := range columns {
-					if c.kind == reflect.Slice {
-						field := copied.Field(c.index)
-						if !field.IsNil() {
-							fresh := reflect.MakeSlice(field.Type(), field.Len(), field.Len())
-							reflect.Copy(fresh, field)
-							field.Set(fresh)
-						}
+					field := copied.Field(c.index)
+					switch {
+					case c.kind == reflect.Slice && !field.IsNil():
+						fresh := reflect.MakeSlice(field.Type(), field.Len(), field.Len())
+						reflect.Copy(fresh, field)
+						field.Set(fresh)
+					case c.kind == timePointer && !field.IsNil():
+						fresh := reflect.New(timeType)
+						fresh.Elem().Set(field.Elem())
+						field.Set(fresh)
 					}
 				}
 				return value
@@ -266,4 +289,29 @@ func migrateBlobToReflectTable[V any](tx *sql.Tx, blob, table, ddl string) error
 	}
 	_, err = tx.Exec(`DELETE FROM state_blobs WHERE name = ?`, blob)
 	return err
+}
+
+// loadReflectRow reads one row of a generated-statement table inside q (a
+// transaction, for example), reporting whether it exists.
+func loadReflectRow[V any](ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, table, key string) (V, int64, bool, error) {
+	var value V
+	columns, err := reflectColumnsOf(reflect.TypeOf(value))
+	if err != nil {
+		return value, 0, false, err
+	}
+	var revision int64
+	targets := scanTargets(columns)
+	err = q.QueryRowContext(ctx, `SELECT revision, `+strings.Join(columnNames(columns), ", ")+` FROM `+table+` WHERE store_key = ?`, key).Scan(append([]any{&revision}, targets...)...)
+	if errors.Is(err, sql.ErrNoRows) {
+		return value, 0, false, nil
+	}
+	if err != nil {
+		return value, 0, false, err
+	}
+	if err := decodeReflectRow(columns, reflect.ValueOf(&value).Elem(), targets); err != nil {
+		return value, 0, false, fmt.Errorf("%s %s: %w", table, key, err)
+	}
+	return value, revision, true, nil
 }

@@ -35,10 +35,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Resource profiles, site SFTP/shell access (with SSH keys), domain claims,
   desired proxy routes, scheduled tasks (with run history), DNS desired
   records, site workers, Redis allocations, PHP profiles, Composer
-  operations, deployment history and site environment variables (secrets
-  still sealed) are stored one row per key or record in relational tables
-  instead of whole-object JSON blobs (control-plane migrations 33 to 44,
-  applied automatically). Changes to different sites or domains no longer conflict,
+  operations, deployment history, site environment variables (secrets
+  still sealed) and backup schedules are stored one row per key or record in
+  relational tables instead of whole-object JSON blobs (control-plane
+  migrations 33 to 45, applied automatically). Changes to different sites or domains no longer conflict,
   and one claim per domain is enforced by the database.
 
 - **Tenant code can no longer reach private networks.** Site PHP-FPM pools,
