@@ -580,6 +580,28 @@ func downloadOffsiteObjectLimit(parent context.Context, remoteRoot, localRoot, o
 	if err != nil {
 		return fmt.Errorf("invalid offsite local object path: %w", err)
 	}
+	// Stat the object first. On S3 a missing key lists as an empty
+	// "directory", so rclone cat of it succeeds with no output; the stat is
+	// the authoritative existence and size check, and refuses an oversized
+	// object before any transfer.
+	statCtx, statCancel := context.WithTimeout(ctx, time.Minute)
+	statCmd := exec.CommandContext(statCtx, "rclone", "lsjson", "--stat", "--contimeout", offsiteConnectTimeout.String(), remote)
+	statCmd.Env = cloudCommandEnv()
+	statOutput, statErrors, err := runCappedSeparate(statCtx, statCmd, 64<<10, 64<<10)
+	statCancel()
+	if err != nil {
+		return fmt.Errorf("offsite backup object %s is missing or unreadable: %w: %s", object, err, strings.TrimSpace(string(statErrors)))
+	}
+	var stat struct {
+		Size  int64
+		IsDir bool
+	}
+	if err := json.Unmarshal(statOutput, &stat); err != nil || stat.IsDir {
+		return fmt.Errorf("offsite backup object %s is not a single object", object)
+	}
+	if stat.Size > maxBytes {
+		return fmt.Errorf("offsite backup object %s exceeds the %d-byte limit (%d bytes)", object, maxBytes, stat.Size)
+	}
 	// Stream the object with rclone cat and read at most one byte past the
 	// limit. rclone refuses --max-size (a filter) on a single-file copyto
 	// ("can't limit to single files when using filters"), and --max-transfer
@@ -609,6 +631,10 @@ func downloadOffsiteObjectLimit(parent context.Context, remoteRoot, localRoot, o
 	if info.Size() > maxBytes {
 		_ = os.Remove(local) // best-effort: never leave an oversized object behind
 		return fmt.Errorf("downloaded offsite backup object %s exceeds the %d-byte limit", object, maxBytes)
+	}
+	if stat.Size >= 0 && info.Size() != stat.Size {
+		_ = os.Remove(local) // best-effort: never leave a truncated or replaced object behind
+		return fmt.Errorf("downloaded offsite backup object %s has %d bytes, but the remote reported %d", object, info.Size(), stat.Size)
 	}
 	return nil
 }

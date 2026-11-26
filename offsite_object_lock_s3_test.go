@@ -65,6 +65,8 @@ func liveS3UploadAndRestore(t *testing.T, target string, objectLock bool) {
 	}
 	cfg.OffsiteTarget = strings.TrimRight(target, "/") + "/upload-" + strings.ToLower(t.Name())
 	cfg.OffsiteObjectLock = objectLock
+	// Sign the backup so the restore must also fetch manifest.sig.
+	cfg.BackupSigningKey = "live-s3-test-signing-key-0123456789abcdef"
 	backup, err := CreateSiteBackup(cfg, AuthorizedSite{site: "account"}, false)
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +84,7 @@ func liveS3UploadAndRestore(t *testing.T, target string, objectLock bool) {
 		t.Fatalf("download (Object Lock %v): %v\nverbose retry of %s:\n%s", objectLock, err, remote, verbose)
 	}
 	defer cleanup()
-	if _, err := VerifySiteBackupStrict(restored, ""); err != nil {
+	if _, err := VerifySiteBackupStrict(restored, cfg.BackupSigningKey); err != nil {
 		t.Fatalf("verify the downloaded backup (Object Lock %v): %v", objectLock, err)
 	}
 }

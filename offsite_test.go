@@ -129,6 +129,7 @@ case "$1" in
 copy) src=$(remote "$2"); dst=$(remote "$3"); mkdir -p "$dst"; cp -a "$src"/. "$dst"/ ;;
 check) exit 0 ;;
 lsf) dir=$(remote "$2"); [ -d "$dir" ] || exit 3; (cd "$dir" && find . -type f | sed 's#^\./##') ;;
+lsjson) eval "obj=\${$#}"; src=$(remote "$obj"); [ -f "$src" ] || exit 3; printf '{"Path":"x","Name":"x","Size":%s,"IsDir":false}\n' "$(wc -c < "$src" | tr -d ' ')" ;;
 cat) eval "obj=\${$#}"; src=$(remote "$obj"); [ -f "$src" ] || exit 3; if [ -n "${RCLONE_COPYTO_LOG:-}" ]; then printf '%s\n' "$obj" >> "$RCLONE_COPYTO_LOG"; fi; head -c "$3" "$src" ;;
 copyto) src=$(remote "$2"); dst=$(remote "$3"); case "$dst" in */.stepanel-complete) if [ -f "$RCLONE_FAIL_MARKER" ]; then rm -f "$RCLONE_FAIL_MARKER"; exit 73; fi;; esac; mkdir -p "$(dirname "$dst")"; cp "$src" "$dst" ;;
 purge) rm -rf "$(remote "$2")" ;;
@@ -448,6 +449,7 @@ case "$1" in
 copy) src=$(remote "$2"); dst=$(remote "$3"); mkdir -p "$dst"; cp -a "$src"/. "$dst"/ ;;
 check) exit 0 ;;
 lsf) dir=$(remote "$2"); [ -d "$dir" ] || exit 3; (cd "$dir" && find . -type f | sed 's#^\./##') ;;
+lsjson) eval "obj=\${$#}"; src=$(remote "$obj"); [ -f "$src" ] || exit 3; printf '{"Path":"x","Name":"x","Size":%s,"IsDir":false}\n' "$(wc -c < "$src" | tr -d ' ')" ;;
 cat) eval "obj=\${$#}"; src=$(remote "$obj"); [ -f "$src" ] || exit 3; if [ -n "${RCLONE_COPYTO_LOG:-}" ]; then printf '%s\n' "$obj" >> "$RCLONE_COPYTO_LOG"; fi; head -c "$3" "$src" ;;
 copyto) if [ -n "${RCLONE_COPYTO_LOG:-}" ]; then printf '%s\n' "$2" >> "$RCLONE_COPYTO_LOG"; fi; src=$(remote "$2"); dst=$(remote "$3"); [ -f "$src" ] || exit 3; mkdir -p "$(dirname "$dst")"; cp "$src" "$dst" ;;
 purge) rm -rf "$(remote "$2")" ;;
@@ -649,6 +651,29 @@ func TestOffsiteObjectDownloadIsBoundedWithoutFilters(t *testing.T) {
 	}
 	if info, err := os.Stat(filepath.Join(local, "archive.tar.gz")); err != nil || info.Size() != 4096 || info.Mode().Perm() != 0o600 {
 		t.Fatalf("downloaded object = %v, %v", info, err)
+	}
+	// A missing object fails without creating a local file.
+	if err := downloadOffsiteObjectLimit(t.Context(), "s3:bucket/stepanel/site/backup", local, "manifest.sig", 4096); err == nil || !strings.Contains(err.Error(), "missing or unreadable") {
+		t.Fatalf("missing object error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(local, "manifest.sig")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a missing object left a local file: %v", err)
+	}
+	// On S3, cat of a key that vanished after the stat succeeds with no
+	// output; the size check refuses the empty result.
+	wrapper := "#!/bin/sh\n[ \"$1\" = cat ] && exit 0\nexec " + filepath.Join(root, "rclone.real") + " \"$@\"\n"
+	if err := os.Rename(filepath.Join(root, "rclone"), filepath.Join(root, "rclone.real")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "rclone"), []byte(wrapper), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	empty := t.TempDir()
+	if err := downloadOffsiteObjectLimit(t.Context(), "s3:bucket/stepanel/site/backup", empty, "archive.tar.gz", 4096); err == nil || !strings.Contains(err.Error(), "remote reported 4096") {
+		t.Fatalf("empty cat output error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(empty, "archive.tar.gz")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a short download left a local file: %v", err)
 	}
 	source, err := os.ReadFile("offsite.go")
 	if err != nil {

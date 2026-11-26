@@ -41,6 +41,11 @@ func runCappedToFile(ctx context.Context, cmd *exec.Cmd, file *os.File, stderrLi
 	return h.RunCappedToFile(ctx, cmd, file, stderrLimit)
 }
 
+// runCappedSeparate returns cmd's stdout and stderr separately, each capped.
+func runCappedSeparate(ctx context.Context, cmd *exec.Cmd, stdoutLimit, stderrLimit int) ([]byte, []byte, error) {
+	return h.RunCappedSeparate(ctx, cmd, stdoutLimit, stderrLimit)
+}
+
 func runBoundedCommandInput(ctx context.Context, cmd *exec.Cmd, input io.Reader) ([]byte, error) {
 	return h.RunBoundedCommandInput(ctx, cmd, input)
 }
