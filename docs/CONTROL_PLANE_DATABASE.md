@@ -91,11 +91,16 @@ changes transaction behavior and is unsafe without the steps below.
    is one JSON-array column of its row. Deployment history is done
    (migration 43, `internal/deployment`): an append table pruned to the
    newest 1,000 records in the same transaction, so appends from the panel
-   and the worker never conflict. Still on a blob: environment secrets
-   (see above). Both use the shared
+   and the worker never conflict. Every map-shaped
+   store bound at startup is now relational. The remaining `state_blobs`
+   rows are the backup schedules (`backup_schedule.go`) and the
+   capacity-ledger lock and dump rows, which serialize uploads and are not
+   whole-object stores. Both use the shared
    `keyedRowTable` (`keyed_rows.go`), which the remaining map-shaped stores
-   can adopt the same way. Environment secrets need more than that: key
-   rotation and the context-binding migration re-seal every secret without
-   changing its plaintext, so a row diff on plaintext would never rewrite
-   the ciphertext. Their table needs a forced rewrite for re-sealing, tested
-   with a key removed afterwards, before it replaces the blob.
+   can adopt the same way. Environment secrets are done (migration 44,
+   `environment_table.go`): `environment_sites` and `environment_variables`,
+   secrets sealed bound to their site and name. Key rotation and the
+   context-binding migration re-seal without changing plaintexts, so they
+   mark every site for rewrite (`keyedRowState.rewriteAll`);
+   `TestEnvironmentKeyRotationRewritesUnchangedSecrets` removes the previous
+   key afterwards and fails without it.

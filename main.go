@@ -644,7 +644,9 @@ func Main() {
 		log.Fatalf("read environment encryption format: %v", err)
 	}
 	environments.setLegacyCiphertextAllowed(environmentLegacy)
-	bindState(environments, "environment", environments, environments.persistLocked)
+	if err := bindEnvironment(environments, controlPlaneDB); err != nil {
+		log.Fatalf("load environment variables: %v", err)
+	}
 	if err := environments.completeEncryptionMigration(controlPlaneDB); err != nil {
 		log.Fatalf("migrate environment secrets to context-bound encryption: %v", err)
 	}

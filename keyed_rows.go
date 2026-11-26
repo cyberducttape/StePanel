@@ -3,7 +3,9 @@ package stepanel
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"syscall"
 )
 
 // keyedRowTable persists a map-shaped store as one table row per key, each
@@ -36,6 +38,18 @@ type keyedRow[V any] struct {
 type keyedRowState[V any] struct {
 	db        *sql.DB
 	persisted map[string]keyedRow[V]
+	// rewrite lists keys to write on the next persist even when their value
+	// is unchanged, for re-encoding the same value (re-sealing secrets under
+	// a new key). It is cleared by a successful persist.
+	rewrite map[string]bool
+}
+
+// rewriteAll makes the next persist rewrite every persisted key.
+func (s *keyedRowState[V]) rewriteAll() {
+	s.rewrite = make(map[string]bool, len(s.persisted))
+	for key := range s.persisted {
+		s.rewrite[key] = true
+	}
 }
 
 func (s *keyedRowState[V]) bound() bool { return s != nil && s.db != nil }
@@ -62,7 +76,7 @@ func (t keyedRowTable[V]) loadWithTimeout(db *sql.DB) (map[string]V, map[string]
 	defer cancel()
 	loaded, revisions, err := t.load(ctx, db)
 	if err != nil {
-		return nil, nil, fmt.Errorf("load %s: %w", t.name, classifyControlPlaneStorageError(err))
+		return nil, nil, fmt.Errorf("load %s: %w", t.name, classifyIfStorageError(err))
 	}
 	return loaded, revisions, nil
 }
@@ -99,7 +113,7 @@ func (t keyedRowTable[V]) persist(state *keyedRowState[V], values map[string]V) 
 	var changes []change
 	for key, value := range values {
 		previous, existed := state.persisted[key]
-		if existed && t.equal(previous.value, value) {
+		if existed && !state.rewrite[key] && t.equal(previous.value, value) {
 			continue
 		}
 		changes = append(changes, change{key: key, value: value, existed: existed, revision: previous.revision})
@@ -113,8 +127,10 @@ func (t keyedRowTable[V]) persist(state *keyedRowState[V], values map[string]V) 
 		return nil
 	}
 	storageFailure := func(err error) error {
-		err = classifyControlPlaneStorageError(err)
-		recordControlPlaneStorageResult(err)
+		err = classifyIfStorageError(err)
+		if errors.Is(err, errControlPlaneStorageUnavailable) || errors.Is(err, errControlPlaneStorageExhausted) {
+			recordControlPlaneStorageResult(err)
+		}
 		return fmt.Errorf("persist %s: %w", t.name, err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), controlPlaneStateWriteTimeout)
@@ -159,6 +175,7 @@ func (t keyedRowTable[V]) persist(state *keyedRowState[V], values map[string]V) 
 		return storageFailure(err)
 	}
 	recordControlPlaneStorageResult(nil)
+	state.rewrite = nil
 	for _, c := range changes {
 		switch {
 		case c.remove:
@@ -170,6 +187,19 @@ func (t keyedRowTable[V]) persist(state *keyedRowState[V], values map[string]V) 
 		}
 	}
 	return nil
+}
+
+// classifyIfStorageError classifies errors that come from storage (SQLite
+// result codes, a full disk or quota, a deadline or closed connection) and
+// returns any other error, such as a secret that does not open or a value
+// that does not decode, unchanged: those are not storage outages.
+func classifyIfStorageError(err error) error {
+	var coded interface{ Code() int }
+	if errors.As(err, &coded) || errors.Is(err, syscall.ENOSPC) || errors.Is(err, syscall.EDQUOT) ||
+		errors.Is(err, context.DeadlineExceeded) || errors.Is(err, sql.ErrConnDone) {
+		return classifyControlPlaneStorageError(err)
+	}
+	return err
 }
 
 // oneRowAffected reports whether an exec changed exactly one row.

@@ -176,6 +176,9 @@ type EnvironmentStore struct {
 	// until the store has been migrated; legacySeen records that one was read.
 	legacyAllowed bool
 	legacySeen    bool
+	// rows, when bound (bindEnvironment), makes the environment tables the
+	// store's persistence.
+	rows *keyedRowState[map[string]environmentValue]
 }
 
 // environmentSecretPrefix marks secrets sealed by secretbox. It cannot occur
@@ -333,6 +336,9 @@ func (s *EnvironmentStore) completeKeyRotation() (uint64, error) {
 	if opened == 0 {
 		return 0, nil
 	}
+	if s.rows.bound() {
+		s.rows.rewriteAll()
+	}
 	if err := s.persistLocked(); err != nil {
 		return 0, fmt.Errorf("re-seal environment secrets under the current STEPANEL_ENVIRONMENT_KEY: %w", err)
 	}
@@ -349,6 +355,9 @@ func (s *EnvironmentStore) completeEncryptionMigration(db *sql.DB) error {
 		return nil
 	}
 	if s.legacySeen {
+		if s.rows.bound() {
+			s.rows.rewriteAll()
+		}
 		if err := s.persistLocked(); err != nil {
 			return fmt.Errorf("re-seal environment secrets: %w", err)
 		}
@@ -363,6 +372,9 @@ func (s *EnvironmentStore) completeEncryptionMigration(db *sql.DB) error {
 }
 
 func (s *EnvironmentStore) persistLocked() error {
+	if s.rows.bound() {
+		return s.environmentRows().persist(s.rows, s.values)
+	}
 	data, err := s.encodePersisted()
 	if err != nil {
 		return err

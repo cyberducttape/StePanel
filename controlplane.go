@@ -696,6 +696,10 @@ CREATE INDEX IF NOT EXISTS jobs_state_started_idx ON jobs(state, started_at, id)
 	// Deployment history moves from the "deployments" state blob, rewritten
 	// in full on every record, to one row per record (internal/deployment).
 	migration.NewMigration(43, "store deployment history relationally", deployment.MigrateBlob),
+	// Site environment variables move from the "environment" state blob to
+	// environment_sites and environment_variables, secrets still sealed
+	// (environment_table.go).
+	migration.NewMigration(44, "store environment variables relationally", migrateEnvironmentBlob),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {
