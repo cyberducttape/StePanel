@@ -16,7 +16,7 @@ set -Eeuo pipefail
 # Environment: VM_MEMORY_MB (4096), VM_HOST_RESERVE_MB (2048), VM_CPUS (4), SSH_PORT (2232),
 # RECOVERY_MATRIX_REPEATS (1; use 20–50 for the release soak),
 # PHASES (space-separated subset of: boot install runner abrupt-loss
-# abrupt-loss-under-load abrupt-loss-operations enospc db-enospc operator-alerts capacity), KEEP_VM=1 to leave the guest running,
+# abrupt-loss-under-load abrupt-loss-operations enospc db-enospc operator-alerts tenant-egress capacity), KEEP_VM=1 to leave the guest running,
 # CERT_INSTALL_RECOVERY_MATRIX (1; 0 installs and runs the smokes without the
 # hours-long lease-recovery matrix, for phases that need only an installed host),
 # CAPACITY_PROFILE (small, node, or large), CAPACITY_DURATION (600 seconds), and
@@ -453,6 +453,15 @@ if has_phase operator-alerts; then
     record operator-alerts PASS $((SECONDS - start)) "$(tail -1 "$run_dir/operator-alerts.log")"
   else
     record operator-alerts FAIL $((SECONDS - start)) "$(tail -1 "$run_dir/operator-alerts.log")"
+  fi
+fi
+
+if has_phase tenant-egress; then
+  start=$SECONDS
+  if guest_job tenant-egress 10 'bash /work/deploy/lab/tenant-egress-smoke.sh'; then
+    record tenant-egress PASS $((SECONDS - start)) "$(tail -1 "$run_dir/tenant-egress.log")"
+  else
+    record tenant-egress FAIL $((SECONDS - start)) "$(tail -1 "$run_dir/tenant-egress.log")"
   fi
 fi
 

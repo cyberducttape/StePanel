@@ -65,7 +65,7 @@ jobs:
           # Cover the dedicated backup/file-restore filesystem and the
           # database data filesystem independently; each has its own ENOSPC
           # recovery contract.
-          PHASES: boot install abrupt-loss-operations enospc db-enospc operator-alerts
+          PHASES: boot install abrupt-loss-operations enospc db-enospc operator-alerts tenant-egress
           ABRUPT_LOSS_SCENARIOS: ${{ inputs.scenarios }}
           # Avoid retaining acknowledged guest writes in the runner's page
           # cache when the QEMU process is SIGKILLed. This strengthens guest
