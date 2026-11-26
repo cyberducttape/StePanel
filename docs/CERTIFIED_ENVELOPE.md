@@ -49,8 +49,17 @@ admin or customer errors and no tenant-isolation differences; route changes
 slowed to about 3 s each at that scale. See the
 [reviewed report](./lab-results/2026-11-25-capacity-envelope-23980ad.md).
 
-These are passing runs on one runner VM type, not a certified limit. They did not include real WordPress/database traffic, migrations, the
-scheduled-job target, or restart and recovery under load. The earlier Ubuntu 26.04.1 synthetic HTTP run is recorded
+The full-envelope profile
+[45774333339](https://github.com/cyberducttape/StePanel/actions/runs/45774333339)
+on `f471efc3` added scheduled backups (5 sites every 5 minutes) and a panel
+restart under load. It passed with no site errors; admin and customer
+errors occurred only during the deliberate restart, after which the panel
+was ready in 1.7 s. A run on the previous source failed at customer account
+72 and its cause was not captured. See the
+[reviewed report](./lab-results/2026-11-26-capacity-envelope-f471efc.md).
+
+These are passing runs on one runner VM type, not a certified limit. They did not include real WordPress/database traffic, migrations,
+worker interruption, or backup restore under load. The earlier Ubuntu 26.04.1 synthetic HTTP run is recorded
 in the [2026-10-24 lab report](./lab-results/2026-10-24-500-site-mixed-load.md);
 it lacked resource monitoring and ran outside the declared supported OS
 matrix, so it is exploratory evidence only.
