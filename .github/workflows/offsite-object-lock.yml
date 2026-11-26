@@ -1,9 +1,11 @@
 name: Offsite Object Lock
 
-# Runs the Object Lock proof and a locked upload with the real rclone against
-# a live S3 server that enforces Object Lock (versitygw), with three buckets:
-# compliance-locked, versioned without lock, and unversioned. The proof must
-# pass only for the first.
+# Runs offsite storage with the real rclone against a live S3 server that
+# enforces Object Lock (versitygw), with three buckets: compliance-locked,
+# versioned without lock, and unversioned. The Object Lock proof must pass
+# only for the first; a locked upload and an ordinary staged upload must
+# both publish and restore. Fakes that ignore rclone's flags once hid that
+# every offsite restore failed, so the real rclone is the point.
 
 on:
   push:

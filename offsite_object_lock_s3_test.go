@@ -45,33 +45,44 @@ func TestLiveS3ObjectLockProofDistinguishesLockedBuckets(t *testing.T) {
 }
 
 func TestLiveS3LockedUploadPublishesAndRestores(t *testing.T) {
-	locked := s3LockTestTarget(t, "STEPANEL_S3_LOCK_TEST_LOCKED")
+	liveS3UploadAndRestore(t, s3LockTestTarget(t, "STEPANEL_S3_LOCK_TEST_LOCKED"), true)
+}
+
+// The ordinary staged upload (copy to a staging prefix, verify, publish,
+// purge) and the restore download, with the real rclone. Fakes that ignore
+// rclone's flags once hid that every offsite restore failed.
+func TestLiveS3StagedUploadPublishesAndRestores(t *testing.T) {
+	liveS3UploadAndRestore(t, s3LockTestTarget(t, "STEPANEL_S3_LOCK_TEST_UNVERSIONED"), false)
+}
+
+func liveS3UploadAndRestore(t *testing.T, target string, objectLock bool) {
+	t.Helper()
 	root := t.TempDir()
 	cfg, _ := offsiteTestRemote(t, root)
 	// Use the real rclone, not offsiteTestRemote's fake.
 	if err := os.Remove(filepath.Join(root, "rclone")); err != nil {
 		t.Fatal(err)
 	}
-	cfg.OffsiteTarget = strings.TrimRight(locked, "/") + "/upload-" + strings.ToLower(t.Name())
-	cfg.OffsiteObjectLock = true
+	cfg.OffsiteTarget = strings.TrimRight(target, "/") + "/upload-" + strings.ToLower(t.Name())
+	cfg.OffsiteObjectLock = objectLock
 	backup, err := CreateSiteBackup(cfg, AuthorizedSite{site: "account"}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for attempt := 1; attempt <= 2; attempt++ {
 		if err := uploadOffsiteContext(t.Context(), cfg, backup); err != nil {
-			t.Fatalf("upload %d to a locked bucket: %v", attempt, err)
+			t.Fatalf("upload %d (Object Lock %v): %v", attempt, objectLock, err)
 		}
 	}
 	restored, cleanup, err := downloadOffsiteBackupContext(t.Context(), cfg, "account", filepath.Base(backup.Path))
 	if err != nil {
 		// Rerun one object's download verbosely so the failure is diagnosable.
 		remote := cfg.OffsiteTarget + "/account/" + filepath.Base(backup.Path) + "/manifest.json"
-		verbose, _ := exec.CommandContext(t.Context(), "rclone", "-vv", "copyto", remote, filepath.Join(t.TempDir(), "manifest.json")).CombinedOutput()
-		t.Fatalf("download from a locked bucket: %v\nverbose retry of %s:\n%s", err, remote, verbose)
+		verbose, _ := exec.CommandContext(t.Context(), "rclone", "-vv", "cat", remote).CombinedOutput()
+		t.Fatalf("download (Object Lock %v): %v\nverbose retry of %s:\n%s", objectLock, err, remote, verbose)
 	}
 	defer cleanup()
 	if _, err := VerifySiteBackupStrict(restored, ""); err != nil {
-		t.Fatalf("verify the backup downloaded from a locked bucket: %v", err)
+		t.Fatalf("verify the downloaded backup (Object Lock %v): %v", objectLock, err)
 	}
 }
