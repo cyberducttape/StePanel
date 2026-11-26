@@ -67,25 +67,34 @@ func proveOffsiteObjectLockWithRunner(ctx context.Context, target, rclone string
 	if output, err := run(ctx, rclone, "deletefile", object); err != nil {
 		return fmt.Errorf("Object Lock proof delete failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
-	version, err := offsiteProbeVersion(ctx, rclone, run, dir)
+	hidden, err := offsiteProbeEntries(ctx, rclone, run, dir)
 	if err != nil {
 		return err
 	}
-	if version == "" {
-		return errors.New("deleting an object removed it permanently: the bucket is not versioned; enable Object Lock with a default retention")
+	if len(hidden) != 1 || !strings.HasPrefix(hidden[0], "probe-v") {
+		if len(hidden) == 0 {
+			return errors.New("deleting an object removed it permanently: the bucket is not versioned; enable Object Lock with a default retention")
+		}
+		return fmt.Errorf("Object Lock proof expected one hidden version after deleting the probe, found %q", hidden)
 	}
 	if output, err := run(ctx, rclone, "backend", "cleanup-hidden", dir); err == nil {
 		return fmt.Errorf("the panel's credentials permanently deleted an object version: enable Object Lock with a default retention in compliance mode (%s)", strings.TrimSpace(string(output)))
 	}
-	survivor, err := offsiteProbeVersion(ctx, rclone, run, dir)
+	// cleanup-hidden also removes delete markers, which Object Lock does not
+	// protect, so the retained version may now be current again under the
+	// plain name. Either way exactly one copy must remain, intact.
+	survivors, err := offsiteProbeEntries(ctx, rclone, run, dir)
 	if err != nil {
 		return err
 	}
-	if survivor != version {
-		return errors.New("an object version disappeared after a refused deletion: the bucket does not retain object versions")
+	if len(survivors) != 1 {
+		if len(survivors) == 0 {
+			return errors.New("an object version disappeared after a refused deletion: the bucket does not retain object versions")
+		}
+		return fmt.Errorf("Object Lock proof found %q after one write", survivors)
 	}
 	readback := work + "/readback"
-	if output, err := run(ctx, rclone, "copyto", "--s3-versions", dir+"/"+version, readback); err != nil {
+	if output, err := run(ctx, rclone, "copyto", "--s3-versions", dir+"/"+survivors[0], readback); err != nil {
 		return fmt.Errorf("Object Lock proof could not read the retained version: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	got, err := os.ReadFile(readback)
@@ -95,27 +104,20 @@ func proveOffsiteObjectLockWithRunner(ctx context.Context, target, rclone string
 	return nil
 }
 
-// offsiteProbeVersion returns the single hidden version of the probe object
-// in dir, or "" when there is none.
-func offsiteProbeVersion(ctx context.Context, rclone string, run offsiteProbeRunner, dir string) (string, error) {
+// offsiteProbeEntries lists the probe object in dir with its versions: the
+// current object as "probe" and each hidden version as "probe-v<time>".
+func offsiteProbeEntries(ctx context.Context, rclone string, run offsiteProbeRunner, dir string) ([]string, error) {
 	output, err := run(ctx, rclone, "lsf", "--s3-versions", "--files-only", dir)
 	if err != nil {
-		return "", fmt.Errorf("Object Lock proof could not list object versions: %w: %s", err, strings.TrimSpace(string(output)))
+		return nil, fmt.Errorf("Object Lock proof could not list object versions: %w: %s", err, strings.TrimSpace(string(output)))
 	}
-	var versions []string
+	var entries []string
 	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
-		if line = strings.TrimSpace(line); strings.HasPrefix(line, "probe-v") {
-			versions = append(versions, line)
+		if line = strings.TrimSpace(line); line == "probe" || strings.HasPrefix(line, "probe-v") {
+			entries = append(entries, line)
 		}
 	}
-	switch len(versions) {
-	case 0:
-		return "", nil
-	case 1:
-		return versions[0], nil
-	default:
-		return "", fmt.Errorf("Object Lock proof found %d versions of a probe written once", len(versions))
-	}
+	return entries, nil
 }
 
 var offsiteObjectLockProofs = struct {

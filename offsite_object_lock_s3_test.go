@@ -2,6 +2,7 @@ package stepanel
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -64,7 +65,10 @@ func TestLiveS3LockedUploadPublishesAndRestores(t *testing.T) {
 	}
 	restored, cleanup, err := downloadOffsiteBackupContext(t.Context(), cfg, "account", filepath.Base(backup.Path))
 	if err != nil {
-		t.Fatalf("download from a locked bucket: %v", err)
+		// Rerun one object's download verbosely so the failure is diagnosable.
+		remote := cfg.OffsiteTarget + "/account/" + filepath.Base(backup.Path) + "/manifest.json"
+		verbose, _ := exec.CommandContext(t.Context(), "rclone", "-vv", "copyto", remote, filepath.Join(t.TempDir(), "manifest.json")).CombinedOutput()
+		t.Fatalf("download from a locked bucket: %v\nverbose retry of %s:\n%s", err, remote, verbose)
 	}
 	defer cleanup()
 	if _, err := VerifySiteBackupStrict(restored, ""); err != nil {

@@ -52,9 +52,11 @@ func (b *fakeS3Bucket) run(_ context.Context, _ string, args ...string) ([]byte,
 		return nil, nil
 	case len(args) == 4 && args[0] == "lsf" && args[1] == "--s3-versions":
 		var names []string
-		for name := range b.hidden {
-			if strings.HasPrefix(name, args[3]+"/") {
-				names = append(names, strings.TrimPrefix(name, args[3]+"/"))
+		for _, set := range []map[string][]byte{b.current, b.hidden} {
+			for name := range set {
+				if strings.HasPrefix(name, args[3]+"/") {
+					names = append(names, strings.TrimPrefix(name, args[3]+"/"))
+				}
 			}
 		}
 		return []byte(strings.Join(names, "\n")), nil
@@ -63,6 +65,14 @@ func (b *fakeS3Bucket) run(_ context.Context, _ string, args ...string) ([]byte,
 			return nil, nil
 		}
 		if b.locked {
+			// Delete markers are not protected: removing the marker makes
+			// the retained version current again under its plain name.
+			for name, data := range b.hidden {
+				if strings.HasPrefix(name, args[2]+"/") {
+					delete(b.hidden, name)
+					b.current[strings.TrimSuffix(name, "-v2026-11-25-120000-000")] = data
+				}
+			}
 			return []byte("AccessDenied: object is WORM protected"), errors.New("exit status 1")
 		}
 		for name := range b.hidden {
@@ -73,6 +83,9 @@ func (b *fakeS3Bucket) run(_ context.Context, _ string, args ...string) ([]byte,
 		return nil, nil
 	case len(args) == 4 && args[0] == "copyto" && args[1] == "--s3-versions":
 		data, ok := b.hidden[args[2]]
+		if !ok {
+			data, ok = b.current[args[2]]
+		}
 		if !ok {
 			return nil, errors.New("exit status 3")
 		}
@@ -128,7 +141,7 @@ func TestOffsiteObjectLockProofRefusesAmbiguousVersionListings(t *testing.T) {
 		}
 		return nil, nil
 	}
-	if err := proveOffsiteObjectLockWithRunner(t.Context(), "s3:bucket", "/usr/bin/rclone", run); err == nil || !strings.Contains(err.Error(), "2 versions") {
+	if err := proveOffsiteObjectLockWithRunner(t.Context(), "s3:bucket", "/usr/bin/rclone", run); err == nil || !strings.Contains(err.Error(), "expected one hidden version") {
 		t.Fatalf("expected an ambiguous listing to fail the proof, got %v", err)
 	}
 }
