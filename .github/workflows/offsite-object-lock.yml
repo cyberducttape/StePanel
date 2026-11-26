@@ -65,7 +65,7 @@ jobs:
         run: |
           work=$(mktemp -d)
           archive="versitygw_${VERSITYGW_VERSION}_Linux_x86_64.tar.gz"
-          curl -fsSL -o "$work/$archive" "https://github.com/versity/versitygw/releases/download/${VERSITYGW_VERSION}/${archive}"
+          curl -fsSL --connect-timeout 20 --retry 5 --retry-delay 15 --retry-all-errors -o "$work/$archive" "https://github.com/versity/versitygw/releases/download/${VERSITYGW_VERSION}/${archive}"
           echo "${VERSITYGW_SHA256}  $work/$archive" | sha256sum -c -
           tar -xzf "$work/$archive" -C "$work"
           gw=$(find "$work" -type f -name versitygw | head -1)

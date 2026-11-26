@@ -279,7 +279,7 @@ jobs:
           version=3.5.0
           archive="prometheus-${version}.linux-amd64.tar.gz"
           workdir=$(mktemp -d)
-          curl -fsSL -o "$workdir/$archive" "https://github.com/prometheus/prometheus/releases/download/v${version}/${archive}"
+          curl -fsSL --connect-timeout 20 --retry 5 --retry-delay 15 --retry-all-errors -o "$workdir/$archive" "https://github.com/prometheus/prometheus/releases/download/v${version}/${archive}"
           echo "e811827af26d822afb09a4f28314f61b618b12cff5369835a67f674d8b46f39a  $workdir/$archive" | sha256sum -c -
           tar -xzf "$workdir/$archive" -C "$workdir" "prometheus-${version}.linux-amd64/promtool"
           promtool="$workdir/prometheus-${version}.linux-amd64/promtool"
