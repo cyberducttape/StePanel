@@ -32,6 +32,9 @@ type SiteAccessStore struct {
 	mu     sync.RWMutex
 	path   string
 	values map[string]SiteAccess
+	// rows, when bound (bindSiteAccess), makes the site access tables the
+	// store's persistence.
+	rows *keyedRowState[SiteAccess]
 }
 
 func OpenSiteAccessStore(path string) (*SiteAccessStore, error) {
@@ -61,6 +64,9 @@ func OpenSiteAccessStore(path string) (*SiteAccessStore, error) {
 	return s, nil
 }
 func (s *SiteAccessStore) persistLocked() error {
+	if s.rows.bound() {
+		return siteAccessRows.persist(s.rows, s.values)
+	}
 	data, err := json.MarshalIndent(s.values, "", "  ")
 	if err != nil {
 		return err

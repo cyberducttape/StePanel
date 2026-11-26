@@ -71,11 +71,6 @@ func resourceProfileArgs(r resourceProfileRow) []any {
 	return []any{r.Account, r.CPUPercent, r.CPUWeight, r.MemoryHighMB, r.MemoryMB, r.IOWeight, r.TasksMax, r.PHPWorkers, r.DiskMB, r.Inodes, r.FilesystemQuotaState, r.AppliedAt, r.State}
 }
 
-type persistedResourceProfile struct {
-	row      resourceProfileRow
-	revision int64
-}
-
 // migrateResourceProfilesBlob moves the "resources" state blob, if any, into
 // resource_profiles and deletes it. Recovering a completed upgrade restores
 // the pre-migration database snapshot, so the blob is not kept in step.
@@ -112,155 +107,53 @@ func migrateResourceProfilesBlob(tx *sql.Tx) error {
 	return err
 }
 
-// bindResourceProfiles makes db the store's persistence: it loads the table,
-// or, when the table is empty, records the profiles already in memory (from
-// a legacy pre-database JSON file).
+var resourceProfileRows = keyedRowTable[ResourceProfile]{
+	name:  "resource profiles",
+	equal: func(a, b ResourceProfile) bool { return resourceProfileToRow(a) == resourceProfileToRow(b) },
+	load:  loadResourceProfiles,
+	insert: func(ctx context.Context, tx *sql.Tx, site string, p ResourceProfile) (bool, error) {
+		return oneRowAffected(tx.ExecContext(ctx, `INSERT INTO resource_profiles (site, `+resourceProfileColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(site) DO NOTHING`, append([]any{site}, resourceProfileArgs(resourceProfileToRow(p))...)...))
+	},
+	update: func(ctx context.Context, tx *sql.Tx, site string, p ResourceProfile, revision int64) (bool, error) {
+		return oneRowAffected(tx.ExecContext(ctx, `UPDATE resource_profiles SET account = ?, cpu_percent = ?, cpu_weight = ?, memory_high_mb = ?, memory_mb = ?, io_weight = ?, tasks_max = ?, php_workers = ?, disk_mb = ?, inodes = ?, filesystem_quota_state = ?, applied_at = ?, state = ?, revision = revision + 1 WHERE site = ? AND revision = ?`, append(resourceProfileArgs(resourceProfileToRow(p)), site, revision)...))
+	},
+	remove: func(ctx context.Context, tx *sql.Tx, site string, revision int64) (bool, error) {
+		return oneRowAffected(tx.ExecContext(ctx, `DELETE FROM resource_profiles WHERE site = ? AND revision = ?`, site, revision))
+	},
+}
+
+// bindResourceProfiles makes the resource_profiles table the store's
+// persistence (keyedRowTable.bind).
 func bindResourceProfiles(s *ResourceStore, db *sql.DB) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.db = db
-	s.persisted = map[string]persistedResourceProfile{}
-	loaded, persisted, err := loadResourceProfiles(db)
-	if err != nil {
-		return err
+	if s.rows == nil {
+		s.rows = &keyedRowState[ResourceProfile]{}
 	}
-	if len(loaded) == 0 && len(s.values) > 0 {
-		return s.persistTableLocked()
-	}
-	replaceResourceProfiles(s.values, loaded)
-	s.persisted = persisted
-	return nil
+	return resourceProfileRows.bind(s.rows, db, s.values)
 }
 
-func loadResourceProfiles(db *sql.DB) (map[string]ResourceProfile, map[string]persistedResourceProfile, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), controlPlaneStateReadTimeout)
-	defer cancel()
+func loadResourceProfiles(ctx context.Context, db *sql.DB) (map[string]ResourceProfile, map[string]int64, error) {
 	rows, err := db.QueryContext(ctx, `SELECT site, revision, `+resourceProfileColumns+` FROM resource_profiles`)
 	if err != nil {
-		return nil, nil, fmt.Errorf("load resource profiles: %w", classifyControlPlaneStorageError(err))
+		return nil, nil, err
 	}
 	defer rows.Close()
 	values := map[string]ResourceProfile{}
-	persisted := map[string]persistedResourceProfile{}
+	revisions := map[string]int64{}
 	for rows.Next() {
 		var site string
 		var revision int64
 		var r resourceProfileRow
 		if err := rows.Scan(&site, &revision, &r.Account, &r.CPUPercent, &r.CPUWeight, &r.MemoryHighMB, &r.MemoryMB, &r.IOWeight, &r.TasksMax, &r.PHPWorkers, &r.DiskMB, &r.Inodes, &r.FilesystemQuotaState, &r.AppliedAt, &r.State); err != nil {
-			return nil, nil, fmt.Errorf("read resource profile: %w", err)
+			return nil, nil, err
 		}
 		profile, err := resourceProfileFromRow(site, r)
 		if err != nil {
 			return nil, nil, err
 		}
 		values[site] = profile
-		persisted[site] = persistedResourceProfile{row: r, revision: revision}
+		revisions[site] = revision
 	}
-	if err := rows.Err(); err != nil {
-		return nil, nil, fmt.Errorf("load resource profiles: %w", classifyControlPlaneStorageError(err))
-	}
-	return values, persisted, nil
-}
-
-// replaceResourceProfiles replaces dst's contents in place, so callers that
-// hold the store's map see the reloaded profiles.
-func replaceResourceProfiles(dst, src map[string]ResourceProfile) {
-	for site := range dst {
-		delete(dst, site)
-	}
-	for site, profile := range src {
-		dst[site] = profile
-	}
-}
-
-// persistTableLocked writes the rows that differ from what this process last
-// persisted in one transaction. Caller holds s.mu.
-func (s *ResourceStore) persistTableLocked() error {
-	type change struct {
-		site     string
-		row      resourceProfileRow
-		existed  bool
-		remove   bool
-		revision int64
-	}
-	var changes []change
-	for site, profile := range s.values {
-		row := resourceProfileToRow(profile)
-		previous, existed := s.persisted[site]
-		if existed && previous.row == row {
-			continue
-		}
-		changes = append(changes, change{site: site, row: row, existed: existed, revision: previous.revision})
-	}
-	for site, previous := range s.persisted {
-		if _, ok := s.values[site]; !ok {
-			changes = append(changes, change{site: site, remove: true, revision: previous.revision})
-		}
-	}
-	if len(changes) == 0 {
-		return nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), controlPlaneStateWriteTimeout)
-	defer cancel()
-	storageFailure := func(err error) error {
-		err = classifyControlPlaneStorageError(err)
-		recordControlPlaneStorageResult(err)
-		return fmt.Errorf("persist resource profiles: %w", err)
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return storageFailure(err)
-	}
-	defer tx.Rollback() //nolint:errcheck // best-effort: a no-op after Commit
-	conflict := ""
-	for _, c := range changes {
-		var result sql.Result
-		switch {
-		case c.remove:
-			result, err = tx.ExecContext(ctx, `DELETE FROM resource_profiles WHERE site = ? AND revision = ?`, c.site, c.revision)
-		case c.existed:
-			result, err = tx.ExecContext(ctx, `UPDATE resource_profiles SET account = ?, cpu_percent = ?, cpu_weight = ?, memory_high_mb = ?, memory_mb = ?, io_weight = ?, tasks_max = ?, php_workers = ?, disk_mb = ?, inodes = ?, filesystem_quota_state = ?, applied_at = ?, state = ?, revision = revision + 1 WHERE site = ? AND revision = ?`, append(resourceProfileArgs(c.row), c.site, c.revision)...)
-		default:
-			result, err = tx.ExecContext(ctx, `INSERT INTO resource_profiles (site, `+resourceProfileColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(site) DO NOTHING`, append([]any{c.site}, resourceProfileArgs(c.row)...)...)
-		}
-		if err != nil {
-			return storageFailure(err)
-		}
-		affected, err := result.RowsAffected()
-		if err != nil {
-			return storageFailure(err)
-		}
-		if affected != 1 {
-			conflict = c.site
-			break
-		}
-	}
-	if conflict != "" {
-		if err := tx.Rollback(); err != nil {
-			return storageFailure(err)
-		}
-		loaded, persisted, err := loadResourceProfiles(s.db)
-		if err != nil {
-			recordControlPlaneStorageResult(err)
-			return fmt.Errorf("reload resource profiles after a conflict on %s: %w", conflict, err)
-		}
-		replaceResourceProfiles(s.values, loaded)
-		s.persisted = persisted
-		return fmt.Errorf("%w: resource profile %s was changed by another process", errControlPlaneStateRefreshed, conflict)
-	}
-	if err := tx.Commit(); err != nil {
-		return storageFailure(err)
-	}
-	recordControlPlaneStorageResult(nil)
-	for _, c := range changes {
-		switch {
-		case c.remove:
-			delete(s.persisted, c.site)
-		case c.existed:
-			s.persisted[c.site] = persistedResourceProfile{row: c.row, revision: c.revision + 1}
-		default:
-			s.persisted[c.site] = persistedResourceProfile{row: c.row, revision: 1}
-		}
-	}
-	return nil
+	return values, revisions, rows.Err()
 }

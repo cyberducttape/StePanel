@@ -673,6 +673,9 @@ CREATE INDEX IF NOT EXISTS jobs_state_started_idx ON jobs(state, started_at, id)
 	// Resource profiles move from the whole-object "resources" state blob
 	// to one row per site (resource_profiles_table.go).
 	migration.NewMigration(33, "store resource profiles relationally", migrateResourceProfilesBlob),
+	// Site SFTP/shell access and SSH keys move from the "site-access" state
+	// blob to site_access and site_access_keys (site_access_table.go).
+	migration.NewMigration(34, "store site access relationally", migrateSiteAccessBlob),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {

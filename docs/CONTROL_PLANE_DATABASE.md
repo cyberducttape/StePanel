@@ -70,4 +70,8 @@ changes transaction behavior and is unsafe without the steps below.
    per site with a revision. `ResourceStore` keeps its map and lock, and a
    write sends only the rows that changed, each guarded by its revision, so
    writes to different sites no longer conflict; a write over a row another
-   process changed reloads the table and is retried by the caller.
+   process changed reloads the table and is retried by the caller. **Site
+   access is done** (migration 34, `site_access_table.go`): `site_access`
+   rows with their SSH keys in `site_access_keys`. Both use the shared
+   `keyedRowTable` (`keyed_rows.go`), which the remaining map-shaped stores
+   can adopt the same way.

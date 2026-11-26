@@ -2,7 +2,6 @@ package stepanel
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -81,11 +80,9 @@ type ResourceStore struct {
 	mu     sync.RWMutex
 	path   string
 	values map[string]ResourceProfile
-	// db, when bound (bindResourceProfiles), is the store's persistence:
-	// the resource_profiles table, with persisted holding the row and
-	// revision this process last wrote or read for each site.
-	db        *sql.DB
-	persisted map[string]persistedResourceProfile
+	// rows, when bound (bindResourceProfiles), makes the resource_profiles
+	// table the store's persistence.
+	rows *keyedRowState[ResourceProfile]
 }
 
 func resourceProfileForPlan(account, site string, plan HostingPlan) ResourceProfile {
@@ -447,8 +444,8 @@ func OpenResourceStore(path string) (*ResourceStore, error) {
 	return s, nil
 }
 func (s *ResourceStore) persistLocked() error {
-	if s.db != nil {
-		return s.persistTableLocked()
+	if s.rows.bound() {
+		return resourceProfileRows.persist(s.rows, s.values)
 	}
 	d, e := json.MarshalIndent(s.values, "", "  ")
 	if e != nil {

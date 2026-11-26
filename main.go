@@ -655,7 +655,9 @@ func Main() {
 		auditKeyRotation(cfg, "environment", resealed)
 	}
 	bindState(redisAllocations, "redis", &redisAllocations.values, redisAllocations.persistLocked)
-	bindState(access, "site-access", &access.values, access.persistLocked)
+	if err := bindSiteAccess(access, controlPlaneDB); err != nil {
+		log.Fatalf("load site access: %v", err)
+	}
 	bindState(workers, "workers", &workers.values, workers.persistLocked)
 	bindState(composer, "composer", &composer.latest, func() error {
 		data, err := json.Marshal(composer.latest)
