@@ -1686,6 +1686,10 @@ if (( health_ready != 1 )); then
   curl --silent --show-error --max-time 2 http://127.0.0.1:8090/readyz >&2 || true
   echo >&2
   systemctl show stepanel.service -p MainPID -p NoNewPrivileges -p RestrictSUIDSGID -p ProtectSystem -p ProtectHome -p PrivateTmp -p PrivateDevices -p RestrictNamespaces -p ReadWritePaths 2>/dev/null || true
+  # The panel's own last words name the cause (a refused database path, a
+  # failed migration, invalid configuration); show them before rolling back.
+  echo 'Last panel and worker log lines:' >&2
+  journalctl -u stepanel.service -u stepanel-worker.service --since "-10 min" --no-pager -o short-iso 2>/dev/null | grep -v ' systemd\[1\]: ' | tail -40 >&2 || true
   false
 fi
 # Persist the optional work list before the core commit. If the process or host
