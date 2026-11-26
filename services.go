@@ -35,21 +35,57 @@ var serviceStatusCache struct {
 func cachedServiceStatus() (map[string]string, bool) {
 	serviceStatusCache.RLock()
 	defer serviceStatusCache.RUnlock()
-	if serviceStatusCache.items != nil && time.Since(serviceStatusCache.at) < 5*time.Second {
+	if serviceStatusCache.items != nil && time.Since(serviceStatusCache.at) < serviceStatusFresh {
 		return cloneServiceStatus(serviceStatusCache.items), true
 	}
 	return nil, false
 }
 
+// serviceStatusFresh is how long a service status snapshot is served without
+// refreshing; serviceStatusStaleLimit is how long an older snapshot is still
+// served immediately while one background refresh replaces it. Only a cold
+// cache, or one older than the stale limit, makes a caller (the dashboard
+// render) wait for the systemctl and apachectl probes.
+const (
+	serviceStatusFresh      = 5 * time.Second
+	serviceStatusStaleLimit = 2 * time.Minute
+)
+
 func ServiceStatus() map[string]string {
 	if result, ok := cachedServiceStatus(); ok {
 		return result
+	}
+	if stale, ok := staleServiceStatus(); ok {
+		if serviceStatusCache.refresh.TryLock() {
+			go func() {
+				defer serviceStatusCache.refresh.Unlock()
+				buildServiceStatus()
+			}()
+		}
+		return stale
 	}
 	serviceStatusCache.refresh.Lock()
 	defer serviceStatusCache.refresh.Unlock()
 	if result, ok := cachedServiceStatus(); ok {
 		return result
 	}
+	return buildServiceStatus()
+}
+
+// staleServiceStatus returns a snapshot past its freshness but within the
+// stale limit.
+func staleServiceStatus() (map[string]string, bool) {
+	serviceStatusCache.RLock()
+	defer serviceStatusCache.RUnlock()
+	if serviceStatusCache.items != nil && time.Since(serviceStatusCache.at) < serviceStatusStaleLimit {
+		return cloneServiceStatus(serviceStatusCache.items), true
+	}
+	return nil, false
+}
+
+// buildServiceStatus probes every service and stores the snapshot. Callers
+// hold serviceStatusCache.refresh.
+func buildServiceStatus() map[string]string {
 	result := map[string]string{}
 	for _, service := range []string{"apache2", "httpd", "lsws", "caddy", "mysql", "mariadb", "redis-server", "valkey-server", "fail2ban", "fail2ban-server", "fpm-lens", "exim4", "exim", "dovecot", "spamassassin", "spamd", "vsftpd"} {
 		if _, err := exec.LookPath(service); err == nil {
