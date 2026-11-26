@@ -44,6 +44,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- **Offsite restores failed with real rclone.** Every offsite download used
+  `rclone copyto` with `--max-size`, which rclone refuses for a single file,
+  so restoring from offsite storage failed and signed backups lost their
+  signature. Downloads now check each object with `rclone lsjson --stat`
+  (existence and size) and stream it with `rclone cat --count`. A workflow
+  now runs uploads and restores with the real rclone against a live S3
+  server.
+
 - Kernel-enabled quotas (the ext4 `quota` feature, XFS) no longer leave the
   distribution `quotaon.service` failed at boot; the installer adds a
   drop-in that still fails when a requested quota is not on.

@@ -123,10 +123,12 @@ check fails.
 
 ## Verification status
 
-Fake-runner tests cover the proof's handling of locked, versioned-but-unlocked
-and unversioned buckets (`offsite_object_lock_test.go`). The proof depends on
-how rclone behaves against a real Object Lock bucket (version listing with
-`--s3-versions`, `cleanup-hidden` failing on retained versions), which has
-not yet been checked against a live S3 or MinIO bucket. Until it has, a host
-whose bucket is correctly locked could still fail this readiness check. It
-can never pass one whose bucket is not locked.
+The `Offsite Object Lock` workflow (`.github/workflows/offsite-object-lock.yml`)
+runs the real rclone (the Ubuntu 24.04 package, v1.60) against versitygw, an
+S3 server that enforces Object Lock, on every change to the offsite code and
+weekly. The proof must pass for a compliance-locked bucket and fail for a
+versioned bucket without lock and for an unversioned bucket. A locked upload
+and an ordinary staged upload must both publish, accept a retry, and restore
+a signed backup that passes strict verification. It has not been run against
+AWS S3 itself; providers differ in details, and the readiness proof is the
+check that matters on a real host.
