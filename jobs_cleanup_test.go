@@ -415,3 +415,44 @@ func TestDeadLetterBacklogIsBoundedAtStartup(t *testing.T) {
 		t.Fatalf("queue stats = %d dead-letter, oldest %v; want %d, %v", stats.DeadLetter, stats.OldestDeadLetterAt, total, base)
 	}
 }
+
+// Job listings and the submission idempotency lookup serve requests. Queued
+// behind a long transaction on the single control-plane connection, they
+// must fail at durableJobReadTimeout instead of hanging the request.
+func TestJobRequestReadsFailFastWhenTheConnectionIsHeld(t *testing.T) {
+	db := openTestControlPlane(t)
+	jobs, err := openDurableJobsDBWithKey(db, "", "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := jobs.Enqueue("site.backup", "site-a", "", nil, 1); err != nil {
+		t.Fatal(err)
+	}
+	previous := durableJobReadTimeout
+	durableJobReadTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { durableJobReadTimeout = previous })
+	held, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Rollback()
+	for name, read := range map[string]func() error{
+		"listDurable":       func() error { _, err := jobs.listDurable(10, false); return err },
+		"ListActiveForSite": func() error { _, err := jobs.ListActiveForSite("site-a"); return err },
+		"IdempotentJob":     func() error { _, _, err := jobs.IdempotentJob("site.backup", "site-a", "key"); return err },
+	} {
+		start := time.Now()
+		if err := read(); err == nil {
+			t.Errorf("%s succeeded while the only connection was held", name)
+		}
+		if elapsed := time.Since(start); elapsed > 2*time.Second {
+			t.Errorf("%s waited %s instead of failing at its deadline", name, elapsed)
+		}
+	}
+	if err := held.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if active, err := jobs.ListActiveForSite("site-a"); err != nil || len(active) != 1 {
+		t.Fatalf("ListActiveForSite after release = %d jobs, %v", len(active), err)
+	}
+}

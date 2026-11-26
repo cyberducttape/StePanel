@@ -813,11 +813,13 @@ func (j *Jobs) releaseExpiredIdempotencyKey(kind, owner, operationKey string, no
 // from state that changes once the job succeeds use it to replay the
 // original response, comparing their own request digest.
 func (j *Jobs) IdempotentJob(kind, owner, operationKey string) (Job, bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), durableJobReadTimeout)
+	defer cancel()
 	if j.db == nil || strings.TrimSpace(operationKey) == "" {
 		return Job{}, false, nil
 	}
 	var existingID string
-	err := j.db.QueryRow(`SELECT id FROM jobs WHERE kind = ? AND owner = ? AND operation_key = ? LIMIT 1`, kind, owner, operationKey).Scan(&existingID)
+	err := j.db.QueryRowContext(ctx, `SELECT id FROM jobs WHERE kind = ? AND owner = ? AND operation_key = ? LIMIT 1`, kind, owner, operationKey).Scan(&existingID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Job{}, false, nil
 	}
@@ -828,8 +830,10 @@ func (j *Jobs) IdempotentJob(kind, owner, operationKey string) (Job, bool, error
 }
 
 func (j *Jobs) lookupIdempotentJob(kind, owner, operationKey string, payload []byte) (Job, bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), durableJobReadTimeout)
+	defer cancel()
 	var existingID string
-	err := j.db.QueryRow(`SELECT id FROM jobs WHERE kind = ? AND owner = ? AND operation_key = ? LIMIT 1`, kind, owner, operationKey).Scan(&existingID)
+	err := j.db.QueryRowContext(ctx, `SELECT id FROM jobs WHERE kind = ? AND owner = ? AND operation_key = ? LIMIT 1`, kind, owner, operationKey).Scan(&existingID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Job{}, false, nil
 	}
@@ -2154,6 +2158,12 @@ func openDurableJobsDBWithKeys(db *sql.DB, legacyPath, payloadKey string, previo
 	return j, nil
 }
 
+// durableJobReadTimeout bounds job listings and the idempotency lookup at
+// submission, which serve requests. A request queued behind a slow
+// maintenance transaction on the single control-plane connection fails as
+// unavailable instead of hanging.
+var durableJobReadTimeout = 5 * time.Second
+
 // jobPayloadResealBatch bounds the rows read and rewritten per transaction
 // when re-sealing job payloads, so a large job history never becomes one long
 // scan or transaction.
@@ -3152,7 +3162,9 @@ func stripJobOutput(item *Job) {
 // listDurable returns independently bounded recent and active windows in a
 // single query; it replaces an ID query followed by one lookup per job.
 func (j *Jobs) listDurable(limit int, includeOutput bool) ([]Job, error) {
-	rows, err := j.db.Query(`SELECT id, `+durableJobColumns+` FROM jobs WHERE id IN (
+	ctx, cancel := context.WithTimeout(context.Background(), durableJobReadTimeout)
+	defer cancel()
+	rows, err := j.db.QueryContext(ctx, `SELECT id, `+durableJobColumns+` FROM jobs WHERE id IN (
 			SELECT id FROM (SELECT id FROM jobs ORDER BY started_at DESC, id DESC LIMIT ?)
 			UNION
 			SELECT id FROM (SELECT id FROM jobs WHERE state IN ('queued', 'running') ORDER BY started_at ASC, id ASC LIMIT ?)
@@ -3279,6 +3291,8 @@ func (j *Jobs) ListForOwnersSummaries(limit int, owners []string) ([]Job, error)
 // owner, filtered by kind in SQLite. Unlike a globally limited owner listing,
 // busy owners cannot crowd out evidence for quieter owners.
 func (j *Jobs) LatestForOwnersSummaries(kind string, owners []string) ([]Job, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), durableJobReadTimeout)
+	defer cancel()
 	if j == nil || j.db == nil {
 		return nil, errors.New("durable job store is unavailable")
 	}
@@ -3313,7 +3327,7 @@ func (j *Jobs) LatestForOwnersSummaries(kind string, owners []string) ([]Job, er
 	for _, owner := range clean {
 		args = append(args, owner)
 	}
-	rows, err := j.db.Query(query, args...)
+	rows, err := j.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list latest jobs for owners: %w", err)
 	}
@@ -3344,6 +3358,8 @@ func (j *Jobs) LatestForOwnersSummaries(kind string, owners []string) ([]Job, er
 }
 
 func (j *Jobs) listForOwners(limit int, owners []string, includeOutput bool) ([]Job, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), durableJobReadTimeout)
+	defer cancel()
 	if j == nil || j.db == nil {
 		return nil, errors.New("durable job store is unavailable")
 	}
@@ -3383,7 +3399,7 @@ func (j *Jobs) listForOwners(limit int, owners []string, includeOutput bool) ([]
 		args = append(args, owner)
 	}
 	args = append(args, maxListedActiveJobs)
-	rows, err := j.db.Query(query, args...)
+	rows, err := j.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list jobs for owners: %w", err)
 	}
@@ -3422,6 +3438,8 @@ func (j *Jobs) listForOwners(limit int, owners []string, includeOutput bool) ([]
 // method make destructive readiness decisions and must not rely on stale state
 // when SQLite is unavailable.
 func (j *Jobs) ListActiveForSite(site string) ([]Job, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), durableJobReadTimeout)
+	defer cancel()
 	if j == nil || j.db == nil {
 		return nil, errors.New("durable job store is unavailable")
 	}
@@ -3429,7 +3447,7 @@ func (j *Jobs) ListActiveForSite(site string) ([]Job, error) {
 	if site == "" {
 		return nil, errors.New("site is required")
 	}
-	rows, err := j.db.Query(`SELECT id, `+durableJobColumns+` FROM jobs WHERE (owner = ? OR operation_key = ?) AND state IN ('queued', 'running') ORDER BY started_at ASC, id ASC`, site, site)
+	rows, err := j.db.QueryContext(ctx, `SELECT id, `+durableJobColumns+` FROM jobs WHERE (owner = ? OR operation_key = ?) AND state IN ('queued', 'running') ORDER BY started_at ASC, id ASC`, site, site)
 	if err != nil {
 		return nil, fmt.Errorf("list active jobs for site %s: %w", site, err)
 	}

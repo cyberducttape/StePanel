@@ -502,3 +502,47 @@ func TestDBPersistDeleteManyUsesOneTransaction(t *testing.T) {
 		t.Fatalf("persistDeleteMany left %d session rows", remaining)
 	}
 }
+
+// With one control-plane connection per process, a session check queued
+// behind a long transaction must fail within ReadTimeout (reported to the
+// client as unavailable) instead of hanging the request.
+func TestSessionChecksFailFastWhenTheConnectionIsHeld(t *testing.T) {
+	db := openTestSessionDB(t)
+	db.SetMaxOpenConns(1)
+	registry, err := OpenDB(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousRead, previousWrite := ReadTimeout, WriteTimeout
+	ReadTimeout, WriteTimeout = 100*time.Millisecond, 100*time.Millisecond
+	t.Cleanup(func() { ReadTimeout, WriteTimeout = previousRead, previousWrite })
+
+	held, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Rollback()
+	for name, check := range map[string]func() error{
+		"CheckValid": func() error {
+			_, err := registry.CheckValid("id", "alice", time.Now().Add(time.Hour).Unix())
+			return err
+		},
+		"Generation": func() error { _, err := registry.Generation("alice"); return err },
+		"Revoke":     func() error { return registry.RevokeUser("alice") },
+	} {
+		start := time.Now()
+		err := check()
+		if err == nil {
+			t.Errorf("%s succeeded while the only connection was held", name)
+		}
+		if elapsed := time.Since(start); elapsed > 2*time.Second {
+			t.Errorf("%s waited %s for the held connection instead of failing at its deadline", name, elapsed)
+		}
+	}
+	if err := held.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.CheckValid("id", "alice", time.Now().Add(time.Hour).Unix()); err != nil {
+		t.Fatalf("CheckValid after the connection was released: %v", err)
+	}
+}

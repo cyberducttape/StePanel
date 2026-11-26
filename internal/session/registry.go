@@ -2,6 +2,7 @@
 package session
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -13,6 +14,24 @@ import (
 
 	statefile "github.com/cyberducttape/StePanel/internal/state"
 )
+
+// ReadTimeout bounds a registry read on a request path (session validation,
+// revocation generation). With one control-plane connection per process, a
+// request queued behind a slow maintenance transaction fails as unavailable
+// instead of hanging.
+var ReadTimeout = 2 * time.Second
+
+// WriteTimeout bounds a registry write (login, logout, revocation). It is
+// longer than SQLite's 5-second busy timeout so lock waits are not cut short.
+var WriteTimeout = 10 * time.Second
+
+func readContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), ReadTimeout)
+}
+
+func writeContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), WriteTimeout)
+}
 
 type Entry struct {
 	Username string `json:"username"`
@@ -37,8 +56,10 @@ type Registry struct {
 // sees revocations made by the panel.
 func (r *Registry) Generation(username string) (int64, error) {
 	if r.db != nil {
+		ctx, cancel := readContext()
+		defer cancel()
 		var generation int64
-		err := r.db.QueryRow(`SELECT generation FROM session_revocations WHERE username = ?`, username).Scan(&generation)
+		err := r.db.QueryRowContext(ctx, `SELECT generation FROM session_revocations WHERE username = ?`, username).Scan(&generation)
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, nil
 		}
@@ -57,7 +78,9 @@ func (r *Registry) ActiveSessionHash(username, hash string) (bool, error) {
 	}
 	now := time.Now().Unix()
 	if r.db != nil {
-		rows, err := r.db.Query(`SELECT id FROM sessions WHERE username = ? AND expiry > ?`, username, now)
+		ctx, cancel := readContext()
+		defer cancel()
+		rows, err := r.db.QueryContext(ctx, `SELECT id FROM sessions WHERE username = ? AND expiry > ?`, username, now)
 		if err != nil {
 			return false, err
 		}
@@ -96,7 +119,9 @@ func HashSessionID(id string) string {
 // advanceGenerationLocked records an account-wide revocation.
 func (r *Registry) advanceGenerationLocked(username string) error {
 	if r.db != nil {
-		_, err := r.db.Exec(`INSERT INTO session_revocations (username, generation) VALUES (?, 1)
+		ctx, cancel := writeContext()
+		defer cancel()
+		_, err := r.db.ExecContext(ctx, `INSERT INTO session_revocations (username, generation) VALUES (?, 1)
 			ON CONFLICT(username) DO UPDATE SET generation = generation + 1`, username)
 		return err
 	}
@@ -247,9 +272,11 @@ func (r *Registry) CheckValid(id, username string, expiry int64) (bool, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if r.db != nil {
+		ctx, cancel := readContext()
+		defer cancel()
 		var storedUsername string
 		var storedExpiry int64
-		if err := r.db.QueryRow(`SELECT username, expiry FROM sessions WHERE id = ?`, id).Scan(&storedUsername, &storedExpiry); err != nil {
+		if err := r.db.QueryRowContext(ctx, `SELECT username, expiry FROM sessions WHERE id = ?`, id).Scan(&storedUsername, &storedExpiry); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return false, nil
 			}
@@ -316,7 +343,9 @@ func (r *Registry) RevokeUserExcept(username, keepID string) error {
 	}
 	var err error
 	if r.db != nil {
-		_, err = r.db.Exec(`DELETE FROM sessions WHERE username = ? AND id <> ?`, username, keepID)
+		ctx, cancel := writeContext()
+		defer cancel()
+		_, err = r.db.ExecContext(ctx, `DELETE FROM sessions WHERE username = ? AND id <> ?`, username, keepID)
 	} else {
 		err = r.persistDeleteManyLocked(revoked)
 	}
@@ -360,16 +389,18 @@ func (r *Registry) PersistenceError() error {
 // session's row.
 func (r *Registry) persistFullSyncLocked() error {
 	if r.db != nil {
-		tx, err := r.db.Begin()
+		ctx, cancel := writeContext()
+		defer cancel()
+		tx, err := r.db.BeginTx(ctx, nil)
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`DELETE FROM sessions`); err != nil {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM sessions`); err != nil {
 			_ = tx.Rollback()
 			return err
 		}
 		for id, entry := range r.Entries {
-			if _, err := tx.Exec(`INSERT INTO sessions (id, username, expiry, updated_at) VALUES (?, ?, ?, unixepoch())`, id, entry.Username, entry.Expiry); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO sessions (id, username, expiry, updated_at) VALUES (?, ?, ?, unixepoch())`, id, entry.Username, entry.Expiry); err != nil {
 				_ = tx.Rollback()
 				return err
 			}
@@ -384,21 +415,23 @@ func (r *Registry) persistFullSyncLocked() error {
 // (when the registry was at capacity), and the new/updated entry itself.
 func (r *Registry) persistAddLocked(id string, entry Entry, expiredCutoff int64, evictedID string) error {
 	if r.db != nil {
-		tx, err := r.db.Begin()
+		ctx, cancel := writeContext()
+		defer cancel()
+		tx, err := r.db.BeginTx(ctx, nil)
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`DELETE FROM sessions WHERE expiry <= ?`, expiredCutoff); err != nil {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE expiry <= ?`, expiredCutoff); err != nil {
 			_ = tx.Rollback()
 			return err
 		}
 		if evictedID != "" {
-			if _, err := tx.Exec(`DELETE FROM sessions WHERE id = ?`, evictedID); err != nil {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE id = ?`, evictedID); err != nil {
 				_ = tx.Rollback()
 				return err
 			}
 		}
-		if _, err := tx.Exec(`INSERT INTO sessions (id, username, expiry, updated_at) VALUES (?, ?, ?, unixepoch())
+		if _, err := tx.ExecContext(ctx, `INSERT INTO sessions (id, username, expiry, updated_at) VALUES (?, ?, ?, unixepoch())
 			ON CONFLICT(id) DO UPDATE SET username = excluded.username, expiry = excluded.expiry, updated_at = excluded.updated_at`,
 			id, entry.Username, entry.Expiry); err != nil {
 			_ = tx.Rollback()
@@ -411,7 +444,9 @@ func (r *Registry) persistAddLocked(id string, entry Entry, expiredCutoff int64,
 
 func (r *Registry) persistDeleteLocked(id string) error {
 	if r.db != nil {
-		_, err := r.db.Exec(`DELETE FROM sessions WHERE id = ?`, id)
+		ctx, cancel := writeContext()
+		defer cancel()
+		_, err := r.db.ExecContext(ctx, `DELETE FROM sessions WHERE id = ?`, id)
 		return err
 	}
 	return r.persistFileLocked()
@@ -419,12 +454,14 @@ func (r *Registry) persistDeleteLocked(id string) error {
 
 func (r *Registry) persistDeleteManyLocked(ids []string) error {
 	if r.db != nil {
-		tx, err := r.db.Begin()
+		ctx, cancel := writeContext()
+		defer cancel()
+		tx, err := r.db.BeginTx(ctx, nil)
 		if err != nil {
 			return err
 		}
 		for _, id := range ids {
-			if _, err := tx.Exec(`DELETE FROM sessions WHERE id = ?`, id); err != nil {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE id = ?`, id); err != nil {
 				_ = tx.Rollback()
 				return err
 			}
@@ -436,7 +473,9 @@ func (r *Registry) persistDeleteManyLocked(ids []string) error {
 
 func (r *Registry) persistDeleteByUsernameLocked(username string) error {
 	if r.db != nil {
-		_, err := r.db.Exec(`DELETE FROM sessions WHERE username = ?`, username)
+		ctx, cancel := writeContext()
+		defer cancel()
+		_, err := r.db.ExecContext(ctx, `DELETE FROM sessions WHERE username = ?`, username)
 		return err
 	}
 	return r.persistFileLocked()
