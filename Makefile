@@ -77,6 +77,7 @@ shell-contract-check:
 	bash scripts/test-install-doctor.sh
 	bash scripts/test-install-offsite-preflight.sh
 	bash scripts/test-install-host-inventory.sh
+	bash scripts/test-install-tenant-egress.sh
 	bash scripts/test-install-change-plan.sh
 	bash scripts/test-install-systemd-preflight.sh
 	bash scripts/test-install-quota-preflight.sh

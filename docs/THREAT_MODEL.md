@@ -119,6 +119,7 @@ A local kernel privilege escalation from site code breaks every boundary.
 | `.htaccess` | Web-server configuration injection | Translated into a narrow directive set; the privileged helper revalidates each line |
 | Migration sources | Hostile remote hosts | SSH with `BatchMode=yes` and `StrictHostKeyChecking=yes`; inspected data treated as untrusted |
 | Outbound URLs | Server-side request forgery | `internal/safehttp` resolves names and refuses private, loopback and link-local destinations at connect time |
+| Tenant outbound connections | A compromised site or SSRF bug reaching cloud metadata, other hosts on the LAN or VPC, or internal services | Units that run tenant code (PHP-FPM pools, Node and Python apps, scheduled tasks) carry `IPAddressDeny` for private, shared and link-local ranges, with `IPAddressAllow` only for loopback, the host's nameservers and the operator's `STEPANEL_TENANT_EGRESS_ALLOW` (`deploy/lib/install-tenant-egress.sh`); the public internet stays reachable |
 
 Residual: a compromised allowlisted Git host or repository can publish
 malicious application code. The deployment path keeps that code out of the

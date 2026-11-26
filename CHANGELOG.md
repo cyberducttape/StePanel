@@ -18,6 +18,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   re-signing history: the chain verifies across the rotation, may only move
   to newer keys, and records `security.audit_key.rotated`.
 
+### Changed
+
+- **Tenant code can no longer reach private networks.** Site PHP-FPM pools,
+  Node and Python apps, and scheduled tasks are denied private, shared and
+  link-local addresses (10/8, 172.16/12, 192.168/16, 100.64/10,
+  169.254/16 including cloud metadata, fc00::/7, fe80::/10). Loopback, the
+  host's nameservers and the public internet stay reachable. **Before
+  upgrading**, list any private services sites rely on, such as a remote
+  database or SMTP relay, in `STEPANEL_TENANT_EGRESS_ALLOW`; PHP-FPM gets the
+  policy when the installer restarts it, and each app or task at its next
+  start.
+
 ### Fixed
 
 - Kernel-enabled quotas (the ext4 `quota` feature, XFS) no longer leave the

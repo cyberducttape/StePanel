@@ -61,6 +61,8 @@ done
 . "$ROOT_DIR/deploy/lib/install-systemd-preflight.sh"
 . "$ROOT_DIR/deploy/integrations/stepanel-quota-state.sh"
 . "$ROOT_DIR/deploy/lib/install-quota-preflight.sh"
+# shellcheck source=deploy/lib/install-tenant-egress.sh
+. "$ROOT_DIR/deploy/lib/install-tenant-egress.sh"
 
 if (( GUIDED == 1 )); then
   [[ -z $CONFIG_FILE ]] || { echo "--guided and --config cannot be combined; --guided writes its own settings file." >&2; exit 64; }
@@ -214,6 +216,10 @@ if [[ -n $ADMIN_TOTP_SECRET && ( ! $ADMIN_TOTP_SECRET =~ ^[A-Z2-7]{32,}$ || ! $t
 if [[ -z $ADMIN_TOTP_SECRET ]]; then echo 'Production installations require STEPANEL_ADMIN_TOTP_SECRET for administrator MFA.' >&2; exit 1; fi
 if [[ ${#ACCOUNT_KEY} -lt 32 || "$ACCOUNT_KEY" == *$'\n'* || "$ACCOUNT_KEY" == *$'\r'* ]]; then echo 'Production installations require STEPANEL_ACCOUNT_KEY of at least 32 characters and no newlines.' >&2; exit 1; fi
 if [[ ! "$ADMIN_USERNAME" =~ ^[a-zA-Z0-9._-]{1,64}$ || "$ADMIN_USERNAME" == *$'\n'* || "$ADMIN_USERNAME" == *$'\r'* ]]; then echo "Invalid admin username." >&2; exit 1; fi
+# Tenant code may reach loopback, the host's nameservers and the public
+# internet, but not private networks except STEPANEL_TENANT_EGRESS_ALLOW.
+TENANT_EGRESS_ALLOW="${STEPANEL_TENANT_EGRESS_ALLOW:-}"
+TENANT_EGRESS_LINES=$(install_tenant_egress_lines /etc/resolv.conf "$TENANT_EGRESS_ALLOW") || exit 1
 if [[ -z "$PANEL_HOSTNAME" ]]; then
   for panel_config in /etc/apache2/sites-available/stepanel.conf /etc/httpd/conf.d/stepanel.conf /etc/caddy/stepanel.d/panel.caddy; do
     [[ -f $panel_config ]] || continue
@@ -1065,6 +1071,7 @@ managed_targets=(
   /usr/local/sbin/stepanel-filectl
   /usr/local/lib/stepanel/site-location.sh
   /usr/local/lib/stepanel/quota-state.sh
+  /etc/stepanel/tenant-egress.units
   /usr/local/sbin/stepanel-quotaon-boot
   /etc/systemd/system/quotaon.service.d/stepanel-kernel-quota.conf
   /usr/local/sbin/stepanel-vhostctl
@@ -1202,10 +1209,10 @@ FPM_DROPIN_CHANGED=0
 for fpm_unit in "${FPM_UNITS[@]}"; do
   dropin="/etc/systemd/system/$fpm_unit.d/stepanel-socket-root.conf"
   install -d -o root -g root -m 0755 "$(dirname "$dropin")"
-  # Site PHP (every pool runs under this service) must not reach cloud instance
-  # metadata, which can hand out host credentials to a compromised plugin or an
-  # SSRF bug. Deny the metadata endpoints only, so link-local DNS keeps working.
-  printf '[Service]\nExecStartPre=/usr/local/sbin/stepanel-ensure-php-socket-root %s\nLimitNOFILE=65536\nIPAddressDeny=169.254.169.254/32 169.254.170.2/32 100.100.100.200/32 fd00:ec2::254/128\n' "$PHP_SOCKET_ROOT" > "$INSTALL_TXN/fpm-socket-root.conf"
+  # Site PHP (every pool runs under this service) gets the tenant egress
+  # policy: no private networks or cloud instance metadata, which a
+  # compromised plugin or an SSRF bug could otherwise reach.
+  printf '[Service]\nExecStartPre=/usr/local/sbin/stepanel-ensure-php-socket-root %s\nLimitNOFILE=65536\n%s\n' "$PHP_SOCKET_ROOT" "$TENANT_EGRESS_LINES" > "$INSTALL_TXN/fpm-socket-root.conf"
   if ! { [[ -f $dropin ]] && [[ "$(cat "$dropin")" == "$(cat "$INSTALL_TXN/fpm-socket-root.conf")" ]]; }; then FPM_DROPIN_CHANGED=1; fi
   dropin_tmp=$(mktemp "${dropin}.XXXXXX")
   TXN_TEMPS+=("$dropin_tmp")
@@ -1235,6 +1242,13 @@ install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-filectl" /usr/local/sbin
 install -d -m 0755 -o root -g root /usr/local/lib/stepanel
 install -m 0644 -o root -g root "$ROOT_DIR/deploy/integrations/stepanel-site-location.sh" /usr/local/lib/stepanel/site-location.sh
 install -m 0644 -o root -g root "$ROOT_DIR/deploy/integrations/stepanel-quota-state.sh" /usr/local/lib/stepanel/quota-state.sh
+# The tenant egress policy that app and task units include (stepanel-appctl).
+install -d -m 0755 -o root -g root /etc/stepanel
+printf '%s\n' "$TENANT_EGRESS_LINES" > "$INSTALL_TXN/tenant-egress.units"
+tenant_egress_tmp=$(mktemp /etc/stepanel/.tenant-egress.XXXXXX)
+TXN_TEMPS+=("$tenant_egress_tmp")
+install -m 0644 -o root -g root "$INSTALL_TXN/tenant-egress.units" "$tenant_egress_tmp"
+mv -f "$tenant_egress_tmp" /etc/stepanel/tenant-egress.units
 if [[ "$WEB_SERVER" == "caddy" ]]; then
   install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-caddy-vhostctl" /usr/local/sbin/stepanel-vhostctl
 elif [[ "$WEB_SERVER" == "openlitespeed" ]]; then
@@ -1404,6 +1418,8 @@ TXN_TEMPS+=("$env_tmp")
   # unreadable.
   if [[ -n "${STEPANEL_ACCOUNT_PREVIOUS_KEYS:-}" ]]; then write_env STEPANEL_ACCOUNT_PREVIOUS_KEYS "$STEPANEL_ACCOUNT_PREVIOUS_KEYS"; fi
   if [[ -n "${STEPANEL_ENVIRONMENT_PREVIOUS_KEYS:-}" ]]; then write_env STEPANEL_ENVIRONMENT_PREVIOUS_KEYS "$STEPANEL_ENVIRONMENT_PREVIOUS_KEYS"; fi
+  # Private addresses tenant code may reach (for example a remote database).
+  if [[ -n "$TENANT_EGRESS_ALLOW" ]]; then write_env STEPANEL_TENANT_EGRESS_ALLOW "$TENANT_EGRESS_ALLOW"; fi
   # Retired audit-chain keys verify history signed before a rotation and
   # must stay while that history is retained.
   if [[ -n "${STEPANEL_AUDIT_PREVIOUS_KEYS:-}" ]]; then write_env STEPANEL_AUDIT_PREVIOUS_KEYS "$STEPANEL_AUDIT_PREVIOUS_KEYS"; fi
@@ -1556,14 +1572,20 @@ for app_unit in /etc/systemd/system/stepanel-task-*.service /etc/systemd/system/
   mv -f "$unit_staged" "$app_unit"
   units_migrated=1
 done
-# App units generated before cloud-metadata egress was denied gain the same
-# IPAddressDeny new units get; each app applies it at its next restart.
-for app_unit in /etc/systemd/system/stepanel-app-*.service; do
+# App and task units carry the current tenant egress policy; replace whatever
+# IPAddressAllow/IPAddressDeny lines an earlier build or policy wrote. Each
+# unit applies it at its next start.
+for app_unit in /etc/systemd/system/stepanel-app-*.service /etc/systemd/system/stepanel-task-*.service; do
   [[ -f $app_unit && ! -L $app_unit ]] || continue
-  ! grep -q '^IPAddressDeny=' "$app_unit" || continue
   grep -qx 'NoNewPrivileges=true' "$app_unit" || continue
+  current_policy=$(grep -E '^IPAddress(Allow|Deny)=' "$app_unit" || true)
+  [[ $current_policy != "$TENANT_EGRESS_LINES" ]] || continue
   unit_staged=$(mktemp /etc/systemd/system/.stepanel-unit-migrate.XXXXXX)
-  sed -e '0,/^NoNewPrivileges=true$/s##NoNewPrivileges=true\nIPAddressDeny=169.254.169.254/32 169.254.170.2/32 100.100.100.200/32 fd00:ec2::254/128#' "$app_unit" > "$unit_staged"
+  awk -v policy="$TENANT_EGRESS_LINES" '
+    /^IPAddress(Allow|Deny)=/ { next }
+    { print }
+    $0 == "NoNewPrivileges=true" && !done { print policy; done = 1 }
+  ' "$app_unit" > "$unit_staged"
   chmod 0644 "$unit_staged"; chown root:root "$unit_staged"
   mv -f "$unit_staged" "$app_unit"
   units_migrated=1

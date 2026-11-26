@@ -1,5 +1,22 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+
+# tenant_egress holds the IPAddressAllow/IPAddressDeny lines every unit that
+# runs tenant code gets (written by install.sh from
+# deploy/lib/install-tenant-egress.sh). A host not yet upgraded keeps the
+# earlier metadata-only denial.
+tenant_egress_policy() {
+  local policy=/etc/stepanel/tenant-egress.units line
+  if [[ -f $policy && ! -L $policy ]]; then
+    while IFS= read -r line; do
+      [[ $line =~ ^IPAddress(Allow|Deny)=[0-9A-Fa-f:./\ a-z]+$ ]] || { echo "invalid tenant egress policy line in $policy" >&2; return 1; }
+    done < "$policy"
+    grep -q '^IPAddressDeny=' "$policy" || { echo "tenant egress policy $policy has no IPAddressDeny line" >&2; return 1; }
+    cat "$policy"
+    return 0
+  fi
+  printf '%s\n' 'IPAddressDeny=169.254.0.0/16 100.100.100.200/32 fd00:ec2::254/128'
+}
 if [[ $EUID -ne 0 ]]; then echo 'must run as root' >&2; exit 1; fi
 action=${1:-}; site=${2:-}
 [[ $site =~ ^[a-z0-9_-]{1,32}$ ]] || { echo 'invalid site' >&2; exit 1; }
@@ -360,6 +377,7 @@ case "$action" in
       fi
     }
     trap cleanup EXIT
+    tenant_egress=$(tenant_egress_policy)
     cat > "$staged" <<EOF
 [Unit]
 Description=StePanel Node app $site
@@ -379,9 +397,8 @@ ExecStart=$node_bin $npm_cli start
 Restart=on-failure
 RestartSec=5s
 NoNewPrivileges=true
-# Application code must not reach cloud instance metadata, which can hand
-# out host credentials; specific endpoints only, so link-local DNS works.
-IPAddressDeny=169.254.169.254/32 169.254.170.2/32 100.100.100.200/32 fd00:ec2::254/128
+# Tenant egress policy: no private networks or cloud instance metadata.
+$tenant_egress
 PrivateDevices=true
 PrivateTmp=true
 ProtectControlGroups=true
@@ -452,6 +469,7 @@ EOF
     was_active=0
     if systemctl is-active --quiet "$unit"; then was_active=1; fi
     staged=$(mktemp "/etc/systemd/system/.stepanel-worker.XXXXXX")
+    tenant_egress=$(tenant_egress_policy)
     cat > "$staged" <<EOF
 [Unit]
 Description=StePanel worker $site/$name
@@ -467,9 +485,8 @@ RestartSec=5s
 MemoryMax=${memory}M
 TasksMax=$((processes * 64))
 NoNewPrivileges=true
-# Application code must not reach cloud instance metadata, which can hand
-# out host credentials; specific endpoints only, so link-local DNS works.
-IPAddressDeny=169.254.169.254/32 169.254.170.2/32 100.100.100.200/32 fd00:ec2::254/128
+# Tenant egress policy: no private networks or cloud instance metadata.
+$tenant_egress
 PrivateDevices=true
 ProtectSystem=strict
 $home_protection
@@ -566,6 +583,7 @@ EOF
       if (( was_active )); then systemctl restart "$unit" 2>/dev/null || true; fi
     }
     staged=$(mktemp "/etc/systemd/system/.stepanel-python.XXXXXX")
+    tenant_egress=$(tenant_egress_policy)
     cat > "$staged" <<EOF
 [Unit]
 Description=StePanel Python app $site
@@ -579,9 +597,8 @@ ExecStart=$venv/bin/python -m gunicorn --workers $workers --bind 127.0.0.1:$port
 Restart=on-failure
 RestartSec=5s
 NoNewPrivileges=true
-# Application code must not reach cloud instance metadata, which can hand
-# out host credentials; specific endpoints only, so link-local DNS works.
-IPAddressDeny=169.254.169.254/32 169.254.170.2/32 100.100.100.200/32 fd00:ec2::254/128
+# Tenant egress policy: no private networks or cloud instance metadata.
+$tenant_egress
 PrivateDevices=true
 ProtectSystem=strict
 $home_protection
@@ -724,6 +741,7 @@ EOF
     chown root:root "$staged"; chmod 0755 "$staged"
     unit="stepanel-task-${site}-${name}.service"; timer="stepanel-task-${site}-${name}.timer"
     systemd_lock
+    tenant_egress=$(tenant_egress_policy)
     cat > "/etc/systemd/system/$unit" <<EOF
 [Unit]
 Description=StePanel scheduled task $site/$name
@@ -750,10 +768,8 @@ PrivateTmp=true
 ProtectSystem=strict
 $home_protection
 ReadWritePaths=$root
-# Tenant task code must not reach cloud instance metadata (IPv4 link-local
-# and the AWS IPv6 endpoint), which can hand out host credentials. Loopback
-# and private ranges stay reachable for local databases and caches.
-IPAddressDeny=169.254.0.0/16 fd00:ec2::254/128
+# Tenant egress policy: no private networks or cloud instance metadata.
+$tenant_egress
 RuntimeDirectory=stepanel-task-$site-$name
 RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=yes
