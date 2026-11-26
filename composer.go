@@ -31,6 +31,17 @@ type ComposerStore struct {
 	mu     sync.RWMutex
 	path   string
 	latest map[string]ComposerOperation
+	// rows, when bound (bindComposerOperations), makes composer_operations
+	// the store's persistence.
+	rows *keyedRowState[ComposerOperation]
+}
+
+// persistLocked persists the latest operations. Caller holds s.mu.
+func (s *ComposerStore) persistLocked() error {
+	if s.rows.bound() {
+		return composerOperationRows.persist(s.rows, s.latest)
+	}
+	return persistComposerLocked(s)
 }
 
 type composerInstallRequest struct {
@@ -96,16 +107,7 @@ func (s *ComposerStore) save(site SiteCapability, op ComposerOperation) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	siteName := site.Site()
-	return persistMapKeyChange(s.latest, siteName, &op, func() error {
-		data, err := json.MarshalIndent(s.latest, "", "  ")
-		if err != nil {
-			return err
-		}
-		if bound, err := persistBoundControlPlaneState(s, data); bound {
-			return err
-		}
-		return writeAtomic(s.path, append(data, '\n'), 0600)
-	})
+	return persistMapKeyChange(s.latest, siteName, &op, s.persistLocked)
 }
 func (s *ComposerStore) get(site SiteCapability) (ComposerOperation, bool) {
 	s.mu.RLock()

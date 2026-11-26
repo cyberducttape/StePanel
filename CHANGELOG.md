@@ -34,9 +34,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Resource profiles, site SFTP/shell access (with SSH keys), domain claims,
   desired proxy routes, scheduled tasks (with run history), DNS desired
-  records, site workers and Redis allocations are stored one row per key in
-  relational tables instead of whole-object JSON blobs (control-plane
-  migrations 33 to 40, applied automatically). Changes to different sites or domains no longer conflict,
+  records, site workers, Redis allocations, PHP profiles and Composer
+  operations are stored one row per key in relational tables instead of
+  whole-object JSON blobs (control-plane migrations 33 to 42, applied
+  automatically). Changes to different sites or domains no longer conflict,
   and one claim per domain is enforced by the database.
 
 - **Tenant code can no longer reach private networks.** Site PHP-FPM pools,

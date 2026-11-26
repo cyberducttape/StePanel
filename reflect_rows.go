@@ -12,7 +12,8 @@ import (
 )
 
 // reflectRowTable builds a keyedRowTable for a flat struct (string, int,
-// int64, bool and time.Time fields) stored as one row per map key: a
+// int64, bool, time.Time and short []string fields, the last stored as a JSON
+// array) stored as one row per map key: a
 // store_key primary key, one column per field named by its JSON tag, and a
 // revision. Statements are generated from the struct; the table itself is
 // created by literal SQL in a migration, so a field added later without a
@@ -40,6 +41,7 @@ func reflectColumnsOf(typ reflect.Type) ([]reflectColumn, error) {
 		case field.Type == timeType:
 			kind = reflect.Struct
 		case kind == reflect.String || kind == reflect.Int || kind == reflect.Int64 || kind == reflect.Bool:
+		case kind == reflect.Slice && field.Type.Elem().Kind() == reflect.String:
 		default:
 			return nil, fmt.Errorf("%s.%s has unsupported type %s", typ.Name(), field.Name, field.Type)
 		}
@@ -62,6 +64,13 @@ func encodeReflectRow(columns []reflectColumn, value reflect.Value) []any {
 			out[i] = int64(boolInt(field.Bool()))
 		case reflect.Struct:
 			out[i] = formatClaimTime(field.Interface().(time.Time))
+		case reflect.Slice:
+			// nil and empty are the same value (both omitted when encoded).
+			out[i] = ""
+			if field.Len() > 0 {
+				encoded, _ := json.Marshal(field.Interface()) // a []string always encodes
+				out[i] = string(encoded)
+			}
 		}
 	}
 	return out
@@ -87,6 +96,16 @@ func decodeReflectRow(columns []reflectColumn, target reflect.Value, values []an
 				return fmt.Errorf("column %s: %w", c.name, err)
 			}
 			field.Set(reflect.ValueOf(parsed))
+		case reflect.Slice:
+			text := *values[i].(*string)
+			if text == "" {
+				continue
+			}
+			list := reflect.New(field.Type())
+			if err := json.Unmarshal([]byte(text), list.Interface()); err != nil {
+				return fmt.Errorf("column %s: %w", c.name, err)
+			}
+			field.Set(list.Elem())
 		}
 	}
 	return nil
@@ -96,7 +115,7 @@ func scanTargets(columns []reflectColumn) []any {
 	out := make([]any, len(columns))
 	for i, c := range columns {
 		switch c.kind {
-		case reflect.String, reflect.Struct:
+		case reflect.String, reflect.Struct, reflect.Slice:
 			out[i] = new(string)
 		default:
 			out[i] = new(int64)
@@ -134,8 +153,31 @@ func newReflectRowTable[V any](label, table string) keyedRowTable[V] {
 	}
 	update := `UPDATE ` + table + ` SET ` + strings.Join(assignments, ", ") + `, revision = revision + 1 WHERE store_key = ? AND revision = ?`
 	selectAll := `SELECT store_key, revision, ` + strings.Join(names, ", ") + ` FROM ` + table
+	var clone func(V) V
+	for _, c := range columns {
+		if c.kind == reflect.Slice {
+			// Copy list fields so the persisted view never shares a backing
+			// array with the live value.
+			clone = func(value V) V {
+				copied := reflect.ValueOf(&value).Elem()
+				for _, c := range columns {
+					if c.kind == reflect.Slice {
+						field := copied.Field(c.index)
+						if !field.IsNil() {
+							fresh := reflect.MakeSlice(field.Type(), field.Len(), field.Len())
+							reflect.Copy(fresh, field)
+							field.Set(fresh)
+						}
+					}
+				}
+				return value
+			}
+			break
+		}
+	}
 	return keyedRowTable[V]{
-		name: label,
+		name:  label,
+		clone: clone,
 		equal: func(a, b V) bool {
 			left, right := encodeReflectRow(columns, reflect.ValueOf(a)), encodeReflectRow(columns, reflect.ValueOf(b))
 			for i := range left {

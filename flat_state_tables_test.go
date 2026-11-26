@@ -19,6 +19,8 @@ func TestReflectRowTablesMatchTheirStructs(t *testing.T) {
 		"dns_desired_records": reflect.TypeOf(DNSDesiredRecord{}),
 		"site_workers":        reflect.TypeOf(Worker{}),
 		"redis_allocations":   reflect.TypeOf(RedisAllocation{}),
+		"php_profiles":        reflect.TypeOf(PHPProfile{}),
+		"composer_operations": reflect.TypeOf(ComposerOperation{}),
 	} {
 		columns, err := reflectColumnsOf(typ)
 		if err != nil {
@@ -171,5 +173,71 @@ func TestGeneratedRowTablesRefuseStaleWrites(t *testing.T) {
 	var n int
 	if err := panelDB.QueryRow(`SELECT COUNT(*) FROM site_workers`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("site_workers after delete: %d, %v", n, err)
+	}
+}
+
+func TestPHPProfilesAndComposerOperationsUseTheirTables(t *testing.T) {
+	db := openTestControlPlane(t)
+	verified := time.Date(2026, 11, 26, 13, 0, 0, 1, time.UTC)
+	legacy := map[string]PHPProfile{"shop": {Site: "shop", Version: "8.3", MemoryLimit: "256M", MaxExecutionTime: 60, UploadMaxFilesize: "64M", PostMaxSize: "64M", MaxInputVars: 3000, OPcache: true, ErrorReporting: "E_ALL", State: "applied", VerifiedAt: verified, Verification: []string{"php -v ok", "opcache on"}}}
+	payload, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO state_blobs (name, payload, updated_at, revision) VALUES ('php', ?, unixepoch(), 1)`, payload); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migratePHPProfilesBlob(tx); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	php := &PHPProfileStore{values: map[string]PHPProfile{}}
+	if err := bindPHPProfiles(php, db); err != nil {
+		t.Fatal(err)
+	}
+	got := php.values["shop"]
+	want := legacy["shop"]
+	if !got.VerifiedAt.Equal(verified) || !reflect.DeepEqual(got.Verification, want.Verification) || !got.OPcache || got.DisplayErrors || got.MaxInputVars != 3000 || got.MemoryLimit != "256M" {
+		t.Fatalf("migrated PHP profile = %#v", got)
+	}
+	got.VerifiedAt, want.VerifiedAt = time.Time{}, time.Time{}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("migrated PHP profile = %#v, want %#v", got, want)
+	}
+	// An in-place edit of the verification list is detected and persisted.
+	profile := php.values["shop"]
+	profile.Verification[1] = "opcache off"
+	if err := php.saveLocked("shop", profile); err != nil {
+		t.Fatal(err)
+	}
+	reopened := &PHPProfileStore{values: map[string]PHPProfile{}}
+	if err := bindPHPProfiles(reopened, db); err != nil {
+		t.Fatal(err)
+	}
+	if got := reopened.values["shop"].Verification; len(got) != 2 || got[1] != "opcache off" {
+		t.Fatalf("verification after an in-place edit = %v", got)
+	}
+
+	composer := &ComposerStore{latest: map[string]ComposerOperation{}}
+	if err := bindComposerOperations(composer, db); err != nil {
+		t.Fatal(err)
+	}
+	composer.latest["shop"] = ComposerOperation{Site: "shop", Command: "install", Completed: verified, DurationMS: 4200, Commit: "abc123"}
+	if err := composer.persistLocked(); err != nil {
+		t.Fatal(err)
+	}
+	delete(composer.latest, "shop")
+	if err := composer.persistLocked(); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM composer_operations`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("composer_operations after delete: %d, %v", n, err)
 	}
 }

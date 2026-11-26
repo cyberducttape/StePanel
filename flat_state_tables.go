@@ -96,3 +96,64 @@ func bindRedisAllocations(s *RedisAllocationStore, db *sql.DB) error {
 	}
 	return redisAllocationRows.bind(s.rows, db, s.values)
 }
+
+const phpProfilesTable = `CREATE TABLE IF NOT EXISTS php_profiles (
+	store_key TEXT PRIMARY KEY,
+	"site" TEXT NOT NULL,
+	"version" TEXT NOT NULL,
+	"memory_limit" TEXT NOT NULL DEFAULT '',
+	"max_execution_time" INTEGER NOT NULL DEFAULT 0,
+	"upload_max_filesize" TEXT NOT NULL DEFAULT '',
+	"post_max_size" TEXT NOT NULL DEFAULT '',
+	"max_input_vars" INTEGER NOT NULL DEFAULT 0,
+	"opcache" INTEGER NOT NULL DEFAULT 0 CHECK ("opcache" IN (0, 1)),
+	"display_errors" INTEGER NOT NULL DEFAULT 0 CHECK ("display_errors" IN (0, 1)),
+	"error_reporting" TEXT NOT NULL DEFAULT '',
+	"preview_token" TEXT NOT NULL DEFAULT '',
+	"state" TEXT NOT NULL DEFAULT '',
+	"last_error" TEXT NOT NULL DEFAULT '',
+	"verified_at" TEXT NOT NULL DEFAULT '',
+	"verification" TEXT NOT NULL DEFAULT '',
+	revision INTEGER NOT NULL DEFAULT 1
+)`
+
+const composerOperationsTable = `CREATE TABLE IF NOT EXISTS composer_operations (
+	store_key TEXT PRIMARY KEY,
+	"site" TEXT NOT NULL,
+	"command" TEXT NOT NULL,
+	"completed" TEXT NOT NULL DEFAULT '',
+	"duration_ms" INTEGER NOT NULL DEFAULT 0,
+	"commit" TEXT NOT NULL DEFAULT '',
+	revision INTEGER NOT NULL DEFAULT 1
+)`
+
+var (
+	phpProfileRows        = newReflectRowTable[PHPProfile]("PHP profiles", "php_profiles")
+	composerOperationRows = newReflectRowTable[ComposerOperation]("Composer operations", "composer_operations")
+)
+
+func migratePHPProfilesBlob(tx *sql.Tx) error {
+	return migrateBlobToReflectTable[PHPProfile](tx, "php", "php_profiles", phpProfilesTable)
+}
+
+func migrateComposerOperationsBlob(tx *sql.Tx) error {
+	return migrateBlobToReflectTable[ComposerOperation](tx, "composer", "composer_operations", composerOperationsTable)
+}
+
+func bindPHPProfiles(s *PHPProfileStore, db *sql.DB) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.rows == nil {
+		s.rows = &keyedRowState[PHPProfile]{}
+	}
+	return phpProfileRows.bind(s.rows, db, s.values)
+}
+
+func bindComposerOperations(s *ComposerStore, db *sql.DB) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.rows == nil {
+		s.rows = &keyedRowState[ComposerOperation]{}
+	}
+	return composerOperationRows.bind(s.rows, db, s.latest)
+}

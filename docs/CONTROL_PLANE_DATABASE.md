@@ -86,8 +86,10 @@ changes transaction behavior and is unsafe without the steps below.
    the migrations, `TestReflectRowTablesMatchTheirStructs` compares each
    struct with its live table, and a blob migration writes only the columns
    its table has, so a later field cannot break upgrading an older
-   database. Still on blobs: environment secrets (see above), PHP profiles
-   (a list field), Composer operations and deployments. Both use the shared
+   database. PHP profiles and Composer operations followed (migrations 41
+   and 42); a short string list such as a profile's verification messages
+   is one JSON-array column of its row. Still on blobs: environment secrets
+   (see above) and deployments (`internal/deployment`, its own store). Both use the shared
    `keyedRowTable` (`keyed_rows.go`), which the remaining map-shaped stores
    can adopt the same way. Environment secrets need more than that: key
    rotation and the context-binding migration re-seal every secret without

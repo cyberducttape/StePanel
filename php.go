@@ -39,6 +39,17 @@ type PHPProfileStore struct {
 	mu     sync.RWMutex
 	path   string
 	values map[string]PHPProfile
+	// rows, when bound (bindPHPProfiles), makes php_profiles the store's
+	// persistence.
+	rows *keyedRowState[PHPProfile]
+}
+
+// persistLocked persists the profiles. Caller holds s.mu.
+func (s *PHPProfileStore) persistLocked() error {
+	if s.rows.bound() {
+		return phpProfileRows.persist(s.rows, s.values)
+	}
+	return persistPHPProfilesLocked(s)
 }
 
 var phpSizePattern = regexp.MustCompile(`^[1-9][0-9]{0,4}M$`)
@@ -78,31 +89,9 @@ func (s *PHPProfileStore) save(access SiteCapability, p PHPProfile) error {
 func (s *PHPProfileStore) saveLocked(site string, p PHPProfile) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	previous, existed := s.values[site]
-	s.values[site] = p
-	d, e := json.MarshalIndent(s.values, "", "  ")
-	if e != nil {
-		return e
-	}
-	if bound, err := persistBoundControlPlaneState(s, d); bound {
-		if err != nil {
-			if existed {
-				s.values[site] = previous
-			} else {
-				delete(s.values, site)
-			}
-		}
-		return err
-	}
-	if err := writeAtomic(s.path, append(d, '\n'), 0600); err != nil {
-		if existed {
-			s.values[site] = previous
-		} else {
-			delete(s.values, site)
-		}
-		return err
-	}
-	return nil
+	// persistMapKeyChange restores the previous value on failure, but keeps
+	// a refreshed peer view after a conflict instead of overwriting it.
+	return persistMapKeyChange(s.values, site, &p, s.persistLocked)
 }
 func (s *PHPProfileStore) get(access SiteCapability) (PHPProfile, bool) {
 	site := access.Site()

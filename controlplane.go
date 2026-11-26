@@ -690,6 +690,8 @@ CREATE INDEX IF NOT EXISTS jobs_state_started_idx ON jobs(state, started_at, id)
 	migration.NewMigration(38, "store DNS desired records relationally", migrateDNSDesiredBlob),
 	migration.NewMigration(39, "store site workers relationally", migrateWorkersBlob),
 	migration.NewMigration(40, "store Redis allocations relationally", migrateRedisAllocationsBlob),
+	migration.NewMigration(41, "store PHP profiles relationally", migratePHPProfilesBlob),
+	migration.NewMigration(42, "store Composer operations relationally", migrateComposerOperationsBlob),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {

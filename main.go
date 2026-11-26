@@ -663,22 +663,12 @@ func Main() {
 	if err := bindWorkers(workers, controlPlaneDB); err != nil {
 		log.Fatalf("load site workers: %v", err)
 	}
-	bindState(composer, "composer", &composer.latest, func() error {
-		data, err := json.Marshal(composer.latest)
-		if err != nil {
-			return err
-		}
-		_, err = persistBoundControlPlaneState(composer, data)
-		return err
-	})
-	bindState(phpProfiles, "php", &phpProfiles.values, func() error {
-		data, err := json.Marshal(phpProfiles.values)
-		if err != nil {
-			return err
-		}
-		_, err = persistBoundControlPlaneState(phpProfiles, data)
-		return err
-	})
+	if err := bindComposerOperations(composer, controlPlaneDB); err != nil {
+		log.Fatalf("load Composer operations: %v", err)
+	}
+	if err := bindPHPProfiles(phpProfiles, controlPlaneDB); err != nil {
+		log.Fatalf("load PHP profiles: %v", err)
+	}
 	if err := bindScheduledTasks(tasks, controlPlaneDB); err != nil {
 		log.Fatalf("load scheduled tasks: %v", err)
 	}

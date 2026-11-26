@@ -677,7 +677,7 @@ func (a *App) removeSiteState(ctx context.Context, site SiteCapability) error {
 			return err
 		}
 		a.PHP.mu.Lock()
-		err := persistMapKeyChange(a.PHP.values, siteName, (*PHPProfile)(nil), func() error { return persistPHPProfilesLocked(a.PHP) })
+		err := persistMapKeyChange(a.PHP.values, siteName, (*PHPProfile)(nil), a.PHP.persistLocked)
 		a.PHP.mu.Unlock()
 		if err != nil {
 			return fmt.Errorf("remove PHP profile state: %w", err)
@@ -688,7 +688,7 @@ func (a *App) removeSiteState(ctx context.Context, site SiteCapability) error {
 			return err
 		}
 		a.Composer.mu.Lock()
-		err := persistMapKeyChange(a.Composer.latest, siteName, (*ComposerOperation)(nil), func() error { return persistComposerLocked(a.Composer) })
+		err := persistMapKeyChange(a.Composer.latest, siteName, (*ComposerOperation)(nil), a.Composer.persistLocked)
 		a.Composer.mu.Unlock()
 		if err != nil {
 			return fmt.Errorf("remove Composer state: %w", err)
