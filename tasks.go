@@ -87,6 +87,9 @@ type TaskStore struct {
 	mu     sync.RWMutex
 	path   string
 	values map[string]ScheduledTask
+	// rows, when bound (bindScheduledTasks), makes the scheduled task tables
+	// the store's persistence.
+	rows *keyedRowState[ScheduledTask]
 }
 
 func OpenTaskStore(path string) (*TaskStore, error) {
@@ -148,6 +151,9 @@ func (s *TaskStore) normalizeSafeguards() error {
 	return nil
 }
 func (s *TaskStore) persistLocked() error {
+	if s.rows.bound() {
+		return scheduledTaskRows.persist(s.rows, s.values)
+	}
 	d, err := json.MarshalIndent(s.values, "", "  ")
 	if err != nil {
 		return err

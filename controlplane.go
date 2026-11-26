@@ -682,6 +682,9 @@ CREATE INDEX IF NOT EXISTS jobs_state_started_idx ON jobs(state, started_at, id)
 	// Desired proxy routes move from the "routes" state blob to one row per
 	// route (routes_table.go).
 	migration.NewMigration(36, "store desired routes relationally", migrateRoutesBlob),
+	// Scheduled tasks and their run history move from the "tasks" state blob
+	// to scheduled_tasks and its child tables (tasks_table.go).
+	migration.NewMigration(37, "store scheduled tasks relationally", migrateScheduledTasksBlob),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {

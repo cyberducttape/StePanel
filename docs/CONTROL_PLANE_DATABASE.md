@@ -76,7 +76,13 @@ changes transaction behavior and is unsafe without the steps below.
    done** (migration 35, `domain_claims_table.go`): one row per domain, so
    one claim per domain is a database invariant and a claim change no
    longer rewrites every claim. **Desired routes are done** (migration 36,
-   `routes_table.go`). Both use the shared
+   `routes_table.go`). **Scheduled tasks are done** (migration 37,
+   `tasks_table.go`), with run output and execution history in child
+   tables, so a task run no longer rewrites every task.
+   `TestRelationalStoresCoverEveryField` fails when a stored struct gains a
+   field its table does not hold. Still on blobs: environment secrets (see
+   above), DNS desired state, workers, Redis allocations, PHP profiles,
+   Composer operations and deployments. Both use the shared
    `keyedRowTable` (`keyed_rows.go`), which the remaining map-shaped stores
    can adopt the same way. Environment secrets need more than that: key
    rotation and the context-binding migration re-seal every secret without

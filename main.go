@@ -675,7 +675,9 @@ func Main() {
 		_, err = persistBoundControlPlaneState(phpProfiles, data)
 		return err
 	})
-	bindState(tasks, "tasks", &tasks.values, tasks.persistLocked)
+	if err := bindScheduledTasks(tasks, controlPlaneDB); err != nil {
+		log.Fatalf("load scheduled tasks: %v", err)
+	}
 	if err := tasks.normalizeSafeguards(); err != nil {
 		log.Fatalf("normalize scheduled task safeguards: %v", err)
 	}
