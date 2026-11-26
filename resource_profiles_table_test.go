@@ -192,3 +192,45 @@ func TestResourceProfileWriteFailsFastWhenTheConnectionIsHeld(t *testing.T) {
 		t.Fatalf("write after release: %v", err)
 	}
 }
+
+// Two processes importing the same legacy profiles into an empty table at
+// startup both bind successfully.
+func TestResourceProfileLegacyImportRaceBindsBothProcesses(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "control-plane.db")
+	panelDB, err := openControlPlaneDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer panelDB.Close()
+	workerDB, err := openControlPlaneDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer workerDB.Close()
+	panel := &ResourceStore{values: map[string]ResourceProfile{"shop": resourceTestProfile("shop", 100)}}
+	worker := &ResourceStore{values: map[string]ResourceProfile{"shop": resourceTestProfile("shop", 100)}}
+	// Simulate the worker having checked the table while it was still empty.
+	worker.rows = &keyedRowState[ResourceProfile]{db: workerDB, persisted: map[string]keyedRow[ResourceProfile]{}}
+	if err := bindResourceProfiles(panel, panelDB); err != nil {
+		t.Fatal(err)
+	}
+	if err := resourceProfileRows.persist(worker.rows, worker.values); !errors.Is(err, errControlPlaneStateRefreshed) {
+		t.Fatalf("the losing import = %v, want a refreshed-state conflict", err)
+	}
+	// A process that binds after another imported first loads the winner's
+	// rows instead of importing its own.
+	late := &ResourceStore{values: map[string]ResourceProfile{"blog": resourceTestProfile("blog", 100)}}
+	late.rows = &keyedRowState[ResourceProfile]{}
+	if _, err := workerDB.Exec(`DELETE FROM resource_profiles`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := panelDB.Exec(`INSERT INTO resource_profiles (site, account, cpu_percent, cpu_weight, memory_high_mb, memory_mb, io_weight, tasks_max, php_workers, state) VALUES ('blog', '', 1, 1, 1, 1, 1, 1, 1, 'applied')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := resourceProfileRows.bind(late.rows, workerDB, late.values); err != nil {
+		t.Fatalf("bind after another process imported first: %v", err)
+	}
+	if got := late.values["blog"]; got.CPUPercent != 1 {
+		t.Fatalf("late binder sees %#v, want the winner's row", got)
+	}
+}

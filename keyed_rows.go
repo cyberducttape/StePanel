@@ -65,7 +65,13 @@ func (t keyedRowTable[V]) bind(state *keyedRowState[V], db *sql.DB, values map[s
 		return err
 	}
 	if len(loaded) == 0 && len(values) > 0 {
-		return t.persist(state, values)
+		// The panel and worker can both import the same legacy file at
+		// startup; the loser of that race sees a conflict, by which point
+		// persist has already loaded the winner's rows.
+		if err := t.persist(state, values); err != nil && !errors.Is(err, errControlPlaneStateRefreshed) {
+			return err
+		}
+		return nil
 	}
 	t.replace(state, values, loaded, revisions)
 	return nil
