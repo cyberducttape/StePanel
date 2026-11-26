@@ -259,15 +259,19 @@ a schedule:
    so both need the previous key until the rotation completes.
 4. At startup each store opens what the previous key sealed and re-seals it
    under the current key in place, and logs a `key rotation: re-sealed …`
-   line for each store that changed. Job payloads are re-sealed across the
-   whole jobs table, including finished jobs, and stored API-token
-   idempotency results are re-sealed so a client retry still replays its
-   original token. Check the journal:
+   line for each store that changed. Stored API-token idempotency results
+   are re-sealed so a client retry still replays its original token. Job
+   payloads, including finished jobs, are re-sealed after startup in the
+   background, in batches of 500 rows, so a large job history does not delay
+   startup; the panel keeps working meanwhile because payloads open under
+   either key. Progress is logged every 5,000 rows, and an interrupted
+   re-seal resumes where it stopped on the next start. Check the journal:
    `journalctl -u stepanel -u stepanel-worker -b | grep 'key rotation'`.
-5. Remove the previous key from the env file and restart both services
-   again. If an account seed, environment or webhook secret, or job payload
-   still needs the retired key, startup fails closed and names the store;
-   put the key back and restart to finish the re-seal.
+5. Wait for `key rotation complete` in the journal of both services, then
+   remove the previous key from the env file and restart both services
+   again. If an account seed, environment or webhook secret, or a recent or
+   active job still needs the retired key, startup fails closed and names
+   the store; put the key back and restart to finish the re-seal.
 
 Production startup rejects previous keys shorter than 32 characters, equal
 to the current key, repeated, or listed without a current key. Rotating a

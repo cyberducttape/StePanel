@@ -1,8 +1,10 @@
 package stepanel
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -119,8 +121,11 @@ func TestJobPayloadKeyRotationReSealsEveryRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open with the previous key listed: %v", err)
 	}
-	if rotated.rotationResealed != 2 {
-		t.Fatalf("job payloads re-sealed = %d, want 2", rotated.rotationResealed)
+	if resealed, err := rotated.ResealRotatedPayloads(context.Background(), nil); err != nil || resealed != 2 {
+		t.Fatalf("job payloads re-sealed = %d, %v; want 2", resealed, err)
+	}
+	if again, err := rotated.ResealRotatedPayloads(context.Background(), nil); err != nil || again != 0 {
+		t.Fatalf("a completed re-seal rewrote %d more payloads: %v", again, err)
 	}
 	if job, ok := rotated.Get(queued.ID); !ok || string(job.Payload) != `{"secret":"archive-db-password"}` {
 		t.Fatalf("rotated queued job = %q, %v", job.Payload, ok)
@@ -251,5 +256,50 @@ func TestAPITokenIdempotencyKeyRotationReSealsResults(t *testing.T) {
 	}
 	if resealed, err := retired.resealRotatedIdempotencyResults(); err != nil || resealed != 0 {
 		t.Fatalf("a store without previous keys re-sealed %d results: %v", resealed, err)
+	}
+}
+
+// The re-seal walks the table in bounded batches, reports progress after each
+// one, and resumes where an interrupted run left off.
+func TestJobPayloadResealRunsInBoundedResumableBatches(t *testing.T) {
+	previousBatch := jobPayloadResealBatch
+	jobPayloadResealBatch = 2
+	t.Cleanup(func() { jobPayloadResealBatch = previousBatch })
+	db := openTestControlPlane(t)
+	jobs, err := openDurableJobsDBWithKey(db, "", rotationOldKey, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		if _, err := jobs.Enqueue("site.backup", fmt.Sprintf("site-%d", i), "", []byte(fmt.Sprintf(`{"secret":"s%d"}`, i)), 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rotated, err := openDurableJobsDBWithKeys(db, "", rotationNewKey, []string{rotationOldKey}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Interrupt after the first batch.
+	ctx, cancel := context.WithCancel(context.Background())
+	partial, err := rotated.ResealRotatedPayloads(ctx, func(scanned, resealed int) {
+		if scanned >= 2 {
+			cancel()
+		}
+	})
+	if !errors.Is(err, context.Canceled) || partial != 2 {
+		t.Fatalf("interrupted re-seal = %d, %v; want 2 and context.Canceled", partial, err)
+	}
+	var progress [][2]int
+	rest, err := rotated.ResealRotatedPayloads(context.Background(), func(scanned, resealed int) {
+		progress = append(progress, [2]int{scanned, resealed})
+	})
+	if err != nil || rest != 3 {
+		t.Fatalf("resumed re-seal = %d, %v; want the remaining 3", rest, err)
+	}
+	if len(progress) != 3 || progress[len(progress)-1] != [2]int{5, 3} {
+		t.Fatalf("progress after each batch = %v, want 3 batches ending at 5 scanned, 3 re-sealed", progress)
+	}
+	if _, err := openDurableJobsDBWithKey(db, "", rotationNewKey, 1); err != nil {
+		t.Fatalf("payloads still need the previous key after the resumed re-seal: %v", err)
 	}
 }

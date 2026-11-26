@@ -1881,9 +1881,6 @@ func decodeJobStore(data []byte) (jobStore, error) {
 }
 
 type Jobs struct {
-	// rotationResealed counts payloads re-sealed at open because they opened
-	// only with a previous STEPANEL_ACCOUNT_KEY.
-	rotationResealed int
 	// maxPending bounds queued plus running durable jobs at enqueue; 0 means
 	// defaultMaxPendingJobs.
 	maxPending    atomic.Int64
@@ -2143,106 +2140,178 @@ func openDurableJobsDBWithKeys(db *sql.DB, legacyPath, payloadKey string, previo
 		j.legacyPayloads.Store(false)
 		j.legacyPayloadsSeen.Store(false)
 	}
-	if j.payloadBox != nil && j.payloadBox.HasPrevious() {
-		// Startup loads only active and recent jobs, so scan every row:
-		// an older job sealed under a previous key must stay readable
-		// after that key is retired.
-		resealed, err := j.resealRotatedPayloads()
-		if err != nil {
-			return nil, fmt.Errorf("re-seal job payloads under the current STEPANEL_ACCOUNT_KEY: %w", err)
-		}
-		j.rotationResealed = resealed
-		if resealed > 0 {
-			log.Printf("key rotation: re-sealed %d job payload(s) sealed under a previous STEPANEL_ACCOUNT_KEY", resealed)
-		}
-	}
+	// Payloads sealed under a previous key are re-sealed after startup by
+	// ResealRotatedPayloads, in bounded batches, rather than here.
 	return j, nil
 }
 
-// resealRotatedPayloads re-seals, under the current key, every stored job
-// payload that opens only with a previous key. Each row is replaced only if
-// it is unchanged since it was read; a concurrently changed row is retried.
-func (j *Jobs) resealRotatedPayloads() (int, error) {
+// jobPayloadResealBatch bounds the rows read and rewritten per transaction
+// when re-sealing job payloads, so a large job history never becomes one long
+// scan or transaction.
+var jobPayloadResealBatch = 500
+
+// resealJobPayloads walks the jobs table in ID order, jobPayloadResealBatch
+// rows at a time, and re-seals under the current key every payload that
+// stale selects, rewriting each batch in one transaction. A row is replaced
+// only if it is unchanged since it was read; a row changed meanwhile is left
+// for another pass. progress, when set, is called after each batch.
+func (j *Jobs) resealJobPayloads(ctx context.Context, stale func(*Job, []byte) (bool, error), open func(*Job, []byte) ([]byte, error), progress func(scanned, resealed int)) (int, error) {
 	total := 0
 	for pass := 0; pass < 5; pass++ {
-		rows, err := j.db.Query(`SELECT id, payload FROM jobs`)
-		if err != nil {
-			return total, err
-		}
-		type pending struct {
-			id  string
-			raw []byte
-		}
-		var stale []pending
-		for rows.Next() {
-			var item pending
-			if err := rows.Scan(&item.id, &item.raw); err != nil {
-				_ = rows.Close()
+		missed, scanned := 0, 0
+		cursor := ""
+		for {
+			if err := ctx.Err(); err != nil {
 				return total, err
 			}
-			var persisted persistedJob
-			if err := json.Unmarshal(item.raw, &persisted); err != nil {
-				_ = rows.Close()
-				return total, fmt.Errorf("decode job %s: %w", item.id, err)
+			batch, err := j.readResealBatch(ctx, cursor)
+			if err != nil {
+				return total, err
 			}
-			payload := decodePersistedJobPayload(persisted.Payload)
-			if !secretbox.IsSealed(payload) {
-				continue
+			if len(batch) == 0 {
+				break
 			}
-			if _, previous, err := j.payloadBox.OpenReportingPrevious(payload, persisted.Job.ID, persisted.Job.Kind, persisted.Job.User); err != nil {
-				_ = rows.Close()
-				return total, fmt.Errorf("job %s payload opens with neither the current nor a previous key: %w", item.id, err)
-			} else if previous {
-				stale = append(stale, item)
+			cursor = batch[len(batch)-1].id
+			scanned += len(batch)
+			resealed, batchMissed, err := j.resealBatch(ctx, batch, stale, open)
+			if err != nil {
+				return total, err
+			}
+			total += resealed
+			missed += batchMissed
+			if progress != nil {
+				progress(scanned, total)
+			}
+			if len(batch) < jobPayloadResealBatch {
+				break
 			}
 		}
-		if err := rows.Err(); err != nil {
-			_ = rows.Close()
-			return total, err
-		}
-		if err := rows.Close(); err != nil {
-			return total, err
-		}
-		if len(stale) == 0 {
+		if missed == 0 {
 			return total, nil
-		}
-		for _, item := range stale {
-			var persisted persistedJob
-			if err := json.Unmarshal(item.raw, &persisted); err != nil {
-				return total, fmt.Errorf("decode job %s: %w", item.id, err)
-			}
-			if persisted.Job.ID != item.id {
-				return total, fmt.Errorf("job row %s holds the record of job %s", item.id, persisted.Job.ID)
-			}
-			opened, err := j.payloadBox.Open(decodePersistedJobPayload(persisted.Payload), persisted.Job.ID, persisted.Job.Kind, persisted.Job.User)
-			if err != nil {
-				return total, fmt.Errorf("open payload of job %s: %w", item.id, err)
-			}
-			persisted.Job.Payload = opened
-			sealed, err := j.sealPayload(&persisted.Job)
-			if err != nil {
-				return total, err
-			}
-			encoded, err := json.Marshal(sealed)
-			if err != nil {
-				return total, err
-			}
-			data, err := json.Marshal(&persistedJob{Job: persisted.Job, Payload: encoded})
-			if err != nil {
-				return total, err
-			}
-			result, err := j.db.Exec(`UPDATE jobs SET payload = ? WHERE id = ? AND payload = ?`, data, item.id, item.raw)
-			if err != nil {
-				return total, fmt.Errorf("re-seal job %s: %w", item.id, err)
-			}
-			if changed, err := result.RowsAffected(); err != nil {
-				return total, err
-			} else if changed == 1 {
-				total++
-			}
 		}
 	}
 	return total, errors.New("job payloads kept changing during re-sealing")
+}
+
+type resealJobRow struct {
+	id        string
+	raw       []byte
+	persisted persistedJob
+}
+
+func (j *Jobs) readResealBatch(ctx context.Context, cursor string) ([]resealJobRow, error) {
+	rows, err := j.db.QueryContext(ctx, `SELECT id, payload FROM jobs WHERE id > ? ORDER BY id LIMIT ?`, cursor, jobPayloadResealBatch)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var batch []resealJobRow
+	for rows.Next() {
+		var row resealJobRow
+		if err := rows.Scan(&row.id, &row.raw); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(row.raw, &row.persisted); err != nil {
+			return nil, fmt.Errorf("decode job %s: %w", row.id, err)
+		}
+		if row.persisted.Job.ID != row.id {
+			return nil, fmt.Errorf("job row %s holds the record of job %s", row.id, row.persisted.Job.ID)
+		}
+		batch = append(batch, row)
+	}
+	return batch, rows.Err()
+}
+
+// resealBatch re-seals the stale payloads of one batch in one transaction and
+// reports how many were rewritten and how many had changed since the read.
+func (j *Jobs) resealBatch(ctx context.Context, batch []resealJobRow, stale func(*Job, []byte) (bool, error), open func(*Job, []byte) ([]byte, error)) (int, int, error) {
+	type rewrite struct {
+		id         string
+		raw, value []byte
+	}
+	var rewrites []rewrite
+	for _, row := range batch {
+		job := row.persisted.Job
+		payload := decodePersistedJobPayload(row.persisted.Payload)
+		needed, err := stale(&job, payload)
+		if err != nil {
+			return 0, 0, fmt.Errorf("job %s: %w", row.id, err)
+		}
+		if !needed {
+			continue
+		}
+		opened, err := open(&job, payload)
+		if err != nil {
+			return 0, 0, fmt.Errorf("open payload of job %s: %w", row.id, err)
+		}
+		job.Payload = opened
+		sealed, err := j.sealPayload(&job)
+		if err != nil {
+			return 0, 0, err
+		}
+		encoded, err := json.Marshal(sealed)
+		if err != nil {
+			return 0, 0, err
+		}
+		data, err := json.Marshal(&persistedJob{Job: job, Payload: encoded})
+		if err != nil {
+			return 0, 0, err
+		}
+		rewrites = append(rewrites, rewrite{id: row.id, raw: row.raw, value: data})
+	}
+	if len(rewrites) == 0 {
+		return 0, 0, nil
+	}
+	tx, err := j.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer tx.Rollback()
+	resealed, missed := 0, 0
+	for _, item := range rewrites {
+		result, err := tx.ExecContext(ctx, `UPDATE jobs SET payload = ? WHERE id = ? AND payload = ?`, item.value, item.id, item.raw)
+		if err != nil {
+			return 0, 0, fmt.Errorf("re-seal job %s: %w", item.id, err)
+		}
+		changed, err := result.RowsAffected()
+		if err != nil {
+			return 0, 0, err
+		}
+		if changed == 1 {
+			resealed++
+		} else {
+			missed++
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, 0, fmt.Errorf("commit job payload re-seal batch: %w", err)
+	}
+	return resealed, missed, nil
+}
+
+// ResealRotatedPayloads re-seals, in bounded batches, every job payload that
+// still opens only with a previous STEPANEL_ACCOUNT_KEY. The service keeps
+// running meanwhile, because payloads open under either key, and the work is
+// resumable: a re-sealed row opens with the current key and is skipped. Keep
+// the previous key configured until this reports completion.
+func (j *Jobs) ResealRotatedPayloads(ctx context.Context, progress func(scanned, resealed int)) (int, error) {
+	if j.payloadBox == nil || !j.payloadBox.HasPrevious() {
+		return 0, nil
+	}
+	stale := func(job *Job, payload []byte) (bool, error) {
+		if !secretbox.IsSealed(payload) {
+			return false, nil
+		}
+		_, previous, err := j.payloadBox.OpenReportingPrevious(payload, job.ID, job.Kind, job.User)
+		if err != nil {
+			return false, fmt.Errorf("payload opens with neither the current nor a previous key: %w", err)
+		}
+		return previous, nil
+	}
+	open := func(job *Job, payload []byte) ([]byte, error) {
+		return j.payloadBox.Open(payload, job.ID, job.Kind, job.User)
+	}
+	return j.resealJobPayloads(ctx, stale, open, progress)
 }
 
 // normalizeLegacyCloudJobOwners upgrades pre-namespace job owners after their
@@ -2281,78 +2350,16 @@ func jobPayloadKey(value string) []byte {
 	return digest[:]
 }
 
-// resealLegacyPayloads rewrites every legacy payload in the context-bound
-// format. Each row is updated only if it is unchanged since it was read, so
-// a concurrent claim or state change by another process is never reverted;
-// a row that changed is read again on the next pass.
+// resealLegacyPayloads re-seals, in bounded batches, payloads written before
+// context-bound sealing (unsealed or SPJ1). It completes before the store
+// records the migration, so it runs at startup. Each row is updated only if
+// unchanged since it was read, so a concurrent claim is never reverted.
 func (j *Jobs) resealLegacyPayloads() error {
-	for pass := 0; pass < 5; pass++ {
-		rows, err := j.db.Query(`SELECT id, payload FROM jobs`)
-		if err != nil {
-			return err
-		}
-		type pending struct {
-			id  string
-			raw []byte
-		}
-		var legacy []pending
-		for rows.Next() {
-			var item pending
-			if err := rows.Scan(&item.id, &item.raw); err != nil {
-				_ = rows.Close()
-				return err
-			}
-			var persisted persistedJob
-			if err := json.Unmarshal(item.raw, &persisted); err != nil {
-				_ = rows.Close()
-				return fmt.Errorf("decode job %s: %w", item.id, err)
-			}
-			payload := decodePersistedJobPayload(persisted.Payload)
-			if len(payload) > 0 && !secretbox.IsSealed(payload) {
-				legacy = append(legacy, item)
-			}
-		}
-		if err := rows.Err(); err != nil {
-			_ = rows.Close()
-			return err
-		}
-		if err := rows.Close(); err != nil {
-			return err
-		}
-		if len(legacy) == 0 {
-			return nil
-		}
-		for _, item := range legacy {
-			var persisted persistedJob
-			if err := json.Unmarshal(item.raw, &persisted); err != nil {
-				return fmt.Errorf("decode job %s: %w", item.id, err)
-			}
-			if persisted.Job.ID != item.id {
-				return fmt.Errorf("job row %s holds the record of job %s", item.id, persisted.Job.ID)
-			}
-			opened, err := j.openPayload(&persisted.Job, decodePersistedJobPayload(persisted.Payload))
-			if err != nil {
-				return fmt.Errorf("open legacy payload of job %s: %w", item.id, err)
-			}
-			persisted.Job.Payload = opened
-			sealed, err := j.sealPayload(&persisted.Job)
-			if err != nil {
-				return err
-			}
-			encoded, err := json.Marshal(sealed)
-			if err != nil {
-				return err
-			}
-			data, err := json.Marshal(&persistedJob{Job: persisted.Job, Payload: encoded})
-			if err != nil {
-				return err
-			}
-			if _, err := j.db.Exec(`UPDATE jobs SET payload = ? WHERE id = ? AND payload = ?`, data, item.id, item.raw); err != nil {
-				return fmt.Errorf("re-seal job %s: %w", item.id, err)
-			}
-		}
+	stale := func(_ *Job, payload []byte) (bool, error) {
+		return len(payload) > 0 && !secretbox.IsSealed(payload), nil
 	}
-	return errors.New("job payloads kept changing during re-sealing")
+	_, err := j.resealJobPayloads(context.Background(), stale, j.openPayload, nil)
+	return err
 }
 
 // sealPayload seals a job payload bound to the job's ID, kind and owner, so

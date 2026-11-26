@@ -699,7 +699,27 @@ func Main() {
 	if err != nil {
 		log.Fatalf("open durable control-plane job state: %v", err)
 	}
-	auditKeyRotation(cfg, "job-payloads", uint64(jobs.rotationResealed))
+	if len(cfg.AccountPreviousKeys) > 0 {
+		// Startup loads only active and recent jobs, but older jobs sealed
+		// under a previous key must stay readable after it is retired, so
+		// every row is re-sealed: in the background, in bounded batches,
+		// while payloads open under either key.
+		go func() {
+			lastLogged := 0
+			resealed, err := jobs.ResealRotatedPayloads(context.Background(), func(scanned, resealed int) {
+				if scanned-lastLogged >= 10*jobPayloadResealBatch {
+					lastLogged = scanned
+					log.Printf("key rotation: job payload re-seal scanned %d row(s), re-sealed %d so far", scanned, resealed)
+				}
+			})
+			if err != nil {
+				log.Printf("[ERROR] key rotation: job payload re-seal stopped after re-sealing %d row(s); keep the previous STEPANEL_ACCOUNT_KEY and restart to resume: %v", resealed, err)
+				return
+			}
+			log.Printf("key rotation complete: %d job payload(s) re-sealed; every job payload now opens with the current STEPANEL_ACCOUNT_KEY", resealed)
+			auditKeyRotation(cfg, "job-payloads", uint64(resealed))
+		}()
+	}
 	jobs.RequireCompatibleWorker(cfg.WorkerMode == "external")
 	jobs.SetMaxPending(cfg.MaxPendingJobs)
 	if cfg.WorkerMode == "external" && !workerMode {
