@@ -2,6 +2,7 @@ package stepanel
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -1101,6 +1102,15 @@ func bindControlPlaneState(store any, db *sql.DB, name string, target any) (bool
 // Higher-level store persistence should use persistBoundControlPlaneState,
 // which reloads, merges, and retries boundedly after this primitive reports a
 // conflict.
+// controlPlaneStateWriteTimeout bounds a state-blob write (accounts, site
+// access and the other bound stores, written from requests). It is longer
+// than SQLite's 5-second busy timeout so lock waits are not cut short; a
+// timeout is a storage error, never retried as a revision conflict.
+var controlPlaneStateWriteTimeout = 10 * time.Second
+
+// controlPlaneStateReadTimeout bounds the re-read after a revision conflict.
+var controlPlaneStateReadTimeout = 2 * time.Second
+
 func compareAndSwapControlPlaneState(store any, name string, payload []byte, db *sql.DB) (bool, error) {
 	_, ok := controlPlaneStateBindings.Load(store)
 	if !ok {
@@ -1113,9 +1123,11 @@ func compareAndSwapControlPlaneState(store any, name string, payload []byte, db 
 		return true, errors.New("control-plane state was not bound before persistence")
 	}
 	readRevision := readRevisionAny.(int64)
+	ctx, cancel := context.WithTimeout(context.Background(), controlPlaneStateWriteTimeout)
+	defer cancel()
 
 	if readRevision < 0 {
-		result, err := db.Exec(`INSERT INTO state_blobs (name, payload, updated_at, revision) VALUES (?, ?, unixepoch(), 1) ON CONFLICT(name) DO NOTHING`, name, payload)
+		result, err := db.ExecContext(ctx, `INSERT INTO state_blobs (name, payload, updated_at, revision) VALUES (?, ?, unixepoch(), 1) ON CONFLICT(name) DO NOTHING`, name, payload)
 		if err != nil {
 			return true, fmt.Errorf("insert control-plane state %s: %w", name, classifyControlPlaneStorageError(err))
 		}
@@ -1129,7 +1141,7 @@ func compareAndSwapControlPlaneState(store any, name string, payload []byte, db 
 		controlPlaneStateRevisions.Store(store, int64(1))
 		return true, nil
 	}
-	result, err := db.Exec(`UPDATE state_blobs SET payload = ?, updated_at = unixepoch(), revision = revision + 1 WHERE name = ? AND revision = ?`, payload, name, readRevision)
+	result, err := db.ExecContext(ctx, `UPDATE state_blobs SET payload = ?, updated_at = unixepoch(), revision = revision + 1 WHERE name = ? AND revision = ?`, payload, name, readRevision)
 	if err != nil {
 		return true, fmt.Errorf("write control-plane state %s: %w", name, classifyControlPlaneStorageError(err))
 	}
@@ -1209,7 +1221,9 @@ func persistBoundControlPlaneState(store any, payload []byte) (bool, error) {
 func readControlPlaneBlobWithRevision(db *sql.DB, name string) ([]byte, int64, error) {
 	var payload []byte
 	var revision int64
-	if err := db.QueryRow(`SELECT payload, revision FROM state_blobs WHERE name = ?`, name).Scan(&payload, &revision); err != nil {
+	readCtx, readCancel := context.WithTimeout(context.Background(), controlPlaneStateReadTimeout)
+	defer readCancel()
+	if err := db.QueryRowContext(readCtx, `SELECT payload, revision FROM state_blobs WHERE name = ?`, name).Scan(&payload, &revision); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, -1, nil
 		}

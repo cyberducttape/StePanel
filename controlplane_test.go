@@ -808,3 +808,40 @@ func TestControlPlaneSizeLimitSurvivesConnectionReplacement(t *testing.T) {
 		t.Fatal("the test did not replace the connection")
 	}
 }
+
+// A state-blob write from a request queued behind a long transaction on the
+// single connection fails at its deadline as a storage error, not as a
+// revision conflict that would be merged and retried.
+func TestControlPlaneStateWriteFailsFastWhenTheConnectionIsHeld(t *testing.T) {
+	db := openTestControlPlane(t)
+	store := &ResourceStore{values: map[string]ResourceProfile{}}
+	if _, err := bindControlPlaneState(store, db, "resources-deadline", &store.values); err != nil {
+		t.Fatal(err)
+	}
+	previous := controlPlaneStateWriteTimeout
+	controlPlaneStateWriteTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { controlPlaneStateWriteTimeout = previous })
+	held, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Rollback()
+	store.values["shop"] = ResourceProfile{Site: "shop", CPUPercent: 100, MemoryMB: 512, State: "pending"}
+	start := time.Now()
+	err = store.persistLocked()
+	if err == nil {
+		t.Fatal("a write succeeded while the only connection was held")
+	}
+	if errors.Is(err, errControlPlaneRevisionConflict) || errors.Is(err, errControlPlaneStateRefreshed) {
+		t.Fatalf("a deadline was reported as a conflict: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("the write waited %s instead of failing at its deadline", elapsed)
+	}
+	if err := held.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.persistLocked(); err != nil {
+		t.Fatalf("write after the connection was released: %v", err)
+	}
+}
