@@ -80,9 +80,14 @@ changes transaction behavior and is unsafe without the steps below.
    `tasks_table.go`), with run output and execution history in child
    tables, so a task run no longer rewrites every task.
    `TestRelationalStoresCoverEveryField` fails when a stored struct gains a
-   field its table does not hold. Still on blobs: environment secrets (see
-   above), DNS desired state, workers, Redis allocations, PHP profiles,
-   Composer operations and deployments. Both use the shared
+   field its table does not hold. DNS desired records, site workers and Redis
+   allocations are done (migrations 38 to 40) with statements generated
+   from their structs (`reflect_rows.go`); their tables are literal SQL in
+   the migrations, `TestReflectRowTablesMatchTheirStructs` compares each
+   struct with its live table, and a blob migration writes only the columns
+   its table has, so a later field cannot break upgrading an older
+   database. Still on blobs: environment secrets (see above), PHP profiles
+   (a list field), Composer operations and deployments. Both use the shared
    `keyedRowTable` (`keyed_rows.go`), which the remaining map-shaped stores
    can adopt the same way. Environment secrets need more than that: key
    rotation and the context-binding migration re-seal every secret without

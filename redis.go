@@ -22,6 +22,8 @@ type RedisAllocationStore struct {
 	mu     sync.RWMutex
 	path   string
 	values map[string]RedisAllocation
+	// rows, when bound, makes a relational table the store's persistence.
+	rows *keyedRowState[RedisAllocation]
 }
 
 func OpenRedisAllocationStore(path string) (*RedisAllocationStore, error) {
@@ -53,6 +55,9 @@ func validateRedisAllocation(a RedisAllocation, site string) error {
 	return nil
 }
 func (s *RedisAllocationStore) persistLocked() error {
+	if s.rows.bound() {
+		return redisAllocationRows.persist(s.rows, s.values)
+	}
 	data, err := json.MarshalIndent(s.values, "", "  ")
 	if err != nil {
 		return err

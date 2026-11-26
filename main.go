@@ -654,11 +654,15 @@ func Main() {
 		log.Printf("key rotation: re-sealed environment secrets after %d opened with a previous STEPANEL_ENVIRONMENT_KEY", resealed)
 		auditKeyRotation(cfg, "environment", resealed)
 	}
-	bindState(redisAllocations, "redis", &redisAllocations.values, redisAllocations.persistLocked)
+	if err := bindRedisAllocations(redisAllocations, controlPlaneDB); err != nil {
+		log.Fatalf("load Redis allocations: %v", err)
+	}
 	if err := bindSiteAccess(access, controlPlaneDB); err != nil {
 		log.Fatalf("load site access: %v", err)
 	}
-	bindState(workers, "workers", &workers.values, workers.persistLocked)
+	if err := bindWorkers(workers, controlPlaneDB); err != nil {
+		log.Fatalf("load site workers: %v", err)
+	}
 	bindState(composer, "composer", &composer.latest, func() error {
 		data, err := json.Marshal(composer.latest)
 		if err != nil {
@@ -684,7 +688,9 @@ func Main() {
 	if err := bindResourceProfiles(resources, controlPlaneDB); err != nil {
 		log.Fatalf("load resource profiles: %v", err)
 	}
-	bindState(dnsDesired, "dns-desired", &dnsDesired.values, dnsDesired.persistLocked)
+	if err := bindDNSDesired(dnsDesired, controlPlaneDB); err != nil {
+		log.Fatalf("load DNS desired records: %v", err)
+	}
 	if err := bindRoutes(routes, controlPlaneDB); err != nil {
 		log.Fatalf("load desired routes: %v", err)
 	}

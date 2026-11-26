@@ -685,6 +685,11 @@ CREATE INDEX IF NOT EXISTS jobs_state_started_idx ON jobs(state, started_at, id)
 	// Scheduled tasks and their run history move from the "tasks" state blob
 	// to scheduled_tasks and its child tables (tasks_table.go).
 	migration.NewMigration(37, "store scheduled tasks relationally", migrateScheduledTasksBlob),
+	// DNS desired state, site workers and Redis allocations move from their
+	// state blobs to generated-statement tables (flat_state_tables.go).
+	migration.NewMigration(38, "store DNS desired records relationally", migrateDNSDesiredBlob),
+	migration.NewMigration(39, "store site workers relationally", migrateWorkersBlob),
+	migration.NewMigration(40, "store Redis allocations relationally", migrateRedisAllocationsBlob),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {

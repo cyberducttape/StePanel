@@ -37,6 +37,8 @@ type DNSDesiredStore struct {
 	mu     sync.RWMutex
 	path   string
 	values map[string]DNSDesiredRecord
+	// rows, when bound, makes a relational table the store's persistence.
+	rows *keyedRowState[DNSDesiredRecord]
 }
 
 func OpenDNSDesiredStore(path string) (*DNSDesiredStore, error) {
@@ -75,6 +77,9 @@ func OpenDNSDesiredStore(path string) (*DNSDesiredStore, error) {
 }
 
 func (s *DNSDesiredStore) persistLocked() error {
+	if s.rows.bound() {
+		return dnsDesiredRows.persist(s.rows, s.values)
+	}
 	data, err := json.MarshalIndent(s.values, "", "  ")
 	if err != nil {
 		return err

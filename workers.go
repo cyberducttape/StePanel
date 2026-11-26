@@ -29,6 +29,8 @@ type WorkerStore struct {
 	mu     sync.RWMutex
 	path   string
 	values map[string]Worker
+	// rows, when bound, makes a relational table the store's persistence.
+	rows *keyedRowState[Worker]
 }
 
 var workerTypes = map[string]bool{"laravel": true, "horizon": true, "node": true, "celery": true, "rq": true}
@@ -57,6 +59,9 @@ func OpenWorkerStore(path string) (*WorkerStore, error) {
 	return s, nil
 }
 func (s *WorkerStore) persistLocked() error {
+	if s.rows.bound() {
+		return workerRows.persist(s.rows, s.values)
+	}
 	d, e := json.MarshalIndent(s.values, "", "  ")
 	if e != nil {
 		return e
