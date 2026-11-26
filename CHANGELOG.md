@@ -32,10 +32,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
-- Resource profiles and site SFTP/shell access (with SSH keys) are stored
-  one row per site in relational tables instead of whole-object JSON blobs
-  (control-plane migrations 33 and 34, applied automatically). Changes to
-  different sites no longer conflict.
+- Resource profiles, site SFTP/shell access (with SSH keys) and domain
+  claims are stored one row per site or domain in relational tables instead
+  of whole-object JSON blobs (control-plane migrations 33 to 35, applied
+  automatically). Changes to different sites or domains no longer conflict,
+  and one claim per domain is enforced by the database.
 
 - **Tenant code can no longer reach private networks.** Site PHP-FPM pools,
   Node and Python apps, and scheduled tasks are denied private, shared and

@@ -676,6 +676,9 @@ CREATE INDEX IF NOT EXISTS jobs_state_started_idx ON jobs(state, started_at, id)
 	// Site SFTP/shell access and SSH keys move from the "site-access" state
 	// blob to site_access and site_access_keys (site_access_table.go).
 	migration.NewMigration(34, "store site access relationally", migrateSiteAccessBlob),
+	// Domain claims move from the "domain-claims" state blob to one row per
+	// domain (domain_claims_table.go).
+	migration.NewMigration(35, "store domain claims relationally", migrateDomainClaimsBlob),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {

@@ -684,7 +684,9 @@ func Main() {
 	}
 	bindState(dnsDesired, "dns-desired", &dnsDesired.values, dnsDesired.persistLocked)
 	bindState(routes, "routes", &routes.values, routes.persistLocked)
-	bindState(domains, "domain-claims", &domains.values, domains.persistLocked)
+	if err := bindDomainClaims(domains, controlPlaneDB); err != nil {
+		log.Fatalf("load domain claims: %v", err)
+	}
 	// Recovery and reconciliation are started after the HTTP control plane is
 	// listening. Readiness remains false until this work has completed.
 	view, panelView, err := loadViews()

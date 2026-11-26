@@ -49,6 +49,9 @@ type DomainClaimStore struct {
 	mu     sync.RWMutex
 	path   string
 	values map[string]DomainClaim
+	// rows, when bound (bindDomainClaims), makes the domain_claims table the
+	// store's persistence.
+	rows *keyedRowState[DomainClaim]
 }
 
 const (
@@ -100,6 +103,9 @@ func OpenDomainClaimStore(path string) (*DomainClaimStore, error) {
 func (s *DomainClaimStore) persistLocked() error {
 	if len(s.values) > maxDomainClaims {
 		return errors.New("domain claim count exceeds configured limit")
+	}
+	if s.rows.bound() {
+		return domainClaimRows.persist(s.rows, s.values)
 	}
 	b, err := json.MarshalIndent(s.values, "", "  ")
 	if err != nil {

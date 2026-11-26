@@ -72,7 +72,10 @@ changes transaction behavior and is unsafe without the steps below.
    writes to different sites no longer conflict; a write over a row another
    process changed reloads the table and is retried by the caller. **Site
    access is done** (migration 34, `site_access_table.go`): `site_access`
-   rows with their SSH keys in `site_access_keys`. Both use the shared
+   rows with their SSH keys in `site_access_keys`. **Domain claims are
+   done** (migration 35, `domain_claims_table.go`): one row per domain, so
+   one claim per domain is a database invariant and a claim change no
+   longer rewrites every claim. Both use the shared
    `keyedRowTable` (`keyed_rows.go`), which the remaining map-shaped stores
    can adopt the same way. Environment secrets need more than that: key
    rotation and the context-binding migration re-seal every secret without
