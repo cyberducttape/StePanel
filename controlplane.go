@@ -991,18 +991,6 @@ func pruneControlPlaneSnapshots(path string, keep int) error {
 	return errors.Join(errs...)
 }
 
-func readControlPlaneBlob(db *sql.DB, name string) ([]byte, bool, error) {
-	var payload []byte
-	err := db.QueryRow(`SELECT payload FROM state_blobs WHERE name = ?`, name).Scan(&payload)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, err
-	}
-	return payload, true, nil
-}
-
 var errControlPlaneStateRefreshed = errors.New("control-plane state refreshed from durable peer state")
 
 // Storage failures are typed apart from revision conflicts: they keep the
