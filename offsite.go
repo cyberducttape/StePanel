@@ -553,24 +553,9 @@ func downloadOffsiteBackupWithLedgerContext(parent context.Context, cfg Config, 
 	// A signed backup must retain its signature. Unsigned backups do not have
 	// this object, so absence is allowed and strict backup verification enforces the
 	// configured signing policy.
-	ctx, cancel := context.WithTimeout(transferCtx, deadline)
-	defer cancel()
-	signaturePath := filepath.Join(root, "manifest.sig")
-	remoteSignature, err := offsiteRemoteObject(remoteRoot, "manifest.sig")
-	if err != nil {
-		cleanup()
-		return "", func() {}, err
-	}
-	copyArgs := append([]string{"copyto", remoteSignature, signaturePath}, offsiteRcloneTransferArgs(maxOffsiteSignatureBytes)...)
-	_, copyErr := runOffsiteRclone(ctx, copyArgs...)
-	if copyErr == nil {
-		if info, statErr := os.Stat(signaturePath); statErr != nil || info.Size() > maxOffsiteSignatureBytes {
-			copyErr = errors.New("downloaded offsite signature exceeds the object limit")
-		}
-	}
-	if copyErr != nil {
-		_ = os.Remove(signaturePath)
-	}
+	// downloadOffsiteObjectLimit removes any partial or oversized object, so
+	// a missing or rejected signature simply leaves none for verification.
+	_ = downloadOffsiteObjectLimit(transferCtx, remoteRoot, root, "manifest.sig", maxOffsiteSignatureBytes) // best-effort: absence is allowed and strict verification enforces the signing policy
 	return root, cleanup, nil
 }
 
@@ -595,10 +580,24 @@ func downloadOffsiteObjectLimit(parent context.Context, remoteRoot, localRoot, o
 	if err != nil {
 		return fmt.Errorf("invalid offsite local object path: %w", err)
 	}
-	copyArgs := append([]string{"copyto", remote, local}, offsiteRcloneTransferArgs(maxBytes)...)
-	output, err := runOffsiteRclone(ctx, copyArgs...)
+	// Stream the object with rclone cat and read at most one byte past the
+	// limit. rclone refuses --max-size (a filter) on a single-file copyto
+	// ("can't limit to single files when using filters"), and --max-transfer
+	// does not stop a single-file copy, so neither bounds the download.
+	file, err := os.OpenFile(local, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
-		return fmt.Errorf("download offsite backup object %s: %w: %s", object, err, strings.TrimSpace(string(output)))
+		return fmt.Errorf("create offsite local object %s: %w", object, err)
+	}
+	args := []string{"cat", "--count", strconv.FormatInt(maxBytes+1, 10), "--timeout", offsiteStallTimeout.String(), "--contimeout", offsiteConnectTimeout.String(), "--low-level-retries", "10", remote}
+	cmd := exec.CommandContext(ctx, "rclone", args...)
+	cmd.Env = cloudCommandEnv()
+	stderr, runErr := runCappedToFile(ctx, cmd, file, 64<<10)
+	if closeErr := file.Close(); runErr == nil && closeErr != nil {
+		runErr = closeErr
+	}
+	if runErr != nil {
+		_ = os.Remove(local) // best-effort: a failed download leaves no partial object
+		return fmt.Errorf("download offsite backup object %s: %w: %s", object, runErr, strings.TrimSpace(string(stderr)))
 	}
 	info, err := os.Lstat(local)
 	if err != nil {
@@ -608,6 +607,7 @@ func downloadOffsiteObjectLimit(parent context.Context, remoteRoot, localRoot, o
 		return fmt.Errorf("downloaded offsite backup object %s is not a regular file", object)
 	}
 	if info.Size() > maxBytes {
+		_ = os.Remove(local) // best-effort: never leave an oversized object behind
 		return fmt.Errorf("downloaded offsite backup object %s exceeds the %d-byte limit", object, maxBytes)
 	}
 	return nil

@@ -35,6 +35,12 @@ func runBoundedCommandLimit(ctx context.Context, cmd *exec.Cmd, limit int) ([]by
 	return h.RunBoundedCommandLimit(ctx, cmd, limit)
 }
 
+// runCappedToFile streams cmd's stdout into file and returns at most
+// stderrLimit bytes of its stderr.
+func runCappedToFile(ctx context.Context, cmd *exec.Cmd, file *os.File, stderrLimit int) ([]byte, error) {
+	return h.RunCappedToFile(ctx, cmd, file, stderrLimit)
+}
+
 func runBoundedCommandInput(ctx context.Context, cmd *exec.Cmd, input io.Reader) ([]byte, error) {
 	return h.RunBoundedCommandInput(ctx, cmd, input)
 }
