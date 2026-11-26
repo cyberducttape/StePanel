@@ -187,6 +187,7 @@ func readinessChecks(cfg Config, jobs *Jobs) map[string]ReadinessCheck {
 		checks["root_broker"] = rootBrokerHealthCheck()
 	}
 	checks["audit_state"] = auditReadiness(audit.CurrentHealth())
+	checks["control_plane_storage"] = controlPlaneStorageReadiness()
 	if jobs == nil {
 		checks["job_state"] = ReadinessCheck{Ready: false, Detail: "job store is not initialized"}
 	} else if err := jobs.PersistenceError(); err != nil {

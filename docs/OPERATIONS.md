@@ -253,6 +253,11 @@ restart decisions. `/readyz` returns `503` when the lightweight durable SQLite
 query fails, the capacity-reservation schema is unavailable, persistent job
 state is degraded, or the import, backup, or recovery filesystem is unavailable
 or below `STEPANEL_MIN_FREE_BYTES`; use it for traffic and post-upgrade checks.
+The `control_plane_storage` check turns not ready when a control-plane state
+write fails for a storage reason (`exhausted` for a full disk or quota,
+`unavailable` for I/O errors, a read-only or corrupt database, or a database
+that stayed busy), naming the original error; the next successful write
+clears it. Such failures are never retried as concurrent-update conflicts.
 
 In production, `/readyz` also fails closed when the configured root broker or
 required offsite target is unavailable. A fresh install can become ready before

@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -954,6 +955,84 @@ const controlPlaneStateRetryLimit = 3
 
 var errControlPlaneStateRefreshed = errors.New("control-plane state refreshed from durable peer state")
 
+// Persistence failures are typed so only a genuine revision conflict is
+// merged and retried. Storage failures keep the original error and mark the
+// control plane degraded until a later write succeeds.
+var (
+	errControlPlaneRevisionConflict   = errors.New("control-plane state revision conflict")
+	errControlPlaneStorageExhausted   = errors.New("control-plane storage exhausted")
+	errControlPlaneStorageUnavailable = errors.New("control-plane storage unavailable")
+)
+
+// SQLite primary result codes used to classify storage failures.
+const (
+	sqliteBusy     = 5
+	sqliteLocked   = 6
+	sqliteReadOnly = 8
+	sqliteIOErr    = 10
+	sqliteCorrupt  = 11
+	sqliteFull     = 13
+	sqliteCantOpen = 14
+	sqliteNotADB   = 26
+)
+
+// classifyControlPlaneStorageError wraps a failed database write with
+// errControlPlaneStorageExhausted (disk or quota full) or
+// errControlPlaneStorageUnavailable (I/O, read-only, corrupt, busy or closed
+// database), keeping the original error in the chain.
+func classifyControlPlaneStorageError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var coded interface{ Code() int }
+	if errors.As(err, &coded) {
+		switch coded.Code() & 0xff {
+		case sqliteFull:
+			return fmt.Errorf("%w: %w", errControlPlaneStorageExhausted, err)
+		case sqliteBusy, sqliteLocked, sqliteReadOnly, sqliteIOErr, sqliteCorrupt, sqliteCantOpen, sqliteNotADB:
+			return fmt.Errorf("%w: %w", errControlPlaneStorageUnavailable, err)
+		}
+	}
+	if errors.Is(err, syscall.ENOSPC) || errors.Is(err, syscall.EDQUOT) {
+		return fmt.Errorf("%w: %w", errControlPlaneStorageExhausted, err)
+	}
+	return fmt.Errorf("%w: %w", errControlPlaneStorageUnavailable, err)
+}
+
+// controlPlaneStorageFailure holds the latest unresolved storage failure for
+// readiness; a successful state write clears it.
+var controlPlaneStorageFailure atomic.Pointer[controlPlaneStorageFailureRecord]
+
+type controlPlaneStorageFailureRecord struct {
+	at  time.Time
+	err error
+}
+
+func recordControlPlaneStorageResult(err error) {
+	if err == nil {
+		controlPlaneStorageFailure.Store(nil)
+		return
+	}
+	if errors.Is(err, errControlPlaneStorageExhausted) || errors.Is(err, errControlPlaneStorageUnavailable) {
+		controlPlaneStorageFailure.Store(&controlPlaneStorageFailureRecord{at: time.Now().UTC(), err: err})
+		log.Printf("[ERROR] control-plane state write failed: %v", err)
+	}
+}
+
+// controlPlaneStorageReadiness reports a storage failure not yet followed by
+// a successful write.
+func controlPlaneStorageReadiness() ReadinessCheck {
+	failure := controlPlaneStorageFailure.Load()
+	if failure == nil {
+		return ReadinessCheck{Ready: true}
+	}
+	kind := "unavailable"
+	if errors.Is(failure.err, errControlPlaneStorageExhausted) {
+		kind = "exhausted"
+	}
+	return ReadinessCheck{Ready: false, Detail: fmt.Sprintf("control-plane storage %s since %s: %v", kind, failure.at.Format(time.RFC3339), failure.err)}
+}
+
 // bindControlPlaneState makes a legacy JSON-backed store use a transactional
 // database blob as its live authority. The target must be a pointer to the
 // store's persisted value (normally a map). Existing database state wins;
@@ -1007,28 +1086,28 @@ func compareAndSwapControlPlaneState(store any, name string, payload []byte, db 
 	if readRevision < 0 {
 		result, err := db.Exec(`INSERT INTO state_blobs (name, payload, updated_at, revision) VALUES (?, ?, unixepoch(), 1) ON CONFLICT(name) DO NOTHING`, name, payload)
 		if err != nil {
-			return true, fmt.Errorf("insert control-plane state %s: %w", name, err)
+			return true, fmt.Errorf("insert control-plane state %s: %w", name, classifyControlPlaneStorageError(err))
 		}
 		affected, err := result.RowsAffected()
 		if err != nil {
-			return true, err
+			return true, classifyControlPlaneStorageError(err)
 		}
 		if affected != 1 {
-			return true, fmt.Errorf("control-plane state %s was created by another process", name)
+			return true, fmt.Errorf("%w: control-plane state %s was created by another process", errControlPlaneRevisionConflict, name)
 		}
 		controlPlaneStateRevisions.Store(store, int64(1))
 		return true, nil
 	}
 	result, err := db.Exec(`UPDATE state_blobs SET payload = ?, updated_at = unixepoch(), revision = revision + 1 WHERE name = ? AND revision = ?`, payload, name, readRevision)
 	if err != nil {
-		return true, fmt.Errorf("write control-plane state %s: %w", name, err)
+		return true, fmt.Errorf("write control-plane state %s: %w", name, classifyControlPlaneStorageError(err))
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
-		return true, err
+		return true, classifyControlPlaneStorageError(err)
 	}
 	if affected != 1 {
-		return true, fmt.Errorf("control-plane state %s was updated by another process (expected revision %d)", name, readRevision)
+		return true, fmt.Errorf("%w: control-plane state %s was updated by another process (expected revision %d)", errControlPlaneRevisionConflict, name, readRevision)
 	}
 	controlPlaneStateRevisions.Store(store, readRevision+1)
 
@@ -1047,7 +1126,15 @@ func persistBoundControlPlaneState(store any, payload []byte) (bool, error) {
 
 	for attempt := 0; attempt < controlPlaneStateRetryLimit; attempt++ {
 		_, err := compareAndSwapControlPlaneState(store, state.name, payload, state.db)
+		if err != nil && !errors.Is(err, errControlPlaneRevisionConflict) {
+			// A storage failure is not a concurrent update: merging and
+			// retrying would only repeat it and report it as a conflict.
+			// Keep the original error; callers roll back their change.
+			recordControlPlaneStorageResult(err)
+			return true, fmt.Errorf("persist control-plane state %s: %w", state.name, err)
+		}
 		if err == nil {
+			recordControlPlaneStorageResult(nil)
 			// A conflict merge may have incorporated peer-owned keys. Keep the
 			// live legacy store in sync with the exact image now made durable.
 			if restoreErr := restoreBoundControlPlaneTarget(state.target, payload); restoreErr != nil {
@@ -1059,6 +1146,8 @@ func persistBoundControlPlaneState(store any, payload []byte) (bool, error) {
 
 		remote, revision, readErr := readControlPlaneBlobWithRevision(state.db, state.name)
 		if readErr != nil {
+			readErr = classifyControlPlaneStorageError(readErr)
+			recordControlPlaneStorageResult(readErr)
 			if restoreErr := restoreBoundControlPlaneTarget(state.target, base); restoreErr != nil {
 				return true, fmt.Errorf("control-plane state %s reload failed (%v) and base restore failed: %w", state.name, err, restoreErr)
 			}

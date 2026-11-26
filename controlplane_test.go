@@ -707,3 +707,72 @@ func TestControlPlaneDatabaseAcceptsItsOwnGroupWritableDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+type codedSQLiteError int
+
+func (e codedSQLiteError) Error() string { return fmt.Sprintf("sqlite error %d", int(e)) }
+func (e codedSQLiteError) Code() int     { return int(e) }
+
+func TestControlPlaneStorageErrorsAreClassified(t *testing.T) {
+	for _, test := range []struct {
+		err  error
+		want error
+	}{
+		{codedSQLiteError(13), errControlPlaneStorageExhausted},
+		{codedSQLiteError(13 | 3<<8), errControlPlaneStorageExhausted},
+		{fmt.Errorf("write: %w", syscall.ENOSPC), errControlPlaneStorageExhausted},
+		{codedSQLiteError(10 | 12<<8), errControlPlaneStorageUnavailable},
+		{codedSQLiteError(8), errControlPlaneStorageUnavailable},
+		{codedSQLiteError(11), errControlPlaneStorageUnavailable},
+		{errors.New("sql: database is closed"), errControlPlaneStorageUnavailable},
+	} {
+		got := classifyControlPlaneStorageError(test.err)
+		if !errors.Is(got, test.want) || !errors.Is(got, test.err) {
+			t.Errorf("classify(%v) = %v, want %v wrapping the original", test.err, got, test.want)
+		}
+	}
+}
+
+// A storage failure is returned as such, without a merge or a refreshed-state
+// conflict, marks the control plane degraded, and a later successful write
+// clears it.
+func TestControlPlaneStorageFailureIsNotAConflict(t *testing.T) {
+	db := openTestControlPlane(t)
+	store := &ResourceStore{values: map[string]ResourceProfile{}}
+	if _, err := bindControlPlaneState(store, db, "resources-storage", &store.values); err != nil {
+		t.Fatal(err)
+	}
+	store.values["shop"] = ResourceProfile{Site: "shop", CPUPercent: 100, MemoryMB: 512, State: "pending"}
+	if err := store.persistLocked(); err != nil {
+		t.Fatal(err)
+	}
+	if !controlPlaneStorageReadiness().Ready {
+		t.Fatal("a successful write left the control plane degraded")
+	}
+	if _, err := db.Exec(`CREATE TRIGGER deny_state_writes BEFORE UPDATE ON state_blobs BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`); err != nil {
+		t.Fatal(err)
+	}
+	store.values["blog"] = ResourceProfile{Site: "blog", CPUPercent: 100, MemoryMB: 512, State: "pending"}
+	err := store.persistLocked()
+	if err == nil {
+		t.Fatal("a failed write reported success")
+	}
+	if errors.Is(err, errControlPlaneStateRefreshed) || errors.Is(err, errControlPlaneRevisionConflict) {
+		t.Fatalf("a storage failure was reported as a conflict: %v", err)
+	}
+	if !errors.Is(err, errControlPlaneStorageUnavailable) {
+		t.Fatalf("storage failure = %v, want errControlPlaneStorageUnavailable", err)
+	}
+	if check := controlPlaneStorageReadiness(); check.Ready || !strings.Contains(check.Detail, "unavailable") {
+		t.Fatalf("readiness after a storage failure = %+v", check)
+	}
+	if _, err := db.Exec(`DROP TRIGGER deny_state_writes`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.persistLocked(); err != nil {
+		t.Fatal(err)
+	}
+	if !controlPlaneStorageReadiness().Ready {
+		t.Fatal("a successful write did not clear the degraded state")
+	}
+}
