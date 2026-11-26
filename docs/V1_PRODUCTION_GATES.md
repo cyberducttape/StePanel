@@ -218,9 +218,14 @@ created 500 sites and 2,000 domains, then failed creating customer account
 each. The cause was not captured; the harness now keeps the server journals
 and a `daemon-reload` timing, and run
 [45774333339](https://github.com/cyberducttape/StePanel/actions/runs/45774333339)
-is repeating it. The tenant egress KVM drill has not yet produced a valid
-result (its probe harness, not the policy, failed so far). Production
-status remains **NO-GO**.
+is repeating it. The tenant egress KVM drill
+[45779025191](https://github.com/cyberducttape/StePanel/actions/runs/45779025191)
+passed on an installed Rocky Linux 9 host (source `8968b128`): PHP-FPM
+loaded the policy with `localhost` expanded to loopback, and a unit
+carrying the installed policy lines reached a public address and DNS
+through the host's resolver while being refused a private address and
+`169.254.169.254`. Earlier runs failed on the probe harness, not the
+policy. Production status remains **NO-GO**.
 
 **Evidence update (2026-11-24):** Product source `9594ee7b` passed exact-source
 hosted CI, the installed Ubuntu 24.04 + Caddy + MariaDB smoke
