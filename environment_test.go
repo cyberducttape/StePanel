@@ -201,7 +201,7 @@ func TestBoundEnvironmentStoreKeepsPlaintextRuntimeState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := bindControlPlaneState(store, db, "environment", store); err != nil {
+	if err := bindEnvironment(store, db); err != nil {
 		t.Fatal(err)
 	}
 
@@ -228,19 +228,19 @@ func TestBoundEnvironmentStoreKeepsPlaintextRuntimeState(t *testing.T) {
 		t.Fatalf("runtime secret after second persist = %q; want plaintext", got)
 	}
 
-	payload, found, err := readControlPlaneBlob(db, "environment")
-	if err != nil || !found {
-		t.Fatalf("read durable environment blob: found=%v err=%v", found, err)
+	var stored string
+	if err := db.QueryRow(`SELECT value FROM environment_variables WHERE site = 'demo' AND name = 'DB_PASSWORD'`).Scan(&stored); err != nil {
+		t.Fatalf("read durable environment row: %v", err)
 	}
-	if strings.Contains(string(payload), "secret123") {
-		t.Fatal("durable environment blob contains a plaintext secret")
+	if strings.Contains(stored, "secret123") || !strings.HasPrefix(stored, environmentSecretPrefix) {
+		t.Fatalf("durable environment row is not sealed: %q", stored)
 	}
 
 	reloaded, err := OpenEnvironmentStore(filepath.Join(dir, "environment.json"), "test-environment-key")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := bindControlPlaneState(reloaded, db, "environment", reloaded); err != nil {
+	if err := bindEnvironment(reloaded, db); err != nil {
 		t.Fatal(err)
 	}
 	if got := reloaded.values["demo"]["DB_PASSWORD"].Value; got != "secret123" {
@@ -344,17 +344,8 @@ func TestEnvironmentSecretLifecycleSurvivesEditsRestartAndReconcile(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		found, err := bindControlPlaneState(store, db, "environment", store)
-		if err != nil {
+		if err := bindEnvironment(store, db); err != nil {
 			t.Fatal(err)
-		}
-		if !found {
-			store.mu.Lock()
-			err = store.persistLocked()
-			store.mu.Unlock()
-			if err != nil {
-				t.Fatal(err)
-			}
 		}
 		return &App{Config: Config{WebRoot: webRoot, AppCtl: helper}, Auth: Auth{Username: "admin"}, Environments: store}
 	}
@@ -460,7 +451,7 @@ func FuzzEnvironmentPersistenceBoundary(f *testing.F) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := bindControlPlaneState(store, db, "environment", store); err != nil {
+		if err := bindEnvironment(store, db); err != nil {
 			t.Fatal(err)
 		}
 		want := map[string]environmentValue{"VALUE": {Value: value, Secret: secret}, "ANCHOR": {Value: "anchor", Secret: true}}
@@ -480,7 +471,7 @@ func FuzzEnvironmentPersistenceBoundary(f *testing.F) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := bindControlPlaneState(reloaded, db, "environment", reloaded); err != nil {
+		if err := bindEnvironment(reloaded, db); err != nil {
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(reloaded.values["demo"], want) {

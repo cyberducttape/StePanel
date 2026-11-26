@@ -114,9 +114,6 @@ func (s *DomainClaimStore) persistLocked() error {
 	if len(b)+1 > maxDomainClaimStateBytes {
 		return errors.New("domain claim state exceeds 4 MiB limit")
 	}
-	if bound, err := persistBoundControlPlaneState(s, b); bound {
-		return err
-	}
 	return writeAtomic(s.path, append(b, '\n'), 0600)
 }
 

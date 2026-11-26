@@ -75,9 +75,6 @@ func (s *backupSchedules) persistLocked() error {
 	if err != nil {
 		return err
 	}
-	if bound, err := persistBoundControlPlaneState(s, b); bound {
-		return err
-	}
 	return writeAtomic(s.path, append(b, '\n'), 0600)
 }
 func (s *backupSchedules) list() []BackupSchedule {

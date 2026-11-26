@@ -62,9 +62,6 @@ func (s *RedisAllocationStore) persistLocked() error {
 	if err != nil {
 		return err
 	}
-	if bound, err := persistBoundControlPlaneState(s, data); bound {
-		return err
-	}
 	return writeAtomic(s.path, append(data, '\n'), 0600)
 }
 func (a *App) siteRedis(w http.ResponseWriter, r *http.Request) {

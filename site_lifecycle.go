@@ -724,18 +724,12 @@ func persistPHPProfilesLocked(store *PHPProfileStore) error {
 	if err != nil {
 		return err
 	}
-	if bound, err := persistBoundControlPlaneState(store, data); bound {
-		return err
-	}
 	return writeAtomic(store.path, append(data, '\n'), 0600)
 }
 
 func persistComposerLocked(store *ComposerStore) error {
 	data, err := json.Marshal(store.latest)
 	if err != nil {
-		return err
-	}
-	if bound, err := persistBoundControlPlaneState(store, data); bound {
 		return err
 	}
 	return writeAtomic(store.path, append(data, '\n'), 0600)

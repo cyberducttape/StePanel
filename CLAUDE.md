@@ -213,9 +213,9 @@ nextSteps := []string{
 
 ## Control-Plane Persistence
 
-New features must store state in relational tables, not in the `state_blobs`
-whole-object JSON stores (`bindControlPlaneState`). Every store bound at
-startup is now relational: for a map-shaped store use `keyedRowTable`
+New features must store state in relational tables; `state_blobs` is now
+only read by migrations and the capacity ledger, and the whole-object blob
+binding has been removed. Every store bound at startup is relational: for a map-shaped store use `keyedRowTable`
 (`keyed_rows.go`), or `newReflectRowTable` for a flat struct
 (`reflect_rows.go`), with the table created by literal SQL in a new
 migration and the struct listed in `TestReflectRowTablesMatchTheirStructs`

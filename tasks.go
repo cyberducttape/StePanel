@@ -158,9 +158,6 @@ func (s *TaskStore) persistLocked() error {
 	if err != nil {
 		return err
 	}
-	if bound, err := persistBoundControlPlaneState(s, d); bound {
-		return err
-	}
 	return writeAtomic(s.path, append(d, '\n'), 0600)
 }
 

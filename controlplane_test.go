@@ -2,12 +2,10 @@ package stepanel
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/cyberducttape/StePanel/internal/migration"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -16,7 +14,7 @@ import (
 	"time"
 )
 
-func TestControlPlaneStateBlobIsTransactionalAndPersistent(t *testing.T) {
+func TestControlPlaneDatabaseIsPrivateAndPersistent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "control-plane.db")
 	db, err := openControlPlaneDB(path)
 	if err != nil {
@@ -30,27 +28,19 @@ func TestControlPlaneStateBlobIsTransactionalAndPersistent(t *testing.T) {
 	if got := info.Mode().Perm(); got != 0600 {
 		t.Fatalf("control-plane database mode = %o, want 600", got)
 	}
-	type state struct {
-		Owner string   `json:"owner"`
-		Sites []string `json:"sites"`
-	}
-	store := &struct{}{}
-	value := state{Owner: "customer", Sites: []string{"site-a"}}
-	found, err := bindControlPlaneState(store, db, "test-state", &value)
-	if err != nil || found {
-		t.Fatalf("initial state binding = found %v err %v", found, err)
-	}
-	payload, err := json.Marshal(value)
-	if err != nil {
+	store := &ResourceStore{values: map[string]ResourceProfile{}}
+	if err := bindResourceProfiles(store, db); err != nil {
 		t.Fatal(err)
 	}
-	if bound, err := persistBoundControlPlaneState(store, payload); !bound || err != nil {
-		t.Fatalf("persist state = bound %v err %v", bound, err)
+	if err := store.saveProfileLocked(resourceTestProfile("site-a", 100)); err != nil {
+		t.Fatal(err)
 	}
-	value = state{}
-	found, err = bindControlPlaneState(&struct{}{}, db, "test-state", &value)
-	if err != nil || !found || value.Owner != "customer" || len(value.Sites) != 1 {
-		t.Fatalf("reloaded state = %#v found %v err %v", value, found, err)
+	reloaded := &ResourceStore{values: map[string]ResourceProfile{}}
+	if err := bindResourceProfiles(reloaded, db); err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.values["site-a"]; got != resourceTestProfile("site-a", 100) {
+		t.Fatalf("reloaded profile = %#v", got)
 	}
 }
 
@@ -124,248 +114,6 @@ func TestControlPlanePageLimitMustBeAppliedToEachConnection(t *testing.T) {
 	if err := other.QueryRow(`PRAGMA max_page_count`).Scan(&otherPages); err != nil || otherPages != maxPages {
 		t.Fatalf("independent connection cap = %d, err=%v; want %d", otherPages, err, maxPages)
 	}
-}
-
-func TestControlPlaneStateCASReloadsAndMergesStaleIndependentConnection(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "control-plane.db")
-	firstDB, err := openControlPlaneDB(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer firstDB.Close()
-	secondDB, err := openControlPlaneDB(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer secondDB.Close()
-
-	firstStore := &struct{ id int }{id: 1}
-	secondStore := &struct{ id int }{id: 2}
-	first := map[string]string{"owner": "first"}
-	second := map[string]string{}
-	if found, err := bindControlPlaneState(firstStore, firstDB, "cas-test", &first); err != nil || found {
-		t.Fatalf("first bind = found %v err %v", found, err)
-	}
-	if _, err := persistBoundControlPlaneState(firstStore, []byte(`{"owner":"seed"}`)); err != nil {
-		t.Fatal(err)
-	}
-	if found, err := bindControlPlaneState(secondStore, secondDB, "cas-test", &second); err != nil || !found {
-		t.Fatalf("second bind = found %v err %v", found, err)
-	}
-	first = map[string]string{"owner": "first-update"}
-	if _, err := persistBoundControlPlaneState(firstStore, []byte(`{"owner":"first-update"}`)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := persistBoundControlPlaneState(secondStore, []byte(`{"owner":"seed","second":"preserved"}`)); err != nil {
-		t.Fatalf("stale control-plane write was not retried and merged: %v", err)
-	}
-	var payload string
-	if err := firstDB.QueryRow(`SELECT payload FROM state_blobs WHERE name = 'cas-test'`).Scan(&payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload != `{"owner":"first-update","second":"preserved"}` {
-		t.Fatalf("merged write produced %s", payload)
-	}
-	if second["owner"] != "first-update" || second["second"] != "preserved" {
-		t.Fatalf("writer live state did not adopt merged snapshot: %#v", second)
-	}
-}
-
-func TestControlPlaneStateCASConflictingKeyPreservesDurablePeerValue(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "control-plane.db")
-	firstDB, err := openControlPlaneDB(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer firstDB.Close()
-	secondDB, err := openControlPlaneDB(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer secondDB.Close()
-	firstStore, secondStore := &struct{ id int }{id: 1}, &struct{ id int }{id: 2}
-	first := map[string]string{"resource": "original"}
-	second := map[string]string{}
-	if _, err := bindControlPlaneState(firstStore, firstDB, "conflict-test", &first); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := persistBoundControlPlaneState(firstStore, []byte(`{"resource":"original"}`)); err != nil {
-		t.Fatal(err)
-	}
-	if found, err := bindControlPlaneState(secondStore, secondDB, "conflict-test", &second); err != nil || !found {
-		t.Fatalf("second bind = found %v err %v", found, err)
-	}
-	if _, err := persistBoundControlPlaneState(firstStore, []byte(`{"resource":"panel-value"}`)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := persistBoundControlPlaneState(secondStore, []byte(`{"resource":"stale-worker-value"}`)); err == nil {
-		t.Fatal("conflicting stale write unexpectedly succeeded")
-	}
-	var payload string
-	if err := firstDB.QueryRow(`SELECT payload FROM state_blobs WHERE name = 'conflict-test'`).Scan(&payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload != `{"resource":"panel-value"}` || second["resource"] != "panel-value" {
-		t.Fatalf("conflict did not preserve/refresh durable peer state: payload=%s local=%#v", payload, second)
-	}
-	second["resource"] = "worker-retry-value"
-	encoded, err := json.Marshal(second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := persistBoundControlPlaneState(secondStore, encoded); err != nil {
-		t.Fatalf("retry from refreshed state failed: %v", err)
-	}
-	if err := firstDB.QueryRow(`SELECT payload FROM state_blobs WHERE name = 'conflict-test'`).Scan(&payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload != `{"resource":"worker-retry-value"}` {
-		t.Fatalf("retry did not apply from refreshed durable state: %s", payload)
-	}
-}
-
-func TestControlPlaneStateCASCrossProcessMerge(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "control-plane.db")
-	db, err := openControlPlaneDB(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	panelStore := &struct{ id string }{id: "panel"}
-	panelState := map[string]string{"seed": "value"}
-	if found, err := bindControlPlaneState(panelStore, db, "cross-process", &panelState); err != nil || found {
-		t.Fatalf("panel bind = found %v err %v", found, err)
-	}
-	if _, err := persistBoundControlPlaneState(panelStore, []byte(`{"seed":"value"}`)); err != nil {
-		t.Fatal(err)
-	}
-
-	root := t.TempDir()
-	ready := filepath.Join(root, "ready")
-	proceed := filepath.Join(root, "proceed")
-	result := filepath.Join(root, "result")
-	child := exec.Command(os.Args[0], "-test.run=^TestControlPlaneStateCASCrossProcessHelper$", "-test.v")
-	child.Env = append(os.Environ(),
-		"STEPANEL_CAS_CHILD=1",
-		"STEPANEL_CAS_DB="+path,
-		"STEPANEL_CAS_READY="+ready,
-		"STEPANEL_CAS_PROCEED="+proceed,
-		"STEPANEL_CAS_RESULT="+result,
-	)
-	if err := child.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer child.Process.Kill()
-	waitForControlPlaneTestFile(t, ready)
-
-	if _, err := persistBoundControlPlaneState(panelStore, []byte(`{"panel":"updated"}`)); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(proceed, []byte("go"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := child.Wait(); err != nil {
-		t.Fatalf("worker process failed: %v", err)
-	}
-	payload, err := os.ReadFile(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var resultData struct {
-		Durable map[string]string `json:"durable"`
-		Local   map[string]string `json:"local"`
-	}
-	if err := json.Unmarshal(payload, &resultData); err != nil {
-		t.Fatal(err)
-	}
-	if resultData.Durable["panel"] != "updated" || resultData.Durable["worker"] != "updated" {
-		t.Fatalf("cross-process durable state = %#v", resultData.Durable)
-	}
-	if resultData.Local["panel"] != "updated" || resultData.Local["worker"] != "updated" {
-		t.Fatalf("worker live state did not refresh from merged durable state: %#v", resultData.Local)
-	}
-}
-
-func TestControlPlaneStateCASCrossProcessHelper(t *testing.T) {
-	if os.Getenv("STEPANEL_CAS_CHILD") != "1" {
-		return
-	}
-	db, err := openControlPlaneDB(os.Getenv("STEPANEL_CAS_DB"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	workerStore := &struct{ id string }{id: "worker"}
-	workerState := map[string]string{}
-	if found, err := bindControlPlaneState(workerStore, db, "cross-process", &workerState); err != nil || !found {
-		t.Fatalf("worker bind = found %v err %v", found, err)
-	}
-	if err := os.WriteFile(os.Getenv("STEPANEL_CAS_READY"), []byte("ready"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	waitForControlPlaneTestFile(t, os.Getenv("STEPANEL_CAS_PROCEED"))
-	if _, err := persistBoundControlPlaneState(workerStore, []byte(`{"worker":"updated"}`)); err != nil {
-		t.Fatal(err)
-	}
-	payload, _, err := readControlPlaneBlobWithRevision(db, "cross-process")
-	if err != nil {
-		t.Fatal(err)
-	}
-	result := struct {
-		Durable map[string]string `json:"durable"`
-		Local   map[string]string `json:"local"`
-	}{Durable: map[string]string{}, Local: workerState}
-	if err := json.Unmarshal(payload, &result.Durable); err != nil {
-		t.Fatal(err)
-	}
-	encoded, err := json.Marshal(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(os.Getenv("STEPANEL_CAS_RESULT"), encoded, 0600); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func BenchmarkMergeControlPlaneState(b *testing.B) {
-	for _, siteCount := range []int{10, 100, 500} {
-		b.Run(fmt.Sprintf("%d_sites", siteCount), func(b *testing.B) {
-			baseState := make(map[string]json.RawMessage, siteCount)
-			for i := 0; i < siteCount; i++ {
-				baseState[fmt.Sprintf("site-%d", i)] = json.RawMessage(`{"revision":0}`)
-			}
-			intendedState := make(map[string]json.RawMessage, len(baseState))
-			remoteState := make(map[string]json.RawMessage, len(baseState))
-			for key, value := range baseState {
-				intendedState[key] = value
-				remoteState[key] = value
-			}
-			intendedState["site-0"] = json.RawMessage(`{"revision":1}`)
-			remoteState[fmt.Sprintf("site-%d", siteCount-1)] = json.RawMessage(`{"revision":2}`)
-			base, _ := json.Marshal(baseState)
-			intended, _ := json.Marshal(intendedState)
-			remote, _ := json.Marshal(remoteState)
-			b.ReportAllocs()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				if _, err := mergeControlPlaneState(base, intended, remote); err != nil {
-					b.Fatal(err)
-				}
-			}
-		})
-	}
-}
-
-func waitForControlPlaneTestFile(t *testing.T, path string) {
-	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(path); err == nil {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for %s", path)
 }
 
 func TestControlPlaneBackupCanBeVerified(t *testing.T) {
@@ -739,25 +487,23 @@ func TestControlPlaneStorageErrorsAreClassified(t *testing.T) {
 func TestControlPlaneStorageFailureIsNotAConflict(t *testing.T) {
 	db := openTestControlPlane(t)
 	store := &ResourceStore{values: map[string]ResourceProfile{}}
-	if _, err := bindControlPlaneState(store, db, "resources-storage", &store.values); err != nil {
+	if err := bindResourceProfiles(store, db); err != nil {
 		t.Fatal(err)
 	}
-	store.values["shop"] = ResourceProfile{Site: "shop", CPUPercent: 100, MemoryMB: 512, State: "pending"}
-	if err := store.persistLocked(); err != nil {
+	if err := store.saveProfileLocked(resourceTestProfile("shop", 100)); err != nil {
 		t.Fatal(err)
 	}
 	if !controlPlaneStorageReadiness().Ready {
 		t.Fatal("a successful write left the control plane degraded")
 	}
-	if _, err := db.Exec(`CREATE TRIGGER deny_state_writes BEFORE UPDATE ON state_blobs BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`); err != nil {
+	if _, err := db.Exec(`CREATE TRIGGER deny_state_writes BEFORE INSERT ON resource_profiles BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`); err != nil {
 		t.Fatal(err)
 	}
-	store.values["blog"] = ResourceProfile{Site: "blog", CPUPercent: 100, MemoryMB: 512, State: "pending"}
-	err := store.persistLocked()
+	err := store.saveProfileLocked(resourceTestProfile("blog", 100))
 	if err == nil {
 		t.Fatal("a failed write reported success")
 	}
-	if errors.Is(err, errControlPlaneStateRefreshed) || errors.Is(err, errControlPlaneRevisionConflict) {
+	if errors.Is(err, errControlPlaneStateRefreshed) {
 		t.Fatalf("a storage failure was reported as a conflict: %v", err)
 	}
 	if !errors.Is(err, errControlPlaneStorageUnavailable) {
@@ -769,7 +515,7 @@ func TestControlPlaneStorageFailureIsNotAConflict(t *testing.T) {
 	if _, err := db.Exec(`DROP TRIGGER deny_state_writes`); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.persistLocked(); err != nil {
+	if err := store.saveProfileLocked(resourceTestProfile("blog", 100)); err != nil {
 		t.Fatal(err)
 	}
 	if !controlPlaneStorageReadiness().Ready {
@@ -806,42 +552,5 @@ func TestControlPlaneSizeLimitSurvivesConnectionReplacement(t *testing.T) {
 	stats := db.Stats()
 	if stats.MaxIdleClosed+stats.MaxLifetimeClosed == 0 {
 		t.Fatal("the test did not replace the connection")
-	}
-}
-
-// A state-blob write from a request queued behind a long transaction on the
-// single connection fails at its deadline as a storage error, not as a
-// revision conflict that would be merged and retried.
-func TestControlPlaneStateWriteFailsFastWhenTheConnectionIsHeld(t *testing.T) {
-	db := openTestControlPlane(t)
-	store := &ResourceStore{values: map[string]ResourceProfile{}}
-	if _, err := bindControlPlaneState(store, db, "resources-deadline", &store.values); err != nil {
-		t.Fatal(err)
-	}
-	previous := controlPlaneStateWriteTimeout
-	controlPlaneStateWriteTimeout = 100 * time.Millisecond
-	t.Cleanup(func() { controlPlaneStateWriteTimeout = previous })
-	held, err := db.Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer held.Rollback()
-	store.values["shop"] = ResourceProfile{Site: "shop", CPUPercent: 100, MemoryMB: 512, State: "pending"}
-	start := time.Now()
-	err = store.persistLocked()
-	if err == nil {
-		t.Fatal("a write succeeded while the only connection was held")
-	}
-	if errors.Is(err, errControlPlaneRevisionConflict) || errors.Is(err, errControlPlaneStateRefreshed) {
-		t.Fatalf("a deadline was reported as a conflict: %v", err)
-	}
-	if elapsed := time.Since(start); elapsed > 2*time.Second {
-		t.Fatalf("the write waited %s instead of failing at its deadline", elapsed)
-	}
-	if err := held.Rollback(); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.persistLocked(); err != nil {
-		t.Fatalf("write after the connection was released: %v", err)
 	}
 }

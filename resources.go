@@ -451,9 +451,6 @@ func (s *ResourceStore) persistLocked() error {
 	if e != nil {
 		return e
 	}
-	if bound, err := persistBoundControlPlaneState(s, d); bound {
-		return err
-	}
 	return writeAtomic(s.path, append(d, '\n'), 0600)
 }
 

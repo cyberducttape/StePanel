@@ -98,15 +98,8 @@ func TestEnvironmentLegacySecretsMigrateThenAreRefused(t *testing.T) {
 		t.Fatalf("fresh database: legacy allowed = %v, %v", allowed, err)
 	}
 	store.setLegacyCiphertextAllowed(allowed)
-	if found, err := bindControlPlaneState(store, db, "environment", store); err != nil {
+	if err := bindEnvironment(store, db); err != nil {
 		t.Fatal(err)
-	} else if !found {
-		store.mu.Lock()
-		err = store.persistLocked()
-		store.mu.Unlock()
-		if err != nil {
-			t.Fatal(err)
-		}
 	}
 	if err := store.completeEncryptionMigration(db); err != nil {
 		t.Fatal(err)
@@ -114,11 +107,11 @@ func TestEnvironmentLegacySecretsMigrateThenAreRefused(t *testing.T) {
 	if !encryptionMigrated(t, db, encryptionStoreEnvironment) {
 		t.Fatal("environment migration was not recorded")
 	}
-	payload, _, err := readControlPlaneBlobWithRevision(db, "environment")
-	if err != nil {
+	var payload string
+	if err := db.QueryRow(`SELECT value FROM environment_variables WHERE site = 'site-a' AND name = 'API_KEY'`).Scan(&payload); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(payload), legacy) || !strings.Contains(string(payload), environmentSecretPrefix) {
+	if strings.Contains(payload, legacy) || !strings.HasPrefix(payload, environmentSecretPrefix) {
 		t.Fatalf("durable environment state was not re-sealed: %s", payload)
 	}
 	store.mu.RLock()

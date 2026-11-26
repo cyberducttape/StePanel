@@ -32,6 +32,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Removed the whole-object `state_blobs` store binding and its
+  merge-and-retry writer. Every control-plane store has been relational since
+  migrations 33 to 45, so the code no longer ran in production.
 - Resource profiles, site SFTP/shell access (with SSH keys), domain claims,
   desired proxy routes, scheduled tasks (with run history), DNS desired
   records, site workers, Redis allocations, PHP profiles, Composer

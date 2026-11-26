@@ -210,9 +210,11 @@ func OpenEnvironmentStore(path, secret string, previous ...string) (*Environment
 	if err != nil {
 		return nil, err
 	}
-	if err := store.restoreControlPlaneState(data); err != nil {
+	values, err := store.decodePersisted(data)
+	if err != nil {
 		return nil, err
 	}
+	store.values = values
 	return store, nil
 }
 
@@ -265,17 +267,6 @@ func (s *EnvironmentStore) encodePersisted() ([]byte, error) {
 		}
 	}
 	return json.MarshalIndent(out, "", "  ")
-}
-
-// restoreControlPlaneState implements controlPlaneStateCodec. The caller must
-// hold s.mu or otherwise have exclusive access (startup binding).
-func (s *EnvironmentStore) restoreControlPlaneState(payload []byte) error {
-	values, err := s.decodePersisted(payload)
-	if err != nil {
-		return err
-	}
-	s.values = values
-	return nil
 }
 
 func (s *EnvironmentStore) encrypt(site, name, value string) (string, error) {
@@ -377,9 +368,6 @@ func (s *EnvironmentStore) persistLocked() error {
 	}
 	data, err := s.encodePersisted()
 	if err != nil {
-		return err
-	}
-	if bound, err := persistBoundControlPlaneState(s, data); bound {
 		return err
 	}
 	return writeAtomic(s.path, append(data, '\n'), 0600)

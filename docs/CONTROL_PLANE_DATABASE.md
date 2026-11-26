@@ -96,10 +96,10 @@ changes transaction behavior and is unsafe without the steps below.
    (migration 45); the scheduler advances one schedule row and records its
    outbox intent in a single transaction, as before. The only remaining
    `state_blobs` rows are the capacity-ledger lock and dump rows, which
-   serialize uploads and are not stores. `bindControlPlaneState` and the
-   blob fallbacks in each store's `persistLocked` no longer run in
-   production; removing them, and moving the tests that use them as a
-   vehicle, is remaining cleanup. Both use the shared
+   serialize uploads and are not stores. The whole-object blob binding
+   (`bindControlPlaneState` and its merge-and-retry writer) has been
+   removed; an unbound store (tests and offline tools) writes only its
+   legacy JSON file. Both use the shared
    `keyedRowTable` (`keyed_rows.go`), which the remaining map-shaped stores
    can adopt the same way. Environment secrets are done (migration 44,
    `environment_table.go`): `environment_sites` and `environment_variables`,
