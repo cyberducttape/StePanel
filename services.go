@@ -87,7 +87,12 @@ func staleServiceStatus() (map[string]string, bool) {
 // hold serviceStatusCache.refresh.
 func buildServiceStatus() map[string]string {
 	result := map[string]string{}
-	for _, service := range []string{"apache2", "httpd", "lsws", "caddy", "mysql", "mariadb", "redis-server", "valkey-server", "fail2ban", "fail2ban-server", "fpm-lens", "exim4", "exim", "dovecot", "spamassassin", "spamd", "vsftpd"} {
+	services := []string{"apache2", "httpd", "lsws", "caddy", "mysql", "mariadb", "redis-server", "valkey-server", "fail2ban", "fail2ban-server", "fpm-lens", "exim4", "exim", "dovecot", "spamassassin", "spamd", "vsftpd"}
+	// One systemctl show for every unit this refresh may ask about, instead
+	// of a systemctl process per service.
+	prefetchedUnitStates = queryUnitStates(append(append([]string(nil), services...), "postgresql", "php-fpm"))
+	defer func() { prefetchedUnitStates = nil }()
+	for _, service := range services {
 		if _, err := exec.LookPath(service); err == nil {
 			state := serviceUnitState(service)
 			if service == "fail2ban-server" {
@@ -194,7 +199,58 @@ func fail2banHasEnabledJail(output string) bool {
 	return false
 }
 
+// prefetchedUnitStates holds the states queryUnitStates fetched for the
+// running buildServiceStatus; it is only touched under
+// serviceStatusCache.refresh.
+var prefetchedUnitStates map[string]string
+
+// queryUnitStates returns the ActiveState of each named service from a
+// single systemctl show, mapped like systemctl is-active output. Units it
+// cannot report are absent, and serviceUnitState then asks for them alone.
+func queryUnitStates(services []string) map[string]string {
+	if _, err := exec.LookPath("systemctl"); err != nil || len(services) == 0 {
+		return nil
+	}
+	args := []string{"show", "--property=Id,ActiveState", "--"}
+	for _, service := range services {
+		args = append(args, service+".service")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	output, err := runBoundedCommand(ctx, exec.CommandContext(ctx, "systemctl", args...))
+	if err != nil {
+		return nil
+	}
+	return parseUnitStates(string(output))
+}
+
+// parseUnitStates reads systemctl show output (blank-line separated Id= and
+// ActiveState= blocks) into service name -> state.
+func parseUnitStates(output string) map[string]string {
+	states := map[string]string{}
+	for _, block := range strings.Split(strings.ReplaceAll(output, "\r", ""), "\n\n") {
+		var id, state string
+		for _, line := range strings.Split(block, "\n") {
+			if value, ok := strings.CutPrefix(line, "Id="); ok {
+				id = strings.TrimSuffix(strings.TrimSpace(value), ".service")
+			} else if value, ok := strings.CutPrefix(line, "ActiveState="); ok {
+				state = strings.TrimSpace(value)
+			}
+		}
+		switch state {
+		case "active", "failed", "inactive", "activating", "deactivating", "reloading":
+			if id != "" {
+				states[id] = state
+			}
+		}
+	}
+	return states
+}
+
 func serviceUnitState(service string) string {
+	if state, ok := prefetchedUnitStates[service]; ok {
+		return state
+	}
 	if _, err := exec.LookPath("systemctl"); err != nil {
 		return "installed"
 	}

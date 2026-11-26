@@ -60,3 +60,24 @@ func TestServiceStatusServesStaleSnapshotsWithoutWaiting(t *testing.T) {
 		t.Fatal("the refresh did not store a new snapshot")
 	}
 }
+
+func TestParseUnitStatesReadsBatchedSystemctlShow(t *testing.T) {
+	output := "Id=caddy.service\nActiveState=active\n\nId=mariadb.service\nActiveState=failed\n\n" +
+		// mysql.service is an alias of mariadb.service: its block reports the
+		// target's Id, so mysql is absent and asked for on its own.
+		"Id=mariadb.service\nActiveState=failed\n\nId=vsftpd.service\nActiveState=inactive\n\n" +
+		"Id=odd.service\nActiveState=maintenance\n"
+	states := parseUnitStates(output)
+	want := map[string]string{"caddy": "active", "mariadb": "failed", "vsftpd": "inactive"}
+	if len(states) != len(want) {
+		t.Fatalf("states = %v, want %v", states, want)
+	}
+	for unit, state := range want {
+		if states[unit] != state {
+			t.Fatalf("states[%s] = %q, want %q (all: %v)", unit, states[unit], state, states)
+		}
+	}
+	if _, ok := states["mysql"]; ok {
+		t.Fatal("an alias was attributed to the name that was asked for")
+	}
+}
