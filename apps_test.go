@@ -348,7 +348,7 @@ func TestApplyAppDeploymentRefusesSymlinkedDocumentRoot(t *testing.T) {
 	}
 }
 
-// The app-<action>:runtime-applied kill point sits after the runtime changed
+// The app-<action>:runtime-applied kill point (start, stop, restart) sits after the runtime changed
 // and before the manifest did. A process that dies there leaves the journal
 // at runtime_applied with the previous manifest, and startup recovery puts
 // the previous generation back (the abrupt-loss app-stop drill kills the
