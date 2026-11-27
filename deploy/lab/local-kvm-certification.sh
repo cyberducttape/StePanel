@@ -419,11 +419,22 @@ if has_phase abrupt-loss-operations; then
         continue
       fi
     fi
-    if wait_ready 600 && guest "$drill verify" > "$log_prefix-verify.log" 2>&1; then
+    detail=
+    if ! wait_ready 600; then
+      detail='panel readiness did not recover after the guest loss (see the units log)'
+    elif ! guest "$drill verify" > "$log_prefix-verify.log" 2>&1; then
+      detail=$(tail -1 "$log_prefix-verify.log" 2>/dev/null)
+      [[ -n $detail ]] || detail='verify failed without output'
+    fi
+    if [[ -z $detail ]]; then
       record "abrupt-loss-$scenario" PASS $((SECONDS - start)) "$(tail -1 "$log_prefix-verify.log")"
     else
-      record "abrupt-loss-$scenario" FAIL $((SECONDS - start)) "$(tail -1 "$log_prefix-verify.log" 2>/dev/null)"
+      record "abrupt-loss-$scenario" FAIL $((SECONDS - start)) "$detail"
       guest 'sudo journalctl -b --no-pager -n 300' > "$log_prefix-journal.log" 2>&1 || true
+      # Readiness polling fills the tail above; keep every StePanel unit line
+      # of this boot except the request log, which is where startup recovery
+      # reports why the panel stays unready.
+      guest 'sudo journalctl -b --no-pager -u stepanel.service -u stepanel-worker.service -u stepanel-root-broker.service | grep -v "\"path\":\"/readyz\"" | tail -n 2000' > "$log_prefix-units.log" 2>&1 || true
     fi
   done
 fi
