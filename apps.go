@@ -544,6 +544,9 @@ func applyAppStateTransition(ctx context.Context, cfg Config, target AppManifest
 	if err := journal.setState("runtime_applied"); err != nil {
 		return compensate(err)
 	}
+	// The runtime has changed but the manifest has not: startup recovery
+	// restores the previous generation from the journal.
+	processKillInjection("app-"+action, "runtime-applied")
 	if err := ctx.Err(); err != nil {
 		return compensate(err)
 	}

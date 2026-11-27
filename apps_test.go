@@ -347,3 +347,81 @@ func TestApplyAppDeploymentRefusesSymlinkedDocumentRoot(t *testing.T) {
 		t.Fatalf("manifest written for a symlinked document root: %v", statErr)
 	}
 }
+
+// The app-<action>:runtime-applied kill point sits after the runtime changed
+// and before the manifest did. A process that dies there leaves the journal
+// at runtime_applied with the previous manifest, and startup recovery puts
+// the previous generation back (the abrupt-loss app-stop drill kills the
+// whole guest at this point).
+func TestAppStateActionKillPointIsRecoveredToThePreviousGeneration(t *testing.T) {
+	a, manifestPath, argsLog := newAppStateFixture(t, 0)
+	original, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type died struct{}
+	var journalState string
+	previous := pauseForever
+	pauseForever = func() {
+		entries, err := os.ReadDir(a.Config.AppRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), ".activation-") {
+				data, err := os.ReadFile(filepath.Join(a.Config.AppRoot, entry.Name()))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var journal appActivationJournal
+				if err := json.Unmarshal(data, &journal); err != nil {
+					t.Fatal(err)
+				}
+				journalState = journal.State
+			}
+		}
+		panic(died{})
+	}
+	t.Cleanup(func() { pauseForever = previous })
+	t.Setenv("STEPANEL_UNSAFE_LAB", "1")
+	t.Setenv("STEPANEL_PAUSE_MARKER_DIR", filepath.Join(t.TempDir(), "markers"))
+	t.Setenv("STEPANEL_PAUSE_AT", "app-stop:runtime-applied")
+	t.Setenv("STEPANEL_KILL_AT", "")
+	func() {
+		defer func() {
+			if _, ok := recover().(died); !ok {
+				t.Fatal("the stop never reached app-stop:runtime-applied")
+			}
+		}()
+		_, _, _ = a.runAppStateAction(context.Background(), "demo", "stop")
+	}()
+	if journalState != "runtime_applied" {
+		t.Fatalf("journal state at the kill point = %q, want runtime_applied", journalState)
+	}
+	if got, err := os.ReadFile(manifestPath); err != nil || string(got) != string(original) {
+		t.Fatalf("manifest at the kill point = %q, %v; want the running generation", got, err)
+	}
+	if args, err := os.ReadFile(argsLog); err != nil || !strings.HasPrefix(string(args), "stop ") {
+		t.Fatalf("helper call before the kill point = %q, %v; want stop", args, err)
+	}
+	t.Setenv("STEPANEL_PAUSE_AT", "")
+	recovered, err := recoverAppActivationJournals(a.Config)
+	if err != nil || len(recovered) != 1 {
+		t.Fatalf("startup recovery = %v, %v; want one journal recovered", recovered, err)
+	}
+	if got := readAppState(t, manifestPath); got != "running" {
+		t.Fatalf("manifest state after recovery = %q, want running", got)
+	}
+	if args, err := os.ReadFile(argsLog); err != nil || strings.HasPrefix(string(args), "stop ") {
+		t.Fatalf("last helper call after recovery = %q, %v; want the running generation re-applied", args, err)
+	}
+	entries, err := os.ReadDir(a.Config.AppRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".activation-") {
+			t.Fatalf("recovery left journal %q", entry.Name())
+		}
+	}
+}

@@ -10,9 +10,9 @@ on:
   workflow_dispatch:
     inputs:
       scenarios:
-        description: Space-separated subset of file-restore database-restore git-deploy app-deploy retention control-plane backup-interrupted
+        description: Space-separated subset of file-restore database-restore git-deploy app-deploy app-stop retention control-plane backup-interrupted
         required: true
-        default: file-restore database-restore git-deploy app-deploy retention control-plane backup-interrupted
+        default: file-restore database-restore git-deploy app-deploy app-stop retention control-plane backup-interrupted
 
 permissions:
   contents: read

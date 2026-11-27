@@ -32,6 +32,12 @@
 #                    proxy followed. Recovery must roll back to the snapshot
 #                    and the retried job must complete: manifest, systemd
 #                    unit, listener and proxy all on the new port.
+#   app-stop         Guest dies at app-stop:runtime-applied, after the panel
+#                    stopped a running Node app but before the manifest
+#                    recorded it. Startup recovery must restore the previous
+#                    generation: manifest running, unit active, listener up
+#                    and the proxy serving the app, with no activation journal
+#                    left. A fresh stop must then succeed.
 #   retention        Guest dies at backup:prune, while scheduled-backup
 #                    retention is deleting an old backup (renamed out of the
 #                    inventory, not yet removed). Every backup the site still
@@ -57,7 +63,7 @@
 set -Eeuo pipefail
 
 [[ $EUID -eq 0 ]] || { echo 'abrupt-loss operation drill must run as root' >&2; exit 1; }
-scenario=${1:?usage: abrupt-loss-operation-drill.sh file-restore|database-restore|git-deploy|retention|control-plane|backup-interrupted prepare|start|verify}
+scenario=${1:?usage: abrupt-loss-operation-drill.sh file-restore|database-restore|git-deploy|app-deploy|app-stop|retention|control-plane|backup-interrupted prepare|start|verify}
 action=${2:?usage: abrupt-loss-operation-drill.sh SCENARIO prepare|start|verify}
 
 : "${PANEL:=http://127.0.0.1:8090}"
@@ -86,6 +92,7 @@ site_scenario=$scenario
 # Site names are at most 32 characters; keep this one short.
 [[ $site_scenario != backup-interrupted ]] || site_scenario=bkintr
 [[ $site_scenario != app-deploy ]] || site_scenario=appdeploy
+[[ $site_scenario != app-stop ]] || site_scenario=appstop
 site=drill-${site_scenario}-${DRILL_RUN_SUFFIX}
 domain=$site.localhost
 # shellcheck source=../integrations/stepanel-site-location.sh
@@ -94,7 +101,9 @@ stepanel_site_location "$site" || { echo "could not resolve location for $site" 
 public=$public_root
 
 service=stepanel.service
-if systemctl is-enabled --quiet stepanel-worker.service 2>/dev/null; then
+# App start, stop, restart and rollback run in the panel's request handler;
+# every other drilled operation is a durable job in the worker when one runs.
+if [[ $scenario != app-stop ]] && systemctl is-enabled --quiet stepanel-worker.service 2>/dev/null; then
   service=stepanel-worker.service
 fi
 dropin_dir=/run/systemd/system/$service.d
@@ -578,6 +587,59 @@ app_deploy() {
   esac
 }
 
+# --- app-stop ------------------------------------------------------------------
+unit_active() { systemctl is-active --quiet "stepanel-app-$site.service"; }
+
+app_state() {
+  python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("state", ""))' "$app_manifest/$site.json" 2>/dev/null || true
+}
+
+app_stop() {
+  case "$action" in
+    prepare)
+      login
+      create_site
+      version=$(install_app_runtime)
+      require_completed "$(job_id_of "$(deploy_app "$DRILL_APP_PORT_BEFORE" "$version")")" 'app deployment'
+      [[ $(app_state) == running ]] || fail "deployed app state is $(app_state)"
+      unit_active || fail "stepanel-app-$site.service is not running after deployment"
+      probe / | grep -Fq DRILL_APP || fail 'the app is not served through the proxy'
+      echo "prepared $site with a running app on port $DRILL_APP_PORT_BEFORE"
+      ;;
+    start)
+      set_pause app-stop:runtime-applied
+      login
+      # The request blocks at the pause until the guest dies; run it detached
+      # so this step returns once the boundary is reached.
+      setsid curl --silent --max-time 600 -X POST -H "Cookie: $cookie_header" -H "X-CSRF-Token: $csrf" \
+        "$PANEL/api/apps/$site/stop" > "$state_dir/stop-response" 2>&1 < /dev/null &
+      disown
+      wait_pause app-stop:runtime-applied
+      ! unit_active || fail 'the app unit is still active at the pause boundary'
+      [[ $(app_state) == running ]] || fail "the manifest already records $(app_state) at the pause boundary"
+      echo "app stop for $site paused at app-stop:runtime-applied: unit stopped, manifest still running"
+      ;;
+    verify)
+      clear_pause_after_reboot
+      wait_panel_ready
+      login
+      [[ $(app_state) == running ]] || fail "the manifest records $(app_state) after recovery, want the previous running generation"
+      for _ in $(seq 1 30); do unit_active && break; sleep 1; done
+      unit_active || fail "stepanel-app-$site.service is not running after recovery"
+      for _ in $(seq 1 30); do listening_on "$DRILL_APP_PORT_BEFORE" && break; sleep 1; done
+      listening_on "$DRILL_APP_PORT_BEFORE" || fail "nothing listens on the app port $DRILL_APP_PORT_BEFORE after recovery"
+      probe / | grep -Fq DRILL_APP || fail 'the app is not served through the proxy after recovery'
+      if compgen -G "$app_manifest/.activation-*.json" > /dev/null; then
+        fail "an activation journal survived recovery: $(ls "$app_manifest"/.activation-*.json)"
+      fi
+      api POST "/api/apps/$site/stop" > /dev/null || fail 'a fresh app stop after recovery failed'
+      [[ $(app_state) == stopped ]] || fail "a fresh stop left the manifest at $(app_state)"
+      ! unit_active || fail 'a fresh stop left the app unit active'
+      echo "interrupted app stop recovered to the running generation (manifest, unit, listener and proxy agree); a fresh stop succeeded"
+      ;;
+  esac
+}
+
 # --- control-plane -------------------------------------------------------------
 # --- retention ---------------------------------------------------------------
 backup_root=$(sed -n 's/^STEPANEL_BACKUP_ROOT="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /etc/ste-panel.env)
@@ -766,6 +828,7 @@ case "$scenario" in
   database-restore) database_restore ;;
   git-deploy) git_deploy ;;
   app-deploy) app_deploy ;;
+  app-stop) app_stop ;;
   retention) retention ;;
   control-plane) control_plane ;;
   backup-interrupted) backup_interrupted ;;
