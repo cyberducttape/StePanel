@@ -4,6 +4,10 @@ set -Eeuo pipefail
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 tmp=$(mktemp -d)
 trap 'rm -rf -- "$tmp"' EXIT
+# The forced-kill cases below SIGKILL the guided installer, so its own
+# cleanup trap never removes its build directory; keep that directory, and
+# anything else it creates with mktemp, inside this test's directory.
+export TMPDIR="$tmp"
 fake_repo="$tmp/repo"
 fake_bin="$tmp/bin"
 mkdir -p "$fake_repo/scripts" "$fake_bin"
