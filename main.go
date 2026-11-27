@@ -787,7 +787,7 @@ func Main() {
 			app.observeStateError(state.NewCorruptionError("recovery_journal", quarantined.cause, "quarantined "+filepath.Base(quarantined.dir)))
 		}
 		failures = append(failures, recoveryFailures...)
-		if _, err := recoverAppActivationJournals(cfg); err != nil {
+		if _, err := recoverAppActivationJournals(cfg, app.acquireSiteMutationLockContext, recoveredSiteLockWait); err != nil {
 			failures = append(failures, fmt.Errorf("recover application activations: %w", err))
 		}
 		failures = append(failures, recoverWordPressMaintenance(cfg, app.acquireSiteMutationLockContext, recoveredSiteLockWait)...)

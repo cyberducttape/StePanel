@@ -56,6 +56,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- An app start, stop, restart or deployment interrupted by a crash no longer
+  leaves the panel unready after reboot on broker installs: startup recovery
+  of the app activation journal now holds the site's mutation lock, whose
+  fencing token the root broker requires. Found by the new `app-stop`
+  abrupt-loss drill.
 - Session validation, job status reads and control-plane store loads no
   longer return 503 while a queued write waits out SQLite's 5-second busy
   timeout (for example during a worker restart): their read deadlines are

@@ -3,6 +3,7 @@ package stepanel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -405,7 +406,7 @@ func TestAppStateActionKillPointIsRecoveredToThePreviousGeneration(t *testing.T)
 		t.Fatalf("helper call before the kill point = %q, %v; want stop", args, err)
 	}
 	t.Setenv("STEPANEL_PAUSE_AT", "")
-	recovered, err := recoverAppActivationJournals(a.Config)
+	recovered, err := recoverAppActivationJournals(a.Config, nil, 0)
 	if err != nil || len(recovered) != 1 {
 		t.Fatalf("startup recovery = %v, %v; want one journal recovered", recovered, err)
 	}
@@ -424,4 +425,89 @@ func TestAppStateActionKillPointIsRecoveredToThePreviousGeneration(t *testing.T)
 			t.Fatalf("recovery left journal %q", entry.Name())
 		}
 	}
+}
+
+// Startup recovery of an app journal must run under the site's mutation
+// lock and use the lock's context for the runtime calls: in broker mode that
+// context carries the fencing token, and without it the root broker refuses
+// the restore (the first app-stop KVM drill stayed unready on "fencing token
+// required for mutating request").
+func TestAppActivationRecoveryRunsUnderTheSiteLock(t *testing.T) {
+	interrupted := func(t *testing.T) *App {
+		t.Helper()
+		a, _, _ := newAppStateFixture(t, 0)
+		previous := pauseForever
+		pauseForever = func() { panic("died") }
+		t.Cleanup(func() { pauseForever = previous })
+		t.Setenv("STEPANEL_UNSAFE_LAB", "1")
+		t.Setenv("STEPANEL_PAUSE_MARKER_DIR", filepath.Join(t.TempDir(), "markers"))
+		t.Setenv("STEPANEL_PAUSE_AT", "app-stop:runtime-applied")
+		func() {
+			defer func() { _ = recover() }()
+			_, _, _ = a.runAppStateAction(context.Background(), "demo", "stop")
+		}()
+		t.Setenv("STEPANEL_PAUSE_AT", "")
+		return a
+	}
+	journals := func(t *testing.T, a *App) int {
+		t.Helper()
+		entries, err := os.ReadDir(a.Config.AppRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), ".activation-") {
+				n++
+			}
+		}
+		return n
+	}
+
+	t.Run("locks and releases the journal's site", func(t *testing.T) {
+		a := interrupted(t)
+		var locked []string
+		released := 0
+		lock := func(ctx context.Context, site string) (context.Context, func(), error) {
+			locked = append(locked, site)
+			return ctx, func() { released++ }, nil
+		}
+		if _, err := recoverAppActivationJournals(a.Config, lock, time.Second); err != nil {
+			t.Fatal(err)
+		}
+		if len(locked) != 1 || locked[0] != "demo" || released != 1 {
+			t.Fatalf("locked %v, released %d times; want demo locked and released once", locked, released)
+		}
+		if n := journals(t, a); n != 0 {
+			t.Fatalf("%d journal(s) left after recovery", n)
+		}
+	})
+
+	t.Run("keeps the journal when the lock is unavailable", func(t *testing.T) {
+		a := interrupted(t)
+		lock := func(context.Context, string) (context.Context, func(), error) {
+			return nil, nil, errSiteMutationBusy
+		}
+		if _, err := recoverAppActivationJournals(a.Config, lock, time.Second); !errors.Is(err, errSiteMutationBusy) {
+			t.Fatalf("recovery without the lock = %v, want the lock error", err)
+		}
+		if n := journals(t, a); n != 1 {
+			t.Fatalf("%d journal(s) after a refused lock, want the journal kept", n)
+		}
+	})
+
+	t.Run("runs the restore in the lock's context", func(t *testing.T) {
+		a := interrupted(t)
+		lock := func(ctx context.Context, _ string) (context.Context, func(), error) {
+			done, cancel := context.WithCancel(ctx)
+			cancel()
+			return done, func() {}, nil
+		}
+		if _, err := recoverAppActivationJournals(a.Config, lock, time.Second); err == nil {
+			t.Fatal("the restore ignored the lock's (cancelled) context")
+		}
+		if n := journals(t, a); n != 1 {
+			t.Fatalf("%d journal(s) after a failed restore, want the journal kept", n)
+		}
+	})
 }

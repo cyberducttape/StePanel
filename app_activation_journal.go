@@ -89,7 +89,13 @@ func (j *appActivationJournal) cleanup() error {
 	return nil
 }
 
-func recoverAppActivationJournals(cfg Config) ([]string, error) {
+// recoverAppActivationJournals finishes or undoes interrupted app
+// activations at startup. Each journal is recovered under its site's
+// mutation lock: in broker mode the root broker refuses a mutating request
+// without the fencing token that lock carries in its context, and the lock
+// also waits out the lease of an operation the crash interrupted. lockSite
+// may be nil (tests and installs without a lock table).
+func recoverAppActivationJournals(cfg Config, lockSite siteLocker, lockWait time.Duration) ([]string, error) {
 	entries, err := os.ReadDir(cfg.AppRoot)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -123,49 +129,78 @@ func recoverAppActivationJournals(cfg Config) ([]string, error) {
 			return recovered, fmt.Errorf("application activation journal %s has inconsistent previous generation", entry.Name())
 		}
 		journal.path = path
-		if journal.State == "committed" || journal.State == "manifest_committed" {
-			if journal.Version >= 3 {
-				if err := reconcileCommittedAppActivation(cfg, &journal); err != nil {
-					return recovered, fmt.Errorf("reconcile committed application %s: %w", journal.Site, err)
-				}
-			} else if err := validateCommittedAppManifest(cfg, journal.Site); err != nil {
-				return recovered, fmt.Errorf("validate committed application %s: %w", journal.Site, err)
-			}
-			if err := journal.cleanup(); err != nil {
-				return recovered, err
-			}
-			recovered = append(recovered, journal.ID)
-			continue
+		siteCtx, unlock, err := lockAppRecoverySite(lockSite, lockWait, journal.Site)
+		if err != nil {
+			return recovered, fmt.Errorf("lock application %s for activation recovery: %w", journal.Site, err)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), helperServiceLifecycleTimeout)
-		var restoreErr error
-		if journal.HadPrevious && journal.RestoreManifest != nil {
-			restoreErr = restoreAppProcess(ctx, cfg, *journal.RestoreManifest)
-		} else if !journal.HadPrevious {
-			restoreErr = runAppLifecycle(ctx, cfg, "stop", journal.Site)
-		}
-		cancel()
-		if restoreErr != nil {
-			return recovered, fmt.Errorf("restore application %s from activation journal: %w", journal.Site, restoreErr)
-		}
-		if journal.HadPrevious {
-			if err := writeAtomic(journal.ManifestPath, journal.Previous, 0600); err != nil {
-				return recovered, fmt.Errorf("restore application %s manifest: %w", journal.Site, err)
-			}
-		} else if err := removeAppManifest(cfg, journal.Site, journal.ManifestPath); err != nil {
-			return recovered, fmt.Errorf("remove interrupted application %s manifest: %w", journal.Site, err)
-		}
-		if journal.Version >= 2 {
-			if err := restoreAppBackup(cfg, journal.Site, journal.PreviousBackup, journal.HadPreviousBackup); err != nil {
-				return recovered, fmt.Errorf("restore application %s rollback manifest: %w", journal.Site, err)
-			}
-		}
-		if err := journal.cleanup(); err != nil {
+		id, err := recoverAppActivationJournal(siteCtx, cfg, &journal)
+		unlock()
+		if err != nil {
 			return recovered, err
 		}
-		recovered = append(recovered, journal.ID)
+		recovered = append(recovered, id)
 	}
 	return recovered, nil
+}
+
+// lockAppRecoverySite takes site's mutation lock for startup recovery and
+// returns its context, which carries the broker fencing token.
+func lockAppRecoverySite(lockSite siteLocker, lockWait time.Duration, site string) (context.Context, func(), error) {
+	if lockSite == nil {
+		return context.Background(), func() {}, nil
+	}
+	waitCtx, cancel := context.WithTimeout(context.Background(), lockWait)
+	siteCtx, release, err := lockSite(waitCtx, site)
+	if err != nil {
+		cancel()
+		return nil, nil, err
+	}
+	return siteCtx, func() { release(); cancel() }, nil
+}
+
+// recoverAppActivationJournal rolls one validated journal forward (committed)
+// or back (anything earlier) and removes it. ctx holds the site's lock.
+func recoverAppActivationJournal(ctx context.Context, cfg Config, journal *appActivationJournal) (string, error) {
+	if journal.State == "committed" || journal.State == "manifest_committed" {
+		if journal.Version >= 3 {
+			if err := reconcileCommittedAppActivation(ctx, cfg, journal); err != nil {
+				return "", fmt.Errorf("reconcile committed application %s: %w", journal.Site, err)
+			}
+		} else if err := validateCommittedAppManifest(cfg, journal.Site); err != nil {
+			return "", fmt.Errorf("validate committed application %s: %w", journal.Site, err)
+		}
+		if err := journal.cleanup(); err != nil {
+			return "", err
+		}
+		return journal.ID, nil
+	}
+	restoreCtx, cancel := context.WithTimeout(ctx, helperServiceLifecycleTimeout)
+	var restoreErr error
+	if journal.HadPrevious && journal.RestoreManifest != nil {
+		restoreErr = restoreAppProcess(restoreCtx, cfg, *journal.RestoreManifest)
+	} else if !journal.HadPrevious {
+		restoreErr = runAppLifecycle(restoreCtx, cfg, "stop", journal.Site)
+	}
+	cancel()
+	if restoreErr != nil {
+		return "", fmt.Errorf("restore application %s from activation journal: %w", journal.Site, restoreErr)
+	}
+	if journal.HadPrevious {
+		if err := writeAtomic(journal.ManifestPath, journal.Previous, 0600); err != nil {
+			return "", fmt.Errorf("restore application %s manifest: %w", journal.Site, err)
+		}
+	} else if err := removeAppManifest(cfg, journal.Site, journal.ManifestPath); err != nil {
+		return "", fmt.Errorf("remove interrupted application %s manifest: %w", journal.Site, err)
+	}
+	if journal.Version >= 2 {
+		if err := restoreAppBackup(cfg, journal.Site, journal.PreviousBackup, journal.HadPreviousBackup); err != nil {
+			return "", fmt.Errorf("restore application %s rollback manifest: %w", journal.Site, err)
+		}
+	}
+	if err := journal.cleanup(); err != nil {
+		return "", err
+	}
+	return journal.ID, nil
 }
 
 func validateCommittedAppManifest(cfg Config, site string) error {
@@ -183,7 +218,7 @@ func validateCommittedAppManifest(cfg Config, site string) error {
 	return nil
 }
 
-func reconcileCommittedAppActivation(cfg Config, journal *appActivationJournal) error {
+func reconcileCommittedAppActivation(ctx context.Context, cfg Config, journal *appActivationJournal) error {
 	if journal == nil || len(journal.TargetManifest) == 0 {
 		return errors.New("committed activation target is missing")
 	}
@@ -191,9 +226,9 @@ func reconcileCommittedAppActivation(cfg Config, journal *appActivationJournal) 
 	if err := json.Unmarshal(journal.TargetManifest, &target); err != nil || !validAppManifest(cfg, target, journal.Site) {
 		return errors.New("committed activation target is invalid")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), helperServiceLifecycleTimeout)
+	restoreCtx, cancel := context.WithTimeout(ctx, helperServiceLifecycleTimeout)
 	defer cancel()
-	if err := restoreAppProcess(ctx, cfg, target); err != nil {
+	if err := restoreAppProcess(restoreCtx, cfg, target); err != nil {
 		return err
 	}
 	if err := writeAtomic(journal.ManifestPath, journal.TargetManifest, 0600); err != nil {

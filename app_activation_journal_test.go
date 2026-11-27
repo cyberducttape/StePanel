@@ -91,7 +91,7 @@ func TestRecoverAppActivationJournalRestoresRuntimeAndManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	recovered, err := recoverAppActivationJournals(cfg)
+	recovered, err := recoverAppActivationJournals(cfg, nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestRecoverAppActivationJournalReconcilesCommittedGeneration(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	recovered, err := recoverAppActivationJournals(cfg)
+	recovered, err := recoverAppActivationJournals(cfg, nil, 0)
 	if err != nil || len(recovered) != 1 || recovered[0] != j.ID {
 		t.Fatalf("recovery = %v, %v; want reconciliation and cleanup of committed journal", recovered, err)
 	}
@@ -346,7 +346,7 @@ func TestRecoverAppActivationJournalsRejectsOversizedJournal(t *testing.T) {
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
-	_, err = recoverAppActivationJournals(Config{AppRoot: appRoot})
+	_, err = recoverAppActivationJournals(Config{AppRoot: appRoot}, nil, 0)
 	if !errors.Is(err, errStateFileTooLarge) {
 		t.Fatalf("oversized app activation journal error = %v, want errStateFileTooLarge", err)
 	}
