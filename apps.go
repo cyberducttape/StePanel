@@ -131,7 +131,7 @@ func (a *App) applyAppDeployment(operationCtx context.Context, principal siteOpe
 	var outcome string
 	defer intent.Finish(&outcome, "application service was not applied; previous configuration kept")
 	app.State = "running"
-	cleanupPending, err := activateAppManifest(operationCtx, a.Config, app, previous, previousManifest, previousBackup, hadPreviousBackup)
+	cleanupPending, err := activateAppManifest(operationCtx, a.Config, "app-deploy", app, previous, previousManifest, previousBackup, hadPreviousBackup)
 	if err != nil {
 		var activationErr *appActivationFailure
 		if errors.As(err, &activationErr) && activationErr.RecoveryErr != nil {
@@ -208,7 +208,8 @@ func compensateAppActivation(ctx context.Context, cfg Config, journal *appActiva
 // activateAppManifest journals both runtime activation and manifest/rollback
 // metadata publication. The committed state is durable before journal cleanup,
 // so startup can distinguish a completed activation from work to compensate.
-func activateAppManifest(ctx context.Context, cfg Config, target AppManifest, previous []byte, previousManifest *AppManifest, previousBackup []byte, hadPreviousBackup bool) (bool, error) {
+// operation names its lab kill points (app-deploy or app-rollback).
+func activateAppManifest(ctx context.Context, cfg Config, operation string, target AppManifest, previous []byte, previousManifest *AppManifest, previousBackup []byte, hadPreviousBackup bool) (bool, error) {
 	manifestPath, err := safePath(cfg.AppRoot, target.Site+".json")
 	if err != nil {
 		return false, err
@@ -242,6 +243,9 @@ func activateAppManifest(ctx context.Context, cfg Config, target AppManifest, pr
 	if err := journal.setState("runtime_applied"); err != nil {
 		return compensate(err)
 	}
+	// The runtime runs the target but neither manifest has moved: startup
+	// recovery restores the previous generation from the journal.
+	processKillInjection(operation, "runtime-applied")
 	if err := ctx.Err(); err != nil {
 		return compensate(err)
 	}
@@ -262,12 +266,17 @@ func activateAppManifest(ctx context.Context, cfg Config, target AppManifest, pr
 	if err := writeAtomic(manifestPath, targetBytes, 0600); err != nil {
 		return compensate(err)
 	}
+	// Both manifests name the target but the journal is not committed:
+	// startup recovery must put back the previous manifest and backup too.
+	processKillInjection(operation, "manifest-written")
 	if err := ctx.Err(); err != nil {
 		return compensate(err)
 	}
 	if err := journal.setState("committed"); err != nil {
 		return compensate(err)
 	}
+	// Committed but not cleaned up: startup recovery keeps the target.
+	processKillInjection(operation, "committed")
 	if err := journal.cleanup(); err != nil {
 		return true, nil
 	}
@@ -414,7 +423,7 @@ func (a *App) appAction(w http.ResponseWriter, r *http.Request) {
 		}
 		// Applying a release always leaves the service enabled and running.
 		previous.State = "running"
-		cleanupPending, activationErr := activateAppManifest(operationCtx, a.Config, previous, current, &currentManifest, backup, hadBackup)
+		cleanupPending, activationErr := activateAppManifest(operationCtx, a.Config, "app-rollback", previous, current, &currentManifest, backup, hadBackup)
 		if activationErr != nil {
 			log.Printf("app rollback %s: %v", parts[0], activationErr)
 			var rollbackErr *appActivationFailure
@@ -553,12 +562,17 @@ func applyAppStateTransition(ctx context.Context, cfg Config, target AppManifest
 	if err := writeAtomic(manifestPath, targetBytes, 0600); err != nil {
 		return compensate(err)
 	}
+	// The manifest names the target but the journal is not committed:
+	// startup recovery must put back the previous manifest too.
+	processKillInjection("app-"+action, "manifest-written")
 	if err := ctx.Err(); err != nil {
 		return compensate(err)
 	}
 	if err := journal.setState("committed"); err != nil {
 		return compensate(err)
 	}
+	// Committed but not cleaned up: startup recovery keeps the target.
+	processKillInjection("app-"+action, "committed")
 	if err := journal.cleanup(); err != nil {
 		return true, nil
 	}

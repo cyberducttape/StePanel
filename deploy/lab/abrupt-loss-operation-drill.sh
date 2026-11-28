@@ -38,6 +38,23 @@
 #                    generation: manifest running, unit active, listener up
 #                    and the proxy serving the app, with no activation journal
 #                    left. A fresh stop must then succeed.
+#   app-start        Guest dies at app-start:runtime-applied, after the panel
+#                    started a stopped app but before the manifest recorded
+#                    it. Recovery must return to the stopped generation
+#                    (manifest stopped, unit inactive, no journal); a fresh
+#                    start must then succeed.
+#   app-restart      Guest dies at app-restart:runtime-applied. Recovery must
+#                    leave the running generation whole (manifest running,
+#                    unit active, proxy serving, no journal); a fresh restart
+#                    must then succeed.
+#   app-rollback     Guest dies at app-rollback:runtime-applied (or the point
+#                    in DRILL_APP_POINT: manifest-written, committed), after the
+#                    panel moved a Node app back to its previous release's
+#                    port. Before commit, recovery must return to the current
+#                    release (manifest and listener on the current port, the
+#                    rollback manifest still naming the previous one, proxy
+#                    serving); at committed it must keep the previous release.
+#                    No journal may remain, and a fresh rollback must succeed.
 #   retention        Guest dies at backup:prune, while scheduled-backup
 #                    retention is deleting an old backup (renamed out of the
 #                    inventory, not yet removed). Every backup the site still
@@ -63,7 +80,7 @@
 set -Eeuo pipefail
 
 [[ $EUID -eq 0 ]] || { echo 'abrupt-loss operation drill must run as root' >&2; exit 1; }
-scenario=${1:?usage: abrupt-loss-operation-drill.sh file-restore|database-restore|git-deploy|app-deploy|app-stop|retention|control-plane|backup-interrupted prepare|start|verify}
+scenario=${1:?usage: abrupt-loss-operation-drill.sh file-restore|database-restore|git-deploy|app-deploy|app-stop|app-start|app-restart|app-rollback|retention|control-plane|backup-interrupted prepare|start|verify}
 action=${2:?usage: abrupt-loss-operation-drill.sh SCENARIO prepare|start|verify}
 
 : "${PANEL:=http://127.0.0.1:8090}"
@@ -93,6 +110,9 @@ site_scenario=$scenario
 [[ $site_scenario != backup-interrupted ]] || site_scenario=bkintr
 [[ $site_scenario != app-deploy ]] || site_scenario=appdeploy
 [[ $site_scenario != app-stop ]] || site_scenario=appstop
+[[ $site_scenario != app-start ]] || site_scenario=appstart
+[[ $site_scenario != app-restart ]] || site_scenario=apprestart
+[[ $site_scenario != app-rollback ]] || site_scenario=approllback
 site=drill-${site_scenario}-${DRILL_RUN_SUFFIX}
 domain=$site.localhost
 # shellcheck source=../integrations/stepanel-site-location.sh
@@ -103,7 +123,7 @@ public=$public_root
 service=stepanel.service
 # App start, stop, restart and rollback run in the panel's request handler;
 # every other drilled operation is a durable job in the worker when one runs.
-if [[ $scenario != app-stop ]] && systemctl is-enabled --quiet stepanel-worker.service 2>/dev/null; then
+if [[ $scenario != app-stop && $scenario != app-start && $scenario != app-restart && $scenario != app-rollback ]] && systemctl is-enabled --quiet stepanel-worker.service 2>/dev/null; then
   service=stepanel-worker.service
 fi
 dropin_dir=/run/systemd/system/$service.d
@@ -640,6 +660,159 @@ app_stop() {
   esac
 }
 
+# --- app-start / app-restart -----------------------------------------------------
+# post_app_action_detached sends an app action that will block at its pause
+# boundary until the guest dies, so this step returns once the boundary is
+# reached.
+post_app_action_detached() {
+  setsid curl --silent --max-time 600 -X POST -H "Cookie: $cookie_header" -H "X-CSRF-Token: $csrf" \
+    "$PANEL/api/apps/$site/$1" > "$state_dir/$1-response" 2>&1 < /dev/null &
+  disown
+}
+
+no_activation_journal() {
+  if compgen -G "$app_manifest/.activation-*.json" > /dev/null; then
+    fail "an activation journal survived recovery: $(ls "$app_manifest"/.activation-*.json)"
+  fi
+}
+
+app_start() {
+  case "$action" in
+    prepare)
+      login
+      create_site
+      version=$(install_app_runtime)
+      require_completed "$(job_id_of "$(deploy_app "$DRILL_APP_PORT_BEFORE" "$version")")" 'app deployment'
+      api POST "/api/apps/$site/stop" > /dev/null || fail 'could not stop the deployed app'
+      [[ $(app_state) == stopped ]] || fail "stopped app state is $(app_state)"
+      ! unit_active || fail "stepanel-app-$site.service is still active after the stop"
+      echo "prepared $site with a stopped app on port $DRILL_APP_PORT_BEFORE"
+      ;;
+    start)
+      set_pause app-start:runtime-applied
+      login
+      post_app_action_detached start
+      wait_pause app-start:runtime-applied
+      unit_active || fail 'the app unit is not active at the pause boundary'
+      [[ $(app_state) == stopped ]] || fail "the manifest already records $(app_state) at the pause boundary"
+      echo "app start for $site paused at app-start:runtime-applied: unit active, manifest still stopped"
+      ;;
+    verify)
+      clear_pause_after_reboot
+      wait_panel_ready
+      login
+      [[ $(app_state) == stopped ]] || fail "the manifest records $(app_state) after recovery, want the previous stopped generation"
+      ! unit_active || fail "stepanel-app-$site.service is active after recovery, want the stopped generation"
+      ! listening_on "$DRILL_APP_PORT_BEFORE" || fail "the app port $DRILL_APP_PORT_BEFORE is served after recovery"
+      no_activation_journal
+      api POST "/api/apps/$site/start" > /dev/null || fail 'a fresh app start after recovery failed'
+      [[ $(app_state) == running ]] || fail "a fresh start left the manifest at $(app_state)"
+      for _ in $(seq 1 30); do unit_active && break; sleep 1; done
+      unit_active || fail 'a fresh start left the app unit inactive'
+      probe / | grep -Fq DRILL_APP || fail 'the app is not served through the proxy after a fresh start'
+      echo "interrupted app start recovered to the stopped generation; a fresh start succeeded and the proxy serves the app"
+      ;;
+  esac
+}
+
+app_restart() {
+  case "$action" in
+    prepare)
+      login
+      create_site
+      version=$(install_app_runtime)
+      require_completed "$(job_id_of "$(deploy_app "$DRILL_APP_PORT_BEFORE" "$version")")" 'app deployment'
+      [[ $(app_state) == running ]] || fail "deployed app state is $(app_state)"
+      unit_active || fail "stepanel-app-$site.service is not running after deployment"
+      echo "prepared $site with a running app on port $DRILL_APP_PORT_BEFORE"
+      ;;
+    start)
+      set_pause app-restart:runtime-applied
+      login
+      post_app_action_detached restart
+      wait_pause app-restart:runtime-applied
+      [[ $(app_state) == running ]] || fail "the manifest records $(app_state) at the pause boundary"
+      echo "app restart for $site paused at app-restart:runtime-applied"
+      ;;
+    verify)
+      clear_pause_after_reboot
+      wait_panel_ready
+      login
+      [[ $(app_state) == running ]] || fail "the manifest records $(app_state) after recovery"
+      for _ in $(seq 1 30); do unit_active && break; sleep 1; done
+      unit_active || fail "stepanel-app-$site.service is not running after recovery"
+      for _ in $(seq 1 30); do listening_on "$DRILL_APP_PORT_BEFORE" && break; sleep 1; done
+      listening_on "$DRILL_APP_PORT_BEFORE" || fail "nothing listens on the app port $DRILL_APP_PORT_BEFORE after recovery"
+      probe / | grep -Fq DRILL_APP || fail 'the app is not served through the proxy after recovery'
+      no_activation_journal
+      api POST "/api/apps/$site/restart" > /dev/null || fail 'a fresh app restart after recovery failed'
+      [[ $(app_state) == running ]] || fail "a fresh restart left the manifest at $(app_state)"
+      for _ in $(seq 1 30); do unit_active && break; sleep 1; done
+      unit_active || fail 'a fresh restart left the app unit inactive'
+      echo "interrupted app restart recovered to the running generation; a fresh restart succeeded"
+      ;;
+  esac
+}
+
+# --- app-rollback ----------------------------------------------------------------
+backup_port() {
+  python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("port", ""))' "$app_manifest/$site.json.bak" 2>/dev/null || true
+}
+
+app_rollback() {
+  local point=${DRILL_APP_POINT:-runtime-applied} current=$DRILL_APP_PORT_AFTER previous=$DRILL_APP_PORT_BEFORE
+  case $point in runtime-applied|manifest-written|committed) ;; *) fail "unknown DRILL_APP_POINT $point" ;; esac
+  case "$action" in
+    prepare)
+      login
+      create_site
+      version=$(install_app_runtime)
+      require_completed "$(job_id_of "$(deploy_app "$previous" "$version")")" 'first app deployment'
+      require_completed "$(job_id_of "$(deploy_app "$current" "$version")")" 'second app deployment'
+      [[ $(manifest_port) == "$current" ]] || fail "the manifest records port $(manifest_port), want $current"
+      [[ $(backup_port) == "$previous" ]] || fail "the rollback manifest records port $(backup_port), want $previous"
+      probe / | grep -Fq DRILL_APP || fail 'the app is not served through the proxy'
+      echo "prepared $site on port $current with a previous release on port $previous"
+      ;;
+    start)
+      set_pause "app-rollback:$point"
+      login
+      post_app_action_detached rollback
+      wait_pause "app-rollback:$point"
+      for _ in $(seq 1 30); do listening_on "$previous" && break; sleep 1; done
+      listening_on "$previous" || fail "the previous release's port $previous is not served at the pause boundary"
+      echo "app rollback for $site paused at app-rollback:$point with the runtime on port $previous"
+      ;;
+    verify)
+      clear_pause_after_reboot
+      wait_panel_ready
+      login
+      local want=$current want_backup=$previous gone=$previous
+      if [[ $point == committed ]]; then
+        want=$previous want_backup=$current gone=$current
+      fi
+      [[ $(manifest_port) == "$want" ]] || fail "the manifest records port $(manifest_port) after recovery, want $want"
+      [[ $(backup_port) == "$want_backup" ]] || fail "the rollback manifest records port $(backup_port) after recovery, want $want_backup"
+      for _ in $(seq 1 30); do unit_active && break; sleep 1; done
+      unit_active || fail "stepanel-app-$site.service is not running after recovery"
+      for _ in $(seq 1 30); do listening_on "$want" && break; sleep 1; done
+      listening_on "$want" || fail "nothing listens on port $want after recovery"
+      ! listening_on "$gone" || fail "port $gone is still served after recovery"
+      no_activation_journal
+      if [[ $point != committed ]]; then
+        # The proxy was never moved; it serves only if the app is back on
+        # the current release's port.
+        probe / | grep -Fq DRILL_APP || fail 'the app is not served through the proxy after recovery'
+      fi
+      api POST "/api/apps/$site/rollback" > /dev/null || fail 'a fresh app rollback after recovery failed'
+      [[ $(manifest_port) == "$want_backup" ]] || fail "a fresh rollback left the manifest on port $(manifest_port), want $want_backup"
+      for _ in $(seq 1 30); do listening_on "$want_backup" && break; sleep 1; done
+      listening_on "$want_backup" || fail "a fresh rollback left nothing listening on port $want_backup"
+      echo "interrupted app rollback at $point recovered to port $want with every layer agreeing; a fresh rollback moved the app to port $want_backup"
+      ;;
+  esac
+}
+
 # --- control-plane -------------------------------------------------------------
 # --- retention ---------------------------------------------------------------
 backup_root=$(sed -n 's/^STEPANEL_BACKUP_ROOT="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /etc/ste-panel.env)
@@ -829,6 +1002,9 @@ case "$scenario" in
   git-deploy) git_deploy ;;
   app-deploy) app_deploy ;;
   app-stop) app_stop ;;
+  app-start) app_start ;;
+  app-restart) app_restart ;;
+  app-rollback) app_rollback ;;
   retention) retention ;;
   control-plane) control_plane ;;
   backup-interrupted) backup_interrupted ;;

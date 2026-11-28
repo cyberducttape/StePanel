@@ -209,7 +209,7 @@ func TestFailedAppActivationCompensationRemovesJournalAndRestoresSidecar(t *test
 		t.Fatal(err)
 	}
 	target := AppManifest{Site: "demo", Domain: "new.example.test", Version: "22.2.0", Port: 3001, Root: public, State: "running"}
-	cleanupPending, err := activateAppManifest(t.Context(), cfg, target, currentBytes, &currentManifest, oldBackup, true)
+	cleanupPending, err := activateAppManifest(t.Context(), cfg, "app-deploy", target, currentBytes, &currentManifest, oldBackup, true)
 	var activationErr *appActivationFailure
 	if !errors.As(err, &activationErr) || activationErr.RecoveryErr != nil || cleanupPending {
 		t.Fatalf("activation = cleanupPending %v, error %v; want compensated failure", cleanupPending, err)
@@ -258,7 +258,7 @@ func TestCanceledAppActivationStillAttemptsBoundedRuntimeCompensation(t *testing
 	target := AppManifest{Site: "demo", Domain: "new.example.test", Version: "22.2.0", Port: 3001, Root: public, State: "running"}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = activateAppManifest(ctx, cfg, target, previousBytes, &previous, previousBackup, true)
+	_, err = activateAppManifest(ctx, cfg, "app-deploy", target, previousBytes, &previous, previousBackup, true)
 	var activationErr *appActivationFailure
 	if !errors.As(err, &activationErr) || !errors.Is(activationErr.Cause, context.Canceled) || activationErr.RecoveryErr != nil {
 		t.Fatalf("activation error = %#v, want canceled activation with successful compensation", err)

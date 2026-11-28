@@ -511,3 +511,105 @@ func TestAppActivationRecoveryRunsUnderTheSiteLock(t *testing.T) {
 		}
 	})
 }
+
+func TestAppRollbackKillPointsRecoverToOneWholeGeneration(t *testing.T) {
+	for _, tc := range []struct {
+		point    string
+		state    string
+		keepsNew bool
+	}{
+		{point: "runtime-applied", state: "runtime_applied"},
+		{point: "manifest-written", state: "runtime_applied"},
+		{point: "committed", state: "committed", keepsNew: true},
+	} {
+		t.Run(tc.point, func(t *testing.T) {
+			a, manifestPath, argsLog := newAppStateFixture(t, 0)
+			current, err := os.ReadFile(manifestPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var currentManifest AppManifest
+			if err := json.Unmarshal(current, &currentManifest); err != nil {
+				t.Fatal(err)
+			}
+			previous := currentManifest
+			previous.Port = 3001
+			backupJSON, err := json.MarshalIndent(previous, "", "  ")
+			if err != nil {
+				t.Fatal(err)
+			}
+			backup := append(backupJSON, '\n')
+			if err := os.WriteFile(manifestPath+".bak", backup, 0600); err != nil {
+				t.Fatal(err)
+			}
+			type died struct{}
+			var journalState string
+			restorePause := pauseForever
+			pauseForever = func() {
+				entries, err := os.ReadDir(a.Config.AppRoot)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, entry := range entries {
+					if strings.HasPrefix(entry.Name(), ".activation-") {
+						data, err := os.ReadFile(filepath.Join(a.Config.AppRoot, entry.Name()))
+						if err != nil {
+							t.Fatal(err)
+						}
+						var journal appActivationJournal
+						if err := json.Unmarshal(data, &journal); err != nil {
+							t.Fatal(err)
+						}
+						journalState = journal.State
+					}
+				}
+				panic(died{})
+			}
+			t.Cleanup(func() { pauseForever = restorePause })
+			t.Setenv("STEPANEL_UNSAFE_LAB", "1")
+			t.Setenv("STEPANEL_PAUSE_MARKER_DIR", filepath.Join(t.TempDir(), "markers"))
+			t.Setenv("STEPANEL_PAUSE_AT", "app-rollback:"+tc.point)
+			t.Setenv("STEPANEL_KILL_AT", "")
+			func() {
+				defer func() {
+					if _, ok := recover().(died); !ok {
+						t.Fatalf("the rollback never reached app-rollback:%s", tc.point)
+					}
+				}()
+				_, _ = activateAppManifest(context.Background(), a.Config, "app-rollback", previous, current, &currentManifest, backup, true)
+			}()
+			if journalState != tc.state {
+				t.Fatalf("journal state at the kill point = %q, want %q", journalState, tc.state)
+			}
+			if args, err := os.ReadFile(argsLog); err != nil || !strings.HasSuffix(strings.TrimSpace(string(args)), " 3001") {
+				t.Fatalf("helper call before the kill point = %q, %v; want the previous release applied", args, err)
+			}
+			t.Setenv("STEPANEL_PAUSE_AT", "")
+			if _, err := recoverAppActivationJournals(a.Config, nil, 0); err != nil {
+				t.Fatalf("startup recovery: %v", err)
+			}
+			wantManifest, wantBackup, wantPort := current, backup, " 3000"
+			if tc.keepsNew {
+				wantManifest, wantBackup, wantPort = backup, current, " 3001"
+			}
+			if got, err := os.ReadFile(manifestPath); err != nil || string(got) != string(wantManifest) {
+				t.Fatalf("manifest after recovery = %q, %v; want %q", got, err, wantManifest)
+			}
+			if got, err := os.ReadFile(manifestPath + ".bak"); err != nil || string(got) != string(wantBackup) {
+				t.Fatalf("rollback manifest after recovery = %q, %v; want %q", got, err, wantBackup)
+			}
+			if args, err := os.ReadFile(argsLog); err != nil || !strings.HasSuffix(strings.TrimSpace(string(args)), wantPort) {
+				t.Fatalf("last helper call after recovery = %q, %v; want the runtime on port%s", args, err, wantPort)
+			}
+			entries, err := os.ReadDir(a.Config.AppRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, entry := range entries {
+				if strings.HasPrefix(entry.Name(), ".activation-") {
+					t.Fatalf("recovery left journal %q", entry.Name())
+				}
+			}
+		})
+	}
+}

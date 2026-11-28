@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- App rollback and deploy now have lab crash points (`app-rollback:` and
+  `app-deploy:` at `runtime-applied`, `manifest-written` and `committed`),
+  as do the later steps of app start, stop and restart. The abrupt-loss drill
+  gains `app-start`, `app-restart` and `app-rollback` scenarios.
 - **Configuration drift detection.** The installer records the hash, mode
   and owner of every file it manages after each successful install, and an
   hourly root timer (`stepanel-config-drift.timer`) reports changed, missing

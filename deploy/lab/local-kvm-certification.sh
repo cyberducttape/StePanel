@@ -23,8 +23,9 @@ set -Eeuo pipefail
 # CAPACITY_SITES for the capacity phase (deploy/lab/capacity-profile.py),
 # RESUME=1 to run PHASES against the guest a previous KEEP_VM=1 run left in
 # RUN_DIR (no rebuild or reboot; results are appended),
-# ABRUPT_LOSS_SCENARIOS (file-restore database-restore git-deploy app-deploy app-stop retention
-# control-plane backup-interrupted) for abrupt-loss-operations, and VM_DISK_CACHE (writeback) for
+# ABRUPT_LOSS_SCENARIOS (file-restore database-restore git-deploy app-deploy app-stop app-start
+# app-restart app-rollback retention control-plane backup-interrupted) for abrupt-loss-operations,
+# DRILL_APP_POINT (runtime-applied, manifest-written or committed) for app-rollback, and VM_DISK_CACHE (writeback) for
 # the guest disks. With writeback, writes the virtual disk acknowledged survive
 # a guest kill in the host page cache; none or directsync drops that cushion.
 #
@@ -43,6 +44,8 @@ case $disk_cache in writeback|none|directsync|writethrough) ;; *) echo 'VM_DISK_
 matrix_repeats=${RECOVERY_MATRIX_REPEATS:-1}
 drill_suffix=${DRILL_RUN_SUFFIX:-$(date -u +%y%m%d%H%M)}
 [[ $drill_suffix =~ ^[a-zA-Z0-9_-]{1,16}$ ]] || { echo 'DRILL_RUN_SUFFIX must contain 1–16 letters, digits, underscores, or hyphens' >&2; exit 1; }
+drill_app_point=${DRILL_APP_POINT:-runtime-applied}
+case $drill_app_point in runtime-applied|manifest-written|committed) ;; *) echo 'DRILL_APP_POINT must be runtime-applied, manifest-written or committed' >&2; exit 1 ;; esac
 
 if [[ ! $matrix_repeats =~ ^[1-9][0-9]*$ ]] || (( matrix_repeats > 50 )); then
   echo 'RECOVERY_MATRIX_REPEATS must be an integer from 1 through 50' >&2
@@ -380,14 +383,14 @@ fi
 # whole guest there, boots it, and checks customer data and the site over
 # HTTP, not only readiness. See deploy/lab/abrupt-loss-operation-drill.sh.
 if has_phase abrupt-loss-operations; then
-  for scenario in ${ABRUPT_LOSS_SCENARIOS:-file-restore database-restore git-deploy app-deploy app-stop retention control-plane backup-interrupted}; do
+  for scenario in ${ABRUPT_LOSS_SCENARIOS:-file-restore database-restore git-deploy app-deploy app-stop app-start app-restart app-rollback retention control-plane backup-interrupted}; do
     # The name reaches a root command in the guest; accept only known ones.
     case $scenario in
-      file-restore|database-restore|git-deploy|app-deploy|app-stop|retention|control-plane|backup-interrupted) ;;
+      file-restore|database-restore|git-deploy|app-deploy|app-stop|app-start|app-restart|app-rollback|retention|control-plane|backup-interrupted) ;;
       *) echo "unknown abrupt-loss scenario: $scenario" >&2; exit 64 ;;
     esac
     start=$SECONDS
-    drill="sudo env DRILL_RUN_SUFFIX=$drill_suffix bash /work/deploy/lab/abrupt-loss-operation-drill.sh $scenario"
+    drill="sudo env DRILL_RUN_SUFFIX=$drill_suffix DRILL_APP_POINT=$drill_app_point bash /work/deploy/lab/abrupt-loss-operation-drill.sh $scenario"
     log_prefix="$run_dir/abrupt-loss-$scenario"
     if ! wait_ssh 600; then
       record "abrupt-loss-$scenario" FAIL $((SECONDS - start)) 'SSH did not return before operation preparation'

@@ -10,9 +10,14 @@ on:
   workflow_dispatch:
     inputs:
       scenarios:
-        description: Space-separated subset of file-restore database-restore git-deploy app-deploy app-stop retention control-plane backup-interrupted
+        description: Space-separated subset of file-restore database-restore git-deploy app-deploy app-stop app-start app-restart app-rollback retention control-plane backup-interrupted
         required: true
-        default: file-restore database-restore git-deploy app-deploy app-stop retention control-plane backup-interrupted
+        default: file-restore database-restore git-deploy app-deploy app-stop app-start app-restart app-rollback retention control-plane backup-interrupted
+      app_point:
+        description: Where app-rollback pauses before the guest dies
+        type: choice
+        options: [runtime-applied, manifest-written, committed]
+        default: runtime-applied
 
 permissions:
   contents: read
@@ -67,6 +72,7 @@ jobs:
           # recovery contract.
           PHASES: boot install abrupt-loss-operations enospc db-enospc operator-alerts tenant-egress
           ABRUPT_LOSS_SCENARIOS: ${{ inputs.scenarios }}
+          DRILL_APP_POINT: ${{ inputs.app_point }}
           # Avoid retaining acknowledged guest writes in the runner's page
           # cache when the QEMU process is SIGKILLed. This strengthens guest
           # crash evidence but still is not physical host power-loss testing.
