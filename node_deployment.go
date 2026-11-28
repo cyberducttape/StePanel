@@ -102,7 +102,7 @@ func (a *App) startNodeDeployment(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := appPortConflict(a.Config, input.Site, input.Port); err != nil {
+	if err := appPortConflict(a.Config, input.Site, appPortKindNode, input.Port); err != nil {
 		if errors.Is(err, errAppPortTaken) {
 			writePublicError(w, r, http.StatusConflict, publicError("port_unavailable", "the application port is not available", err))
 		} else {

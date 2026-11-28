@@ -38,8 +38,9 @@ Its backend must be the deployed
 application itself, on localhost and the application's own port, so a
 customer cannot publish the panel, another service or a private-network host
 under their domain. Only an administrator may route a domain to another local
-or private backend. No site may take a port that another site's application
-or rollback manifest names, and a port something else is already listening on
+or private backend. No application may take a port that another
+application names (another site's Node, Node rollback or Python manifest, or
+the same site's application of the other kind), and a port something else is already listening on
 is refused unless the site's application already runs there. Rollback is
 refused if the previous release's port has since become unavailable.
 Rollback does not move the proxy: rolling back to a release on another port

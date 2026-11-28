@@ -40,9 +40,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   private-network backend (the panel, another tenant's application, local
   services, LAN hosts), outside the tenant egress block, and could claim
   another site's application port. A customer backend must now be the
-  application on localhost and its own port; no site may take a port another
-  site's application or rollback manifest names, or one something else is
-  already listening on. Rollback is refused if the previous release's port is
+  application on localhost and its own port; no Node or Python application
+  may take a port another application's manifest or rollback manifest names,
+  or one something else is already listening on (a Python app bound to
+  another site's port would otherwise be served under that site's domain). Rollback is refused if the previous release's port is
   no longer available.
 - A customer's Node deployment did not check that its domain was a verified
   claim of the site, so one tenant could put a proxy on another tenant's

@@ -116,7 +116,7 @@ func (a *App) applyAppDeployment(operationCtx context.Context, principal siteOpe
 		}
 		previousManifest = &parsed
 	}
-	if err := appPortConflict(a.Config, app.Site, app.Port); err != nil {
+	if err := appPortConflict(a.Config, app.Site, appPortKindNode, app.Port); err != nil {
 		if errors.Is(err, errAppPortTaken) {
 			return AppManifest{}, http.StatusConflict, err.Error(), err
 		}
@@ -427,7 +427,7 @@ func (a *App) appAction(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "current app manifest is invalid", 500)
 			return
 		}
-		if err := appPortConflict(a.Config, parts[0], previous.Port); err != nil {
+		if err := appPortConflict(a.Config, parts[0], appPortKindNode, previous.Port); err != nil {
 			log.Printf("app rollback %s: %v", parts[0], err)
 			if errors.Is(err, errAppPortTaken) {
 				http.Error(w, "the previous release's port is no longer available", http.StatusConflict)

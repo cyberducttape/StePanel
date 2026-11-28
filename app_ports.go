@@ -30,59 +30,103 @@ func realAppPortListening(port int) bool {
 	return false
 }
 
-// appPortConflict refuses a port another site's application manifest or
-// rollback manifest names, so one site can never take over (or later roll
-// back onto) another site's backend. Unless site already runs there, it also
-// refuses a port something else is listening on, such as the panel, a
-// database or another service, because the site's proxy would then expose
-// that listener under the site's domain.
-func appPortConflict(cfg Config, site string, port int) error {
-	if safeUser(site) == "" || port < 1 || port > 65535 {
-		return errors.New("invalid application site or port")
-	}
+// Application kinds that own ports. A Node application's manifest and its
+// rollback manifest belong to one application, so they may share a port.
+const (
+	appPortKindNode   = "node"
+	appPortKindPython = "python"
+)
+
+// appPortOwner is one port claim found in the application state directory.
+type appPortOwner struct {
+	site, kind string
+	rollback   bool
+	port       int
+}
+
+// appPortOwners reads every Node manifest (<site>.json), Node rollback
+// manifest (<site>.json.bak) and Python manifest (<site>-python.json). A
+// file's site field must match the site its name implies, which also tells a
+// Python manifest from the Node manifest of a site whose name ends -python.
+func appPortOwners(cfg Config) ([]appPortOwner, error) {
 	entries, err := os.ReadDir(cfg.AppRoot)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("inspect application manifests: %w", err)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
 	}
-	currentPort := 0
+	if err != nil {
+		return nil, fmt.Errorf("inspect application manifests: %w", err)
+	}
+	var owners []appPortOwner
 	for _, entry := range entries {
 		name := entry.Name()
-		if strings.HasPrefix(name, ".") || !entry.Type().IsRegular() {
+		if strings.HasPrefix(name, ".") || !entry.Type().IsRegular() || !(strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".json.bak")) {
 			continue
 		}
-		var other, suffix string
-		switch {
-		case strings.HasSuffix(name, ".json.bak"):
-			other, suffix = strings.TrimSuffix(name, ".json.bak"), ".json.bak"
-		case strings.HasSuffix(name, ".json"):
-			other, suffix = strings.TrimSuffix(name, ".json"), ".json"
-		default:
-			continue
-		}
-		if safeUser(other) != other {
-			continue
-		}
-		data, ok, err := readAppStateFile(cfg, other, suffix)
+		path, err := safePath(cfg.AppRoot, name)
 		if err != nil {
-			return fmt.Errorf("read application manifest %s: %w", name, err)
-		}
-		if !ok {
 			continue
 		}
-		var manifest AppManifest
+		data, err := readStateFile(path, maxAppStateFileBytes)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read application manifest %s: %w", name, err)
+		}
+		var manifest struct {
+			Site string `json:"site"`
+			Port int    `json:"port"`
+		}
 		if err := json.Unmarshal(data, &manifest); err != nil {
 			// An unreadable manifest names no port; deploy refuses to
 			// overwrite it for its own site, so it cannot hide one here.
 			log.Printf("application port check: skipping unparsable manifest %s: %v", name, err)
 			continue
 		}
-		if other == site {
-			if suffix == ".json" {
-				currentPort = manifest.Port
+		owner := appPortOwner{site: manifest.Site, kind: appPortKindNode, port: manifest.Port}
+		switch {
+		case strings.HasSuffix(name, ".json.bak"):
+			owner.rollback = true
+			if manifest.Site != strings.TrimSuffix(name, ".json.bak") {
+				continue
+			}
+		case strings.HasSuffix(name, "-python.json") && manifest.Site == strings.TrimSuffix(name, "-python.json"):
+			owner.kind = appPortKindPython
+		case manifest.Site != strings.TrimSuffix(name, ".json"):
+			continue
+		}
+		if safeUser(owner.site) != owner.site || owner.site == "" {
+			continue
+		}
+		owners = append(owners, owner)
+	}
+	return owners, nil
+}
+
+// appPortConflict refuses a port that any other application names: another
+// site's Node, Node rollback or Python manifest, or the same site's
+// application of the other kind. One site can then never take over (or later
+// roll back onto) another application's backend. Unless this application
+// already runs there, it also refuses a port something else is listening on,
+// such as the panel, a database or another service, because a proxy to the
+// port would expose that listener.
+func appPortConflict(cfg Config, site, kind string, port int) error {
+	if safeUser(site) == "" || port < 1 || port > 65535 || (kind != appPortKindNode && kind != appPortKindPython) {
+		return errors.New("invalid application site, kind or port")
+	}
+	owners, err := appPortOwners(cfg)
+	if err != nil {
+		return err
+	}
+	currentPort := 0
+	for _, owner := range owners {
+		if owner.site == site && owner.kind == kind {
+			if !owner.rollback {
+				currentPort = owner.port
 			}
 			continue
 		}
-		if manifest.Port == port {
+		if owner.port == port {
 			return fmt.Errorf("%w: port %d is assigned to another application", errAppPortTaken, port)
 		}
 	}

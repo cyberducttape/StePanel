@@ -53,7 +53,7 @@ func writeTestAppManifest(t *testing.T, cfg Config, site, suffix string, port in
 
 func TestAppPortConflict(t *testing.T) {
 	cfg := Config{AppRoot: filepath.Join(t.TempDir(), "apps")}
-	if err := appPortConflict(cfg, "demo", 3000); err != nil {
+	if err := appPortConflict(cfg, "demo", appPortKindNode, 3000); err != nil {
 		t.Fatalf("empty app root: %v", err)
 	}
 	writeTestAppManifest(t, cfg, "other", ".json", 4000)
@@ -64,12 +64,12 @@ func TestAppPortConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, port := range []int{4000, 4001} {
-		if err := appPortConflict(cfg, "demo", port); !errors.Is(err, errAppPortTaken) {
+		if err := appPortConflict(cfg, "demo", appPortKindNode, port); !errors.Is(err, errAppPortTaken) {
 			t.Errorf("port %d of another site = %v, want errAppPortTaken", port, err)
 		}
 	}
 	for _, port := range []int{3000, 3001, 5000} {
-		if err := appPortConflict(cfg, "demo", port); err != nil {
+		if err := appPortConflict(cfg, "demo", appPortKindNode, port); err != nil {
 			t.Errorf("port %d = %v, want allowed", port, err)
 		}
 	}
@@ -83,11 +83,11 @@ func TestAppPortConflict(t *testing.T) {
 	previousProbe := appPortListening
 	t.Cleanup(func() { appPortListening = previousProbe })
 	appPortListening = realAppPortListening
-	if err := appPortConflict(cfg, "demo", busy); !errors.Is(err, errAppPortTaken) {
+	if err := appPortConflict(cfg, "demo", appPortKindNode, busy); !errors.Is(err, errAppPortTaken) {
 		t.Fatalf("listening port %d = %v, want errAppPortTaken", busy, err)
 	}
 	writeTestAppManifest(t, cfg, "demo", ".json", busy)
-	if err := appPortConflict(cfg, "demo", busy); err != nil {
+	if err := appPortConflict(cfg, "demo", appPortKindNode, busy); err != nil {
 		t.Fatalf("the site's own running port %d = %v, want allowed", busy, err)
 	}
 }
@@ -240,5 +240,66 @@ func TestCustomerNodeDeploymentRequiresAVerifiedDomain(t *testing.T) {
 	}
 	if _, err := app.handleNodeDeploymentJob(context.Background(), item); err == nil || !strings.Contains(err.Error(), "no longer a verified claim") {
 		t.Fatalf("worker error = %v, want the removed claim refused", err)
+	}
+}
+
+func TestAppPortConflictCoversPythonApplications(t *testing.T) {
+	cfg := Config{AppRoot: filepath.Join(t.TempDir(), "apps")}
+	if err := savePythonApp(cfg.AppRoot, PythonApp{Site: "other", Version: "3.12", EntryPoint: "app:app", Port: 4100, Workers: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := savePythonApp(cfg.AppRoot, PythonApp{Site: "demo", Version: "3.12", EntryPoint: "app:app", Port: 4200, Workers: 1}); err != nil {
+		t.Fatal(err)
+	}
+	// A site whose name ends -python keeps a Node manifest at the path a
+	// Python manifest of site "shop" would use; its site field tells them apart.
+	writeTestAppManifest(t, cfg, "shop-python", ".json", 4300)
+	for _, tc := range []struct {
+		site, kind string
+		port       int
+		taken      bool
+	}{
+		{"demo", appPortKindNode, 4100, true},    // another site's Python app
+		{"demo", appPortKindPython, 4100, true},  // another site's Python app
+		{"demo", appPortKindNode, 4200, true},    // the site's own Python app
+		{"demo", appPortKindPython, 4200, false}, // redeploying the Python app
+		{"shop", appPortKindPython, 4300, true},  // the Node app of shop-python
+		{"shop-python", appPortKindNode, 4300, false},
+		{"other", appPortKindPython, 4100, false},
+	} {
+		err := appPortConflict(cfg, tc.site, tc.kind, tc.port)
+		if taken := errors.Is(err, errAppPortTaken); taken != tc.taken || (err != nil && !taken) {
+			t.Errorf("appPortConflict(%s, %s, %d) = %v, want taken=%v", tc.site, tc.kind, tc.port, err, tc.taken)
+		}
+	}
+}
+
+func TestPythonDeploymentRefusesAnotherApplicationsPort(t *testing.T) {
+	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("k", 32))
+	app, _ := newSiteOperationFixture(t, http.StatusOK, `{}`)
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "sites", "shop", "public"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(root, "helper-ran")
+	helper := filepath.Join(root, "appctl")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\ntouch "+shellQuote(marker)+"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	app.Config.WebRoot, app.Config.AppRoot, app.Config.AppCtl = root, filepath.Join(root, "apps"), helper
+	writeTestAppManifest(t, app.Config, "victim", ".json", 8000)
+	access, err := app.authorizeDurableSiteJob("shop", "admin", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = app.applyPythonDeployment(context.Background(), "admin", access, PythonApp{Site: "shop", Version: "3.13", EntryPoint: "app:app", Port: 8000, Workers: 1})
+	if pythonDeploymentStatus(err) != http.StatusConflict {
+		t.Fatalf("deploy onto another site's port = %v, want a conflict", err)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the helper ran for a refused deployment: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(app.Config.AppRoot, "shop-python.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a refused deployment left a manifest: %v", err)
 	}
 }

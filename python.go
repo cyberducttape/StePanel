@@ -171,6 +171,12 @@ func (a *App) applyPythonDeployment(ctx context.Context, actor string, access Si
 	if err := operationCtx.Err(); err != nil {
 		return PythonApp{}, &pythonDeploymentFailure{http.StatusConflict, "Python application mutation cancelled because the mutation lock was lost"}
 	}
+	if err := appPortConflict(a.Config, app.Site, appPortKindPython, app.Port); err != nil {
+		if errors.Is(err, errAppPortTaken) {
+			return PythonApp{}, &pythonDeploymentFailure{http.StatusConflict, "the application port is not available"}
+		}
+		return PythonApp{}, &pythonDeploymentFailure{http.StatusInternalServerError, "unable to check the application port"}
+	}
 	intent, err := BeginSecurityAudit(a.Config.AuditLog, actor, "python.deployed", app.Site, app.EntryPoint)
 	if err != nil {
 		return PythonApp{}, &pythonDeploymentFailure{http.StatusServiceUnavailable, "Python deployment refused because the security audit could not be recorded"}
