@@ -31,6 +31,17 @@ include a port from 1 through 65535, and cannot target link-local addresses
 (including cloud metadata endpoints). This prevents the proxy endpoint from
 becoming an SSRF or open-proxy primitive.
 
+A customer's Node deployment is narrower: its backend must be the deployed
+application itself, on localhost and the application's own port, so a
+customer cannot publish the panel, another service or a private-network host
+under their domain. Only an administrator may route a domain to another local
+or private backend. No site may take a port that another site's application
+or rollback manifest names, and a port something else is already listening on
+is refused unless the site's application already runs there. Rollback is
+refused if the previous release's port has since become unavailable.
+Rollback does not move the proxy: rolling back to a release on another port
+leaves the proxy on the current port until it is deployed again.
+
 The installer enables the required proxy integration and installs
 `/usr/local/sbin/stepanel-proxyctl`. The Apache, Caddy, and OpenLiteSpeed
 helpers validate all arguments, render fixed configuration templates, and

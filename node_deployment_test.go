@@ -24,7 +24,7 @@ func TestQueuedNodeDeploymentStopsWhenQueuingTokenIsRevoked(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	request := tokenRequest(http.MethodPost, "/api/node/deploy", `{"site":"shop","domain":"shop.example.com","node_version":"20.1.0","port":3000,"backend":"http://127.0.0.1:3001","stage":"completed"}`, "customer", "site:deploy")
+	request := tokenRequest(http.MethodPost, "/api/node/deploy", `{"site":"shop","domain":"shop.example.com","node_version":"20.1.0","port":3000,"backend":"http://127.0.0.1:3000","stage":"completed"}`, "customer", "site:deploy")
 	request = request.WithContext(context.WithValue(request.Context(), apiTokenIDKey{}, token.ID))
 	response := httptest.NewRecorder()
 	app.startNodeDeployment(response, request)
@@ -58,7 +58,7 @@ func TestQueuedNodeDeploymentCannotFollowSiteToAnotherTenant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := tokenRequest(http.MethodPost, "/api/node/deploy", `{"site":"shop","domain":"shop.example.com","node_version":"20.1.0","port":3000,"backend":"http://127.0.0.1:3001"}`, "customer", "site:deploy")
+	request := tokenRequest(http.MethodPost, "/api/node/deploy", `{"site":"shop","domain":"shop.example.com","node_version":"20.1.0","port":3000,"backend":"http://127.0.0.1:3000"}`, "customer", "site:deploy")
 	request = request.WithContext(context.WithValue(request.Context(), apiTokenIDKey{}, token.ID))
 	response := httptest.NewRecorder()
 	app.startNodeDeployment(response, request)

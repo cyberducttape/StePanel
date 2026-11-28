@@ -89,6 +89,20 @@ func (a *App) startNodeDeployment(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !a.Auth.IsAdministrator(r) {
+		if err := customerNodeBackendAllowed(input.Backend, input.Port); err != nil {
+			writePublicError(w, r, http.StatusUnprocessableEntity, publicError("invalid_backend", "the deployment backend must be the application's own port on localhost", err))
+			return
+		}
+	}
+	if err := appPortConflict(a.Config, input.Site, input.Port); err != nil {
+		if errors.Is(err, errAppPortTaken) {
+			writePublicError(w, r, http.StatusConflict, publicError("port_unavailable", "the application port is not available", err))
+		} else {
+			http.Error(w, "unable to check the application port", http.StatusInternalServerError)
+		}
+		return
+	}
 	input.TenantID = access.TenantID()
 	input.TenantBound = a.Accounts != nil
 	if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {

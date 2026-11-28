@@ -12,5 +12,8 @@ func TestMain(m *testing.M) {
 	if os.Getenv("STEPANEL_AUDIT_KEY") == "" {
 		_ = os.Setenv("STEPANEL_AUDIT_KEY", "stepanel-test-only-audit-key-32-bytes-minimum")
 	}
+	// Tests deploy apps on fixed ports; do not let a listener on the test
+	// host refuse them. TestAppPortConflict covers the real probe.
+	appPortListening = func(int) bool { return false }
 	os.Exit(m.Run())
 }

@@ -520,8 +520,17 @@ git_deploy() {
 
 # --- app-deploy ----------------------------------------------------------------
 app_manifest=/var/lib/ste-panel/apps
-: "${DRILL_APP_PORT_BEFORE:=38211}"
-: "${DRILL_APP_PORT_AFTER:=38212}"
+# Each app scenario has its own ports: an earlier scenario's app keeps its
+# port, and StePanel refuses a port another site's app uses or that is busy.
+case $scenario in
+  app-stop) app_port_base=38220 ;;
+  app-start) app_port_base=38230 ;;
+  app-restart) app_port_base=38240 ;;
+  app-rollback) app_port_base=38250 ;;
+  *) app_port_base=38210 ;;
+esac
+: "${DRILL_APP_PORT_BEFORE:=$((app_port_base + 1))}"
+: "${DRILL_APP_PORT_AFTER:=$((app_port_base + 2))}"
 
 # install_app_runtime puts a Node application in the site and prints the Node
 # version to deploy: the installed one, or (with STEPANEL_INSTALL_NODE=0) a

@@ -34,6 +34,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   credentials are refused when deleting an object version. Bucket setup and
   a least-privilege IAM policy are in `docs/OFFSITE_OBJECT_LOCK.md`.
 
+### Security
+
+- A customer's Node deployment could route its domain to any loopback or
+  private-network backend (the panel, another tenant's application, local
+  services, LAN hosts), outside the tenant egress block, and could claim
+  another site's application port. A customer backend must now be the
+  application on localhost and its own port; no site may take a port another
+  site's application or rollback manifest names, or one something else is
+  already listening on. Rollback is refused if the previous release's port is
+  no longer available.
+
 ### Changed
 
 - Removed the whole-object `state_blobs` store binding and its

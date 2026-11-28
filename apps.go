@@ -116,6 +116,12 @@ func (a *App) applyAppDeployment(operationCtx context.Context, principal siteOpe
 		}
 		previousManifest = &parsed
 	}
+	if err := appPortConflict(a.Config, app.Site, app.Port); err != nil {
+		if errors.Is(err, errAppPortTaken) {
+			return AppManifest{}, http.StatusConflict, err.Error(), err
+		}
+		return AppManifest{}, http.StatusInternalServerError, "unable to check the application port", err
+	}
 	previousBackup, hadPreviousBackup, backupReadErr := readAppStateFile(a.Config, app.Site, ".json.bak")
 	if backupReadErr != nil {
 		return AppManifest{}, http.StatusInternalServerError, "unable to read existing app rollback state", backupReadErr
@@ -419,6 +425,15 @@ func (a *App) appAction(w http.ResponseWriter, r *http.Request) {
 		var currentManifest AppManifest
 		if json.Unmarshal(current, &currentManifest) != nil || !validAppManifest(a.Config, currentManifest, parts[0]) {
 			http.Error(w, "current app manifest is invalid", 500)
+			return
+		}
+		if err := appPortConflict(a.Config, parts[0], previous.Port); err != nil {
+			log.Printf("app rollback %s: %v", parts[0], err)
+			if errors.Is(err, errAppPortTaken) {
+				http.Error(w, "the previous release's port is no longer available", http.StatusConflict)
+			} else {
+				http.Error(w, "unable to check the previous release's port", http.StatusInternalServerError)
+			}
 			return
 		}
 		// Applying a release always leaves the service enabled and running.
