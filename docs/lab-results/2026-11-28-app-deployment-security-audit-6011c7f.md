@@ -71,4 +71,12 @@ to succeed.
 
 These ran on `3282c1e6`. The later fixes (`bb3c579f`, `6011c7f6`) add request
 and worker checks, but do not change the activation or recovery code the
-drills exercise. Repeats on the current tree remain open.
+drills exercise.
+
+The full drill set was repeated on `73dcf0c8` (source identical to
+`6011c7f6`) in run
+[46119776540](https://github.com/cyberducttape/StePanel/actions/runs/46119776540):
+boot, install, every abrupt-loss scenario (file restore, database restore,
+Git deploy, app deploy, stop, start, restart, rollback at runtime-applied,
+retention, control plane, interrupted backup), ENOSPC, database ENOSPC,
+operator alerts and tenant egress all passed.
