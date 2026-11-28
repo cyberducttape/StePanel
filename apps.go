@@ -116,6 +116,11 @@ func (a *App) applyAppDeployment(operationCtx context.Context, principal siteOpe
 		}
 		previousManifest = &parsed
 	}
+	operationCtx, releasePorts, err := a.acquireAppPortLock(operationCtx)
+	if err != nil {
+		return AppManifest{}, http.StatusConflict, "application port check is busy", err
+	}
+	defer releasePorts()
 	if err := appPortConflict(a.Config, app.Site, appPortKindNode, app.Port); err != nil {
 		if errors.Is(err, errAppPortTaken) {
 			return AppManifest{}, http.StatusConflict, err.Error(), err
@@ -354,6 +359,22 @@ func removeAppBackup(cfg Config, site string) error {
 	return err
 }
 
+// removeSiteAppState removes a deleted site's Node manifest, Node rollback
+// manifest and Python manifest.
+func removeSiteAppState(cfg Config, site string) error {
+	manifestPath, err := safePath(cfg.AppRoot, site+".json")
+	if err != nil {
+		return err
+	}
+	if err := removeAppManifest(cfg, site, manifestPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove Node manifest: %w", err)
+	}
+	if err := removeAppBackup(cfg, site); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove Node rollback manifest: %w", err)
+	}
+	return removePythonManifest(cfg.AppRoot, site)
+}
+
 // removeAppManifest removes only the manifest for a validated site identity.
 // Opening the configured app directory without following symlinks and unlinking
 // by basename prevents a persisted journal from turning recovery into a
@@ -427,6 +448,13 @@ func (a *App) appAction(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "current app manifest is invalid", 500)
 			return
 		}
+		portCtx, releasePorts, err := a.acquireAppPortLock(operationCtx)
+		if err != nil {
+			http.Error(w, "application port check is busy", http.StatusConflict)
+			return
+		}
+		defer releasePorts()
+		operationCtx = portCtx
 		if err := appPortConflict(a.Config, parts[0], appPortKindNode, previous.Port); err != nil {
 			log.Printf("app rollback %s: %v", parts[0], err)
 			if errors.Is(err, errAppPortTaken) {

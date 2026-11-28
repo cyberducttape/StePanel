@@ -51,7 +51,7 @@ func TestPythonDeploymentDurableOperationUsesTypedService(t *testing.T) {
 	if got, err := os.ReadFile(argsPath); err != nil || !strings.Contains(string(got), "python-apply\nshop\n3.13\n") {
 		t.Fatalf("typed executor did not invoke helper correctly: %q (%v)", got, err)
 	}
-	manifest, err := os.ReadFile(filepath.Join(root, "apps", "shop-python.json"))
+	manifest, err := os.ReadFile(filepath.Join(root, "apps", pythonManifestDir, "shop.json"))
 	if err != nil || !strings.Contains(string(manifest), `"state": "running"`) || strings.Contains(string(manifest), "/attacker/path") {
 		t.Fatalf("server-owned Python manifest incorrect: %s (%v)", manifest, err)
 	}

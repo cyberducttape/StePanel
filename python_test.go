@@ -55,11 +55,11 @@ func TestReconcilePythonAppsRetainsPendingStateWhenHelperFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(appRoot, 0750); err != nil {
-		t.Fatal(err)
-	}
 	manifestPath, err := pythonManifestPath(appRoot, app.Site)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0750); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(manifestPath, append(data, '\n'), 0600); err != nil {
@@ -85,19 +85,25 @@ func TestReconcilePythonAppsRetainsPendingStateWhenHelperFails(t *testing.T) {
 
 func TestReconcilePythonAppsReportsCorruptManifest(t *testing.T) {
 	appRoot := t.TempDir()
-	if err := os.WriteFile(filepath.Join(appRoot, "broken-python.json"), []byte("not-json"), 0600); err != nil {
+	if err := os.MkdirAll(filepath.Join(appRoot, pythonManifestDir), 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appRoot, pythonManifestDir, "broken.json"), []byte("not-json"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	service := &App{Config: Config{AppRoot: appRoot}}
 	_, failed := service.reconcilePythonApps(context.Background())
-	if failed["broken-python.json"] == "" {
+	if failed["broken.json"] == "" {
 		t.Fatalf("failed applications = %#v, want corrupt manifest failure", failed)
 	}
 }
 
 func TestReconcilePythonAppsRejectsOversizedManifest(t *testing.T) {
 	appRoot := t.TempDir()
-	path := filepath.Join(appRoot, "large-python.json")
+	if err := os.MkdirAll(filepath.Join(appRoot, pythonManifestDir), 0750); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(appRoot, pythonManifestDir, "large.json")
 	file, err := os.Create(path)
 	if err != nil {
 		t.Fatal(err)
@@ -110,7 +116,7 @@ func TestReconcilePythonAppsRejectsOversizedManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, failed := (&App{Config: Config{AppRoot: appRoot}}).reconcilePythonApps(context.Background())
-	if failed["large-python.json"] == "" {
+	if failed["large.json"] == "" {
 		t.Fatalf("oversized Python manifest was not reported: %#v", failed)
 	}
 }

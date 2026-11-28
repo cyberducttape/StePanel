@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -80,12 +81,107 @@ type PythonApp struct {
 	LastError  string `json:"last_error,omitempty"`
 }
 
+// pythonManifestDir holds Python manifests apart from Node manifests. They
+// were once kept beside them as <site>-python.json, which is also the Node
+// manifest path of a site named <site>-python.
+const pythonManifestDir = "python"
+
 func pythonManifestPath(root, site string) (string, error) {
-	return safePath(root, site+"-python.json")
+	if safeUser(site) != site || site == "" {
+		return "", errors.New("invalid Python application site")
+	}
+	return safePath(filepath.Join(root, pythonManifestDir), site+".json")
+}
+
+// legacyPythonManifestSite reports the site of a manifest stored at the old
+// <site>-python.json path. The file is a Python manifest only when its site
+// field names the site the path implies; otherwise it is the Node manifest
+// of a site whose name ends -python.
+func legacyPythonManifestSite(name string, data []byte) (string, bool) {
+	stem, ok := strings.CutSuffix(name, "-python.json")
+	if !ok || stem == "" || strings.HasPrefix(name, ".") {
+		return "", false
+	}
+	var manifest struct {
+		Site string `json:"site"`
+	}
+	if json.Unmarshal(data, &manifest) != nil || manifest.Site != stem || safeUser(stem) != stem {
+		return "", false
+	}
+	return stem, true
+}
+
+// migrateLegacyPythonManifest moves one Python manifest from the old
+// <site>-python.json path into pythonManifestDir. The caller holds the site's
+// lock. A manifest already at the new path was written later and wins.
+func migrateLegacyPythonManifest(root, name string) (string, bool, error) {
+	legacyPath, err := safePath(root, name)
+	if err != nil {
+		return "", false, err
+	}
+	data, err := readStateFile(legacyPath, maxAppStateFileBytes)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("read legacy Python manifest %s: %w", name, err)
+	}
+	site, ok := legacyPythonManifestSite(name, data)
+	if !ok {
+		return "", false, nil
+	}
+	newPath, err := pythonManifestPath(root, site)
+	if err != nil {
+		return "", false, err
+	}
+	if _, err := os.Lstat(newPath); errors.Is(err, os.ErrNotExist) {
+		if err := os.MkdirAll(filepath.Dir(newPath), 0750); err != nil {
+			return "", false, fmt.Errorf("create Python manifest directory: %w", err)
+		}
+		if err := writeAtomic(newPath, data, 0600); err != nil {
+			return "", false, fmt.Errorf("move Python manifest for %s: %w", site, err)
+		}
+	} else if err != nil {
+		return "", false, fmt.Errorf("inspect Python manifest for %s: %w", site, err)
+	}
+	if err := os.Remove(legacyPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", false, fmt.Errorf("remove legacy Python manifest %s: %w", name, err)
+	}
+	return site, true, nil
+}
+
+// removePythonManifest forgets a site's Python application, at the current
+// path and, if it is still there, the legacy one.
+func removePythonManifest(root, site string) error {
+	path, err := pythonManifestPath(root, site)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove Python manifest for %s: %w", site, err)
+	}
+	legacyPath, err := safePath(root, site+"-python.json")
+	if err != nil {
+		return err
+	}
+	data, err := readStateFile(legacyPath, maxAppStateFileBytes)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read legacy Python manifest for %s: %w", site, err)
+	}
+	if owner, ok := legacyPythonManifestSite(site+"-python.json", data); !ok || owner != site {
+		return nil
+	}
+	if err := os.Remove(legacyPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove legacy Python manifest for %s: %w", site, err)
+	}
+	return nil
 }
 
 func savePythonApp(root string, app PythonApp) error {
-	if err := os.MkdirAll(root, 0750); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, pythonManifestDir), 0750); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(app, "", "  ")
@@ -171,6 +267,20 @@ func (a *App) applyPythonDeployment(ctx context.Context, actor string, access Si
 	if err := operationCtx.Err(); err != nil {
 		return PythonApp{}, &pythonDeploymentFailure{http.StatusConflict, "Python application mutation cancelled because the mutation lock was lost"}
 	}
+	// The port lock covers the check and the pending manifest that claims the
+	// port, not the long dependency install that follows.
+	_, releasePorts, err := a.acquireAppPortLock(operationCtx)
+	if err != nil {
+		return PythonApp{}, &pythonDeploymentFailure{http.StatusConflict, "application port check is busy"}
+	}
+	portsHeld := true
+	unlockPorts := func() {
+		if portsHeld {
+			portsHeld = false
+			releasePorts()
+		}
+	}
+	defer unlockPorts()
 	if err := appPortConflict(a.Config, app.Site, appPortKindPython, app.Port); err != nil {
 		if errors.Is(err, errAppPortTaken) {
 			return PythonApp{}, &pythonDeploymentFailure{http.StatusConflict, "the application port is not available"}
@@ -188,6 +298,7 @@ func (a *App) applyPythonDeployment(ctx context.Context, actor string, access Si
 		return PythonApp{}, &pythonDeploymentFailure{http.StatusServiceUnavailable, "could not persist desired Python application"}
 	}
 	outcome = app.EntryPoint + "; persisted, reconciliation pending"
+	unlockPorts()
 	if err := a.applyPythonApp(operationCtx, app); err != nil {
 		app.LastError = err.Error()
 		if saveErr := savePythonApp(a.Config.AppRoot, app); saveErr != nil {
@@ -222,18 +333,44 @@ func (a *App) applyPythonApp(ctx context.Context, app PythonApp) error {
 
 func (a *App) reconcilePythonApps(ctx context.Context) (reconciled []string, failed map[string]string) {
 	failed = map[string]string{}
-	entries, err := os.ReadDir(a.Config.AppRoot)
+	rootEntries, err := os.ReadDir(a.Config.AppRoot)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, failed
 		}
 		return nil, map[string]string{"state": err.Error()}
 	}
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "-python.json") {
+	for _, entry := range rootEntries {
+		stem, ok := strings.CutSuffix(entry.Name(), "-python.json")
+		if !entry.Type().IsRegular() || !ok || safeUser(stem) != stem || stem == "" {
 			continue
 		}
-		data, readErr := readStateFile(filepath.Join(a.Config.AppRoot, entry.Name()), maxAppStateFileBytes)
+		_, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, stem)
+		if lockErr != nil {
+			failed[entry.Name()] = lockErr.Error()
+			continue
+		}
+		if site, moved, err := migrateLegacyPythonManifest(a.Config.AppRoot, entry.Name()); err != nil {
+			failed[entry.Name()] = err.Error()
+		} else if moved {
+			log.Printf("moved the Python manifest of %s to %s/", site, pythonManifestDir)
+		}
+		releaseUnlock()
+	}
+	manifestDir := filepath.Join(a.Config.AppRoot, pythonManifestDir)
+	entries, err := os.ReadDir(manifestDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, failed
+		}
+		failed["state"] = err.Error()
+		return nil, failed
+	}
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() || strings.HasPrefix(entry.Name(), ".") || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		data, readErr := readStateFile(filepath.Join(manifestDir, entry.Name()), maxAppStateFileBytes)
 		if readErr != nil {
 			failed[entry.Name()] = readErr.Error()
 			continue
@@ -243,7 +380,7 @@ func (a *App) reconcilePythonApps(ctx context.Context) (reconciled []string, fai
 			failed[entry.Name()] = fmt.Sprintf("decode Python manifest: %v", err)
 			continue
 		}
-		if safeUser(app.Site) == "" {
+		if safeUser(app.Site) == "" || app.Site+".json" != entry.Name() {
 			failed[entry.Name()] = "Python manifest has an invalid site"
 			continue
 		}

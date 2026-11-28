@@ -638,7 +638,11 @@ func managedAppsWithError(root string) ([]AppManifest, error) {
 	}
 	apps := []AppManifest{}
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+		// Only <site>.json is a Node manifest: activation journals are
+		// dotfiles, and a legacy <site>-python.json whose site field is
+		// <site> is a Python manifest.
+		stem, ok := strings.CutSuffix(entry.Name(), ".json")
+		if entry.IsDir() || !ok || strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
 		data, err := readStateFile(filepath.Join(root, entry.Name()), maxAppStateFileBytes)
@@ -651,6 +655,12 @@ func managedAppsWithError(root string) ([]AppManifest, error) {
 		}
 		if safeUser(app.Site) == "" {
 			return nil, fmt.Errorf("application manifest %s has an invalid site", entry.Name())
+		}
+		if app.Site != stem {
+			if _, legacyPython := legacyPythonManifestSite(entry.Name(), data); !legacyPython {
+				log.Printf("application list: skipping %s, which names site %s", entry.Name(), app.Site)
+			}
+			continue
 		}
 		apps = append(apps, app)
 	}

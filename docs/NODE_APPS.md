@@ -42,7 +42,18 @@ or private backend. No application may take a port that another
 application names (another site's Node, Node rollback or Python manifest, or
 the same site's application of the other kind), and a port something else is already listening on
 is refused unless the site's application already runs there. Rollback is
-refused if the previous release's port has since become unavailable.
+refused if the previous release's port has since become unavailable. Port
+claims are serialized across sites, so two sites cannot claim the same free
+port at once.
+
+Application state lives in the panel's application directory
+(`STEPANEL_APP_ROOT`): `<site>.json` and `<site>.json.bak` for a Node
+application and its rollback release, and `python/<site>.json` for a Python
+application. Python manifests from older releases, stored as
+`<site>-python.json`, are moved into `python/` at startup. Deleting a site
+removes all three, so a later site with the same name starts with no release
+or port claim.
+
 Rollback does not move the proxy: rolling back to a release on another port
 leaves the proxy on the current port until it is deployed again.
 

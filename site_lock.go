@@ -31,6 +31,18 @@ func databaseLockKey(name string) string {
 	return "database:" + name
 }
 
+// appPortLockKey serializes port claims across sites. Each site's lock only
+// excludes that site, so without it two sites could pass the port check for
+// the same free port at once. The colon keeps it apart from site names.
+const appPortLockKey = "app-port:registry"
+
+// acquireAppPortLock is held, inside the site's own lock, from the port check
+// until the application's manifest names the port. Always take it after the
+// site lock and never the other way round.
+func (a *App) acquireAppPortLock(ctx context.Context) (context.Context, func(), error) {
+	return a.acquireSiteMutationLockContextUnchecked(ctx, appPortLockKey)
+}
+
 // certificateLockKey names the lease the root broker requires for issuing a
 // domain's certificate.
 func certificateLockKey(domain string) string {
