@@ -79,4 +79,9 @@ The full drill set was repeated on `73dcf0c8` (source identical to
 boot, install, every abrupt-loss scenario (file restore, database restore,
 Git deploy, app deploy, stop, start, restart, rollback at runtime-applied,
 retention, control plane, interrupted backup), ENOSPC, database ENOSPC,
-operator alerts and tenant egress all passed.
+operator alerts and tenant egress all passed. App-rollback was repeated at
+`manifest-written`
+([46125241031](https://github.com/cyberducttape/StePanel/actions/runs/46125241031),
+back to the current release) and `committed`
+([46127983769](https://github.com/cyberducttape/StePanel/actions/runs/46127983769),
+kept the rolled-back release), both passing.
