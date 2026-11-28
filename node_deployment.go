@@ -90,6 +90,13 @@ func (a *App) startNodeDeployment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !a.Auth.IsAdministrator(r) {
+		// A customer may only route a domain this site has verified, the
+		// rule site routes follow; otherwise one tenant could take over
+		// another tenant's domain, or any domain pointed at the host.
+		if a.Domains == nil || !a.Domains.verifiedForTenant(input.Site, input.Domain, access.TenantID()) {
+			writePublicError(w, r, http.StatusForbidden, publicError("domain_not_verified", "verify ownership of this domain for the site before deploying to it", errors.New("domain is not a verified claim of the site")))
+			return
+		}
 		if err := customerNodeBackendAllowed(input.Backend, input.Port); err != nil {
 			writePublicError(w, r, http.StatusUnprocessableEntity, publicError("invalid_backend", "the deployment backend must be the application's own port on localhost", err))
 			return
@@ -184,6 +191,16 @@ func (a *App) handleNodeDeploymentJob(ctx context.Context, item Job) ([]byte, er
 		principal, err = a.nodeDeploymentPrincipal(input)
 		if err != nil {
 			return nil, err
+		}
+	}
+	if principal.Actor != a.Auth.Username {
+		// Re-check what the request checked: the claim may have been removed
+		// or the job queued by an earlier release that did not check.
+		if a.Domains == nil || !a.Domains.verifiedForTenant(input.Site, input.Domain, input.TenantID) {
+			return nil, doNotRetry(errors.New("the deployment domain is no longer a verified claim of the site"))
+		}
+		if err := customerNodeBackendAllowed(input.Backend, input.Port); err != nil {
+			return nil, doNotRetry(fmt.Errorf("customer deployment backend refused: %w", err))
 		}
 	}
 	snapshot, err := a.snapshotNodeDeployment(input)

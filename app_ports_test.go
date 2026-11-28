@@ -1,6 +1,7 @@
 package stepanel
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCustomerNodeBackendIsTheApplicationOnLocalhost(t *testing.T) {
@@ -125,6 +127,7 @@ func TestCustomerNodeDeploymentCannotProxyAnotherBackend(t *testing.T) {
 			app.Accounts = accounts
 			app.Auth.Accounts = accounts
 			app.Config.AppRoot = filepath.Join(t.TempDir(), "apps")
+			verifyTestDomain(t, app, "shop", "shop.example.com", accountTenantID(accounts.accounts["customer"]))
 			writeTestAppManifest(t, app.Config, "other", ".json", 4000)
 			request := tokenRequest(http.MethodPost, "/api/node/deploy", tc.body, "customer", "site:deploy")
 			response := httptest.NewRecorder()
@@ -177,5 +180,65 @@ func TestAppRollbackRefusesAPortAnotherSiteNowUses(t *testing.T) {
 	}
 	if _, err := os.Stat(argsLog); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the helper ran for a refused rollback: %v", err)
+	}
+}
+
+// verifyTestDomain records domain as a verified claim of site for tenant.
+func verifyTestDomain(t *testing.T, app *App, site, domain, tenant string) {
+	t.Helper()
+	if app.Domains == nil {
+		app.Domains = &DomainClaimStore{values: map[string]DomainClaim{}}
+	}
+	app.Domains.mu.Lock()
+	defer app.Domains.mu.Unlock()
+	app.Domains.values[domain] = DomainClaim{Domain: domain, Site: site, State: "verified", VerifiedAt: time.Now().UTC(), Tenant: tenant}
+}
+
+func TestCustomerNodeDeploymentRequiresAVerifiedDomain(t *testing.T) {
+	app, _ := newSiteOperationFixture(t, http.StatusOK, `{}`)
+	account := HostingAccount{Username: "customer", Role: "owner", Sites: []string{"shop"}}
+	accounts := &AccountStore{accounts: map[string]HostingAccount{"customer": account}}
+	app.Accounts = accounts
+	app.Auth.Accounts = accounts
+	app.Config.AppRoot = filepath.Join(t.TempDir(), "apps")
+	body := `{"site":"shop","domain":"shop.example.com","node_version":"20.1.0","port":3000,"backend":"http://127.0.0.1:3000"}`
+	for name, setup := range map[string]func(){
+		"unclaimed":      func() {},
+		"another site":   func() { verifyTestDomain(t, app, "other", "shop.example.com", accountTenantID(account)) },
+		"another tenant": func() { verifyTestDomain(t, app, "shop", "shop.example.com", "tenant-elsewhere") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			app.Domains = nil
+			setup()
+			response := httptest.NewRecorder()
+			app.startNodeDeployment(response, tokenRequest(http.MethodPost, "/api/node/deploy", body, "customer", "site:deploy"))
+			if response.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, body %s; want 403", response.Code, response.Body.String())
+			}
+		})
+	}
+
+	// A queued customer deployment whose claim disappears is refused by
+	// the worker before it changes anything.
+	app.Domains = nil
+	verifyTestDomain(t, app, "shop", "shop.example.com", accountTenantID(account))
+	token, _, err := app.APITokens.createScoped("customer", "deployment", nil, []string{"site:deploy"}, map[string]bool{"site:deploy": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := tokenRequest(http.MethodPost, "/api/node/deploy", body, "customer", "site:deploy")
+	request = request.WithContext(context.WithValue(request.Context(), apiTokenIDKey{}, token.ID))
+	response := httptest.NewRecorder()
+	app.startNodeDeployment(response, request)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("verified domain: status = %d, body %s", response.Code, response.Body.String())
+	}
+	app.Domains = &DomainClaimStore{values: map[string]DomainClaim{}}
+	item, claimed, err := app.Jobs.ClaimNext("node-worker", "node.deployment")
+	if err != nil || !claimed {
+		t.Fatalf("claim Node deployment: claimed=%v err=%v", claimed, err)
+	}
+	if _, err := app.handleNodeDeploymentJob(context.Background(), item); err == nil || !strings.Contains(err.Error(), "no longer a verified claim") {
+		t.Fatalf("worker error = %v, want the removed claim refused", err)
 	}
 }

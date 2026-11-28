@@ -18,6 +18,7 @@ func TestQueuedNodeDeploymentStopsWhenQueuingTokenIsRevoked(t *testing.T) {
 	}}
 	app.Accounts = accounts
 	app.Auth.Accounts = accounts
+	verifyTestDomain(t, app, "shop", "shop.example.com", accountTenantID(accounts.accounts["customer"]))
 	allowed := map[string]bool{"site:deploy": true}
 	token, _, err := app.APITokens.createScoped("customer", "deployment", nil, []string{"site:deploy"}, allowed)
 	if err != nil {
@@ -53,6 +54,7 @@ func TestQueuedNodeDeploymentCannotFollowSiteToAnotherTenant(t *testing.T) {
 	}}
 	app.Accounts = accounts
 	app.Auth.Accounts = accounts
+	verifyTestDomain(t, app, "shop", "shop.example.com", accountTenantID(accounts.accounts["customer"]))
 	allowed := map[string]bool{"site:deploy": true}
 	token, _, err := app.APITokens.createScoped("customer", "deployment", nil, []string{"site:deploy"}, allowed)
 	if err != nil {

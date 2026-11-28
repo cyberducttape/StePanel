@@ -44,6 +44,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   site's application or rollback manifest names, or one something else is
   already listening on. Rollback is refused if the previous release's port is
   no longer available.
+- A customer's Node deployment did not check that its domain was a verified
+  claim of the site, so one tenant could put a proxy on another tenant's
+  domain or any domain pointed at the host. The domain must now be verified
+  for the customer's tenant when the deployment is queued and again when the
+  worker runs it.
 
 ### Changed
 

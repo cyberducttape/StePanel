@@ -31,7 +31,10 @@ include a port from 1 through 65535, and cannot target link-local addresses
 (including cloud metadata endpoints). This prevents the proxy endpoint from
 becoming an SSRF or open-proxy primitive.
 
-A customer's Node deployment is narrower: its backend must be the deployed
+A customer's Node deployment is narrower. Its domain must be a verified
+claim of the site for the customer's tenant (the rule site routes follow),
+checked when the deployment is queued and again before the worker runs it.
+Its backend must be the deployed
 application itself, on localhost and the application's own port, so a
 customer cannot publish the panel, another service or a private-network host
 under their domain. Only an administrator may route a domain to another local
