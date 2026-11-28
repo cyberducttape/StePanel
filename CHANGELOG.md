@@ -44,7 +44,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   may take a port another application's manifest or rollback manifest names,
   or one something else is already listening on (a Python app bound to
   another site's port would otherwise be served under that site's domain). Rollback is refused if the previous release's port is
-  no longer available.
+  no longer available. Port claims are serialized host-wide (the
+  `app-port:registry` lock, held from the check until the manifest names the
+  port), so two sites deploying the same free port at once cannot both pass.
 - A customer's Node deployment did not check that its domain was a verified
   claim of the site, so one tenant could put a proxy on another tenant's
   domain or any domain pointed at the host. The domain must now be verified

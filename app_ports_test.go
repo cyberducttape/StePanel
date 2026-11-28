@@ -303,3 +303,94 @@ func TestPythonDeploymentRefusesAnotherApplicationsPort(t *testing.T) {
 		t.Fatalf("a refused deployment left a manifest: %v", err)
 	}
 }
+
+func newPythonPortLockFixture(t *testing.T, helperScript string) (*App, AuthorizedDurableSite) {
+	t.Helper()
+	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("k", 32))
+	app, _ := newSiteOperationFixture(t, http.StatusOK, `{}`)
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "sites", "shop", "public"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	helper := filepath.Join(root, "appctl")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\n"+helperScript+"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	app.Config.WebRoot, app.Config.AppRoot, app.Config.AppCtl = root, filepath.Join(root, "apps"), helper
+	access, err := app.authorizeDurableSiteJob("shop", "admin", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return app, access
+}
+
+// TestAppPortClaimsAreSerializedAcrossSites holds the host-wide port lock as
+// another site's deployment would between its port check and its manifest
+// write. The deployment must wait, then see the other site's claim.
+func TestAppPortClaimsAreSerializedAcrossSites(t *testing.T) {
+	app, access := newPythonPortLockFixture(t, "exit 0")
+	_, releasePorts, err := app.acquireAppPortLock(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := app.applyPythonDeployment(context.Background(), "admin", access, PythonApp{Site: "shop", Version: "3.13", EntryPoint: "app:app", Port: 8000, Workers: 1})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		releasePorts()
+		t.Fatalf("deployment finished while another site held the port lock: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	writeTestAppManifest(t, app.Config, "victim", ".json", 8000)
+	releasePorts()
+	select {
+	case err := <-done:
+		if pythonDeploymentStatus(err) != http.StatusConflict {
+			t.Fatalf("deploy after another site claimed the port = %v, want a conflict", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("deployment did not resume after the port lock was released")
+	}
+}
+
+// TestPythonDeploymentReleasesThePortLockBeforeInstalling keeps a slow
+// dependency install from blocking every other site's application deploy.
+func TestPythonDeploymentReleasesThePortLockBeforeInstalling(t *testing.T) {
+	gate := filepath.Join(t.TempDir(), "continue")
+	started := filepath.Join(t.TempDir(), "started")
+	app, access := newPythonPortLockFixture(t, "touch "+shellQuote(started)+"\nwhile [ ! -e "+shellQuote(gate)+" ]; do sleep 0.05; done")
+	done := make(chan error, 1)
+	go func() {
+		_, err := app.applyPythonDeployment(context.Background(), "admin", access, PythonApp{Site: "shop", Version: "3.13", EntryPoint: "app:app", Port: 8000, Workers: 1})
+		done <- err
+	}()
+	defer func() {
+		if err := os.WriteFile(gate, nil, 0600); err != nil {
+			t.Error(err)
+		}
+		<-done
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the install helper never started")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, releasePorts, err := app.acquireAppPortLock(ctx)
+	if err != nil {
+		t.Fatalf("port lock still held during the install: %v", err)
+	}
+	releasePorts()
+	if err := appPortConflict(app.Config, "other", appPortKindNode, 8000); !errors.Is(err, errAppPortTaken) {
+		t.Fatalf("pending Python manifest did not claim its port during the install: %v", err)
+	}
+}

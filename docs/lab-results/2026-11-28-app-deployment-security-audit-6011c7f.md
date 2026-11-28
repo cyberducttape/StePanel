@@ -48,9 +48,15 @@ application, a proxy, or a domain.
   suffix.
 - **Rollback does not move the proxy.** Rolling back to a release on another
   port leaves the proxy on the current port until it is deployed again.
-- **Cross-site port race.** The port check runs under the deploying site's
+- **Cross-site port race.** The port check ran under the deploying site's
   lock, not a host-wide port lock. Two sites deploying the same free port at
-  the same moment could both pass it; the second unit then fails to bind.
+  the same moment could both pass it; the second unit then failed to bind.
+  Fixed on branch `app-port-lock` (not yet on `main`, so the running cohort's
+  source stays unchanged): Node deploy, Node rollback and Python deploy hold
+  the `app-port:registry` lock from the check until the manifest names the
+  port. Python releases it before the dependency install. Tests:
+  `TestAppPortClaimsAreSerializedAcrossSites`,
+  `TestPythonDeploymentReleasesThePortLockBeforeInstalling`.
 
 ## App crash drills on an installed host
 

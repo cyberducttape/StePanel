@@ -171,6 +171,20 @@ func (a *App) applyPythonDeployment(ctx context.Context, actor string, access Si
 	if err := operationCtx.Err(); err != nil {
 		return PythonApp{}, &pythonDeploymentFailure{http.StatusConflict, "Python application mutation cancelled because the mutation lock was lost"}
 	}
+	// The port lock covers the check and the pending manifest that claims the
+	// port, not the long dependency install that follows.
+	_, releasePorts, err := a.acquireAppPortLock(operationCtx)
+	if err != nil {
+		return PythonApp{}, &pythonDeploymentFailure{http.StatusConflict, "application port check is busy"}
+	}
+	portsHeld := true
+	unlockPorts := func() {
+		if portsHeld {
+			portsHeld = false
+			releasePorts()
+		}
+	}
+	defer unlockPorts()
 	if err := appPortConflict(a.Config, app.Site, appPortKindPython, app.Port); err != nil {
 		if errors.Is(err, errAppPortTaken) {
 			return PythonApp{}, &pythonDeploymentFailure{http.StatusConflict, "the application port is not available"}
@@ -188,6 +202,7 @@ func (a *App) applyPythonDeployment(ctx context.Context, actor string, access Si
 		return PythonApp{}, &pythonDeploymentFailure{http.StatusServiceUnavailable, "could not persist desired Python application"}
 	}
 	outcome = app.EntryPoint + "; persisted, reconciliation pending"
+	unlockPorts()
 	if err := a.applyPythonApp(operationCtx, app); err != nil {
 		app.LastError = err.Error()
 		if saveErr := savePythonApp(a.Config.AppRoot, app); saveErr != nil {
