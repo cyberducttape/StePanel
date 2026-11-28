@@ -38,14 +38,23 @@ application, a proxy, or a domain.
 
 ## Open
 
-- **Manifest name collision.** A site named `foo-python` keeps its Node
-  manifest at `foo-python.json`, the path of site `foo`'s Python manifest.
-  The port check tells the two apart by the manifest's `site` field. A Node
-  deploy refuses to overwrite a manifest whose site does not match, and the
-  Python startup reconcile skips non-pending manifests. The remaining effect
-  is that the two sites can block or overwrite each other's app state. This
-  needs a manifest layout that cannot collide, or a reserved site-name
-  suffix.
+- **Manifest name collision.** A site named `foo-python` kept its Node
+  manifest at `foo-python.json`, the path of site `foo`'s Python manifest,
+  and a Python deploy for `foo` wrote that path without checking it, so one
+  tenant could overwrite another's Node application state. Fixed on branch
+  `app-port-lock`: Python manifests live in `python/<site>.json`, legacy
+  files move there at startup under the site lock, and the Node app list
+  reads only `<site>.json` files whose site field matches (it had also
+  listed Python manifests and activation journals). Tests:
+  `TestPythonManifestCannotReplaceAnotherSitesNodeManifest`,
+  `TestLegacyPythonManifestsMoveToTheirDirectory`,
+  `TestManagedAppsListsOnlyNodeManifests`.
+- **Deleted sites kept their application state.** Site deletion removed the
+  services but left the Node, rollback and Python manifests, which kept
+  claiming ports and would give a later site of the same name the old
+  release as its rollback target. Fixed on the same branch:
+  `TestSiteServiceRemovalForgetsApplicationState`,
+  `TestRemoveSiteAppStateForgetsOnlyThatSite`.
 - **Rollback does not move the proxy.** Rolling back to a release on another
   port leaves the proxy on the current port until it is deployed again.
 - **Cross-site port race.** The port check ran under the deploying site's

@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -45,10 +46,63 @@ type appPortOwner struct {
 }
 
 // appPortOwners reads every Node manifest (<site>.json), Node rollback
-// manifest (<site>.json.bak) and Python manifest (<site>-python.json). A
-// file's site field must match the site its name implies, which also tells a
-// Python manifest from the Node manifest of a site whose name ends -python.
+// manifest (<site>.json.bak) and Python manifest (python/<site>.json, or the
+// legacy <site>-python.json not yet migrated). A file's site field must match
+// the site its name implies, which also tells a legacy Python manifest from
+// the Node manifest of a site whose name ends -python.
 func appPortOwners(cfg Config) ([]appPortOwner, error) {
+	owners, err := appRootPortOwners(cfg)
+	if err != nil {
+		return nil, err
+	}
+	pythonOwners, err := pythonPortOwners(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return append(owners, pythonOwners...), nil
+}
+
+func pythonPortOwners(cfg Config) ([]appPortOwner, error) {
+	dir := filepath.Join(cfg.AppRoot, pythonManifestDir)
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("inspect Python application manifests: %w", err)
+	}
+	var owners []appPortOwner
+	for _, entry := range entries {
+		name := entry.Name()
+		site, ok := strings.CutSuffix(name, ".json")
+		if strings.HasPrefix(name, ".") || !entry.Type().IsRegular() || !ok || safeUser(site) != site || site == "" {
+			continue
+		}
+		path, err := safePath(dir, name)
+		if err != nil {
+			continue
+		}
+		data, err := readStateFile(path, maxAppStateFileBytes)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read Python application manifest %s: %w", name, err)
+		}
+		var manifest struct {
+			Site string `json:"site"`
+			Port int    `json:"port"`
+		}
+		if err := json.Unmarshal(data, &manifest); err != nil || manifest.Site != site {
+			log.Printf("application port check: skipping unusable Python manifest %s", name)
+			continue
+		}
+		owners = append(owners, appPortOwner{site: site, kind: appPortKindPython, port: manifest.Port})
+	}
+	return owners, nil
+}
+
+func appRootPortOwners(cfg Config) ([]appPortOwner, error) {
 	entries, err := os.ReadDir(cfg.AppRoot)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil

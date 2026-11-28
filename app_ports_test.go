@@ -299,7 +299,7 @@ func TestPythonDeploymentRefusesAnotherApplicationsPort(t *testing.T) {
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the helper ran for a refused deployment: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(app.Config.AppRoot, "shop-python.json")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(app.Config.AppRoot, pythonManifestDir, "shop.json")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("a refused deployment left a manifest: %v", err)
 	}
 }
@@ -392,5 +392,180 @@ func TestPythonDeploymentReleasesThePortLockBeforeInstalling(t *testing.T) {
 	releasePorts()
 	if err := appPortConflict(app.Config, "other", appPortKindNode, 8000); !errors.Is(err, errAppPortTaken) {
 		t.Fatalf("pending Python manifest did not claim its port during the install: %v", err)
+	}
+}
+
+func writeLegacyPythonManifest(t *testing.T, cfg Config, site string, port int, state string) {
+	t.Helper()
+	data, err := json.Marshal(PythonApp{Site: site, Version: "3.12", EntryPoint: "app:app", Port: port, Workers: 1, State: state})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(cfg.AppRoot, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.AppRoot, site+"-python.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestPythonManifestCannotReplaceAnotherSitesNodeManifest covers the old
+// layout's collision: site foo's Python manifest was foo-python.json, the
+// Node manifest path of a site named foo-python.
+func TestPythonManifestCannotReplaceAnotherSitesNodeManifest(t *testing.T) {
+	cfg := Config{AppRoot: filepath.Join(t.TempDir(), "apps")}
+	writeTestAppManifest(t, cfg, "foo-python", ".json", 4300)
+	before, err := os.ReadFile(filepath.Join(cfg.AppRoot, "foo-python.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := savePythonApp(cfg.AppRoot, PythonApp{Site: "foo", Version: "3.12", EntryPoint: "app:app", Port: 4400, Workers: 1}); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(filepath.Join(cfg.AppRoot, "foo-python.json"))
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("site foo's Python manifest changed foo-python's Node manifest: %s (%v)", after, err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.AppRoot, pythonManifestDir, "foo.json")); err != nil {
+		t.Fatalf("Python manifest not in its own directory: %v", err)
+	}
+	for _, site := range []string{"../foo", "foo/bar", ""} {
+		if _, err := pythonManifestPath(cfg.AppRoot, site); err == nil {
+			t.Errorf("pythonManifestPath accepted site %q", site)
+		}
+	}
+}
+
+func TestLegacyPythonManifestsMoveToTheirDirectory(t *testing.T) {
+	cfg := Config{AppRoot: filepath.Join(t.TempDir(), "apps")}
+	writeLegacyPythonManifest(t, cfg, "foo", 4400, "running")
+	writeTestAppManifest(t, cfg, "bar-python", ".json", 4500) // a Node manifest, not legacy Python
+	// A newer manifest at the new path wins over a stale legacy one.
+	writeLegacyPythonManifest(t, cfg, "baz", 4600, "running")
+	if err := savePythonApp(cfg.AppRoot, PythonApp{Site: "baz", Version: "3.13", EntryPoint: "app:app", Port: 4700, Workers: 1, State: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := appPortConflict(cfg, "other", appPortKindNode, 4400); !errors.Is(err, errAppPortTaken) {
+		t.Fatalf("an unmigrated legacy Python manifest did not claim its port: %v", err)
+	}
+	_, failed := (&App{Config: cfg}).reconcilePythonApps(context.Background())
+	if len(failed) != 0 {
+		t.Fatalf("reconcile failures: %#v", failed)
+	}
+	for _, gone := range []string{"foo-python.json", "baz-python.json"} {
+		if _, err := os.Stat(filepath.Join(cfg.AppRoot, gone)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("legacy manifest %s was not moved: %v", gone, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(cfg.AppRoot, "bar-python.json")); err != nil {
+		t.Fatalf("site bar-python's Node manifest was moved or removed: %v", err)
+	}
+	for site, port := range map[string]int{"foo": 4400, "baz": 4700} {
+		path, err := pythonManifestPath(cfg.AppRoot, site)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(path)
+		var app PythonApp
+		if err != nil || json.Unmarshal(data, &app) != nil || app.Site != site || app.Port != port {
+			t.Errorf("Python manifest for %s = %s (%v), want port %d", site, data, err, port)
+		}
+	}
+	if err := appPortConflict(cfg, "other", appPortKindNode, 4600); err != nil {
+		t.Errorf("the stale legacy manifest's port is still claimed: %v", err)
+	}
+}
+
+func TestManagedAppsListsOnlyNodeManifests(t *testing.T) {
+	cfg := Config{AppRoot: filepath.Join(t.TempDir(), "apps")}
+	writeTestAppManifest(t, cfg, "shop", ".json", 4100)
+	writeTestAppManifest(t, cfg, "shop", ".json.bak", 4000)
+	writeTestAppManifest(t, cfg, "foo-python", ".json", 4200)
+	writeLegacyPythonManifest(t, cfg, "bar", 4300, "running")
+	if err := savePythonApp(cfg.AppRoot, PythonApp{Site: "baz", Version: "3.12", EntryPoint: "app:app", Port: 4400, Workers: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.AppRoot, ".activation-0123.json"), []byte(`{"site":"shop","state":"runtime_applied"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	apps, err := managedAppsWithError(cfg.AppRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sites []string
+	for _, app := range apps {
+		sites = append(sites, app.Site)
+	}
+	if strings.Join(sites, ",") != "foo-python,shop" {
+		t.Fatalf("managed Node apps = %v, want foo-python and shop only", sites)
+	}
+}
+
+func TestRemoveSiteAppStateForgetsOnlyThatSite(t *testing.T) {
+	cfg := Config{AppRoot: filepath.Join(t.TempDir(), "apps")}
+	writeTestAppManifest(t, cfg, "shop", ".json", 4100)
+	writeTestAppManifest(t, cfg, "shop", ".json.bak", 4000)
+	writeLegacyPythonManifest(t, cfg, "shop", 4200, "running")
+	if err := savePythonApp(cfg.AppRoot, PythonApp{Site: "shop", Version: "3.12", EntryPoint: "app:app", Port: 4300, Workers: 1}); err != nil {
+		t.Fatal(err)
+	}
+	writeTestAppManifest(t, cfg, "shopping", ".json", 4400)
+	if err := removeSiteAppState(cfg, "shop"); err != nil {
+		t.Fatal(err)
+	}
+	owners, err := appPortOwners(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(owners) != 1 || owners[0].site != "shopping" {
+		t.Fatalf("port owners after removing shop = %+v, want only shopping", owners)
+	}
+	// A legacy-path file that is another site's Node manifest stays.
+	writeTestAppManifest(t, cfg, "shop-python", ".json", 4500)
+	if err := removeSiteAppState(cfg, "shop"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.AppRoot, "shop-python.json")); err != nil {
+		t.Fatalf("removing shop's state removed site shop-python's Node manifest: %v", err)
+	}
+	if err := removeSiteAppState(Config{AppRoot: filepath.Join(t.TempDir(), "missing")}, "shop"); err != nil {
+		t.Fatalf("removing state from a missing application directory: %v", err)
+	}
+}
+
+// TestSiteServiceRemovalForgetsApplicationState: a deleted site's manifests
+// would otherwise keep its ports claimed and hand a later site of the same
+// name the old release as its rollback target.
+func TestSiteServiceRemovalForgetsApplicationState(t *testing.T) {
+	app, _ := newSiteOperationFixture(t, http.StatusOK, `{}`)
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "sites", "shop", "public"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	ok := filepath.Join(root, "ok")
+	if err := os.WriteFile(ok, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	app.Config.WebRoot, app.Config.AppRoot, app.Config.AppCtl, app.Config.SiteCtl, app.Config.GitCtl = root, filepath.Join(root, "apps"), ok, ok, ""
+	writeTestAppManifest(t, app.Config, "shop", ".json", 4100)
+	writeTestAppManifest(t, app.Config, "shop", ".json.bak", 4000)
+	if err := savePythonApp(app.Config.AppRoot, PythonApp{Site: "shop", Version: "3.12", EntryPoint: "app:app", Port: 4200, Workers: 1}); err != nil {
+		t.Fatal(err)
+	}
+	writeTestAppManifest(t, app.Config, "other", ".json", 4300)
+	access, err := app.authorizeDurableSiteJob("shop", "admin", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.siteManager = nil
+	if err := app.removeSiteServices(context.Background(), access); err != nil {
+		t.Fatal(err)
+	}
+	owners, err := appPortOwners(app.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(owners) != 1 || owners[0].site != "other" {
+		t.Fatalf("application state after deleting shop = %+v, want only other's", owners)
 	}
 }

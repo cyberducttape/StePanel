@@ -492,12 +492,12 @@ func (a *App) removeSiteServices(ctx context.Context, site SiteCapability) error
 		return err
 	}
 	hasApplication := false
-	apps, err := managedAppsWithError(a.Config.AppRoot)
+	owners, err := appPortOwners(a.Config)
 	if err != nil {
 		return fmt.Errorf("inspect application manifests before termination: %w", err)
 	}
-	for _, app := range apps {
-		if app.Site == siteName {
+	for _, owner := range owners {
+		if owner.site == siteName {
 			hasApplication = true
 			break
 		}
@@ -519,6 +519,14 @@ func (a *App) removeSiteServices(ctx context.Context, site SiteCapability) error
 		}
 		if err != nil {
 			return fmt.Errorf("remove managed application services for %s: %w", siteName, err)
+		}
+	}
+	// With its services gone, forget the site's applications. Left behind,
+	// the manifests would keep claiming ports, and a later site given the
+	// same name would inherit the old release as its rollback target.
+	if hasApplication {
+		if err := removeSiteAppState(a.Config, siteName); err != nil {
+			return fmt.Errorf("remove application state for %s: %w", siteName, err)
 		}
 	}
 	if a.Config.GitCtl != "" {
